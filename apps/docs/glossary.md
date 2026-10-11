@@ -1,6 +1,6 @@
 # Token Controller
 
-Cost accounting and management control for AI agents: token entries from agents are matched to provider bills, placed on the work that caused them, and compared with token budgets.
+Cost accounting and management control for AI agents: token entries from agents are matched to provider bills, tagged with the work and the people that caused them, and compared with token budgets.
 
 ## Language
 
@@ -38,29 +38,59 @@ _Avoid_: Vendor
 One way a provider charges an organization: subscription, seat, usage at API rates, API key, cloud marketplace or reseller.
 
 **Reconciliation**:
-Checking, per period and per bill, that postings plus unattributed plus residual equal the bill. The cost sheet shows one line per bill and the organization total. In the loop, the step "Reconcile" is wider: it covers rules placing token entries, review, this check and the close.
+Checking, per period and per bill, that token entries plus residual equal the bill. The cost sheet shows one line per bill and the organization total. In the loop, the step "Reconcile" is wider: it covers rules placing token entries, review, this check and the close.
 _Avoid_: Matching
 
 **Residual**:
 The part of a bill that no token entry explains: usage in the provider's own chat app, per-call fees the agent harness does not report, a restated bill. Always shown as its own line.
 _Avoid_: Leftover, difference
 
+### Tags
+
+**Tag**:
+A name and a value on a token entry, such as `team: growth` or `client: acme`. A token entry has at most one value per tag name, so totals by one tag name always add up. Reports, token budgets and people managers' access are all tag filters.
+_Avoid_: Label, dimension, attribute
+
+**Tag name**:
+The left half of a tag, such as `team`. The controller keeps the list of tag names; anyone may add new values.
+_Avoid_: Key
+
+**Built-in tag**:
+A tag name Token Controller knows and keeps records behind: `person`, `ticket`, `project` and `kind`. Ticket and project values are real tickets and projects, synced from a ticket system or created by hand. Every other tag name is the organization's own.
+
+**Inherited tag**:
+A tag copied onto a token entry from the person, project or ticket it belongs to when it arrives. A person tagged `team: growth` makes their new token entries `team: growth`; a project tagged `client: acme` does the same for its token entries. Later changes reach only new token entries.
+
+**Required tag**:
+A tag name that must have a value for a token entry to count as attributed. By default the rung `project`.
+
+**Filter**:
+A set of tags a view is limited to, such as `client: acme` or `team: web` and `project: acme-shop`. A token entry matches when it has every tag in the filter.
+
+**Tag map**:
+The organization's setting that says which tags fill the cost center and the cost object. By default the cost center is `person` and the cost object ladder is ticket, project, organization.
+_Avoid_: Mapping, schema
+
+**Ladder**:
+The ordered list of tag names that fill the cost object, most specific first. A token entry's cost object is the first rung with a value; with none, it is the organization. An organization can rename, add or remove rungs, such as ticket, epic, project, client.
+_Avoid_: Hierarchy, tree
+
 ### Where cost sits
 
-**Posting**:
-The placement of a token entry, or a share of it, on one cost object with one cost kind.
-_Avoid_: Allocation, assignment
+**Split**:
+A share of a token entry with its own tags. Most token entries are one split. A session that worked on two tickets can be split, for example 60 percent and 40 percent; the shares are a person's or a rule's judgment.
+_Avoid_: Posting, allocation, assignment
 
 **Cost center**:
-The person who answers for a cost. Every posting lands on exactly one person, its agent manager. Groups and the organization total their people.
+Who answers for a cost: the value of the tag the tag map names, by default the person. Every split has exactly one. An organization that answers for money by team maps the cost center to `team`; each token entry still has one agent manager.
 _Avoid_: Who, person side, team tree
 
 **Cost object**:
-The work a cost paid for: a ticket, a project or the organization. Ticket cost rolls up to its parent ticket and its project.
+What a cost paid for: the first rung of the ladder with a value, such as a ticket or a project, or else the organization. Ticket cost rolls up to its parent ticket and its project.
 _Avoid_: What, work side
 
 **Cost kind**:
-The label on a posting that says how it relates to work: direct, project overhead, organization overhead, personal or unattributed.
+The built-in tag `kind` on a split: direct, project overhead, organization overhead, personal or unattributed.
 _Avoid_: Category, cost type
 
 **Direct**:
@@ -76,11 +106,11 @@ Cost that belongs to no project, such as internal tooling.
 A person's own learning and experiments.
 
 **Unattributed**:
-Spend that no rule or person has placed yet. It sits on the organization as its own line until someone places it. It is not overhead: overhead is a choice, unattributed is the absence of one.
+Spend whose required tags nobody has filled yet. It sits on the organization as its own line until someone tags it. It is not overhead: overhead is a choice, unattributed is the absence of one.
 _Avoid_: Unassigned, unallocated, other
 
 **Attribution**:
-The share of spend a rule or a person has placed, with any cost kind, as a percentage of the total. Personal and overhead count: they are accounted for. Only unattributed does not. An organization decides how specific a placement must be to count: on a project, or on a ticket.
+The share of spend that is placed, as a percentage of the total. A split is placed when every required tag has a value, or when its cost kind says it belongs to no project (personal, organization overhead). An organization picks which rung of the ladder is required, project or ticket, and can require further tags.
 _Avoid_: Coverage, allocation rate
 
 **Attribution target**:
@@ -89,14 +119,14 @@ The attribution an organization aims for.
 ### Work
 
 **Organization**:
-One customer of Token Controller: its people, groups, projects and periods. It has one reporting currency.
+One customer of Token Controller: its people, projects, tags and periods. It has one reporting currency.
 _Avoid_: Account, tenant, workspace, company, client
 
 **Project**:
 A body of work made of tickets.
 
 **Client**:
-A label on a project that names who the work is for. Projects with the same client can be totalled.
+A common tag on projects that names who the work is for, such as `client: acme`. Its projects' token entries inherit it, so cost per client is a filter. An organization can make it a rung of the ladder.
 _Avoid_: Customer, account
 
 **Ticket**:
@@ -106,12 +136,8 @@ _Avoid_: Issue, task, story, work item
 ### People
 
 **Person**:
-A human in the organization. The smallest cost center.
-_Avoid_: User, developer
-
-**Group**:
-A label on people, such as a team, a department or a discipline. A person can carry several. Groups total their people in reports and carry no token budget. Token Controller does not model an org chart.
-_Avoid_: Team, department, team tree, org chart, hierarchy
+A human in the organization. The default cost center. A person can carry tags, such as `team: web` or `department: design`, which their token entries inherit. Token Controller does not model an org chart.
+_Avoid_: User, developer, group, team tree
 
 **Member**:
 Anyone in the organization, whatever their role.
@@ -122,7 +148,7 @@ The role that manages agents: submits token sheets and sees its own cost. Every 
 _Avoid_: Member, supervisor, owner, orchestrator, prompter, developer
 
 **People manager**:
-The role that manages people and projects: reads reports, sets token budgets and cadence, and approves or rejects token entries, for the groups or projects it is assigned. A people manager is also an agent manager.
+The role that manages people and projects: reads reports, sets token budgets and cadence, and approves or rejects token entries, for the filters it is assigned, such as `team: web` or `client: acme`. A people manager is also an agent manager.
 _Avoid_: Manager
 
 **Controller**:
@@ -162,7 +188,7 @@ A stretch of a session on one branch and one working directory.
 The full text of a session. It never leaves the machine.
 
 **Summary**:
-What an agent writes about what a session did, from one line to a short report. It is the only text in a token entry. On a token sheet, the agent manager sees it before submitting.
+What an agent writes about what a session did, from one line to a short report. With the tag values, it is the only text in a token entry. On a token sheet, the agent manager sees it before submitting.
 
 **Telemetry event**:
 One model call as reported live by the agent: tokens, cost and IDs, no text.
@@ -174,10 +200,10 @@ _Avoid_: Integration, connector
 ### Placing token entries
 
 **Signal**:
-A fact about a session that hints at its cost object: branch, working directory, repository, pull request, or a ticket key in a prompt or a title.
+A fact about a session that hints at its tags: branch, working directory, repository, pull request, or a ticket key in a prompt or a title.
 
 **Rule**:
-An instruction that turns signals into postings. Organization rules run before personal ones.
+An instruction that turns signals into tags. Organization rules run before personal ones.
 _Avoid_: Filter, mapping
 
 **Classifier**:
@@ -188,7 +214,7 @@ Token Controller placing a token entry on the open ticket its summary clearly fi
 _Avoid_: Auto-match, AI match
 
 **Report**:
-A view people managers read, such as token budget versus actual per project.
+A saved filter with a grouping that people managers read, such as cost by team for `client: acme`, or token budget versus actual per project.
 _Avoid_: Dashboard
 
 **Review**:
@@ -253,7 +279,7 @@ _Avoid_: Billing cycle, month
 One stretch of the cadence, such as one week. Each has one token sheet per agent manager.
 
 **Close**:
-Locking a period so its token entries and postings can no longer change. It produces the cost sheet. A token sheet submitted after its period closed is posted as an adjustment to that period, marked late.
+Locking a period so its token entries, splits and tags can no longer change. It produces the cost sheet. Each closed period keeps the tag map and the price table it closed with. A token sheet submitted after its period closed is posted as an adjustment to that period, marked late.
 _Avoid_: Month-end, lock
 
 **Adjustment**:
@@ -262,7 +288,7 @@ A signed correction a controller posts to a closed period.
 ### Management control
 
 **Token budget**:
-Money a human has planned for a person, a ticket, a project or a period. It is compared with actual cost and never stops spending.
+Money a human has planned for a filter (a person, a ticket, a project, a team, any set of tags) and a period. It is compared with actual cost and never stops spending. Token budgets can overlap: one for `team: web` and one for `project: acme-shop` may count the same money.
 _Avoid_: Budget, limit, cap, allowance
 
 **Token forecast**:

@@ -154,7 +154,8 @@ td:first-child{font-weight:600;white-space:nowrap}
       <li><a href="/attribute/classifier">Classifier</a></li>
     </ul></div>
     <div class="grp"><h4>Account</h4><ul>
-      <li><a href="/account/organizations">Organization and groups</a></li>
+      <li><a href="/account/organizations">Organization</a></li>
+      <li><a href="/account/tags">Tags and the tag map</a></li>
       <li><a href="/account/roles">Roles</a></li>
       <li><a href="/account/projects">Projects and clients</a></li>
       <li><a href="/account/tickets">Tickets</a></li>
@@ -214,7 +215,7 @@ td:first-child{font-weight:600;white-space:nowrap}
   <main class="main">
     <div class="crumb"><a href="/">Docs</a> / Account / Monthly close</div>
     <h1>Monthly close</h1>
-    <p class="lead">The close locks a period, a calendar month, so its token entries and postings can no longer change. It produces the cost sheet.</p>
+    <p class="lead">The close locks a period, a calendar month, so its token entries and their tags can no longer change. The period keeps the tag map it was closed with. It produces the cost sheet.</p>
 
     <details class="mside"><summary>Browse the docs</summary><div class="side">
       <div class="grp"><h4>Getting started</h4><ul><li><a href="/">Overview</a></li><li><a href="/quick-start">Quick start</a></li><li><a href="/concepts">Concepts</a></li><li><a href="/plans">Plans and limits</a></li><li><a href="/scope">Scope</a></li></ul></div>
@@ -232,7 +233,7 @@ td:first-child{font-weight:600;white-space:nowrap}
       <li><b>Check the bill.</b><p>The period's bill is in, from the API or as CSV.</p></li>
       <li><b>Look at what is open.</b><p>Unattributed token entries, late token sheets, and with approval on, unapproved token entries.</p></li>
       <li><b>Send back what is wrong.</b><p>Reject a token entry to its agent manager with a reason.</p></li>
-      <li><b>Close.</b><p>A controller closes the period. Postings, unattributed and residual add up to the bill.</p></li>
+      <li><b>Close.</b><p>A controller closes the period. Token entries, including unattributed ones, and residual add up to the bill.</p></li>
     </ol>
     <p>With approval on, a period cannot be closed while a token entry in it is unapproved.</p>
 

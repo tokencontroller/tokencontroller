@@ -154,7 +154,8 @@ td:first-child{font-weight:600;white-space:nowrap}
       <li><a href="/attribute/classifier">Classifier</a></li>
     </ul></div>
     <div class="grp"><h4>Account</h4><ul>
-      <li><a href="/account/organizations">Organization and groups</a></li>
+      <li><a href="/account/organizations">Organization</a></li>
+      <li><a href="/account/tags">Tags and the tag map</a></li>
       <li><a href="/account/roles">Roles</a></li>
       <li><a href="/account/projects">Projects and clients</a></li>
       <li><a href="/account/tickets">Tickets</a></li>
@@ -241,7 +242,7 @@ td:first-child{font-weight:600;white-space:nowrap}
     <p>A provider can restate a bill. Each bill keeps its revisions. A bill in another currency than your reporting currency keeps its original amount and the exchange rate of its date.</p>
 
     <h2 id="reconciliation">Reconciliation</h2>
-    <p>For each period and each bill: postings plus unattributed plus residual equal the bill. With several providers, each bill is checked on its own and the cost sheet adds them up to the organization total. Residual is the part of the bill no token entry explains: usage in the provider's own chat app, per-call fees the agent harness does not report, a restated bill. It is always shown.</p>
+    <p>For each period and each bill: token entries plus residual equal the bill, with unattributed cost counted among the token entries. Tags play no part in this check. With several providers, each bill is checked on its own and the cost sheet adds them up to the organization total. Residual is the part of the bill no token entry explains: usage in the provider's own chat app, per-call fees the agent harness does not report, a restated bill. It is always shown.</p>
 
     <h2 id="what">What the close reconciles against</h2>
     <table>

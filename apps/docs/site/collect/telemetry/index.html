@@ -154,7 +154,8 @@ td:first-child{font-weight:600;white-space:nowrap}
       <li><a href="/attribute/classifier">Classifier</a></li>
     </ul></div>
     <div class="grp"><h4>Account</h4><ul>
-      <li><a href="/account/organizations">Organization and groups</a></li>
+      <li><a href="/account/organizations">Organization</a></li>
+      <li><a href="/account/tags">Tags and the tag map</a></li>
       <li><a href="/account/roles">Roles</a></li>
       <li><a href="/account/projects">Projects and clients</a></li>
       <li><a href="/account/tickets">Tickets</a></li>
@@ -242,6 +243,11 @@ td:first-child{font-weight:600;white-space:nowrap}
 }</code></pre>
     <p>The exporter adds <code>/v1/metrics</code> and <code>/v1/logs</code> to the endpoint itself. These settings send numbers and identifiers only. The ingest endpoint drops any event that carries prompt text.</p>
 
+    <h2 id="tags">Tags in telemetry</h2>
+    <p>Add <code>OTEL_RESOURCE_ATTRIBUTES</code> to the same managed settings to tag everyone who gets them, for example one settings file per team:</p>
+<pre><code><span class="k">"OTEL_RESOURCE_ATTRIBUTES"</span>: <span class="s">"team=web,department=engineering"</span></code></pre>
+    <p>Attributes whose names are on your organization's tag list become tags on the token entries built from that telemetry. Others are ignored. Telemetry tags are the same for every session on a machine, so they suit team or department, not tickets.</p>
+
     <h2 id="others">Other agents</h2>
     <p><a href="/collect/codex">Codex CLI</a>, <a href="/collect/gemini-cli">Gemini CLI</a>, <a href="/collect/copilot-cli">Copilot CLI</a> and <a href="/collect/cursor">Cursor Enterprise</a> push to the same ingest URL with the same organization token. Each page shows that agent's settings.</p>
 
@@ -260,6 +266,7 @@ td:first-child{font-weight:600;white-space:nowrap}
     <h4>On this page</h4>
     <ul>
       <li><a href="#claude-code">Claude Code</a></li>
+      <li><a href="#tags">Tags in telemetry</a></li>
       <li><a href="#others">Other agents</a></li>
       <li><a href="#sees">What telemetry sees, and what it does not</a></li>
     </ul>

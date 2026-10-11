@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Organization and groups — Token Controller Docs</title>
-<meta name="description" content="Organization settings, groups, and what happens when someone moves.">
+<title>Organization — Token Controller Docs</title>
+<meta name="description" content="Organization settings, teams, and what happens when someone moves.">
 <link rel="canonical" href="https://docs.tokencontroller.com/account/organizations">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 28 28'%3E%3Crect x='2' y='2' width='24' height='24' rx='7' fill='%230F3D33'/%3E%3Crect x='8' y='10' width='12' height='2.6' rx='1.3' fill='white'/%3E%3Crect x='8' y='15.4' width='12' height='2.6' rx='1.3' fill='white'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -154,7 +154,8 @@ td:first-child{font-weight:600;white-space:nowrap}
       <li><a href="/attribute/classifier">Classifier</a></li>
     </ul></div>
     <div class="grp"><h4>Account</h4><ul>
-      <li><a class="cur" href="/account/organizations">Organization and groups</a></li>
+      <li><a class="cur" href="/account/organizations">Organization</a></li>
+      <li><a href="/account/tags">Tags and the tag map</a></li>
       <li><a href="/account/roles">Roles</a></li>
       <li><a href="/account/projects">Projects and clients</a></li>
       <li><a href="/account/tickets">Tickets</a></li>
@@ -212,9 +213,9 @@ td:first-child{font-weight:600;white-space:nowrap}
   </aside>
 
   <main class="main">
-    <div class="crumb"><a href="/">Docs</a> / Account / Organization and groups</div>
-    <h1>Organization and groups</h1>
-    <p class="lead">An organization is one customer of Token Controller: its people, groups, projects and periods. It has one reporting currency.</p>
+    <div class="crumb"><a href="/">Docs</a> / Account / Organization</div>
+    <h1>Organization</h1>
+    <p class="lead">An organization is one customer of Token Controller: its people, projects, tags and periods. It has one reporting currency.</p>
 
     <details class="mside"><summary>Browse the docs</summary><div class="side">
       <div class="grp"><h4>Getting started</h4><ul><li><a href="/">Overview</a></li><li><a href="/quick-start">Quick start</a></li><li><a href="/concepts">Concepts</a></li><li><a href="/plans">Plans and limits</a></li><li><a href="/scope">Scope</a></li></ul></div>
@@ -232,19 +233,20 @@ td:first-child{font-weight:600;white-space:nowrap}
       <thead><tr><th>Setting</th><th>What it does</th></tr></thead>
       <tbody>
         <tr><td>Cost source</td><td>How your provider charges you. It decides what the close reconciles against; see <a href="/account/bills">Bills</a>.</td></tr>
-        <tr><td>Attribution target</td><td>The share of cost you aim to place, and how specific a placement must be to count: on a project, or on a ticket. Default 80 percent, on a ticket.</td></tr>
+        <tr><td>Attribution target</td><td>The share of cost you aim to place. Default 80 percent. Which tags must be filled to count is part of the <a href="/account/tags#map">tag map</a>.</td></tr>
         <tr><td>Reporting currency</td><td>The one currency the organization computes in. Bills in other currencies are booked at the exchange rate of their date.</td></tr>
         <tr><td>Approval</td><td>On or off. See <a href="/account/approval">Approval</a>.</td></tr>
+        <tr><td>Tag names and tag map</td><td>The tag names your organization uses, which tag is the cost center, the ladder for the cost object, and the required tags. See <a href="/account/tags">Tags and the tag map</a>.</td></tr>
         <tr><td>Sign-in</td><td>Which <a href="/integrations/sign-in">sign-in providers</a> members may use, and which email domains.</td></tr>
       </tbody>
     </table>
 
-    <h2 id="groups">Groups</h2>
-    <p>A group is a label on people: a team, a department, a discipline such as engineering or design. A person can carry several. Reports total by group, and a people manager can be assigned groups. Token Controller does not model your org chart, and groups carry no token budget: budgets sit on people, tickets, projects and periods.</p>
-    <p>Groups are separate from projects on purpose: one person can work on several projects whatever groups they are in.</p>
+    <h2 id="teams">Teams and departments</h2>
+    <p>Teams, departments and disciplines are tags on people, such as <code>team: web</code> or <code>discipline: design</code>. A person has one value per tag name; someone in two teams picks a main one, or the organization uses a second tag name such as <code>guild</code>. Token entries inherit the person's tags, so reports, token budgets and people managers' access work by team like by any other tag. Token Controller does not model your org chart.</p>
+    <p>Teams are separate from projects on purpose: one person can work on several projects whatever team they are in.</p>
 
     <h2 id="changes">When someone moves</h2>
-    <p>When a person changes group or leaves, only future token entries follow. Past postings keep the groups they had, so last month's reports do not change.</p>
+    <p>When a person changes team or leaves, only future token entries follow. Past token entries keep the tags they had, so last month's reports do not change.</p>
 
 
     <div class="foot">
@@ -257,7 +259,7 @@ td:first-child{font-weight:600;white-space:nowrap}
     <h4>On this page</h4>
     <ul>
       <li><a href="#settings">Organization settings</a></li>
-      <li><a href="#groups">Groups</a></li>
+      <li><a href="#teams">Teams and departments</a></li>
       <li><a href="#changes">When someone moves</a></li>
     </ul>
   </nav>

@@ -1,15 +1,15 @@
-    <p class="lead">A project is a body of work made of tickets. A client is a label on a project.</p>
+    <p class="lead">A project is a body of work made of tickets. A client is a tag on a project.</p>
 
     <h2 id="project">What a project has</h2>
     <ul>
       <li>a <a href="/attribute/ticket-keys">ticket key pattern</a>, such as <code>^KD-\d+</code></li>
       <li>its <a href="/attribute/repositories">repositories</a></li>
-      <li>a client label and any tags you like</li>
+      <li>tags, such as <code>client: acme</code>, which its token entries inherit</li>
       <li>optionally a token budget and a cadence</li>
     </ul>
 
     <h2 id="clients">Clients</h2>
-    <p>A client is a label, not a separate level. Give several projects the same client label and reports can total them. An agency that wants to see cost per client labels each client's projects.</p>
+    <p>A client is a tag on projects. Tag several projects <code>client: acme</code> and their token entries inherit it, so cost per client is a filter. An agency that wants client as a level of its own adds <code>client</code> as a rung of the <a href="/account/tags#map">ladder</a>, above project.</p>
 
     <h2 id="overhead">Cost that belongs to no ticket</h2>
     <p>Project work that belongs to no single ticket, such as research or setup, is project overhead. Work that belongs to no project at all is organization overhead.</p>

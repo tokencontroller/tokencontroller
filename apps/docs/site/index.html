@@ -154,7 +154,8 @@ td:first-child{font-weight:600;white-space:nowrap}
       <li><a href="/attribute/classifier">Classifier</a></li>
     </ul></div>
     <div class="grp"><h4>Account</h4><ul>
-      <li><a href="/account/organizations">Organization and groups</a></li>
+      <li><a href="/account/organizations">Organization</a></li>
+      <li><a href="/account/tags">Tags and the tag map</a></li>
       <li><a href="/account/roles">Roles</a></li>
       <li><a href="/account/projects">Projects and clients</a></li>
       <li><a href="/account/tickets">Tickets</a></li>
@@ -261,7 +262,7 @@ td:first-child{font-weight:600;white-space:nowrap}
       <thead><tr><th>Input</th><th>What it carries</th><th>Where it comes from</th></tr></thead>
       <tbody>
         <tr><td>Telemetry</td><td>One telemetry event per model call: cost, tokens, model, session, request and message IDs, person, organization, repository. No text.</td><td>The agent's own OpenTelemetry exporter, pointed at your organization's ingest URL. Nothing installed on laptops.</td></tr>
-        <tr><td>Token entries</td><td>One agent session: tokens, cost, model, time range, a one-line summary, and the postings to tickets or projects.</td><td>Automatic from cloud, CI and support agents, through the GitHub Action or the token entries endpoint. From a person's machine through the Claude Code mod or the CLI, handed in on a token sheet.</td></tr>
+        <tr><td>Token entries</td><td>One agent session: tokens, cost, model, time range, a one-line summary, and tags such as the ticket, the project and the team.</td><td>Automatic from cloud, CI and support agents, through the GitHub Action or the token entries endpoint. From a person's machine through the Claude Code mod or the CLI, handed in on a token sheet.</td></tr>
         <tr><td>Bills</td><td>The provider's figure for one period: gross, discount, credit and net.</td><td>Anthropic and OpenAI admin APIs, a CSV upload, manual entry, or the bills endpoint.</td></tr>
       </tbody>
     </table>
@@ -272,7 +273,7 @@ td:first-child{font-weight:600;white-space:nowrap}
     <ol class="steps">
       <li><b>Create the organization.</b><p>Sign up at <a href="https://app.tokencontroller.com/signup"><code>tokencontroller.com/signup</code></a>. Pick your cost source, the way your provider charges you: an Enterprise plan at API rates, Team plan seats, Console, a cloud marketplace, or none yet. This decides what the close reconciles against, and the cost sheet will say so in plain words.</p></li>
       <li><b>Connect the bill.</b><p>Under <em>Bills</em>, add an Anthropic Enterprise Analytics key or a Console admin key, or an OpenAI admin key. The first pull loads the current and previous period. No provider API? Upload the bill as CSV once per period.</p></li>
-      <li><b>Create your projects.</b><p>Label each project with its client, give it its ticket key pattern, for example <code>^KD-\d+</code>, and map the repositories that belong to it. Connect Jira Cloud, Azure DevOps or GitHub Issues so tickets and their sizes sync every fifteen minutes. If you want the loop, give people, tickets or the project a token budget now, or accept a token forecast once there are past periods to learn from.</p></li>
+      <li><b>Create your projects.</b><p>Tag each project with its client, give it its ticket key pattern, for example <code>^KD-\d+</code>, and map the repositories that belong to it. Connect Jira Cloud, Azure DevOps or GitHub Issues so tickets sync every fifteen minutes. If you want the loop, give people, tickets or the project a token budget now, or accept a token forecast once there are past periods to learn from.</p></li>
       <li><b>Invite people.</b><p>Members get a link. When they install the Claude Code mod or the CLI, their sessions turn into draft token entries and the rules you just wrote place them. For everyone on Claude Code at once, paste the <a href="#telemetry">telemetry block</a> into managed settings and skip the laptops entirely. Optionally set a cadence, such as weekly; an agent manager whose token sheet is late gets a reminder.</p></li>
       <li><b>Close the first period.</b><p>Once the period's bill is final, a controller opens <em>Close</em>. Some bills take weeks: Anthropic Enterprise figures are final <a href="/integrations/anthropic-enterprise#reconciles">about 30 days</a> after the period ends. Check the unattributed line, reject anything wrong back to its agent manager with a reason, then close the period. With approval on, every token entry in the period has to be approved first. Export the cost sheet as CSV or hand finance the link.</p></li>
     </ol>
@@ -328,25 +329,25 @@ tc submit
     <table>
       <thead><tr><th>Term</th><th>Meaning</th></tr></thead>
       <tbody>
-        <tr><td>Organization</td><td>One customer of Token Controller: its people, groups, projects and periods. One account belongs to one organization. It sets a reporting currency, an attribution target and whether approval is on.</td></tr>
-        <tr><td>Project</td><td>A body of work made of tickets, with a ticket key pattern and mapped repositories. A client is a label on a project; projects with the same client can be totalled.</td></tr>
+        <tr><td>Organization</td><td>One customer of Token Controller: its people, projects, tags and periods. One account belongs to one organization. It sets a reporting currency, an attribution target and whether approval is on.</td></tr>
+        <tr><td>Project</td><td>A body of work made of tickets, with a ticket key pattern and mapped repositories. A client is a tag on projects, such as <code>client: acme</code>; projects with the same client can be totalled.</td></tr>
         <tr><td>Ticket</td><td>Any unit of work: a feature, a story, an epic or a bug. Synced from Jira Cloud, Azure DevOps or GitHub Issues, or created by hand. Tickets can sit inside other tickets and can carry a token budget.</td></tr>
         <tr><td>Person</td><td>A human in the organization. The smallest cost center.</td></tr>
-        <tr><td>Group</td><td>A label on people, such as a team or a department. A person can carry several. Groups total their people in reports and carry no token budget.</td></tr>
+        <tr><td>Tag</td><td>A name and a value on a token entry, such as <code>team: web</code> or <code>client: acme</code>. Token entries inherit tags from their person, project and ticket. Reports, token budgets and people managers' access are tag filters.</td></tr>
         <tr><td>Role</td><td>What someone can see; each role includes the one before it. An agent manager submits token sheets and sees their own cost. A people manager reads reports, sets token budgets and cadence, and approves or rejects token entries, for the teams or projects they are assigned. A controller sees everything, runs the close and posts adjustments.</td></tr>
         <tr><td>Agent</td><td>Software that calls a model on a person's behalf and so costs money: a coding agent on a laptop, a CI automation such as a review bot, a support agent. Token Controller keeps no record of agents, only of the cost they cause. Each token entry names the agent harness, the model and an optional agent name.</td></tr>
         <tr><td>Agent manager</td><td>Every token entry has exactly one, who answers for its cost. Your own sessions are yours; a CI automation belongs to whoever set it up. A token entry without an agent manager shows as an error until someone takes it.</td></tr>
         <tr><td>Token entry</td><td>One agent session's account of what it spent and on what work: tokens, cost, model, time range and a one-line summary. Its status is draft, submitted, approved, rejected or locked.</td></tr>
         <tr><td>Token sheet</td><td>One agent manager's reviewed token entries for one cadence period: how a person confirms which ticket each session was for. Automatic token entries, from cloud, CI and support agents and from telemetry, are never on a token sheet.</td></tr>
         <tr><td>Cadence</td><td>The rhythm in which token sheets are due, set by a people manager: weekly, every two weeks, monthly or custom. A token sheet not submitted when its cadence period is over is late, and its agent manager gets a reminder.</td></tr>
-        <tr><td>Cost center</td><td>Who answers for a cost. Every posting lands on one person, its agent manager. Groups and the organization total their people.</td></tr>
-        <tr><td>Cost object</td><td>The work a cost paid for: a ticket, a project or the organization. When no ticket matches, a posting falls back to the project, then to the organization.</td></tr>
-        <tr><td>Posting</td><td>The placement of a token entry, or a share of it, on one cost object with one cost kind: direct, project overhead, organization overhead, personal or unattributed.</td></tr>
-        <tr><td>Rule</td><td>An instruction that turns signals, such as a branch or a repository, into postings. Organization rules run before personal ones.</td></tr>
+        <tr><td>Cost center</td><td>Who answers for a cost: by default the person, or a tag such as <code>team</code> if the organization maps it so.</td></tr>
+        <tr><td>Cost object</td><td>The work a cost paid for: a ticket, a project or the organization. When no ticket matches, the cost falls back to the project, then to the organization.</td></tr>
+        <tr><td>Split</td><td>A share of a token entry with its own tags, when one session worked on two tickets. Most token entries are one split.</td></tr>
+        <tr><td>Rule</td><td>An instruction that turns signals, such as a branch or a repository, into tags. Organization rules run before personal ones.</td></tr>
         <tr><td>Token budget</td><td>Money a human has planned for a person, a ticket, a project or a period. Typed, or accepted from a token forecast. It is compared with actual cost and never stops spending.</td></tr>
         <tr><td>Token forecast</td><td>Money Token Controller predicts for a ticket, a project or a period from past cost. It becomes a token budget only when a person accepts it.</td></tr>
         <tr><td>Bill</td><td>A provider's figure for one period: gross, discount, credit and net. It is the total the token entries must add up to.</td></tr>
-        <tr><td>Period</td><td>One calendar month, open or closed. The close locks its token entries and postings and produces the cost sheet. An adjustment is a signed correction a controller posts to a closed period.</td></tr>
+        <tr><td>Period</td><td>One calendar month, open or closed. The close locks its token entries and tags and produces the cost sheet. An adjustment is a signed correction a controller posts to a closed period.</td></tr>
         <tr><td>Cost sheet</td><td>The locked account of one closed period for the whole organization: cost per project and ticket, adding up to the bill. With approval on, it holds approved cost only.</td></tr>
         <tr><td>Unattributed</td><td>Spend that no rule or person has placed yet. Always shown as its own line.</td></tr>
         <tr><td>Residual</td><td>The part of a bill that no token entry explains, such as unmeasured seats, chat usage or a restated bill. Always shown as its own line.</td></tr>

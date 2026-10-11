@@ -1,20 +1,21 @@
-    <p class="lead">An organization is one customer of Token Controller: its people, groups, projects and periods. It has one reporting currency.</p>
+    <p class="lead">An organization is one customer of Token Controller: its people, projects, tags and periods. It has one reporting currency.</p>
 
     <h2 id="settings">Organization settings</h2>
     <table>
       <thead><tr><th>Setting</th><th>What it does</th></tr></thead>
       <tbody>
         <tr><td>Cost source</td><td>How your provider charges you. It decides what the close reconciles against; see <a href="/account/bills">Bills</a>.</td></tr>
-        <tr><td>Attribution target</td><td>The share of cost you aim to place, and how specific a placement must be to count: on a project, or on a ticket. Default 80 percent, on a ticket.</td></tr>
+        <tr><td>Attribution target</td><td>The share of cost you aim to place. Default 80 percent. Which tags must be filled to count is part of the <a href="/account/tags#map">tag map</a>.</td></tr>
         <tr><td>Reporting currency</td><td>The one currency the organization computes in. Bills in other currencies are booked at the exchange rate of their date.</td></tr>
         <tr><td>Approval</td><td>On or off. See <a href="/account/approval">Approval</a>.</td></tr>
+        <tr><td>Tag names and tag map</td><td>The tag names your organization uses, which tag is the cost center, the ladder for the cost object, and the required tags. See <a href="/account/tags">Tags and the tag map</a>.</td></tr>
         <tr><td>Sign-in</td><td>Which <a href="/integrations/sign-in">sign-in providers</a> members may use, and which email domains.</td></tr>
       </tbody>
     </table>
 
-    <h2 id="groups">Groups</h2>
-    <p>A group is a label on people: a team, a department, a discipline such as engineering or design. A person can carry several. Reports total by group, and a people manager can be assigned groups. Token Controller does not model your org chart, and groups carry no token budget: budgets sit on people, tickets, projects and periods.</p>
-    <p>Groups are separate from projects on purpose: one person can work on several projects whatever groups they are in.</p>
+    <h2 id="teams">Teams and departments</h2>
+    <p>Teams, departments and disciplines are tags on people, such as <code>team: web</code> or <code>discipline: design</code>. A person has one value per tag name; someone in two teams picks a main one, or the organization uses a second tag name such as <code>guild</code>. Token entries inherit the person's tags, so reports, token budgets and people managers' access work by team like by any other tag. Token Controller does not model your org chart.</p>
+    <p>Teams are separate from projects on purpose: one person can work on several projects whatever team they are in.</p>
 
     <h2 id="changes">When someone moves</h2>
-    <p>When a person changes group or leaves, only future token entries follow. Past postings keep the groups they had, so last month's reports do not change.</p>
+    <p>When a person changes team or leaves, only future token entries follow. Past token entries keep the tags they had, so last month's reports do not change.</p>

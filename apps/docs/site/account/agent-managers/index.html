@@ -154,7 +154,8 @@ td:first-child{font-weight:600;white-space:nowrap}
       <li><a href="/attribute/classifier">Classifier</a></li>
     </ul></div>
     <div class="grp"><h4>Account</h4><ul>
-      <li><a href="/account/organizations">Organization and groups</a></li>
+      <li><a href="/account/organizations">Organization</a></li>
+      <li><a href="/account/tags">Tags and the tag map</a></li>
       <li><a href="/account/roles">Roles</a></li>
       <li><a href="/account/projects">Projects and clients</a></li>
       <li><a href="/account/tickets">Tickets</a></li>
@@ -214,7 +215,7 @@ td:first-child{font-weight:600;white-space:nowrap}
   <main class="main">
     <div class="crumb"><a href="/">Docs</a> / Account / Agent managers</div>
     <h1>Agent managers</h1>
-    <p class="lead">Every token entry has exactly one agent manager, the person who answers for its cost. It is the cost center the posting lands on.</p>
+    <p class="lead">Every token entry has exactly one agent manager, the person who answers for its cost. By default it is also the cost center; an organization can map the cost center to a tag such as <code>team</code> instead, and the agent manager still answers for the token entry.</p>
 
     <details class="mside"><summary>Browse the docs</summary><div class="side">
       <div class="grp"><h4>Getting started</h4><ul><li><a href="/">Overview</a></li><li><a href="/quick-start">Quick start</a></li><li><a href="/concepts">Concepts</a></li><li><a href="/plans">Plans and limits</a></li><li><a href="/scope">Scope</a></li></ul></div>
@@ -237,7 +238,7 @@ td:first-child{font-weight:600;white-space:nowrap}
     <p>If an automation's service token belongs to nobody, for example because its creator left, its token entries show as an error to people managers until someone takes the token over.</p>
 
     <h2 id="handover">Handing an automation over</h2>
-    <p>Move the service token to another person in the web app. Only future token entries follow; past postings keep the agent manager they had.</p>
+    <p>Move the service token to another person in the web app. Only future token entries follow; past token entries keep the agent manager they had.</p>
 
 
     <div class="foot">

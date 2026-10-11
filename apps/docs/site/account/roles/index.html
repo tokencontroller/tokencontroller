@@ -154,7 +154,8 @@ td:first-child{font-weight:600;white-space:nowrap}
       <li><a href="/attribute/classifier">Classifier</a></li>
     </ul></div>
     <div class="grp"><h4>Account</h4><ul>
-      <li><a href="/account/organizations">Organization and groups</a></li>
+      <li><a href="/account/organizations">Organization</a></li>
+      <li><a href="/account/tags">Tags and the tag map</a></li>
       <li><a class="cur" href="/account/roles">Roles</a></li>
       <li><a href="/account/projects">Projects and clients</a></li>
       <li><a href="/account/tickets">Tickets</a></li>
@@ -233,14 +234,14 @@ td:first-child{font-weight:600;white-space:nowrap}
       <thead><tr><th>Role</th><th>Who has it</th><th>What it can do</th></tr></thead>
       <tbody>
         <tr><td>Agent manager</td><td>Anyone who uses an agent: developers, designers, QA, architects, managers.</td><td>Reviews and submits their own token sheets. Sees their own cost.</td></tr>
-        <tr><td>People manager</td><td>Tech leads and heads of department for people and groups. Project managers, directors of delivery and account managers for projects.</td><td>Reads reports for the people, groups or projects they are assigned. Sets token budgets and cadence there. Approves token entries, or rejects them back with a reason.</td></tr>
+        <tr><td>People manager</td><td>Tech leads and heads of department for people and teams. Project managers, directors of delivery and account managers for projects and clients.</td><td>Reads reports for the filters they are assigned, such as <code>team: web</code>, <code>project: acme-shop</code> or <code>client: acme</code>. Sets token budgets and cadence there. Approves token entries, or rejects them back with a reason.</td></tr>
         <tr><td>Controller</td><td>Whoever answers for the numbers as a whole.</td><td>Sees everything. Sets up the organization: cost source, reporting currency, bills, ticket sync, organization rules, approval on or off. Runs the monthly close. Posts adjustments to closed periods.</td></tr>
       </tbody>
     </table>
-    <div class="note"><b>Examples.</b> A director of delivery is a people manager over all projects. A head of engineering is a people manager over the engineering group.</div>
+    <div class="note"><b>Examples.</b> A director of delivery is a people manager over all projects. A head of engineering is a people manager over <code>department: engineering</code>. An account manager is a people manager over <code>client: acme</code>. When two filters cover the same token entry, either people manager can approve it.</div>
 
     <h2 id="scope">What a people manager sees</h2>
-    <p>A people manager sees cost per person within what they are assigned. A controller sees cost per person for the whole organization. There is no mode that hides people behind group totals; see <a href="/scope">Scope</a>.</p>
+    <p>A people manager sees cost per person within what they are assigned. A controller sees cost per person for the whole organization. There is no mode that hides people behind team totals; see <a href="/scope">Scope</a>.</p>
 
     <h2 id="not-roles">Relationships that are not roles</h2>
     <p>A ticket has an <b>assignee</b>, the person it is assigned to. Being an assignee grants nothing and costs nothing: the cost of a ticket sits with the agent manager of each token entry on it.</p>

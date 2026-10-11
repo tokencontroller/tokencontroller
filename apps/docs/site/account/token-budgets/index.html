@@ -154,7 +154,8 @@ td:first-child{font-weight:600;white-space:nowrap}
       <li><a href="/attribute/classifier">Classifier</a></li>
     </ul></div>
     <div class="grp"><h4>Account</h4><ul>
-      <li><a href="/account/organizations">Organization and groups</a></li>
+      <li><a href="/account/organizations">Organization</a></li>
+      <li><a href="/account/tags">Tags and the tag map</a></li>
       <li><a href="/account/roles">Roles</a></li>
       <li><a href="/account/projects">Projects and clients</a></li>
       <li><a href="/account/tickets">Tickets</a></li>
@@ -228,7 +229,7 @@ td:first-child{font-weight:600;white-space:nowrap}
 
 
     <h2 id="budgets">Token budgets</h2>
-    <p>Put a token budget on a person (for example 1,500 EUR a month), a ticket, a project or a period. Type it, or accept a token forecast. People managers set token budgets for the people and projects they are assigned. Groups carry no token budget; a group's people are compared one by one.</p>
+    <p>Put a token budget on any tag filter for a period: a person (for example 1,500 EUR a month), a ticket, a project, a team, or a set of tags such as <code>team: web</code> and <code>client: acme</code>. Type it, or accept a token forecast for a ticket. People managers set token budgets within the filters they are assigned. Token budgets can overlap, so two of them can count the same money; never add them up.</p>
 
     <h2 id="forecasts">Token forecasts</h2>
     <p>A token forecast is a suggestion from similar past work. Token Controller compares the new ticket's title and description with the summaries of past token entries, shows the tickets they belong to with a confidence, and proposes their median cost. You pick the matches that fit, or take the proposal as it is. It becomes a token budget only when a person accepts it.</p>

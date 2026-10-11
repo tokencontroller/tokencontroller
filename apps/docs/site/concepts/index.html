@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Concepts — Token Controller Docs</title>
-<meta name="description" content="The ideas Token Controller builds on: two sides that match, cost kinds, groups, the loop.">
+<meta name="description" content="The ideas Token Controller builds on: two sides that match, tags, cost kinds, the loop.">
 <link rel="canonical" href="https://docs.tokencontroller.com/concepts">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 28 28'%3E%3Crect x='2' y='2' width='24' height='24' rx='7' fill='%230F3D33'/%3E%3Crect x='8' y='10' width='12' height='2.6' rx='1.3' fill='white'/%3E%3Crect x='8' y='15.4' width='12' height='2.6' rx='1.3' fill='white'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -154,7 +154,8 @@ td:first-child{font-weight:600;white-space:nowrap}
       <li><a href="/attribute/classifier">Classifier</a></li>
     </ul></div>
     <div class="grp"><h4>Account</h4><ul>
-      <li><a href="/account/organizations">Organization and groups</a></li>
+      <li><a href="/account/organizations">Organization</a></li>
+      <li><a href="/account/tags">Tags and the tag map</a></li>
       <li><a href="/account/roles">Roles</a></li>
       <li><a href="/account/projects">Projects and clients</a></li>
       <li><a href="/account/tickets">Tickets</a></li>
@@ -241,23 +242,27 @@ td:first-child{font-weight:600;white-space:nowrap}
     <p>On a seat plan (Claude Team, Max, Pro) there is no usage bill. Token Controller then shows what the usage would have cost at API prices, labelled as an estimate on every figure, and every report can switch to the <b>share view</b>: percentages of the period instead of money.</p>
 
     <h2 id="two-trees">Every cost is booked twice</h2>
-    <p>A timesheet books hours both to a person and to a ticket. Token Controller does the same with cost.</p>
+    <p>A timesheet books hours both to a person and to a ticket. Token Controller does the same with cost. Both come from <a href="/account/tags">tags</a> on the token entry, such as <code>person: mara</code>, <code>ticket: KD-214</code> or <code>team: web</code>.</p>
     <table>
       <thead><tr><th>Booked to</th><th>Answers</th><th>How it is built</th></tr></thead>
       <tbody>
-        <tr><td>Cost center</td><td>Who answers for it?</td><td>Every token entry has exactly one agent manager. You are the agent manager of your own sessions. A tech lead is the agent manager of the CI automations they set up. The person is the cost center. People can carry <a href="/account/organizations">group</a> labels, such as a team or a department, and reports total by group.</td></tr>
-        <tr><td>Cost object</td><td>What did it pay for?</td><td>A ticket, a project or the organization. Tickets can sit inside other tickets, so a project's cost is the sum of its tickets. A client is a label on a project; projects with the same client can be totalled.</td></tr>
+        <tr><td>Cost center</td><td>Who answers for it?</td><td>Every token entry has exactly one agent manager. You are the agent manager of your own sessions. A tech lead is the agent manager of the CI automations they set up. By default the person is the cost center. People carry tags such as <code>team: web</code>, which their token entries inherit. An organization where teams answer for money maps the cost center to <code>team</code>.</td></tr>
+        <tr><td>Cost object</td><td>What did it pay for?</td><td>The first rung of the ladder with a value: by default a ticket, then a project, then the organization. Tickets can sit inside other tickets, so a project's cost is the sum of its tickets. A client is a tag on projects, such as <code>client: acme</code>; an organization can add it as a rung.</td></tr>
       </tbody>
     </table>
-    <p>The two sides are separate on purpose. A developer can work on three projects for three project managers and still be one cost center. Tech leads and heads of department read cost by person and group. Project managers, directors of delivery and account managers read it through tickets, projects and clients, whoever caused it.</p>
+    <p>The two sides are separate on purpose. A developer can work on three projects for three project managers and still be one cost center. Tech leads and heads of department read cost by person and team. Project managers, directors of delivery and account managers read it through tickets, projects and clients, whoever caused it.</p>
     <div class="note"><b>Example.</b> A PR review bot reviews a pull request for ticket KD-214. The cost sits with the tech lead who is the bot's agent manager (cost center) and shows on KD-214 as review cost (cost object). The ticket's assignee is not charged for it, but a ticket with expensive reviews is visible on its report.</div>
-    <p>When no ticket matches, a posting falls back to the project, then to the organization. What nobody placed at all sits on the organization as <b>unattributed</b>. A token entry without an agent manager shows as an error to people managers until someone takes it.</p>
+    <p>When no ticket matches, the cost falls back to the project, then to the organization. What nobody tagged at all sits on the organization as <b>unattributed</b>. A token entry without an agent manager shows as an error to people managers until someone takes it.</p>
+
+    <h2 id="tags">Tags</h2>
+    <p>Beyond person, ticket and project, an organization adds the tags it needs: <code>team</code>, <code>client</code>, <code>feature</code>, <code>purpose</code>. A token entry has one value per tag name, so cost by team or by client always adds up. A report is a saved tag filter, a token budget is money for a tag filter, and a people manager is assigned the filters they look after. Most tags come in on their own: from the person, the project, rules, a repository's config file or telemetry. See <a href="/account/tags">Tags and the tag map</a>.</p>
+    <div class="note"><b>Example.</b> An agency tags people with their team and projects with their client. Without anyone typing a tag, the account manager for Acme reads cost per team for <code>client: acme</code>, and the Web lead reads cost per client for <code>team: web</code>.</div>
 
     <h2 id="agents">Agents</h2>
     <p>An agent is software that calls a model on a person's behalf and so costs money. A person typing in a provider's own chat app is not an agent; that usage shows as residual. Token Controller keeps no record of agents, only of the cost they cause. Each token entry names the <b>agent harness</b> (Claude Code, Codex), the <b>model</b>, and an optional <b>agent name</b>, a label such as "review bot" so the same automation on several projects can be totalled.</p>
 
     <h2 id="cost-kinds">Cost kinds</h2>
-    <p>Every posting carries one cost kind.</p>
+    <p>Every token entry carries one cost kind, as the built-in tag <code>kind</code>.</p>
     <table>
       <thead><tr><th>Cost kind</th><th>Meaning</th></tr></thead>
       <tbody>
@@ -271,16 +276,16 @@ td:first-child{font-weight:600;white-space:nowrap}
 
     <h2 id="accounted">Every token, accounted for</h2>
     <p>All of the bill is always accounted for. Whatever is not placed shows as unattributed, and whatever no token entry explains shows as residual. Neither is ever hidden.</p>
-    <p><b>Attribution</b> is the share a rule or a person has placed, with any cost kind. Personal and overhead count; only unattributed does not. Your organization decides how specific a placement must be to count: on a project is enough for some, others want every session on a ticket. Expect 70 to 80 percent at first, improving month by month. Each organization sets its <a href="/account/target">attribution target</a>; the default is 80 percent.</p>
+    <p><b>Attribution</b> is the share a rule or a person has placed, with any cost kind. Personal and overhead count; only unattributed does not. Your organization decides which tags must be filled to count: a project is enough for some, others want every session on a ticket, or also a <code>purpose</code>. Expect 70 to 80 percent at first, improving month by month. Each organization sets its <a href="/account/target">attribution target</a>; the default is 80 percent.</p>
     <p>Every figure says what it is: billed, a list-price estimate, or an unknown model.</p>
 
     <h2 id="loop">The loop</h2>
     <p>On top of the accounting sits the classic budgeting loop: plan, record, reconcile, learn.</p>
     <ol class="steps">
-      <li><b>Plan.</b><p>A <a href="/account/token-budgets">token budget</a> on a person (for example 1,500 EUR a month), a ticket, a project or a period. You type it, or accept a token forecast: what similar past work cost, found by comparing the ticket with the summaries of past token entries.</p></li>
+      <li><b>Plan.</b><p>A <a href="/account/token-budgets">token budget</a> on a person (for example 1,500 EUR a month), a ticket, a project, a team or any other tag filter, for a period. You type it, or accept a token forecast: what similar past work cost, found by comparing the ticket with the summaries of past token entries.</p></li>
       <li><b>Record.</b><p>Token entries come in, automatically or on token sheets.</p></li>
-      <li><b>Reconcile.</b><p>Rules place each token entry on its ticket or project, people review and submit, the bills come in and both sides are checked against each other, the month is closed.</p></li>
-      <li><b>Learn.</b><p>Actual against token budget, per person, ticket and project. Overruns and underruns both get a look. An overrun may be a problem. An underrun may mean someone can teach the others, or that the next token forecast should be lower. History feeds the next token forecast, so a new client project can be quoted from what similar work cost before.</p></li>
+      <li><b>Reconcile.</b><p>Rules tag each token entry with its ticket or project, people review and submit, the bills come in and both sides are checked against each other, the month is closed.</p></li>
+      <li><b>Learn.</b><p>Actual against token budget, per person, ticket, project or any tag. Overruns and underruns both get a look. An overrun may be a problem. An underrun may mean someone can teach the others, or that the next token forecast should be lower. History feeds the next token forecast, so a new client project can be quoted from what similar work cost before.</p></li>
     </ol>
     <p>Every part of the loop is optional. You can use Token Controller only to collect token entries and match them to the bill, and add token budgets later. A token budget never stops spending; there are no spend alerts and no spend caps.</p>
 
@@ -312,6 +317,7 @@ td:first-child{font-weight:600;white-space:nowrap}
     <ul>
       <li><a href="#two-sides">Two sides that must match</a></li>
       <li><a href="#two-trees">Every cost is booked twice</a></li>
+      <li><a href="#tags">Tags</a></li>
       <li><a href="#agents">Agents</a></li>
       <li><a href="#cost-kinds">Cost kinds</a></li>
       <li><a href="#accounted">Every token, accounted for</a></li>

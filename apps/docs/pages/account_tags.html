@@ -1,0 +1,66 @@
+    <p class="lead">Every token entry carries tags, such as <code>team: web</code> or <code>client: acme</code>. Reports, token budgets and who sees what are all tag filters. The tag map says which tags fill the cost center and the cost object.</p>
+
+    <h2 id="tags">Tags</h2>
+    <p>A tag is a name and a value. A token entry has at most one value per tag name, so cost grouped by one tag name always adds up to the total. An entry cannot be <code>team: web</code> and <code>team: data</code> at once. Work for two clients in one session is <a href="#splits">split</a>.</p>
+    <p>The controller keeps the list of tag names. Values are free: a new client or a new feature needs no setting. Four tag names are built in, because Token Controller keeps records behind them:</p>
+    <table>
+      <thead><tr><th>Built-in tag</th><th>Value</th></tr></thead>
+      <tbody>
+        <tr><td><code>person</code></td><td>The token entry's agent manager. Always set.</td></tr>
+        <tr><td><code>ticket</code></td><td>A <a href="/account/tickets">ticket</a>, synced from your ticket system or created by hand, with its title, description and parent.</td></tr>
+        <tr><td><code>project</code></td><td>A <a href="/account/projects">project</a>, with its ticket key pattern and repositories.</td></tr>
+        <tr><td><code>kind</code></td><td>The <a href="/concepts#cost-kinds">cost kind</a>: direct, project overhead, organization overhead, personal or unattributed.</td></tr>
+      </tbody>
+    </table>
+    <p>Every other tag name is yours: <code>team</code>, <code>department</code>, <code>client</code>, <code>feature</code>, <code>purpose</code>.</p>
+
+    <h2 id="sources">Where tags come from</h2>
+    <table>
+      <thead><tr><th>Source</th><th>Example</th></tr></thead>
+      <tbody>
+        <tr><td>The person</td><td>A person tagged <code>team: web</code> passes it to their new token entries.</td></tr>
+        <tr><td>The project or ticket</td><td>A project tagged <code>client: acme</code> passes it to its token entries.</td></tr>
+        <tr><td><a href="/attribute/rules">Rules</a></td><td>A branch named <code>KD-214-fix</code> sets <code>ticket: KD-214</code>.</td></tr>
+        <tr><td>A repository's config file</td><td><code>.tokencontroller.toml</code> in a repository sets <code>project</code> or <code>purpose</code> for every session in it. See <a href="/attribute/repositories">Repository mapping</a>.</td></tr>
+        <tr><td><a href="/collect/telemetry">Telemetry</a></td><td>Resource attributes in the agent's managed settings tag a whole team at once, with no install.</td></tr>
+        <tr><td>The Claude Code mod, the CLI, the GitHub Action, the token entries endpoint</td><td>Tags sent with the token entry.</td></tr>
+        <tr><td>The person on their token sheet</td><td>Picks or corrects the ticket and any other tag before submitting.</td></tr>
+      </tbody>
+    </table>
+    <p>Inherited tags are copied when a token entry arrives. When someone changes team, their earlier token entries keep the old team, so last month's reports do not change.</p>
+
+    <h2 id="map">The tag map</h2>
+    <p>Inside, every share of cost has exactly one cost center and one cost object. The tag map says which tags fill them.</p>
+    <table>
+      <thead><tr><th>Setting</th><th>Default</th><th>Example of a change</th></tr></thead>
+      <tbody>
+        <tr><td>Cost center</td><td><code>person</code></td><td><code>team</code>, when teams answer for money. Each token entry still has one agent manager who submits it and is asked about it.</td></tr>
+        <tr><td>Ladder (cost object)</td><td>ticket, project, organization</td><td>ticket, epic, project, client, organization</td></tr>
+        <tr><td>Required tags</td><td>the rung <code>project</code></td><td>the rung <code>ticket</code>, plus <code>purpose</code></td></tr>
+      </tbody>
+    </table>
+    <p>The <b>ladder</b> is read from the top. A token entry's cost object is the first rung with a value: no ticket, then its project; no project, then the organization. Rungs can be renamed, added and removed. A rung you add fills only if a project or ticket carries it, a rule sets it, or your ticket system sends it.</p>
+    <p>A token entry counts as <a href="/account/target">attributed</a> when every required tag has a value, or when its cost kind says it belongs to no project (personal, organization overhead). Everything else is unattributed.</p>
+    <p>Each closed period keeps the tag map it was closed with. Changing the map changes the meaning of reports from then on, so compare periods across a change with care.</p>
+
+    <h2 id="splits">Splits</h2>
+    <p>Most token entries are one piece with one set of tags. A session that worked on two tickets can be split, for example 60 percent to ACME-50 and 40 percent to GLOBEX-7. Each split has its own tags. The shares are the judgment of the person or the rule that made them, not a measurement.</p>
+
+    <h2 id="filters">Filters</h2>
+    <p>A filter is a set of tags, such as <code>client: acme</code>, or <code>team: web</code> and <code>project: acme-shop</code>. A token entry matches when it has every tag in it. Filters are used for:</p>
+    <ul>
+      <li><a href="/report/reports">reports</a>: a saved filter with a grouping, such as cost by team for <code>client: acme</code></li>
+      <li><a href="/account/token-budgets">token budgets</a>: money planned for a filter and a period</li>
+      <li><a href="/account/roles">people managers</a>: each is assigned the filters they read and approve</li>
+    </ul>
+    <p>Filters overlap. <code>team: web</code> and <code>client: acme</code> can count the same money, so two reports or two token budgets are never added together. Only grouping by one tag name, and the <a href="/report/cost-sheet">cost sheet</a>, add up to the total. Grouping by a tag that not every entry has shows a line for entries without it.</p>
+    <p>Tags do not touch the bill check. Residual, the part of a bill no token entry explains, has no tags, so a report filtered to one client never reaches the bill total.</p>
+
+    <h2 id="values">Keeping values clean</h2>
+    <p><code>acme</code>, <code>Acme</code> and <code>acme-corp</code> are three values. Ticket sync, rules and config files give clean values; hand-typed ones drift. A controller can merge values in an open period. After the close, only an <a href="/account/adjustments">adjustment</a> changes anything.</p>
+
+    <h2 id="next">Where to next</h2>
+    <div class="pager">
+      <a href="/account/organizations"><small>Account</small><b>Organization</b></a>
+      <a class="next" href="/account/projects"><small>Account</small><b>Projects and clients</b></a>
+    </div>

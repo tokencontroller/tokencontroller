@@ -154,7 +154,8 @@ td:first-child{font-weight:600;white-space:nowrap}
       <li><a href="/attribute/classifier">Classifier</a></li>
     </ul></div>
     <div class="grp"><h4>Account</h4><ul>
-      <li><a href="/account/organizations">Organization and groups</a></li>
+      <li><a href="/account/organizations">Organization</a></li>
+      <li><a href="/account/tags">Tags and the tag map</a></li>
       <li><a href="/account/roles">Roles</a></li>
       <li><a href="/account/projects">Projects and clients</a></li>
       <li><a href="/account/tickets">Tickets</a></li>
@@ -232,6 +233,13 @@ td:first-child{font-weight:600;white-space:nowrap}
 
     <h2 id="placing">What gets placed</h2>
     <p>Sessions in a mapped repository with no ticket key land on the project as project overhead. Sessions outside any mapped repository and without a ticket key stay unattributed.</p>
+    <h2 id="config">Tags from a config file</h2>
+    <p>A repository can carry its own tags in <code>.tokencontroller.toml</code> at its root. Every session in it gets them, through the mod, the CLI or the GitHub Action.</p>
+<pre><code>[tags]
+project = <span class="s">"storefront"</span>
+purpose = <span class="s">"product"</span></code></pre>
+    <p>Only tag names on your organization's list are used. A ticket found by a rule still wins over the file.</p>
+
     <p>Repository mapping is the only placing that works with <a href="/collect/telemetry">telemetry</a> alone, because telemetry sees the repository but not the branch.</p>
 
 
@@ -246,6 +254,7 @@ td:first-child{font-weight:600;white-space:nowrap}
     <ul>
       <li><a href="#map">Map a repository</a></li>
       <li><a href="#placing">What gets placed</a></li>
+      <li><a href="#config">Tags from a config file</a></li>
     </ul>
   </nav>
 </div>
