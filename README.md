@@ -47,6 +47,7 @@ The service has one module folder per area under `apps/server/src/`, so work on 
 ## Working on the code
 
 - `cargo nextest run` runs every test. Tests that touch the database need Postgres 15 or newer at `DATABASE_URL`; each test gets its own fresh database.
+- `cargo run -p tokencontroller-server -- seed` (or `docker run … seed` on the image) applies migrations and loads the example organization into `DATABASE_URL`. Staging runs it after every reset.
 - Migrations live in `apps/server/migrations/`, named `<UTC timestamp>_<module>_<what>.sql`. The service applies them when it starts. A migration that reached `main` is never edited.
 - Queries are checked against the database when the code compiles. After adding or changing a query, run `cargo sqlx prepare --workspace` and commit `.sqlx/`, so the image builds without a database.
 - After changing the API, run `cargo run -p tokencontroller-server -- openapi > apps/server/openapi.json` and commit it. The web app's client is generated from this file.

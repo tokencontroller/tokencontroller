@@ -1,5 +1,6 @@
-//! The `tokencontroller` program: runs the service, or prints its OpenAPI
-//! document with `tokencontroller openapi`.
+//! The `tokencontroller` program: runs the service (`serve`, the default),
+//! loads the example organization (`seed`), or prints the OpenAPI document
+//! (`openapi`).
 
 use std::io::Write as _;
 use std::process::ExitCode;
@@ -12,9 +13,10 @@ async fn main() -> ExitCode {
     let command = std::env::args().nth(1);
     let result = match command.as_deref() {
         None | Some("serve") => tokencontroller_server::serve(Arc::new(NoExtension)).await,
+        Some("seed") => tokencontroller_server::seed().await,
         Some("openapi") => write_openapi(),
         Some(other) => Err(anyhow::anyhow!(
-            "unknown command {other:?}: use `serve` (the default) or `openapi`"
+            "unknown command {other:?}: use `serve` (the default), `seed` or `openapi`"
         )),
     };
     match result {
