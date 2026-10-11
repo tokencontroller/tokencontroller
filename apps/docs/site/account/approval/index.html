@@ -123,7 +123,7 @@ td:first-child{font-weight:600;white-space:nowrap}
 
 <div class="layout">
   <aside class="side" id="sidebar" aria-label="Documentation">
-    <div class="ver">Version <b>1.4</b></div>
+    <div class="ver">Version <b>1.0.0</b></div>
     <div class="grp"><h4>Getting started</h4><ul>
       <li><a href="/">Overview</a></li>
       <li><a href="/quick-start">Quick start</a></li>
@@ -154,7 +154,8 @@ td:first-child{font-weight:600;white-space:nowrap}
       <li><a href="/attribute/classifier">Classifier</a></li>
     </ul></div>
     <div class="grp"><h4>Account</h4><ul>
-      <li><a href="/account/organizations">Organization and groups</a></li>
+      <li><a href="/account/organizations">Organization</a></li>
+      <li><a href="/account/tags">Tags and the tag map</a></li>
       <li><a href="/account/roles">Roles</a></li>
       <li><a href="/account/projects">Projects and clients</a></li>
       <li><a href="/account/tickets">Tickets</a></li>
@@ -231,7 +232,7 @@ td:first-child{font-weight:600;white-space:nowrap}
     <p>Submitted token entries count in reports at once. People managers can still reject one.</p>
 
     <h2 id="on">With approval on</h2>
-    <p>Submitted token entries still count in reports at once, marked as not yet approved, and reports can filter on that. A people manager approves token entries for the people, groups or projects they are assigned, one by one or in bulk after filtering. Automatic token entries, such as CI, are approved the same way. A period cannot be closed while a token entry in it is unapproved, so the cost sheet holds approved cost only.</p>
+    <p>Submitted token entries still count in reports at once, marked as not yet approved, and reports can filter on that. A people manager approves token entries for the filters they are assigned, such as <code>team: web</code> or <code>client: acme</code>, one by one or in bulk after filtering. Automatic token entries, such as CI, are approved the same way. A period cannot be closed while a token entry in it is unapproved, so the cost sheet holds approved cost only.</p>
 
     <h2 id="reject">Reject</h2>
     <p>A people manager sends a token entry back to its agent manager with a reason. A rejected token entry does not count until it is fixed and submitted again. It shows in the agent manager's <a href="/attribute/review">review list</a>.</p>

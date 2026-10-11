@@ -4,7 +4,7 @@
     <p>Transcripts, prompts, tool output and file contents. Nothing in Token Controller reads them off the machine, and no door accepts them.</p>
 
     <h2 id="token-entry">What a token entry contains</h2>
-    <p>This is the full list. The summary is the only text. The agent writes it, and on a token sheet you see it before you submit.</p>
+    <p>This is the full list. The summary and the tag values are the only text. The agent writes the summary, and on a token sheet you see it and the tags before you submit. Tag values are the names your organization uses, such as a team or a client.</p>
     <table>
       <thead><tr><th>Field</th><th>Example</th></tr></thead>
       <tbody>
@@ -16,7 +16,7 @@
         <tr><td>Reported cost</td><td>the agent's own cost figure, where it has one</td></tr>
         <tr><td>Signals</td><td>branch, working directory, repository, pull request number, subagent type, and ticket keys found in prompts, the session title and the pull request title (the keys only, never the text)</td></tr>
         <tr><td>Summary</td><td>Fixed checkout redirect loop</td></tr>
-        <tr><td>Postings</td><td>KD-214, direct, 100%</td></tr>
+        <tr><td>Tags</td><td>ticket KD-214, project storefront, kind direct, team web</td></tr>
       </tbody>
     </table>
 
@@ -24,7 +24,7 @@
     <p>Telemetry push sends numbers and identifiers only, with the exact settings shown in the <a href="/#telemetry">quick start</a>. The ingest endpoint drops any event that carries prompt text.</p>
 
     <h2 id="who-sees">Who sees what</h2>
-    <p>An agent manager sees their own cost. A people manager sees cost per person for the people, groups or projects they are assigned. A controller sees everything. See <a href="/account/roles">Roles</a>.</p>
+    <p>An agent manager sees their own cost. A people manager sees cost per person for the filters they are assigned, such as a team or a client. A controller sees everything. See <a href="/account/roles">Roles</a>.</p>
 
     <h2 id="hosting">Where data is stored</h2>
     <p>Solo and the Team plan are hosted in the EU. On the Enterprise plan you choose the region; self-hosted runs where you run it. See <a href="/plans">Plans and limits</a>.</p>

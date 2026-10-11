@@ -123,7 +123,7 @@ td:first-child{font-weight:600;white-space:nowrap}
 
 <div class="layout">
   <aside class="side" id="sidebar" aria-label="Documentation">
-    <div class="ver">Version <b>1.4</b></div>
+    <div class="ver">Version <b>1.0.0</b></div>
     <div class="grp"><h4>Getting started</h4><ul>
       <li><a href="/">Overview</a></li>
       <li><a href="/quick-start">Quick start</a></li>
@@ -154,7 +154,8 @@ td:first-child{font-weight:600;white-space:nowrap}
       <li><a href="/attribute/classifier">Classifier</a></li>
     </ul></div>
     <div class="grp"><h4>Account</h4><ul>
-      <li><a href="/account/organizations">Organization and groups</a></li>
+      <li><a href="/account/organizations">Organization</a></li>
+      <li><a href="/account/tags">Tags and the tag map</a></li>
       <li><a href="/account/roles">Roles</a></li>
       <li><a href="/account/projects">Projects and clients</a></li>
       <li><a href="/account/tickets">Tickets</a></li>
@@ -237,13 +238,14 @@ td:first-child{font-weight:600;white-space:nowrap}
         <tr><td><code>started_at</code>, <code>ended_at</code></td><td>When the session started and ended. Required.</td></tr>
         <tr><td><code>tokens</code></td><td>Counts by kind: <code>input</code>, <code>output</code>, <code>cache_write</code>, <code>cache_read</code>. Required.</td></tr>
         <tr><td><code>reported_cost</code></td><td>The agent's own cost figure. Optional; without it the list value is computed.</td></tr>
-        <tr><td><code>summary</code></td><td>What the session did, from one line to a short report. The only text.</td></tr>
+        <tr><td><code>summary</code></td><td>What the session did, from one line to a short report. With the tag values, the only text.</td></tr>
         <tr><td><code>ticket</code>, <code>project</code></td><td>Where it belongs. Optional. A ticket named here wins over every rule; without one, <a href="/attribute/rules#order">rules place it</a>.</td></tr>
+        <tr><td><code>tags</code></td><td>Any tags from the organization's list, such as <code>{"team": "web", "purpose": "code-review"}</code>. One value per tag name. Optional. Tags sent here win over inherited ones.</td></tr>
         <tr><td><code>signals</code></td><td>Branch, working directory, repository, pull request number, subagent type, and ticket keys found in prompts, the session title and the pull request title. Optional.</td></tr>
         <tr><td><code>session_id</code></td><td>Joins the token entry to telemetry. Optional.</td></tr>
       </tbody>
     </table>
-    <p>Set by Token Controller: agent manager, list value, billed value, postings, status.</p>
+    <p>Set by Token Controller: agent manager, list value, billed value, inherited tags, splits, status.</p>
 
 
     <div class="foot">

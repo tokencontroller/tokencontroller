@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Attribution target — Token Controller Docs</title>
-<meta name="description" content="The share of cost your organization aims to place on tickets and projects.">
+<meta name="description" content="The share of cost your organization aims to have tagged with a project or ticket.">
 <link rel="canonical" href="https://docs.tokencontroller.com/account/target">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 28 28'%3E%3Crect x='2' y='2' width='24' height='24' rx='7' fill='%230F3D33'/%3E%3Crect x='8' y='10' width='12' height='2.6' rx='1.3' fill='white'/%3E%3Crect x='8' y='15.4' width='12' height='2.6' rx='1.3' fill='white'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -123,7 +123,7 @@ td:first-child{font-weight:600;white-space:nowrap}
 
 <div class="layout">
   <aside class="side" id="sidebar" aria-label="Documentation">
-    <div class="ver">Version <b>1.4</b></div>
+    <div class="ver">Version <b>1.0.0</b></div>
     <div class="grp"><h4>Getting started</h4><ul>
       <li><a href="/">Overview</a></li>
       <li><a href="/quick-start">Quick start</a></li>
@@ -154,7 +154,8 @@ td:first-child{font-weight:600;white-space:nowrap}
       <li><a href="/attribute/classifier">Classifier</a></li>
     </ul></div>
     <div class="grp"><h4>Account</h4><ul>
-      <li><a href="/account/organizations">Organization and groups</a></li>
+      <li><a href="/account/organizations">Organization</a></li>
+      <li><a href="/account/tags">Tags and the tag map</a></li>
       <li><a href="/account/roles">Roles</a></li>
       <li><a href="/account/projects">Projects and clients</a></li>
       <li><a href="/account/tickets">Tickets</a></li>
@@ -214,7 +215,7 @@ td:first-child{font-weight:600;white-space:nowrap}
   <main class="main">
     <div class="crumb"><a href="/">Docs</a> / Account / Attribution target</div>
     <h1>Attribution target</h1>
-    <p class="lead">Attribution is the share of cost placed on tickets and projects. The attribution target is the share your organization aims for.</p>
+    <p class="lead">Attribution is the share of cost whose required tags are filled, such as a project or a ticket. The attribution target is the share your organization aims for.</p>
 
     <details class="mside"><summary>Browse the docs</summary><div class="side">
       <div class="grp"><h4>Getting started</h4><ul><li><a href="/">Overview</a></li><li><a href="/quick-start">Quick start</a></li><li><a href="/concepts">Concepts</a></li><li><a href="/plans">Plans and limits</a></li><li><a href="/scope">Scope</a></li></ul></div>
@@ -228,7 +229,10 @@ td:first-child{font-weight:600;white-space:nowrap}
 
 
     <h2 id="default">The default</h2>
-    <p>80 percent. Expect 70 to 80 percent at first. It rises as you add <a href="/attribute/rules">rules</a> and people fix exceptions.</p>
+    <p>80 percent, with <code>project</code> as the required tag. Expect 70 to 80 percent at first. It rises as you add <a href="/attribute/rules">rules</a> and people fix exceptions.</p>
+
+    <h2 id="counts">What counts</h2>
+    <p>A token entry counts as attributed when every required tag has a value, or when its cost kind says it belongs to no project: personal and organization overhead count. Choose the required tags in the <a href="/account/tags#map">tag map</a>: the rung <code>project</code>, the rung <code>ticket</code>, or more, such as <code>purpose</code>.</p>
 
     <h2 id="where">Where you see it</h2>
     <p>On the rules page, in reports, in the Claude Code mod's band, and on the cost sheet. Whatever is not attributed is still counted: all of the bill is always accounted for, with unattributed as its own line.</p>
@@ -244,6 +248,7 @@ td:first-child{font-weight:600;white-space:nowrap}
     <h4>On this page</h4>
     <ul>
       <li><a href="#default">The default</a></li>
+      <li><a href="#counts">What counts</a></li>
       <li><a href="#where">Where you see it</a></li>
     </ul>
   </nav>

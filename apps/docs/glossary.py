@@ -21,6 +21,7 @@ for block in re.split(r'\n(?=### )',body):
         am=re.search(r'\n?_Avoid_:\s*(.*)$',txt)
         if am: avoid=am.group(1).strip(); txt=txt[:am.start()].strip()
         d=html.escape(' '.join(txt.split()))
+        d=re.sub(r'`([^`]+)`',r'<code>\1</code>',d)
         if avoid: d+=f'<br><span style="color:var(--muted);font-size:.85em">Not: {html.escape(avoid)}</span>'
         out.append(f'        <tr><td>{html.escape(term)}</td><td>{d}</td></tr>')
     out.append('      </tbody>\n    </table>')

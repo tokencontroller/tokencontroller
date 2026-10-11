@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Projects and clients — Token Controller Docs</title>
-<meta name="description" content="What a project has, and how client labels total projects.">
+<meta name="description" content="What a project has, and how a client tag totals projects.">
 <link rel="canonical" href="https://docs.tokencontroller.com/account/projects">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 28 28'%3E%3Crect x='2' y='2' width='24' height='24' rx='7' fill='%230F3D33'/%3E%3Crect x='8' y='10' width='12' height='2.6' rx='1.3' fill='white'/%3E%3Crect x='8' y='15.4' width='12' height='2.6' rx='1.3' fill='white'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -123,7 +123,7 @@ td:first-child{font-weight:600;white-space:nowrap}
 
 <div class="layout">
   <aside class="side" id="sidebar" aria-label="Documentation">
-    <div class="ver">Version <b>1.4</b></div>
+    <div class="ver">Version <b>1.0.0</b></div>
     <div class="grp"><h4>Getting started</h4><ul>
       <li><a href="/">Overview</a></li>
       <li><a href="/quick-start">Quick start</a></li>
@@ -154,7 +154,8 @@ td:first-child{font-weight:600;white-space:nowrap}
       <li><a href="/attribute/classifier">Classifier</a></li>
     </ul></div>
     <div class="grp"><h4>Account</h4><ul>
-      <li><a href="/account/organizations">Organization and groups</a></li>
+      <li><a href="/account/organizations">Organization</a></li>
+      <li><a href="/account/tags">Tags and the tag map</a></li>
       <li><a href="/account/roles">Roles</a></li>
       <li><a class="cur" href="/account/projects">Projects and clients</a></li>
       <li><a href="/account/tickets">Tickets</a></li>
@@ -214,7 +215,7 @@ td:first-child{font-weight:600;white-space:nowrap}
   <main class="main">
     <div class="crumb"><a href="/">Docs</a> / Account / Projects and clients</div>
     <h1>Projects and clients</h1>
-    <p class="lead">A project is a body of work made of tickets. A client is a label on a project.</p>
+    <p class="lead">A project is a body of work made of tickets. A client is a tag on a project.</p>
 
     <details class="mside"><summary>Browse the docs</summary><div class="side">
       <div class="grp"><h4>Getting started</h4><ul><li><a href="/">Overview</a></li><li><a href="/quick-start">Quick start</a></li><li><a href="/concepts">Concepts</a></li><li><a href="/plans">Plans and limits</a></li><li><a href="/scope">Scope</a></li></ul></div>
@@ -231,12 +232,12 @@ td:first-child{font-weight:600;white-space:nowrap}
     <ul>
       <li>a <a href="/attribute/ticket-keys">ticket key pattern</a>, such as <code>^KD-\d+</code></li>
       <li>its <a href="/attribute/repositories">repositories</a></li>
-      <li>a client label and any tags you like</li>
+      <li>tags, such as <code>client: acme</code>, which its token entries inherit</li>
       <li>optionally a token budget and a cadence</li>
     </ul>
 
     <h2 id="clients">Clients</h2>
-    <p>A client is a label, not a separate level. Give several projects the same client label and reports can total them. An agency that wants to see cost per client labels each client's projects.</p>
+    <p>A client is a tag on projects. Tag several projects <code>client: acme</code> and their token entries inherit it, so cost per client is a filter. An agency that wants client as a level of its own adds <code>client</code> as a rung of the <a href="/account/tags#map">ladder</a>, above project.</p>
 
     <h2 id="overhead">Cost that belongs to no ticket</h2>
     <p>Project work that belongs to no single ticket, such as research or setup, is project overhead. Work that belongs to no project at all is organization overhead.</p>

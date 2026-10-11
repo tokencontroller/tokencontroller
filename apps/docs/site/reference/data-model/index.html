@@ -123,7 +123,7 @@ td:first-child{font-weight:600;white-space:nowrap}
 
 <div class="layout">
   <aside class="side" id="sidebar" aria-label="Documentation">
-    <div class="ver">Version <b>1.4</b></div>
+    <div class="ver">Version <b>1.0.0</b></div>
     <div class="grp"><h4>Getting started</h4><ul>
       <li><a href="/">Overview</a></li>
       <li><a href="/quick-start">Quick start</a></li>
@@ -154,7 +154,8 @@ td:first-child{font-weight:600;white-space:nowrap}
       <li><a href="/attribute/classifier">Classifier</a></li>
     </ul></div>
     <div class="grp"><h4>Account</h4><ul>
-      <li><a href="/account/organizations">Organization and groups</a></li>
+      <li><a href="/account/organizations">Organization</a></li>
+      <li><a href="/account/tags">Tags and the tag map</a></li>
       <li><a href="/account/roles">Roles</a></li>
       <li><a href="/account/projects">Projects and clients</a></li>
       <li><a href="/account/tickets">Tickets</a></li>
@@ -231,16 +232,18 @@ td:first-child{font-weight:600;white-space:nowrap}
     <table>
       <thead><tr><th>Record</th><th>What it holds</th></tr></thead>
       <tbody>
-        <tr><td>Organization</td><td>Cost source, attribution target, approval on or off, members and their roles, reporting currency.</td></tr>
-        <tr><td>Group</td><td>A label on people, such as a team or a department. A person can carry several.</td></tr>
-        <tr><td>Person</td><td>A member. The smallest cost center. Carries any number of group labels.</td></tr>
-        <tr><td>Project</td><td>Client label, tags, mapped repositories, ticket key pattern.</td></tr>
+        <tr><td>Organization</td><td>Cost source, attribution target, approval on or off, members and their roles, reporting currency, tag names, tag map.</td></tr>
+        <tr><td>Person</td><td>A member. The default cost center. Carries tags, such as <code>team</code>, that its token entries inherit.</td></tr>
+        <tr><td>Project</td><td>Tags such as <code>client</code>, mapped repositories, ticket key pattern.</td></tr>
         <tr><td>Ticket</td><td>Synced from a ticket system or created by hand. A key; optionally a title, a description, a parent ticket and an assignee.</td></tr>
-        <tr><td>Token entry</td><td>Agent harness, optional agent name, model, tokens by kind, optional reported cost, list value, billed value, start and end time, summary, agent manager, postings, whether it arrived automatically or on a token sheet, status, evidence.</td></tr>
-        <tr><td>Posting</td><td>One share of a token entry on one cost object, with one cost kind.</td></tr>
+        <tr><td>Token entry</td><td>Agent harness, optional agent name, model, tokens by kind, optional reported cost, list value, billed value, start and end time, summary, agent manager, splits, whether it arrived automatically or on a token sheet, status, evidence.</td></tr>
+        <tr><td>Split</td><td>One share of a token entry with its own tags. Most token entries are one split.</td></tr>
+        <tr><td>Tag</td><td>A tag name and a value on a split, a person, a project or a ticket. One value per tag name. Built in: <code>person</code>, <code>ticket</code>, <code>project</code>, <code>kind</code>.</td></tr>
+        <tr><td>Tag map</td><td>Which tag fills the cost center, the ladder of tags that fills the cost object, and the required tags.</td></tr>
+        <tr><td>Filter</td><td>A set of tags. Reports, token budgets and people managers' access are filters.</td></tr>
         <tr><td>Token sheet</td><td>One agent manager, one cadence period, their reviewed token entries. Submitted or late.</td></tr>
         <tr><td>Cadence</td><td>The rhythm in which token sheets are due, set per project or organization by a people manager.</td></tr>
-        <tr><td>Token budget</td><td>Money a human has planned for a person, ticket, project or period.</td></tr>
+        <tr><td>Token budget</td><td>Money a human has planned for a filter and a period.</td></tr>
         <tr><td>Token forecast</td><td>Money suggested for a ticket from similar past work, with the matched tickets and a confidence. Becomes a token budget when a person accepts it.</td></tr>
         <tr><td>Telemetry event</td><td>One model call. Joins to token entries by session and message ID.</td></tr>
         <tr><td>Cost source</td><td>One way a provider charges: subscription, seat, usage at API rates, API key, cloud marketplace or reseller.</td></tr>
@@ -266,9 +269,10 @@ td:first-child{font-weight:600;white-space:nowrap}
 
     <h2 id="rules">Rules that always hold</h2>
     <ol class="steps">
-      <li><b>Every cost has a cost center and a cost object.</b><p>The cost center comes from the token entry's agent manager. The cost object falls back from ticket to project to organization when nothing more specific matches.</p></li>
+      <li><b>Every cost has a cost center and a cost object.</b><p>Both come from tags through the tag map. The cost center is by default the token entry's agent manager. The cost object is the first rung of the ladder with a value, by default ticket, then project, then organization.</p></li>
       <li><b>No token entry without an agent manager.</b><p>One that has none shows as an error to people managers until someone takes it.</p></li>
-      <li><b>History stays as it was.</b><p>When an automation gets a new agent manager, or a person changes group or leaves, only future token entries follow the change. Past postings keep the agent manager and groups they had.</p></li>
+      <li><b>One value per tag name.</b><p>A split never carries two values of the same tag name, so cost grouped by one tag name adds up to the total.</p></li>
+      <li><b>History stays as it was.</b><p>When an automation gets a new agent manager, or a person, project or ticket changes its tags, only future token entries follow the change. Past splits keep the agent manager and tags they had. A closed period keeps the tag map it closed with.</p></li>
     </ol>
 
     <h2 id="next">Where to next</h2>

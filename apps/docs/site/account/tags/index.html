@@ -1,0 +1,318 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tags and the tag map — Token Controller Docs</title>
+<meta name="description" content="Tags on token entries, where they come from, and which tags fill the cost center and the cost object.">
+<link rel="canonical" href="https://docs.tokencontroller.com/account/tags">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 28 28'%3E%3Crect x='2' y='2' width='24' height='24' rx='7' fill='%230F3D33'/%3E%3Crect x='8' y='10' width='12' height='2.6' rx='1.3' fill='white'/%3E%3Crect x='8' y='15.4' width='12' height='2.6' rx='1.3' fill='white'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#F7F5F0;--bg-soft:#EFEBE3;--ink:#141613;--ink-2:#3D413C;--muted:#6B6E67;--line:#DDD9CF;--line-2:#C6C1B4;
+  --accent:#0F3D33;--mint:#E2ECE5;--sky:#E2ECE5;--sand:#EFEBE3;--amber:#B26F12;--blue:#1E6B53;
+  --shadow-sm:0 1px 0 rgba(20,22,19,.04);
+  --sans:Inter,ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:80px}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:16px;line-height:1.6;-webkit-font-smoothing:antialiased}
+a{color:inherit;text-decoration:none}
+h1,h2,h3,h4{margin:0;font-weight:600;letter-spacing:-.025em;line-height:1.2}
+h1{font-size:2.35rem;letter-spacing:-.035em}
+h2{font-size:1.5rem;margin-top:56px;padding-top:8px}
+h3{font-size:1.1rem;margin-top:32px}
+p{margin:12px 0 0}
+code{font-family:var(--mono);font-size:.88em;background:var(--bg-soft);padding:.1em .4em;border-radius:4px}
+pre{margin:16px 0 0;background:var(--bg-soft);color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:16px 18px;font-family:var(--mono);font-size:.82rem;line-height:1.7;overflow:auto}
+pre code{background:none;padding:0;font-size:1em;color:inherit}
+pre .c{color:var(--muted)}pre .k{color:#1E6B53}pre .s{color:var(--ink-2)}pre .p{color:var(--muted)}
+.top{position:sticky;top:0;z-index:40;background:rgba(247,245,240,.9);backdrop-filter:saturate(1.6) blur(12px);-webkit-backdrop-filter:saturate(1.6) blur(12px);border-bottom:1px solid var(--line)}
+.top .in{display:flex;align-items:center;gap:20px;height:56px;padding:0 24px;max-width:1440px;margin:0 auto}
+.brand{display:flex;align-items:center;gap:10px;font-weight:700;letter-spacing:-.02em;font-size:.98rem}
+.brand span{color:var(--muted);font-weight:500;margin-left:2px}
+.search{display:flex;align-items:center;gap:10px;height:36px;padding:0 12px;border:1px solid var(--line);border-radius:8px;background:#FCFBF8;color:var(--muted);font-size:.9rem;min-width:260px;box-shadow:var(--shadow-sm)}
+.search kbd{margin-left:auto;font-family:var(--sans);font-size:.72rem;border:1px solid var(--line);border-radius:6px;padding:1px 6px;color:var(--muted);background:var(--bg-soft)}
+.toplinks{margin-left:auto;display:flex;gap:20px;font-size:.9rem;font-weight:500;color:var(--ink-2)}
+.toplinks a{opacity:.8}.toplinks a:hover{opacity:1}
+.btn{display:inline-flex;align-items:center;height:34px;padding:0 14px;border-radius:8px;border:1px solid var(--accent);background:var(--accent);color:#fff;font-weight:600;font-size:.86rem}
+.layout{display:grid;grid-template-columns:264px minmax(0,1fr) 220px;gap:48px;max-width:1440px;margin:0 auto;padding:0 24px}
+.side{position:sticky;top:56px;height:calc(100vh - 56px);overflow:auto;padding:28px 0 40px;font-size:.9rem;border-right:1px solid var(--line)}
+.side .grp{margin-bottom:22px}
+.side h4{font-family:var(--mono);font-size:.66rem;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);font-weight:500;margin:0 0 8px;padding:0 12px}
+.side ul{list-style:none;margin:0;padding:0}
+.side li a{display:block;padding:6px 12px;border-radius:8px;color:var(--ink-2);opacity:.85}
+.side li a:hover{background:var(--bg-soft);opacity:1}
+.side li a.cur{background:var(--mint);color:var(--accent);font-weight:600;opacity:1;border-radius:4px}
+.side .ver{display:inline-flex;align-items:center;gap:8px;margin:0 12px 18px;padding:4px 10px;border:1px solid var(--line);border-radius:4px;font-family:var(--mono);font-size:.7rem;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);background:#FCFBF8}
+.side .ver b{color:var(--accent)}
+.main{padding:40px 0 96px;max-width:760px}
+.crumb{font-size:.82rem;color:var(--muted);margin-bottom:14px}
+.crumb a{color:var(--accent)}
+.lead{font-size:1.15rem;color:var(--muted);margin-top:14px;line-height:1.55}
+.cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin-top:28px}
+.card{border:1px solid var(--line);border-radius:8px;padding:18px;background:#FCFBF8;box-shadow:var(--shadow-sm);transition:border-color .15s,transform .15s}
+.card:hover{border-color:#C9CED6;transform:translateY(-1px)}
+.card b{display:block;font-weight:600;margin-bottom:4px}
+.card span{color:var(--muted);font-size:.9rem}
+.card i{display:block;width:24px;height:2px;margin-bottom:14px;background:var(--accent)}
+.card.b i{background:var(--accent)}.card.s i{background:var(--amber)}
+.note{margin-top:18px;padding:14px 16px;border-left:2px solid var(--accent);background:#FCFBF8;border-radius:0 6px 6px 0;font-size:.95rem}
+.note b{color:var(--accent)}
+.steps{counter-reset:s;list-style:none;padding:0;margin:16px 0 0}
+.steps li{position:relative;padding:0 0 22px 40px}
+.steps li::before{counter-increment:s;content:counter(s);position:absolute;left:0;top:0;width:26px;height:26px;border-radius:50%;border:1px solid var(--accent);color:var(--accent);font-family:var(--mono);font-weight:500;font-size:.72rem;display:grid;place-items:center;background:#FCFBF8}
+.steps li::after{content:"";position:absolute;left:12.5px;top:30px;bottom:6px;width:1px;background:var(--line)}
+.steps li:last-child::after{display:none}
+.steps li b{font-weight:600}
+.steps li p{margin-top:4px;color:var(--ink-2);font-size:.97rem}
+table{width:100%;border-collapse:collapse;margin-top:16px;font-size:.93rem}
+th,td{text-align:left;padding:10px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-family:var(--mono);font-size:.66rem;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);font-weight:500}
+td:first-child{font-weight:600;white-space:nowrap}
+.diagram{margin-top:20px;border:1px solid var(--line);border-radius:8px;padding:18px;background:#FCFBF8}
+.diagram svg{width:100%;height:auto;display:block}
+.toc{position:sticky;top:56px;padding:40px 0;font-size:.85rem;align-self:start}
+.toc h4{font-family:var(--mono);font-size:.66rem;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);font-weight:500;margin:0 0 10px}
+.toc ul{list-style:none;margin:0;padding:0;border-left:1px solid var(--line)}
+.toc li a{display:block;padding:5px 0 5px 14px;color:var(--muted);margin-left:-1px;border-left:1px solid transparent}
+.toc li a:hover{color:var(--ink)}
+.toc li.sub a{padding-left:26px;font-size:.82rem}
+.foot{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-top:56px;padding-top:20px;border-top:1px solid var(--line);font-size:.88rem;color:var(--muted)}
+.foot a{color:var(--accent)}
+.pager{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:40px}
+.pager a{border:1px solid var(--line);border-radius:8px;padding:14px 16px;display:block;background:#FCFBF8}
+.pager a small{display:block;color:var(--muted);font-size:.78rem;margin-bottom:2px}
+.pager a b{font-weight:600}
+.pager a.next{text-align:right}
+.mside{display:none}
+@media (max-width:1100px){.layout{grid-template-columns:240px minmax(0,1fr)}.toc{display:none}}
+@media (max-width:820px){
+  .layout{grid-template-columns:1fr;gap:0}
+  .side{display:none}
+  .mside{display:block;margin:16px 0 0}
+  .mside summary{list-style:none;cursor:pointer;display:inline-flex;align-items:center;height:36px;padding:0 14px;border:1px solid var(--line-2);border-radius:10px;font-weight:600;font-size:.88rem;background:#fff}
+  .mside summary::-webkit-details-marker{display:none}
+  .mside .side{display:block;position:static;height:auto;border:1px solid var(--line);border-radius:12px;padding:16px 8px;margin-top:10px}
+  .search,.toplinks{display:none}
+  .cards{grid-template-columns:1fr}
+  .pager{grid-template-columns:1fr}
+}
+.main p a,.main td a,.main li p a{color:var(--accent);text-decoration:underline;text-decoration-color:var(--line);text-underline-offset:3px}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="in">
+    <a class="brand" href="https://tokencontroller.com"><svg width="24" height="24" viewBox="0 0 28 28" aria-hidden="true"><rect x="2" y="2" width="24" height="24" rx="6" fill="#0F3D33"/><rect x="8" y="10" width="12" height="2.6" rx="1.3" fill="#F7F5F0"/><rect x="8" y="15.4" width="12" height="2.6" rx="1.3" fill="#fff"/></svg>Token Controller <span>Docs</span></a>
+    <div class="search" role="search" aria-label="Search docs">Search docs <kbd>⌘K</kbd></div>
+    <nav class="toplinks" aria-label="Docs sections">
+      <a href="/">Guides</a>
+      <a href="/reference/api">API</a>
+      <a href="https://tokencontroller.com/changelog">Changelog</a>
+      <a href="https://github.com/tokencontroller/tokencontroller">GitHub</a>
+      <a class="btn" href="https://app.tokencontroller.com">Open app</a>
+    </nav>
+  </div>
+</header>
+
+<div class="layout">
+  <aside class="side" id="sidebar" aria-label="Documentation">
+    <div class="ver">Version <b>1.0.0</b></div>
+    <div class="grp"><h4>Getting started</h4><ul>
+      <li><a href="/">Overview</a></li>
+      <li><a href="/quick-start">Quick start</a></li>
+      <li><a href="/concepts">Concepts</a></li>
+      <li><a href="/plans">Plans and limits</a></li>
+      <li><a href="/scope">Scope</a></li>
+    </ul></div>
+    <div class="grp"><h4>Collect</h4><ul>
+      <li><a href="/collect">Doors</a></li>
+      <li><a href="/collect/claude-code">Claude Code mod</a></li>
+      <li><a href="/collect/cli">CLI</a></li>
+      <li><a href="/collect/telemetry">Telemetry push</a></li>
+      <li><a href="/collect/github-action">GitHub Action</a></li>
+      <li><a href="/collect/codex">Codex CLI</a></li>
+      <li><a href="/collect/gemini-cli">Gemini CLI</a></li>
+      <li><a href="/collect/copilot-cli">Copilot CLI</a></li>
+      <li><a href="/collect/cursor">Cursor Enterprise</a></li>
+      <li><a href="/collect/token-entries">Token entries endpoint</a></li>
+      <li><a href="/collect/manual">Manual entry and CSV import</a></li>
+    </ul></div>
+    <div class="grp"><h4>Attribute</h4><ul>
+      <li><a href="/attribute/rules">Rules</a></li>
+      <li><a href="/attribute/ticket-keys">Ticket key patterns</a></li>
+      <li><a href="/attribute/repositories">Repository mapping</a></li>
+      <li><a href="/attribute/sessions">Sessions and subagents</a></li>
+      <li><a href="/attribute/ci">CI agents</a></li>
+      <li><a href="/attribute/review">Review and submit</a></li>
+      <li><a href="/attribute/classifier">Classifier</a></li>
+    </ul></div>
+    <div class="grp"><h4>Account</h4><ul>
+      <li><a href="/account/organizations">Organization</a></li>
+      <li><a class="cur" href="/account/tags">Tags and the tag map</a></li>
+      <li><a href="/account/roles">Roles</a></li>
+      <li><a href="/account/projects">Projects and clients</a></li>
+      <li><a href="/account/tickets">Tickets</a></li>
+      <li><a href="/account/agent-managers">Agent managers</a></li>
+      <li><a href="/account/token-budgets">Token budgets and forecasts</a></li>
+      <li><a href="/account/cadence">Cadence and token sheets</a></li>
+      <li><a href="/account/approval">Approval</a></li>
+      <li><a href="/account/bills">Bills</a></li>
+      <li><a href="/account/close">Monthly close</a></li>
+      <li><a href="/account/adjustments">Adjustments</a></li>
+      <li><a href="/account/target">Attribution target</a></li>
+    </ul></div>
+    <div class="grp"><h4>Report</h4><ul>
+      <li><a href="/report/cost-sheet">The cost sheet</a></li>
+      <li><a href="/report/reports">Reading reports</a></li>
+      <li><a href="/report/token-budget-vs-actual">Token budget vs actual</a></li>
+      <li><a href="/report/agent-harness">Agent harness reports</a></li>
+      <li><a href="/report/outliers">Outliers</a></li>
+      <li><a href="/report/exports">Exports</a></li>
+      <li><a href="/report/reporting-api">Reporting API</a></li>
+      <li><a href="/report/raw-export">Raw export</a></li>
+    </ul></div>
+    <div class="grp"><h4>Integrations</h4><ul>
+      <li><a href="/integrations/jira">Jira Cloud</a></li>
+      <li><a href="/integrations/azure-devops">Azure DevOps</a></li>
+      <li><a href="/integrations/github-issues">GitHub Issues</a></li>
+      <li><a href="/integrations/anthropic-enterprise">Anthropic Enterprise</a></li>
+      <li><a href="/integrations/anthropic-console">Anthropic Console</a></li>
+      <li><a href="/integrations/openai">OpenAI</a></li>
+      <li><a href="/integrations/csv">CSV bills</a></li>
+      <li><a href="/integrations/sign-in">Sign-in providers</a></li>
+    </ul></div>
+    <div class="grp"><h4>Self-hosting</h4><ul>
+      <li><a href="/self-hosting">Overview</a></li>
+      <li><a href="/self-hosting/docker">Docker</a></li>
+      <li><a href="/self-hosting/configuration">Configuration</a></li>
+      <li><a href="/self-hosting/postgres">Postgres</a></li>
+      <li><a href="/self-hosting/upgrades">Upgrades and backups</a></li>
+      <li><a href="/self-hosting/enterprise">Enterprise plan instances</a></li>
+      <li><a href="/self-hosting/oidc-scim">OIDC and SCIM</a></li>
+    </ul></div>
+    <div class="grp"><h4>Reference</h4><ul>
+      <li><a href="/reference/cli">CLI</a></li>
+      <li><a href="/reference/api">HTTP API</a></li>
+      <li><a href="/reference/token-entry">Token entry schema</a></li>
+      <li><a href="/reference/bill">Bill schema</a></li>
+      <li><a href="/reference/data-model">Data model</a></li>
+      <li><a href="/reference/pricing-tables">Price tables</a></li>
+      <li><a href="/reference/open-source">Open source and licenses</a></li>
+      <li><a href="/security">Security and privacy</a></li>
+      <li><a href="/faq">FAQ</a></li>
+      <li><a href="/glossary">Glossary</a></li>
+      <li><a href="/changelog">Changelog</a></li>
+    </ul></div>
+  </aside>
+
+  <main class="main">
+    <div class="crumb"><a href="/">Docs</a> / Account / Tags and the tag map</div>
+    <h1>Tags and the tag map</h1>
+    <p class="lead">Every token entry carries tags, such as <code>team: web</code> or <code>client: acme</code>. Reports, token budgets and who sees what are all tag filters. The tag map says which tags fill the cost center and the cost object.</p>
+
+    <details class="mside"><summary>Browse the docs</summary><div class="side">
+      <div class="grp"><h4>Getting started</h4><ul><li><a href="/">Overview</a></li><li><a href="/quick-start">Quick start</a></li><li><a href="/concepts">Concepts</a></li><li><a href="/plans">Plans and limits</a></li><li><a href="/scope">Scope</a></li></ul></div>
+      <div class="grp"><h4>Collect</h4><ul><li><a href="/collect/claude-code">Claude Code mod</a></li><li><a href="/collect/cli">CLI</a></li><li><a href="/collect/telemetry">Telemetry push</a></li><li><a href="/collect/github-action">GitHub Action</a></li><li><a href="/collect/token-entries">Token entries endpoint</a></li></ul></div>
+      <div class="grp"><h4>Attribute</h4><ul><li><a href="/attribute/rules">Rules</a></li><li><a href="/attribute/review">Review and submit</a></li></ul></div>
+      <div class="grp"><h4>Account</h4><ul><li><a href="/account/bills">Bills</a></li><li><a href="/account/close">Monthly close</a></li></ul></div>
+      <div class="grp"><h4>Report</h4><ul><li><a href="/report/cost-sheet">The cost sheet</a></li><li><a href="/report/token-budget-vs-actual">Token budget vs actual</a></li></ul></div>
+      <div class="grp"><h4>Self-hosting</h4><ul><li><a href="/self-hosting">Overview</a></li><li><a href="/self-hosting/docker">Docker</a></li></ul></div>
+      <div class="grp"><h4>Reference</h4><ul><li><a href="/reference/cli">CLI</a></li><li><a href="/reference/api">HTTP API</a></li><li><a href="/reference/token-entry">Token entry schema</a></li></ul></div>
+    </div></details>
+
+
+    <h2 id="tags">Tags</h2>
+    <p>A tag is a name and a value. A token entry has at most one value per tag name, so cost grouped by one tag name always adds up to the total. An entry cannot be <code>team: web</code> and <code>team: data</code> at once. Work for two clients in one session is <a href="#splits">split</a>.</p>
+    <p>The controller keeps the list of tag names. Values are free: a new client or a new feature needs no setting. Four tag names are built in, because Token Controller keeps records behind them:</p>
+    <table>
+      <thead><tr><th>Built-in tag</th><th>Value</th></tr></thead>
+      <tbody>
+        <tr><td><code>person</code></td><td>The token entry's agent manager. Always set.</td></tr>
+        <tr><td><code>ticket</code></td><td>A <a href="/account/tickets">ticket</a>, synced from your ticket system or created by hand, with its title, description and parent.</td></tr>
+        <tr><td><code>project</code></td><td>A <a href="/account/projects">project</a>, with its ticket key pattern and repositories.</td></tr>
+        <tr><td><code>kind</code></td><td>The <a href="/concepts#cost-kinds">cost kind</a>: direct, project overhead, organization overhead, personal or unattributed.</td></tr>
+      </tbody>
+    </table>
+    <p>Every other tag name is yours: <code>team</code>, <code>department</code>, <code>client</code>, <code>feature</code>, <code>purpose</code>.</p>
+
+    <h2 id="sources">Where tags come from</h2>
+    <table>
+      <thead><tr><th>Source</th><th>Example</th></tr></thead>
+      <tbody>
+        <tr><td>The person</td><td>A person tagged <code>team: web</code> passes it to their new token entries.</td></tr>
+        <tr><td>The project or ticket</td><td>A project tagged <code>client: acme</code> passes it to its token entries.</td></tr>
+        <tr><td><a href="/attribute/rules">Rules</a></td><td>A branch named <code>KD-214-fix</code> sets <code>ticket: KD-214</code>.</td></tr>
+        <tr><td>A repository's config file</td><td><code>.tokencontroller.toml</code> in a repository sets <code>project</code> or <code>purpose</code> for every session in it. See <a href="/attribute/repositories">Repository mapping</a>.</td></tr>
+        <tr><td><a href="/collect/telemetry">Telemetry</a></td><td>Resource attributes in the agent's managed settings tag a whole team at once, with no install.</td></tr>
+        <tr><td>Mod, CLI, GitHub Action, endpoint</td><td>Tags sent with the token entry.</td></tr>
+        <tr><td>The person on their token sheet</td><td>Picks or corrects the ticket and any other tag before submitting.</td></tr>
+      </tbody>
+    </table>
+    <p>Inherited tags are copied when a token entry arrives. When someone changes team, their earlier token entries keep the old team, so last month's reports do not change.</p>
+
+    <h2 id="map">The tag map</h2>
+    <p>Inside, every share of cost has exactly one cost center and one cost object. The tag map says which tags fill them.</p>
+    <table>
+      <thead><tr><th>Setting</th><th>Default</th><th>Example of a change</th></tr></thead>
+      <tbody>
+        <tr><td>Cost center</td><td><code>person</code></td><td><code>team</code>, when teams answer for money. Each token entry still has one agent manager who submits it and is asked about it.</td></tr>
+        <tr><td>Ladder (cost object)</td><td>ticket, project, organization</td><td>ticket, epic, project, client, organization</td></tr>
+        <tr><td>Required tags</td><td>the rung <code>project</code></td><td>the rung <code>ticket</code>, plus <code>purpose</code></td></tr>
+      </tbody>
+    </table>
+    <p>The <b>ladder</b> is read from the top. A token entry's cost object is the first rung with a value: no ticket, then its project; no project, then the organization. Rungs can be renamed, added and removed. A rung you add fills only if a project or ticket carries it, a rule sets it, or your ticket system sends it.</p>
+    <p>A token entry counts as <a href="/account/target">attributed</a> when every required tag has a value, or when its cost kind says it belongs to no project (personal, organization overhead). Everything else is unattributed.</p>
+    <p>Each closed period keeps the tag map it was closed with. Changing the map changes the meaning of reports from then on, so compare periods across a change with care.</p>
+
+    <h2 id="splits">Splits</h2>
+    <p>Most token entries are one piece with one set of tags. A session that worked on two tickets can be split, for example 60 percent to ACME-50 and 40 percent to GLOBEX-7. Each split has its own tags. The shares are the judgment of the person or the rule that made them, not a measurement.</p>
+
+    <h2 id="filters">Filters</h2>
+    <p>A filter is a set of tags, such as <code>client: acme</code>, or <code>team: web</code> and <code>project: acme-shop</code>. A token entry matches when it has every tag in it. Filters are used for:</p>
+    <ul>
+      <li><a href="/report/reports">reports</a>: a saved filter with a grouping, such as cost by team for <code>client: acme</code></li>
+      <li><a href="/account/token-budgets">token budgets</a>: money planned for a filter and a period</li>
+      <li><a href="/account/roles">people managers</a>: each is assigned the filters they read and approve</li>
+    </ul>
+    <p>Filters overlap. <code>team: web</code> and <code>client: acme</code> can count the same money, so two reports or two token budgets are never added together. Only grouping by one tag name, and the <a href="/report/cost-sheet">cost sheet</a>, add up to the total. Grouping by a tag that not every entry has shows a line for entries without it.</p>
+    <p>Tags do not touch the bill check. Residual, the part of a bill no token entry explains, has no tags, so a report filtered to one client never reaches the bill total.</p>
+
+    <h2 id="values">Keeping values clean</h2>
+    <p><code>acme</code>, <code>Acme</code> and <code>acme-corp</code> are three values. Ticket sync, rules and config files give clean values; hand-typed ones drift. A controller can merge values in an open period. After the close, only an <a href="/account/adjustments">adjustment</a> changes anything.</p>
+
+    <h2 id="next">Where to next</h2>
+    <div class="pager">
+      <a href="/account/organizations"><small>Account</small><b>Organization</b></a>
+      <a class="next" href="/account/projects"><small>Account</small><b>Projects and clients</b></a>
+    </div>
+
+
+    <div class="foot">
+      <span>Last updated 8 October 2026 · <a href="https://github.com/tokencontroller/tokencontroller/blob/main/apps/docs/pages/account_tags.html">Edit this page</a></span>
+      <span>© 2026 Jan Beck · <a href="https://tokencontroller.com/privacy">Privacy</a> · <a href="https://tokencontroller.com/imprint">Imprint</a></span>
+    </div>
+  </main>
+
+  <nav class="toc" aria-label="On this page">
+    <h4>On this page</h4>
+    <ul>
+      <li><a href="#tags">Tags</a></li>
+      <li><a href="#sources">Where tags come from</a></li>
+      <li><a href="#map">The tag map</a></li>
+      <li><a href="#splits">Splits</a></li>
+      <li><a href="#filters">Filters</a></li>
+      <li><a href="#values">Keeping values clean</a></li>
+      <li><a href="#next">Where to next</a></li>
+    </ul>
+  </nav>
+</div>
+
+</body>
+</html>
