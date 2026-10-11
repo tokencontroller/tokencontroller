@@ -1,0 +1,8 @@
+# CI runs the self-hosting compose file from the docs (compose.yaml) with the
+# freshly built image and a real secret key; nothing else differs.
+services:
+  tokencontroller:
+    image: ${TC_IMAGE:-tokencontroller:ci}
+    environment:
+      TC_PUBLIC_URL: http://localhost:8080
+      TC_SECRET_KEY: ci-only-secret-key-0123456789abcdef0123456789

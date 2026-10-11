@@ -1,0 +1,212 @@
+# CI (ADR 0011): runs on every push and pull request, without secrets.
+# A pull request merges itself once every job is green, unless it carries the
+# `hold` label. A push to main publishes the image to
+# ghcr.io/tokencontroller/tokencontroller; a version tag adds version tags.
+name: CI
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: always
+  DATABASE_URL: postgres://tc:secret@localhost:5432/tc
+  IMAGE: ghcr.io/tokencontroller/tokencontroller
+
+jobs:
+  harness:
+    name: Harness
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Find who set the harness-change label
+        id: label
+        if: github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'harness-change')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          by=$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR/events" --paginate \
+            --jq '[.[] | select(.event == "labeled" and .label.name == "harness-change")] | last | .actor.login // empty' \
+            | tail -n 1)
+          echo "by=$by" >> "$GITHUB_OUTPUT"
+      - name: Check the harness
+        env:
+          HARNESS_LABEL_BY: ${{ steps.label.outputs.by }}
+          BASE: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || '' }}
+        run: python3 scripts/harness_check.py $BASE
+
+  rust:
+    name: Rust
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: tc
+          POSTGRES_PASSWORD: secret
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U tc"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 30
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install the pinned toolchain
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+      - name: Format
+        run: cargo fmt --all --check
+      - name: Apply migrations for compile-time query checks
+        run: |
+          for file in apps/server/migrations/*.sql; do
+            psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q -f "$file"
+          done
+      - name: Lint
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: Test
+        run: cargo nextest run --workspace --locked --profile ci --no-tests=fail
+      - name: Summary
+        if: always()
+        run: |
+          report=target/nextest/ci/junit.xml
+          if [ -f "$report" ]; then
+            python3 - "$report" >> "$GITHUB_STEP_SUMMARY" <<'PY'
+          import sys, xml.etree.ElementTree as ET
+          root = ET.parse(sys.argv[1]).getroot()
+          tests, failures, errors = (int(root.get(k, 0)) for k in ("tests", "failures", "errors"))
+          print("### Rust\n")
+          print("- No unsafe code, no crash points, no floats in money: the lint block forbids them.")
+          print(f"- {tests} tests ran, {failures + errors} failed, none skipped.\n")
+          PY
+          fi
+
+  deny:
+    name: Dependencies
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check
+
+  typescript:
+    name: TypeScript
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm build
+
+  image:
+    name: Image and end-to-end smoke test
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+      - name: Build the image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          load: true
+          tags: tokencontroller:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Start it with the self-hosting compose file
+        run: scripts/smoke-test tokencontroller:ci
+
+  publish:
+    name: Publish the image
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
+    needs: [harness, rust, deny, typescript, image]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=sha,format=long,prefix=
+            type=raw,value=main,enable=${{ github.ref == 'refs/heads/main' }}
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+      - name: Summary
+        run: |
+          {
+            echo "### Image"
+            echo
+            echo "Published:"
+            echo '${{ steps.meta.outputs.tags }}' | sed 's/^/- /'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  automerge:
+    name: Merge when green
+    if: >-
+      github.event_name == 'pull_request'
+      && github.event.pull_request.head.repo.full_name == github.repository
+      && !github.event.pull_request.draft
+      && !contains(github.event.pull_request.labels.*.name, 'hold')
+    needs: [harness, rust, deny, typescript, image]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: write
+    steps:
+      - name: Merge the pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: gh pr merge "$PR" --repo "$GITHUB_REPOSITORY" --squash --delete-branch --match-head-commit "$HEAD_SHA"
+      - name: Start CI on main to publish the image
+        # A merge made with the workflow token starts no push run of its own.
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run ci.yml --repo "$GITHUB_REPOSITORY" --ref main

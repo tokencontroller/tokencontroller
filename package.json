@@ -1,0 +1,15 @@
+{
+  "name": "tokencontroller",
+  "private": true,
+  "description": "The TypeScript side of Token Controller: web app, mods, GitHub Action and SDK. Each workspace package defines lint, typecheck, test and build scripts; CI runs them in every package that has them.",
+  "packageManager": "pnpm@10.28.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "lint": "pnpm -r --if-present run lint",
+    "typecheck": "pnpm -r --if-present run typecheck",
+    "test": "pnpm -r --if-present run test",
+    "build": "pnpm -r --if-present run build"
+  }
+}

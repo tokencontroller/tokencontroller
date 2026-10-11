@@ -1,0 +1,3 @@
+# cargo-mutants settings (ADR 0003). The extension hooks are do-nothing
+# defaults on purpose, so mutating them proves nothing.
+exclude_globs = ["crates/core/src/extension.rs"]

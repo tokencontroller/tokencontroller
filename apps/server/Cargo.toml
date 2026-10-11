@@ -1,0 +1,38 @@
+[package]
+name = "tokencontroller-server"
+description = "The Token Controller service: API, telemetry ingest, background jobs and the web app"
+version = "1.0.0"
+license = "AGPL-3.0-only"
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lib]
+name = "tokencontroller_server"
+
+[[bin]]
+name = "tokencontroller"
+path = "src/main.rs"
+
+[dependencies]
+tokencontroller-core.workspace = true
+anyhow.workspace = true
+axum.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sqlx.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tower-http.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+utoipa.workspace = true
+utoipa-axum.workspace = true
+
+[dev-dependencies]
+http-body-util = "0.1.5"
+tower.workspace = true
+
+[lints]
+workspace = true

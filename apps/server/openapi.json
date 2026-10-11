@@ -1,0 +1,103 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Token Controller API",
+    "description": "The versioned REST API of Token Controller. Everything the web app does goes through it. See docs.tokencontroller.com/reference/api.",
+    "license": {
+      "name": "AGPL-3.0-only",
+      "identifier": "AGPL-3.0-only"
+    },
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/api/v1/health": {
+      "get": {
+        "tags": [
+          "status"
+        ],
+        "summary": "Is the service up and can it reach its database?",
+        "operationId": "health",
+        "responses": {
+          "200": {
+            "description": "The service works",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Health"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A check is failing",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Health"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Check": {
+        "type": "string",
+        "description": "Whether one part of the service works.",
+        "enum": [
+          "ok",
+          "failing"
+        ]
+      },
+      "ErrorBody": {
+        "type": "object",
+        "description": "The body of every error response.",
+        "required": [
+          "error",
+          "message"
+        ],
+        "properties": {
+          "error": {
+            "type": "string",
+            "description": "A stable code, such as `not_found`."
+          },
+          "message": {
+            "type": "string",
+            "description": "What went wrong, in plain English."
+          }
+        }
+      },
+      "Health": {
+        "type": "object",
+        "description": "The answer of the health endpoint.",
+        "required": [
+          "status",
+          "version",
+          "edition",
+          "database"
+        ],
+        "properties": {
+          "database": {
+            "$ref": "#/components/schemas/Check",
+            "description": "Whether Postgres answers."
+          },
+          "edition": {
+            "type": "string",
+            "description": "`open`, or the edition the Enterprise plan build reports."
+          },
+          "status": {
+            "$ref": "#/components/schemas/Check",
+            "description": "`ok` when every check is `ok`."
+          },
+          "version": {
+            "type": "string",
+            "description": "The running version, such as `1.0.0`."
+          }
+        }
+      }
+    }
+  }
+}

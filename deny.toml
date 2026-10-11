@@ -1,0 +1,43 @@
+# cargo-deny (ADR 0003): advisories, licenses and sources of every dependency.
+# Owned by the maintainer: changing this file needs the harness-change label.
+
+[graph]
+all-features = true
+
+[advisories]
+version = 2
+yanked = "deny"
+
+[licenses]
+version = 2
+confidence-threshold = 0.9
+# Licenses that may be combined with both the AGPL service and the MIT tools.
+allow = [
+    "MIT",
+    "MIT-0",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "Unicode-3.0",
+    "CDLA-Permissive-2.0",
+    "0BSD",
+]
+
+unused-allowed-license = "allow"
+
+# Our own crates are not published; their licenses are set in each Cargo.toml.
+[licenses.private]
+ignore = true
+
+[bans]
+multiple-versions = "allow"
+wildcards = "deny"
+allow-wildcard-paths = true
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
