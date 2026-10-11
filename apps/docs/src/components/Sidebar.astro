@@ -1,0 +1,29 @@
+---
+// The sidebar from src/sidebar.mjs: groups with their pages, in the same markup as before Starlight.
+const { sidebar } = Astro.locals.starlightRoute;
+---
+
+<div class="side">
+  <div class="ver">Version <b>1.0.0</b></div>
+  {
+    sidebar.map((group) =>
+      group.type === 'group' ? (
+        <div class="grp">
+          <h4>{group.label}</h4>
+          <ul>
+            {group.entries.map(
+              (e) =>
+                e.type === 'link' && (
+                  <li>
+                    <a href={e.href} class:list={{ cur: e.isCurrent }} aria-current={e.isCurrent ? 'page' : undefined}>
+                      {e.label}
+                    </a>
+                  </li>
+                )
+            )}
+          </ul>
+        </div>
+      ) : null
+    )
+  }
+</div>

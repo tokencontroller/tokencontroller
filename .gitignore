@@ -1,5 +1,5 @@
 .DS_Store
-/target
 node_modules/
+/target
 .env
 mutants.out*/

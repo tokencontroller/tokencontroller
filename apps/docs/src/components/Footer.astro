@@ -1,0 +1,37 @@
+---
+import { groupOf } from './groups';
+
+const { pagination, sidebar, editUrl, lastUpdated } = Astro.locals.starlightRoute;
+const { prev, next } = pagination;
+const date = (d: Date) => d.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+---
+
+{
+  (prev || next) && (
+    <div class="pager">
+      {prev ? (
+        <a href={prev.href}>
+          <small>{groupOf(sidebar, { href: prev.href })}</small>
+          <b>{prev.label}</b>
+        </a>
+      ) : (
+        <span />
+      )}
+      {next && (
+        <a class="next" href={next.href}>
+          <small>{groupOf(sidebar, { href: next.href })}</small>
+          <b>{next.label}</b>
+        </a>
+      )}
+    </div>
+  )
+}
+
+<div class="foot">
+  <span>
+    {lastUpdated && <>Last updated {date(lastUpdated)}</>}
+    {lastUpdated && editUrl && ' · '}
+    {editUrl && <a href={editUrl}>Edit this page</a>}
+  </span>
+  <span>© 2026 Jan Beck · <a href="https://tokencontroller.com/privacy">Privacy</a> · <a href="https://tokencontroller.com/imprint">Imprint</a></span>
+</div>

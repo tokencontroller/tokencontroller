@@ -1,4 +1,9 @@
 # One pnpm workspace for every TypeScript project in this repo.
 packages:
-  - "apps/*"
-  - "packages/*"
+  - apps/*
+  - packages/*
+
+# Dependencies allowed to run install scripts.
+onlyBuiltDependencies:
+  - esbuild
+  - sharp
