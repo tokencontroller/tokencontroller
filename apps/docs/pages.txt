@@ -65,3 +65,4 @@ reference/cli|CLI|Reference|Every tc command.|pages/reference_cli.html
 reference/api|HTTP API|Reference|Tokens and main endpoints of the versioned REST API.|pages/reference_api.html
 reference/token-entry|Token entry schema|Reference|The fields of a token entry.|pages/reference_token-entry.html
 reference/bill|Bill schema|Reference|The fields of a bill.|pages/reference_bill.html
+changelog|Changelog|Reference|Every release of Token Controller, newest first.|pages/changelog.html

@@ -1,0 +1,21 @@
+    <p class="lead">Every release of the service, the Claude Code mod and the CLI. The hosted service runs the latest version. A self-hosted instance upgrades by pulling the new image; see <a href="/self-hosting/upgrades">Upgrades and backups</a>.</p>
+
+    <h2 id="versions">Versions</h2>
+    <p>Version numbers follow semantic versioning. A new major version can change the API or the database. Read its entry before you upgrade a self-hosted instance. The Docker image is tagged with each version, such as <code>ghcr.io/tokencontroller/tokencontroller:1.0</code>.</p>
+
+    <h2 id="v1-0-0">1.0.0</h2>
+    <p>First release.</p>
+    <ul>
+      <li>The <a href="/collect/claude-code">Claude Code mod</a> and the <a href="/collect/cli">CLI</a>, <code>tc</code>, which read session files, place token entries with your rules and submit token sheets.</li>
+      <li><a href="/collect/telemetry">Telemetry ingest</a> over OpenTelemetry for Claude Code, Codex CLI, Gemini CLI, Copilot CLI and Cursor.</li>
+      <li>The <a href="/collect/token-entries">token entries endpoint</a> for any other agent, and <a href="/collect/manual">token entries by hand or from a CSV file</a>.</li>
+      <li>The <a href="/collect/github-action">GitHub Action</a> for agents that run in CI, such as a PR review bot.</li>
+      <li><a href="/attribute/rules">Rules</a>, <a href="/attribute/repositories">repository mappings</a> and <a href="/attribute/ticket-keys">ticket key patterns</a> that place token entries on tickets and projects, and an optional <a href="/attribute/classifier">classifier</a> on your own machine.</li>
+      <li><a href="/account/bills">Bills</a> from Anthropic and OpenAI, and any bill by CSV.</li>
+      <li>Ticket sync from <a href="/integrations/jira">Jira Cloud</a>, <a href="/integrations/azure-devops">Azure DevOps</a> and <a href="/integrations/github-issues">GitHub Issues</a>.</li>
+      <li><a href="/account/token-budgets">Token budgets and token forecasts</a>, compared with actual cost.</li>
+      <li><a href="/account/approval">Approval</a>, the <a href="/account/close">close</a>, <a href="/account/adjustments">adjustments</a> and the <a href="/report/cost-sheet">cost sheet</a>.</li>
+      <li><a href="/report/reports">Reports</a> by team and person and by client, project and ticket, the <a href="/report/outliers">outliers</a> report and the <a href="/report/agent-harness">agent harness</a> report.</li>
+      <li><a href="/report/exports">CSV exports</a>, the <a href="/report/reporting-api">reporting API</a> and the <a href="/report/raw-export">raw export</a>.</li>
+      <li>The <a href="/self-hosting">self-hosted Docker image</a>, the same as the hosted Team plan.</li>
+    </ul>

@@ -4,6 +4,9 @@
 {
   "name": "tokencontroller-docs",
   "compatibility_date": "2026-09-01",
+  // No workers.dev site; each pull request still gets its own Preview URL.
+  "workers_dev": false,
+  "preview_urls": true,
   "assets": {
     "directory": "./site",
     "html_handling": "drop-trailing-slash",
