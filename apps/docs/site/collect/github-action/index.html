@@ -227,7 +227,7 @@ td:first-child{font-weight:600;white-space:nowrap}
 
     <h2 id="setup">Set up</h2>
 <pre><code><span class="c"># .github/workflows/review.yml, after the step that runs your agent</span>
-- uses: tokencontroller/action@v1
+- uses: tokencontroller/tokencontroller/packages/github-action@v1
   with:
     project: storefront
     ticket: ${{ steps.plan.outputs.ticket }}  <span class="c"># optional</span>
