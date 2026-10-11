@@ -1,7 +1,7 @@
-    <p class="lead">One session is one token entry. Long sessions move between branches, so they are split into segments, and subagents are placed on their own signals.</p>
+    <p class="lead">One session is one token entry. Long sessions move between branches, so they are split into segments, each with its own tags, and subagents are tagged by their own signals.</p>
 
     <h2 id="segments">Segments</h2>
-    <p>A session that changes branch or working directory is split into segments. Each segment is placed on its own, so one morning's session can post to two tickets.</p>
+    <p>A session that changes branch or working directory is split into segments. Each segment becomes a <a href="/account/tags#splits">split</a> with its own tags, so one morning's session can land on two tickets.</p>
 
     <h2 id="grain">Measured per message</h2>
     <p>Cost is measured per message, not per session. That is how segments split exactly, and how telemetry and bills join token entries: by message and request IDs.</p>

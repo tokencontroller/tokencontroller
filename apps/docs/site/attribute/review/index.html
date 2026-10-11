@@ -154,19 +154,16 @@ td:first-child{font-weight:600;white-space:nowrap}
       <li><a href="/attribute/classifier">Classifier</a></li>
     </ul></div>
     <div class="grp"><h4>Account</h4><ul>
-      <li><a href="/account/organizations">Organization</a></li>
+      <li><a href="/account/organizations">Organization settings</a></li>
       <li><a href="/account/tags">Tags and the tag map</a></li>
+      <li><a href="/account/projects">Projects and tickets</a></li>
       <li><a href="/account/roles">Roles</a></li>
-      <li><a href="/account/projects">Projects and clients</a></li>
-      <li><a href="/account/tickets">Tickets</a></li>
-      <li><a href="/account/agent-managers">Agent managers</a></li>
       <li><a href="/account/token-budgets">Token budgets and forecasts</a></li>
       <li><a href="/account/cadence">Cadence and token sheets</a></li>
       <li><a href="/account/approval">Approval</a></li>
       <li><a href="/account/bills">Bills</a></li>
       <li><a href="/account/close">Monthly close</a></li>
       <li><a href="/account/adjustments">Adjustments</a></li>
-      <li><a href="/account/target">Attribution target</a></li>
     </ul></div>
     <div class="grp"><h4>Report</h4><ul>
       <li><a href="/report/cost-sheet">The cost sheet</a></li>
@@ -215,7 +212,7 @@ td:first-child{font-weight:600;white-space:nowrap}
   <main class="main">
     <div class="crumb"><a href="/">Docs</a> / Attribute / Review and submit</div>
     <h1>Review and submit</h1>
-    <p class="lead">Before you submit, you see every draft token entry and where it was placed. You only fix the exceptions.</p>
+    <p class="lead">Before you submit, you see every draft token entry and its tags. You only fix the exceptions.</p>
 
     <details class="mside"><summary>Browse the docs</summary><div class="side">
       <div class="grp"><h4>Getting started</h4><ul><li><a href="/">Overview</a></li><li><a href="/quick-start">Quick start</a></li><li><a href="/concepts">Concepts</a></li><li><a href="/plans">Plans and limits</a></li><li><a href="/scope">Scope</a></li></ul></div>
@@ -230,17 +227,19 @@ td:first-child{font-weight:600;white-space:nowrap}
 
     <h2 id="review">Review</h2>
 <pre><code>tc review
-<span class="p">  #  when    cost     placed on            by
-  1  09:12   $41.87   KD-214 Checkout      rule: ticket key in branch
-  2  11:46   $12.10   KD-214 Checkout      rule: ticket key in branch
-  3  13:05   $88.30   KD-231 Search        rule: ticket key in PR title
-  4  15:20    $9.75   Storefront (project) rule: repository
-  5  16:41   $60.38   ?                    unattributed, 2 candidates</span></code></pre>
+<span class="p">  #  when    cost     tags                              by
+  1  09:12   $41.87   ticket KD-214 · team web          rule: ticket key in branch
+  2  11:46   $12.10   ticket KD-214 · team web          rule: ticket key in branch
+  3  13:05   $88.30   ticket KD-231 · team web          rule: ticket key in PR title
+  4  15:20    $9.75   project storefront · team web     rule: repository
+  5  16:41   $60.38   team web                          unattributed, 2 candidates</span></code></pre>
     <p>The same list is in the Claude Code mod's pane and in the web app.</p>
 
     <h2 id="fix">Fix what is wrong</h2>
-<pre><code>tc place 5 KD-231        <span class="c"># place on a ticket</span>
-tc place 4 --personal    <span class="c"># mark as personal</span></code></pre>
+<pre><code>tc tag 5 ticket=KD-231              <span class="c"># set the ticket</span>
+tc tag 4 kind=personal              <span class="c"># mark as personal</span>
+tc split 3 KD-231=60 KD-240=40      <span class="c"># one session, two tickets</span></code></pre>
+    <p>Project, client and the other inherited tags follow from the ticket. You can set any tag on your organization's list the same way.</p>
     <p>If the same fix keeps coming back, turn it into a <a href="/attribute/rules">rule</a>.</p>
 
     <h2 id="submit">Submit</h2>

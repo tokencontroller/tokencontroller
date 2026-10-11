@@ -25,17 +25,14 @@ attribute/ci|CI agents|Attribute|How cost from agents that run without a person 
 attribute/review|Review and submit|Attribute|Check draft token entries, fix the exceptions, submit the token sheet.|pages/attribute_review.html
 attribute/classifier|Classifier|Attribute|An optional program on your machine that picks the ticket when rules cannot.|pages/attribute_classifier.html
 account/cadence|Cadence and token sheets|Account|Token sheets, cadence and what late means.|pages/account_cadence.html
-account/organizations|Organization|Account|Organization settings, teams, and what happens when someone moves.|pages/account_organizations.html
-account/tags|Tags and the tag map|Account|Tags on token entries, where they come from, and which tags fill the cost center and the cost object.|pages/account_tags.html
-account/projects|Projects and clients|Account|What a project has, and how a client tag totals projects.|pages/account_projects.html
-account/tickets|Tickets|Account|Synced and manual tickets, tickets inside tickets, and the assignee.|pages/account_tickets.html
-account/agent-managers|Agent managers|Account|Who answers for a token entry, and how automations are handed over.|pages/account_agent-managers.html
+account/organizations|Organization settings|Account|What a controller sets up once, and inviting people.|pages/account_organizations.html
+account/tags|Tags and the tag map|Account|Tags on token entries, teams, the tag map for cost center and cost object, attribution and splits.|pages/account_tags.html
+account/projects|Projects and tickets|Account|The two built-in tags with records behind them: projects, clients, synced and manual tickets.|pages/account_projects.html
 account/token-budgets|Token budgets and forecasts|Account|Plan money for people, tickets, projects and periods, or accept a token forecast.|pages/account_token-budgets.html
 account/approval|Approval|Account|Approval on or off, and rejecting token entries with a reason.|pages/account_approval.html
 account/bills|Bills|Account|Where bills come from, reconciliation, and list value against billed value.|pages/account_bills.html
 account/close|Monthly close|Account|Closing a period and what happens after.|pages/account_close.html
 account/adjustments|Adjustments|Account|Signed corrections to closed periods.|pages/account_adjustments.html
-account/target|Attribution target|Account|The share of cost your organization aims to have tagged with a project or ticket.|pages/account_target.html
 report/cost-sheet|The cost sheet|Report|The locked account of one closed period, adding up to the bill.|pages/report_cost-sheet.html
 report/reports|Reading reports|Report|The reports, what they answer, and how summaries and status show in them.|pages/report_reports.html
 report/token-budget-vs-actual|Token budget vs actual|Report|Actual cost against token budget per person, ticket and project.|pages/report_token-budget-vs-actual.html

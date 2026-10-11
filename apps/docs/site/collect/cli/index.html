@@ -154,19 +154,16 @@ td:first-child{font-weight:600;white-space:nowrap}
       <li><a href="/attribute/classifier">Classifier</a></li>
     </ul></div>
     <div class="grp"><h4>Account</h4><ul>
-      <li><a href="/account/organizations">Organization</a></li>
+      <li><a href="/account/organizations">Organization settings</a></li>
       <li><a href="/account/tags">Tags and the tag map</a></li>
+      <li><a href="/account/projects">Projects and tickets</a></li>
       <li><a href="/account/roles">Roles</a></li>
-      <li><a href="/account/projects">Projects and clients</a></li>
-      <li><a href="/account/tickets">Tickets</a></li>
-      <li><a href="/account/agent-managers">Agent managers</a></li>
       <li><a href="/account/token-budgets">Token budgets and forecasts</a></li>
       <li><a href="/account/cadence">Cadence and token sheets</a></li>
       <li><a href="/account/approval">Approval</a></li>
       <li><a href="/account/bills">Bills</a></li>
       <li><a href="/account/close">Monthly close</a></li>
       <li><a href="/account/adjustments">Adjustments</a></li>
-      <li><a href="/account/target">Attribution target</a></li>
     </ul></div>
     <div class="grp"><h4>Report</h4><ul>
       <li><a href="/report/cost-sheet">The cost sheet</a></li>
@@ -243,9 +240,9 @@ tc status</code></pre>
 
     <h2 id="daily">Everyday commands</h2>
 <pre><code>tc review                 <span class="c"># your draft token entries and where they were placed</span>
-tc place 5 KD-231         <span class="c"># place entry 5 on a ticket by hand</span>
+tc tag 5 ticket=KD-231    <span class="c"># set a tag on entry 5 by hand</span>
 tc submit                 <span class="c"># submit your token sheet</span>
-tc report --by ticket     <span class="c"># cost per ticket</span>
+tc report --by team       <span class="c"># cost per value of any tag</span>
 tc export --csv           <span class="c"># everything as CSV, for a spreadsheet</span></code></pre>
     <p>The export is enough to report by hand when your organization has no service. The full list of commands is in the <a href="/reference/cli">CLI reference</a>.</p>
 

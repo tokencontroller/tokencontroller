@@ -15,9 +15,12 @@
     <h2 id="scope">What a people manager sees</h2>
     <p>A people manager sees cost per person within what they are assigned. A controller sees cost per person for the whole organization. There is no mode that hides people behind team totals; see <a href="/scope">Scope</a>.</p>
 
+    <h2 id="agent-manager">The agent manager of a token entry</h2>
+    <p>Every token entry has exactly one agent manager, who answers for it: submits it, gets asked about it, and sees it. For your own sessions that is you. For a CI agent or another automation it is the person who created the service token it reports with. The agent manager is the default <a href="/account/tags#map">cost center</a>; an organization that maps the cost center to <code>team</code> rolls the money up to the team, and the agent manager still answers for the entry.</p>
+    <p>If an automation's service token belongs to nobody, for example because its creator left, its token entries show as an error to people managers until someone takes it over. To hand an automation over, move its service token to another person in the web app. Only future token entries follow.</p>
+
     <h2 id="not-roles">Relationships that are not roles</h2>
-    <p>A ticket has an <b>assignee</b>, the person it is assigned to. Being an assignee grants nothing and costs nothing: the cost of a ticket sits with the agent manager of each token entry on it.</p>
-    <p>Every token entry has exactly one <b>agent manager</b>, who answers for its cost. For a CI automation that is the person who set it up.</p>
+    <p>A ticket has an <b>assignee</b>, the person it is assigned to. Being an assignee grants nothing and costs nothing: the cost of a ticket sits with the cost center of each token entry on it.</p>
 
     <h2 id="finance">Finance</h2>
     <p>Finance needs no login and sets nothing up. A controller hands finance the <a href="/report/cost-sheet">cost sheet</a> or a CSV export.</p>

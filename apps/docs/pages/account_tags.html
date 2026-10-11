@@ -7,7 +7,7 @@
       <thead><tr><th>Built-in tag</th><th>Value</th></tr></thead>
       <tbody>
         <tr><td><code>person</code></td><td>The token entry's agent manager. Always set.</td></tr>
-        <tr><td><code>ticket</code></td><td>A <a href="/account/tickets">ticket</a>, synced from your ticket system or created by hand, with its title, description and parent.</td></tr>
+        <tr><td><code>ticket</code></td><td>A <a href="/account/projects#tickets">ticket</a>, synced from your ticket system or created by hand, with its title, description and parent.</td></tr>
         <tr><td><code>project</code></td><td>A <a href="/account/projects">project</a>, with its ticket key pattern and repositories.</td></tr>
         <tr><td><code>kind</code></td><td>The <a href="/concepts#cost-kinds">cost kind</a>: direct, project overhead, organization overhead, personal or unattributed.</td></tr>
       </tbody>
@@ -29,6 +29,9 @@
     </table>
     <p>Inherited tags are copied when a token entry arrives. When someone changes team, their earlier token entries keep the old team, so last month's reports do not change.</p>
 
+    <h2 id="teams">Teams and departments</h2>
+    <p>Teams, departments and disciplines are tags on people, such as <code>team: web</code> or <code>department: engineering</code>. Token Controller does not model an org chart. A person has one value per tag name: someone in two teams picks a main one, or the organization adds a second tag name such as <code>guild</code>. Teams are separate from projects on purpose, so one person can work on several projects whatever team they are in.</p>
+
     <h2 id="map">The tag map</h2>
     <p>Inside, every share of cost has exactly one cost center and one cost object. The tag map says which tags fill them.</p>
     <table>
@@ -40,11 +43,18 @@
       </tbody>
     </table>
     <p>The <b>ladder</b> is read from the top. A token entry's cost object is the first rung with a value: no ticket, then its project; no project, then the organization. Rungs can be renamed, added and removed. A rung you add fills only if a project or ticket carries it, a rule sets it, or your ticket system sends it.</p>
-    <p>A token entry counts as <a href="/account/target">attributed</a> when every required tag has a value, or when its cost kind says it belongs to no project (personal, organization overhead). Everything else is unattributed.</p>
     <p>Each closed period keeps the tag map it was closed with. Changing the map changes the meaning of reports from then on, so compare periods across a change with care.</p>
 
+    <h2 id="attributed">Attributed and the target</h2>
+    <p>A token entry counts as attributed when every required tag has a value, or when its cost kind says it belongs to no project: personal and organization overhead count. Everything else is unattributed and sits on the organization as its own line. Attribution is the attributed share of all cost.</p>
+    <p>The <b>attribution target</b> is the share your organization aims for. The default is 80 percent with <code>project</code> required. Expect 70 to 80 percent at first; it rises as you add <a href="/attribute/rules">rules</a> and people fix exceptions. You see it on the rules page, in reports, in the Claude Code mod's band and on the cost sheet.</p>
+
     <h2 id="splits">Splits</h2>
-    <p>Most token entries are one piece with one set of tags. A session that worked on two tickets can be split, for example 60 percent to ACME-50 and 40 percent to GLOBEX-7. Each split has its own tags. The shares are the judgment of the person or the rule that made them, not a measurement.</p>
+    <p>Most token entries are one piece with one set of tags. A token entry with two sets of tags is split, and each split has its own tags:</p>
+    <ul>
+      <li><b>By segment.</b> A session that changes branch or working directory is split where it changed, measured message by message. See <a href="/attribute/sessions">Sessions and subagents</a>.</li>
+      <li><b>By hand.</b> A person splits a token entry on their token sheet, for example 60 percent to ACME-50 and 40 percent to GLOBEX-7. These shares are a judgment, not a measurement.</li>
+    </ul>
 
     <h2 id="filters">Filters</h2>
     <p>A filter is a set of tags, such as <code>client: acme</code>, or <code>team: web</code> and <code>project: acme-shop</code>. A token entry matches when it has every tag in it. Filters are used for:</p>
@@ -61,6 +71,6 @@
 
     <h2 id="next">Where to next</h2>
     <div class="pager">
-      <a href="/account/organizations"><small>Account</small><b>Organization</b></a>
-      <a class="next" href="/account/projects"><small>Account</small><b>Projects and clients</b></a>
+      <a href="/account/organizations"><small>Account</small><b>Organization settings</b></a>
+      <a class="next" href="/account/projects"><small>Account</small><b>Projects and tickets</b></a>
     </div>

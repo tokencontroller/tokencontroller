@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Organization — Token Controller Docs</title>
-<meta name="description" content="Organization settings, teams, and what happens when someone moves.">
+<title>Organization settings — Token Controller Docs</title>
+<meta name="description" content="What a controller sets up once, and inviting people.">
 <link rel="canonical" href="https://docs.tokencontroller.com/account/organizations">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 28 28'%3E%3Crect x='2' y='2' width='24' height='24' rx='7' fill='%230F3D33'/%3E%3Crect x='8' y='10' width='12' height='2.6' rx='1.3' fill='white'/%3E%3Crect x='8' y='15.4' width='12' height='2.6' rx='1.3' fill='white'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -154,19 +154,16 @@ td:first-child{font-weight:600;white-space:nowrap}
       <li><a href="/attribute/classifier">Classifier</a></li>
     </ul></div>
     <div class="grp"><h4>Account</h4><ul>
-      <li><a class="cur" href="/account/organizations">Organization</a></li>
+      <li><a class="cur" href="/account/organizations">Organization settings</a></li>
       <li><a href="/account/tags">Tags and the tag map</a></li>
+      <li><a href="/account/projects">Projects and tickets</a></li>
       <li><a href="/account/roles">Roles</a></li>
-      <li><a href="/account/projects">Projects and clients</a></li>
-      <li><a href="/account/tickets">Tickets</a></li>
-      <li><a href="/account/agent-managers">Agent managers</a></li>
       <li><a href="/account/token-budgets">Token budgets and forecasts</a></li>
       <li><a href="/account/cadence">Cadence and token sheets</a></li>
       <li><a href="/account/approval">Approval</a></li>
       <li><a href="/account/bills">Bills</a></li>
       <li><a href="/account/close">Monthly close</a></li>
       <li><a href="/account/adjustments">Adjustments</a></li>
-      <li><a href="/account/target">Attribution target</a></li>
     </ul></div>
     <div class="grp"><h4>Report</h4><ul>
       <li><a href="/report/cost-sheet">The cost sheet</a></li>
@@ -213,9 +210,9 @@ td:first-child{font-weight:600;white-space:nowrap}
   </aside>
 
   <main class="main">
-    <div class="crumb"><a href="/">Docs</a> / Account / Organization</div>
-    <h1>Organization</h1>
-    <p class="lead">An organization is one customer of Token Controller: its people, projects, tags and periods. It has one reporting currency.</p>
+    <div class="crumb"><a href="/">Docs</a> / Account / Organization settings</div>
+    <h1>Organization settings</h1>
+    <p class="lead">An organization is one customer of Token Controller: its people, projects, tags and periods. A controller sets it up once.</p>
 
     <details class="mside"><summary>Browse the docs</summary><div class="side">
       <div class="grp"><h4>Getting started</h4><ul><li><a href="/">Overview</a></li><li><a href="/quick-start">Quick start</a></li><li><a href="/concepts">Concepts</a></li><li><a href="/plans">Plans and limits</a></li><li><a href="/scope">Scope</a></li></ul></div>
@@ -233,20 +230,23 @@ td:first-child{font-weight:600;white-space:nowrap}
       <thead><tr><th>Setting</th><th>What it does</th></tr></thead>
       <tbody>
         <tr><td>Cost source</td><td>How your provider charges you. It decides what the close reconciles against; see <a href="/account/bills">Bills</a>.</td></tr>
-        <tr><td>Attribution target</td><td>The share of cost you aim to place. Default 80 percent. Which tags must be filled to count is part of the <a href="/account/tags#map">tag map</a>.</td></tr>
         <tr><td>Reporting currency</td><td>The one currency the organization computes in. Bills in other currencies are booked at the exchange rate of their date.</td></tr>
+        <tr><td>Tag names and tag map</td><td>The tag names your organization uses, which tag is the cost center, the ladder for the cost object, the required tags and the attribution target. See <a href="/account/tags">Tags and the tag map</a>.</td></tr>
+        <tr><td>Ticket systems</td><td>Where tickets sync from. See <a href="/account/projects#tickets">Projects and tickets</a>.</td></tr>
+        <tr><td>Organization rules</td><td>Rules that run before everyone's personal rules. See <a href="/attribute/rules">Rules</a>.</td></tr>
         <tr><td>Approval</td><td>On or off. See <a href="/account/approval">Approval</a>.</td></tr>
-        <tr><td>Tag names and tag map</td><td>The tag names your organization uses, which tag is the cost center, the ladder for the cost object, and the required tags. See <a href="/account/tags">Tags and the tag map</a>.</td></tr>
         <tr><td>Sign-in</td><td>Which <a href="/integrations/sign-in">sign-in providers</a> members may use, and which email domains.</td></tr>
       </tbody>
     </table>
 
-    <h2 id="teams">Teams and departments</h2>
-    <p>Teams, departments and disciplines are tags on people, such as <code>team: web</code> or <code>discipline: design</code>. A person has one value per tag name; someone in two teams picks a main one, or the organization uses a second tag name such as <code>guild</code>. Token entries inherit the person's tags, so reports, token budgets and people managers' access work by team like by any other tag. Token Controller does not model your org chart.</p>
-    <p>Teams are separate from projects on purpose: one person can work on several projects whatever team they are in.</p>
+    <h2 id="people">People</h2>
+    <p>Invite people by email. Each gets a <a href="/account/roles">role</a> and their tags, such as <code>team: web</code>. When a person changes team or leaves, only their future token entries follow; last month's reports do not change.</p>
 
-    <h2 id="changes">When someone moves</h2>
-    <p>When a person changes team or leaves, only future token entries follow. Past token entries keep the tags they had, so last month's reports do not change.</p>
+    <h2 id="next">Where to next</h2>
+    <div class="pager">
+      <a href="/concepts"><small>Getting started</small><b>Concepts</b></a>
+      <a class="next" href="/account/tags"><small>Account</small><b>Tags and the tag map</b></a>
+    </div>
 
 
     <div class="foot">
@@ -259,8 +259,8 @@ td:first-child{font-weight:600;white-space:nowrap}
     <h4>On this page</h4>
     <ul>
       <li><a href="#settings">Organization settings</a></li>
-      <li><a href="#teams">Teams and departments</a></li>
-      <li><a href="#changes">When someone moves</a></li>
+      <li><a href="#people">People</a></li>
+      <li><a href="#next">Where to next</a></li>
     </ul>
   </nav>
 </div>

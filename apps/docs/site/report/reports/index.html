@@ -154,19 +154,16 @@ td:first-child{font-weight:600;white-space:nowrap}
       <li><a href="/attribute/classifier">Classifier</a></li>
     </ul></div>
     <div class="grp"><h4>Account</h4><ul>
-      <li><a href="/account/organizations">Organization</a></li>
+      <li><a href="/account/organizations">Organization settings</a></li>
       <li><a href="/account/tags">Tags and the tag map</a></li>
+      <li><a href="/account/projects">Projects and tickets</a></li>
       <li><a href="/account/roles">Roles</a></li>
-      <li><a href="/account/projects">Projects and clients</a></li>
-      <li><a href="/account/tickets">Tickets</a></li>
-      <li><a href="/account/agent-managers">Agent managers</a></li>
       <li><a href="/account/token-budgets">Token budgets and forecasts</a></li>
       <li><a href="/account/cadence">Cadence and token sheets</a></li>
       <li><a href="/account/approval">Approval</a></li>
       <li><a href="/account/bills">Bills</a></li>
       <li><a href="/account/close">Monthly close</a></li>
       <li><a href="/account/adjustments">Adjustments</a></li>
-      <li><a href="/account/target">Attribution target</a></li>
     </ul></div>
     <div class="grp"><h4>Report</h4><ul>
       <li><a href="/report/cost-sheet">The cost sheet</a></li>
@@ -232,12 +229,14 @@ td:first-child{font-weight:600;white-space:nowrap}
     <table>
       <thead><tr><th>Report</th><th>Answers</th></tr></thead>
       <tbody>
-        <tr><td><a href="/report/token-budget-vs-actual">Token budget vs actual</a></td><td>Which people, tickets and projects ran over or under?</td></tr>
+        <tr><td>Your own reports</td><td>Any saved tag filter with a grouping, such as cost per team for <code>client: acme</code>.</td></tr>
+        <tr><td><a href="/report/token-budget-vs-actual">Token budget vs actual</a></td><td>Which token budgets ran over or under?</td></tr>
         <tr><td><a href="/report/agent-harness">Agent harness reports</a></td><td>What does each agent harness, agent name and model cost?</td></tr>
         <tr><td><a href="/report/outliers">Outliers</a></td><td>Which work cost far more or less than usual?</td></tr>
-        <tr><td><a href="/report/cost-sheet">Cost sheet</a></td><td>What did a closed period cost, per project and ticket?</td></tr>
+        <tr><td><a href="/report/cost-sheet">Cost sheet</a></td><td>What did a closed period cost, per project and ticket, adding up to the bill?</td></tr>
       </tbody>
     </table>
+    <p>Reports filtered by different tags overlap: cost per team and cost per client can count the same money. Add up lines within one report, never across reports. Residual has no tags, so a filtered report never reaches the bill total; only the cost sheet does.</p>
 
     <h2 id="summary">Summaries</h2>
     <p>Every token entry carries the agent's summary, so a number in a report can always be opened down to what the work was.</p>
