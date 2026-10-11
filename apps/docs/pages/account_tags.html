@@ -2,14 +2,13 @@
 
     <h2 id="tags">Tags</h2>
     <p>A tag is a name and a value. A token entry has at most one value per tag name, so cost grouped by one tag name always adds up to the total. An entry cannot be <code>team: web</code> and <code>team: data</code> at once. Work for two clients in one session is <a href="#splits">split</a>.</p>
-    <p>The controller keeps the list of tag names. Values are free: a new client or a new feature needs no setting. Four tag names are built in, because Token Controller keeps records behind them:</p>
+    <p>The controller keeps the list of tag names. Values are free: a new client or a new feature needs no setting. Three tag names are built in, because Token Controller keeps records behind them:</p>
     <table>
       <thead><tr><th>Built-in tag</th><th>Value</th></tr></thead>
       <tbody>
         <tr><td><code>person</code></td><td>The token entry's agent manager. Always set.</td></tr>
         <tr><td><code>ticket</code></td><td>A <a href="/account/projects#tickets">ticket</a>, synced from your ticket system or created by hand, with its title, description and parent.</td></tr>
         <tr><td><code>project</code></td><td>A <a href="/account/projects">project</a>, with its ticket key pattern and repositories.</td></tr>
-        <tr><td><code>kind</code></td><td>The <a href="/concepts#cost-kinds">cost kind</a>: direct, project overhead, organization overhead, personal or unattributed.</td></tr>
       </tbody>
     </table>
     <p>Every other tag name is yours: <code>team</code>, <code>department</code>, <code>client</code>, <code>feature</code>, <code>purpose</code>.</p>
@@ -39,15 +38,22 @@
       <tbody>
         <tr><td>Cost center</td><td><code>person</code></td><td><code>team</code>, when teams answer for money. Each token entry still has one agent manager who submits it and is asked about it.</td></tr>
         <tr><td>Ladder (cost object)</td><td>ticket, project, organization</td><td>ticket, epic, project, client, organization</td></tr>
-        <tr><td>Required tags</td><td>the rung <code>project</code></td><td>the rung <code>ticket</code>, plus <code>purpose</code></td></tr>
       </tbody>
     </table>
     <p>The <b>ladder</b> is read from the top. A token entry's cost object is the first rung with a value: no ticket, then its project; no project, then the organization. Rungs can be renamed, added and removed. A rung you add fills only if a project or ticket carries it, a rule sets it, or your ticket system sends it.</p>
     <p>Each closed period keeps the tag map it was closed with. Changing the map changes the meaning of reports from then on, so compare periods across a change with care.</p>
 
-    <h2 id="attributed">Attributed and the target</h2>
-    <p>A token entry counts as attributed when every required tag has a value, or when its cost kind says it belongs to no project: personal and organization overhead count. Everything else is unattributed and sits on the organization as its own line. Attribution is the attributed share of all cost.</p>
-    <p>The <b>attribution target</b> is the share your organization aims for. The default is 80 percent with <code>project</code> required. Expect 70 to 80 percent at first; it rises as you add <a href="/attribute/rules">rules</a> and people fix exceptions. You see it on the rules page, in reports, in the Claude Code mod's band and on the cost sheet.</p>
+    <h2 id="kinds">How specific: the cost kind</h2>
+    <p>Every token entry has a person, so all of it is attributed; only <a href="/account/bills#reconciliation">residual</a>, the part of a bill no token entry explains, is not. All other tags are optional and add detail. The cost kind says how much detail a split has, and follows from its tags:</p>
+    <table>
+      <thead><tr><th>Cost kind</th><th>When</th></tr></thead>
+      <tbody>
+        <tr><td>Direct</td><td>It has a ticket.</td></tr>
+        <tr><td>Project overhead</td><td>It has a project but no ticket. With extra rungs such as epic, everything between ticket and project counts here.</td></tr>
+        <tr><td>Organization overhead</td><td>It has no project. Its person, and any other tags, still apply.</td></tr>
+      </tbody>
+    </table>
+    <p>Reports, the Claude Code mod's band and the cost sheet show the share of each. How far an organization pushes towards tickets is its own choice: <a href="/attribute/rules">rules</a> and people fixing exceptions move cost from organization overhead to projects and tickets.</p>
 
     <h2 id="splits">Splits</h2>
     <p>Most token entries are one piece with one set of tags. A token entry with two sets of tags is split, and each split has its own tags:</p>

@@ -42,13 +42,13 @@ Checking, per period and per bill, that token entries plus residual equal the bi
 _Avoid_: Matching
 
 **Residual**:
-The part of a bill that no token entry explains: usage in the provider's own chat app, per-call fees the agent harness does not report, a restated bill. Always shown as its own line.
+The part of a bill that no token entry explains, and so the only cost that is not attributed: usage in the provider's own chat app, per-call fees the agent harness does not report, a restated bill. Always shown as its own line.
 _Avoid_: Leftover, difference
 
 ### Tags
 
 **Tag**:
-A name and a value on a token entry, such as `team: growth` or `client: acme`. A token entry has at most one value per tag name, so totals by one tag name always add up. Reports, token budgets and people managers' access are all tag filters.
+A name and a value on a token entry, such as `team: growth` or `client: acme`. A token entry has at most one value per tag name, so totals by one tag name always add up. Reports, token budgets and people managers' access are all tag filters. Every tag is optional: a token entry without any still has its person.
 _Avoid_: Label, dimension, attribute
 
 **Tag name**:
@@ -56,13 +56,10 @@ The left half of a tag, such as `team`. The controller keeps the list of tag nam
 _Avoid_: Key
 
 **Built-in tag**:
-A tag name Token Controller knows and keeps records behind: `person`, `ticket`, `project` and `kind`. Ticket and project values are real tickets and projects, synced from a ticket system or created by hand. Every other tag name is the organization's own.
+A tag name Token Controller knows and keeps records behind: `person`, `ticket` and `project`. Ticket and project values are real tickets and projects, synced from a ticket system or created by hand. Every other tag name is the organization's own.
 
 **Inherited tag**:
 A tag copied onto a token entry from the person, project or ticket it belongs to when it arrives. A person tagged `team: growth` makes their new token entries `team: growth`; a project tagged `client: acme` does the same for its token entries. Later changes reach only new token entries.
-
-**Required tag**:
-A tag name that must have a value for a token entry to count as attributed. By default the rung `project`.
 
 **Filter**:
 A set of tags a view is limited to, such as `client: acme` or `team: web` and `project: acme-shop`. A token entry matches when it has every tag in the filter.
@@ -90,31 +87,22 @@ What a cost paid for: the first rung of the ladder with a value, such as a ticke
 _Avoid_: What, work side
 
 **Cost kind**:
-The built-in tag `kind` on a split: direct, project overhead, organization overhead, personal or unattributed.
+What a split's cost object says about it: direct, project overhead or organization overhead. It is never set by hand; it follows from the ticket and project tags.
 _Avoid_: Category, cost type
 
 **Direct**:
-Cost placed on a ticket.
+Cost on a ticket.
 
 **Project overhead**:
-Project cost that belongs to no single ticket, such as research or setup.
+Cost on a project but on no ticket, such as research or setup.
 
 **Organization overhead**:
-Cost that belongs to no project, such as internal tooling.
-
-**Personal**:
-A person's own learning and experiments.
-
-**Unattributed**:
-Spend whose required tags nobody has filled yet. It sits on the organization as its own line until someone tags it. It is not overhead: overhead is a choice, unattributed is the absence of one.
-_Avoid_: Unassigned, unallocated, other
+Cost on no project, such as internal tooling, learning, or a session nobody tagged. It still has a person.
+_Avoid_: Unattributed, unassigned, other
 
 **Attribution**:
-The share of spend that is placed, as a percentage of the total. A split is placed when every required tag has a value, or when its cost kind says it belongs to no project (personal, organization overhead). An organization picks which rung of the ladder is required, project or ticket, and can require further tags.
+The share of a bill that token entries explain. Every token entry has a person, so every token entry is attributed; the rest of the bill is residual. How specific the attribution is, on a ticket, a project or only a person, is the cost kind.
 _Avoid_: Coverage, allocation rate
-
-**Attribution target**:
-The attribution an organization aims for.
 
 ### Work
 

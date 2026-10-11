@@ -38,7 +38,7 @@
       <li><b>Rules that find a ticket.</b> By default: the ticket key in the branch, then in the pull request title, then in your prompts or the session title.</li>
       <li><b>Summary match.</b> See <a href="#summary">below</a>.</li>
       <li><b>Rules that place on a project</b>, such as the repository rule.</li>
-      <li><b>Unattributed.</b> See <a href="#nothing">below</a>.</li>
+      <li><b>Nothing.</b> See <a href="#nothing">below</a>.</li>
     </ol>
     <p>Within a step, organization rules run before personal ones, so a person's own rules only handle what the organization's rules leave open. Rules for other tags all run; when two set the same tag name, the organization rule wins, then the one listed first. A tag sent with the token entry, or set by hand, wins over every rule.</p>
 
@@ -53,4 +53,4 @@
     <p>A new or changed rule runs again over the token entries of every open period, so a fix also reaches past work. Token entries placed by hand keep their place. Closed periods are locked and never change; correct them with an <a href="/account/adjustments">adjustment</a>.</p>
 
     <h2 id="nothing">When nothing matches</h2>
-    <p>The token entry stays unattributed and shows up in your review list. The share placed by rules is your attribution; you set the <a href="/account/tags#attributed">attribution target</a>.</p>
+    <p>The token entry stays organization overhead with its person, and shows up in your review list so you can add a ticket or project if it had one. See <a href="/account/tags#kinds">cost kinds</a>.</p>
