@@ -1,0 +1,11 @@
+{
+  "name": "token-controller",
+  "type": "light",
+  "colors": { "editor.background": "#EFEBE3", "editor.foreground": "#141613" },
+  "tokenColors": [
+    { "settings": { "foreground": "#141613" } },
+    { "scope": ["comment", "punctuation.definition.comment"], "settings": { "foreground": "#6B6E67" } },
+    { "scope": ["support.type.property-name", "entity.name.tag.yaml", "entity.name.tag.toml", "support.type.property-name.toml", "keyword.other.definition.ini"], "settings": { "foreground": "#1E6B53" } },
+    { "scope": ["string", "string.quoted"], "settings": { "foreground": "#3D413C" } }
+  ]
+}

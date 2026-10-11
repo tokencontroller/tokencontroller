@@ -1,5 +1,6 @@
-// Cloudflare deploys this folder to docs.tokencontroller.com on every push to main
+// Cloudflare deploys the built docs (dist/) to docs.tokencontroller.com on every push to main
 // (Workers Builds, connected to this repo with root directory apps/docs).
+// Build command: pnpm install --frozen-lockfile --filter @tokencontroller/docs... && pnpm build
 // Every other branch gets a Preview; its URL is posted on the pull request.
 {
   "name": "tokencontroller-docs",
@@ -8,7 +9,7 @@
   "workers_dev": false,
   "preview_urls": true,
   "assets": {
-    "directory": "./site",
+    "directory": "./dist",
     "html_handling": "drop-trailing-slash",
     "not_found_handling": "404-page"
   },

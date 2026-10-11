@@ -1,9 +1,0 @@
-    <p class="lead">Upgrading is pulling a new image. Backing up is backing up Postgres.</p>
-
-    <h2 id="upgrade">Upgrade</h2>
-<pre><code>docker compose pull
-docker compose up -d</code></pre>
-    <p>The service updates the database when it starts. Read the <a href="/changelog">changelog</a> before a new major version.</p>
-
-    <h2 id="backup">Back up</h2>
-    <p>Back up the Postgres database with your usual tools, such as <code>pg_dump</code>. Nothing else holds state. The <a href="/report/raw-export">raw export</a> is a second copy in plain JSON.</p>
