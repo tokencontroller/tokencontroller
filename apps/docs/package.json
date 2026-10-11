@@ -1,0 +1,20 @@
+{
+  "name": "@tokencontroller/docs",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "astro dev --port 8898",
+    "build": "astro build",
+    "preview": "astro preview --port 8898",
+    "check": "astro check"
+  },
+  "dependencies": {
+    "@astrojs/markdown-satteri": "0.4.3",
+    "@astrojs/starlight": "^0.42.6",
+    "astro": "^7.3.8"
+  },
+  "packageManager": "pnpm@10.28.0",
+  "engines": {
+    "node": ">=22"
+  }
+}

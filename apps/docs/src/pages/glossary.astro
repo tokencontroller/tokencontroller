@@ -1,0 +1,87 @@
+---
+// The Glossary page, rendered from apps/docs/glossary.md: one table per "###" section of its
+// "## Language" part. Edit glossary.md, never this page.
+import StarlightPage from '@astrojs/starlight/components/StarlightPage.astro';
+import { execSync } from 'node:child_process';
+import source from '../../glossary.md?raw';
+
+type Term = { term: string; meaning: string; avoid?: string };
+type Section = { id: string; title: string; terms: Term[] };
+
+const slug = (t: string) => t.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+const escape = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#x27;');
+const inline = (t: string) => escape(t.split(/\s+/).join(' ')).replace(/`([^`]+)`/g, '<code>$1</code>');
+
+const sections: Section[] = [];
+for (const block of source.split('## Language')[1].split(/\n(?=### )/)) {
+  const b = block.trim();
+  if (!b.startsWith('### ')) continue;
+  const [head, ...rest] = b.split('\n');
+  const title = head.slice(4).trim();
+  const terms: Term[] = [];
+  for (const entry of rest.join('\n').trim().split(/\n\s*\n/)) {
+    const m = entry.match(/^\*\*(.+?)\*\*(?:, \*\*(.+?)\*\*)?:\s*\n([\s\S]*)$/);
+    if (!m) continue;
+    let text = m[3].trim();
+    let avoid: string | undefined;
+    const am = text.match(/\n?_Avoid_:\s*(.*)$/);
+    if (am) {
+      avoid = am[1].trim();
+      text = text.slice(0, am.index).trim();
+    }
+    terms.push({ term: m[1] + (m[2] ? ', ' + m[2] : ''), meaning: inline(text), avoid });
+  }
+  sections.push({ id: slug(title), title, terms });
+}
+
+// The build runs in apps/docs.
+const file = 'glossary.md';
+let lastUpdated: Date | undefined;
+try {
+  lastUpdated = new Date(execSync(`git log -1 --format=%cI -- "${file}"`, { encoding: 'utf8' }).trim());
+  if (isNaN(+lastUpdated)) lastUpdated = undefined;
+} catch {}
+---
+
+<StarlightPage
+  frontmatter={{
+    title: 'Glossary',
+    description: 'Every term in Token Controller and what it means.',
+    editUrl: 'https://github.com/tokencontroller/tokencontroller/blob/main/apps/docs/glossary.md',
+    lastUpdated,
+  }}
+  headings={sections.map((s) => ({ depth: 2, slug: s.id, text: s.title }))}
+>
+  <p>The precise meaning of every term in Token Controller. The product and these docs use these words, and only these.</p>
+  {
+    sections.map((s) => (
+      <>
+        <h2 id={s.id}>{s.title}</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Term</th>
+              <th>Meaning</th>
+            </tr>
+          </thead>
+          <tbody>
+            {s.terms.map((t) => (
+              <tr>
+                <td>{t.term}</td>
+                <td>
+                  <Fragment set:html={t.meaning} />
+                  {t.avoid && (
+                    <>
+                      <br />
+                      <span class="avoid">Not: {t.avoid}</span>
+                    </>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </>
+    ))
+  }
+</StarlightPage>

@@ -1,0 +1,9 @@
+---
+import { groupOf } from './groups';
+
+const { entry, sidebar } = Astro.locals.starlightRoute;
+const group = groupOf(sidebar, { current: true });
+---
+
+{group && <div class="crumb"><a href="/">Docs</a> / {group} / {entry.data.title}</div>}
+<h1 id="_top">{entry.data.title}</h1>

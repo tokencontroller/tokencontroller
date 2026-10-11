@@ -8,7 +8,7 @@ The docs at [docs.tokencontroller.com](https://docs.tokencontroller.com) say exa
 
 | Folder | What it holds | License |
 |---|---|---|
-| `apps/docs/` | The docs: page sources, the glossary, the build script and the built site | |
+| `apps/docs/` | The docs, built with Astro and Starlight: one Markdown file per page in `src/content/docs/`, and the glossary in `glossary.md` | |
 | `docs/adr/` | Architecture decision records: how the code is built and why | |
 | `apps/server/` | The service at app.tokencontroller.com, in Rust: sign-in, API, telemetry ingest, background jobs, MCP server. It also serves the web app | AGPL-3.0 |
 | `apps/web/` | The web app, built into the service's Docker image | AGPL-3.0 |
