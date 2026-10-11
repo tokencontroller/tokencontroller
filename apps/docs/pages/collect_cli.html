@@ -15,9 +15,9 @@ tc status</code></pre>
 
     <h2 id="daily">Everyday commands</h2>
 <pre><code>tc review                 <span class="c"># your draft token entries and where they were placed</span>
-tc place 5 KD-231         <span class="c"># place entry 5 on a ticket by hand</span>
+tc tag 5 ticket=KD-231    <span class="c"># set a tag on entry 5 by hand</span>
 tc submit                 <span class="c"># submit your token sheet</span>
-tc report --by ticket     <span class="c"># cost per ticket</span>
+tc report --by team       <span class="c"># cost per value of any tag</span>
 tc export --csv           <span class="c"># everything as CSV, for a spreadsheet</span></code></pre>
     <p>The export is enough to report by hand when your organization has no service. The full list of commands is in the <a href="/reference/cli">CLI reference</a>.</p>
 

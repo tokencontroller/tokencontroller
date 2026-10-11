@@ -13,12 +13,13 @@ Authorization: Bearer tc_svc_…
   <span class="k">"tokens"</span>: { <span class="k">"input"</span>: 4120, <span class="k">"output"</span>: 610, <span class="k">"cache_read"</span>: 18200 },
   <span class="k">"reported_cost"</span>: 0.031,
   <span class="k">"summary"</span>: <span class="s">"Answered refund question for order 1182"</span>,
-  <span class="k">"project"</span>: <span class="s">"support"</span>
+  <span class="k">"project"</span>: <span class="s">"support"</span>,
+  <span class="k">"tags"</span>: { <span class="k">"client"</span>: <span class="s">"acme"</span>, <span class="k">"purpose"</span>: <span class="s">"support"</span> }
 }</code></pre>
     <p>The service token decides the agent manager: the person who created it. Reported cost is optional; without it, Token Controller computes the list value from the model and the price table. Every field is described in the <a href="/reference/token-entry">token entry schema</a>.</p>
 
-    <h2 id="placing">Placing</h2>
-    <p>Name a ticket or a project in the call, or let your rules place the token entry. A ticket named in the call wins over every rule. When nothing places it, it shows as unattributed. See the <a href="/attribute/rules#order">order</a>.</p>
+    <h2 id="placing">Tags</h2>
+    <p>Name a ticket or a project in the call and add any tags on your organization's list, or let your rules set them. Tags named in the call win over every rule. When nothing places it, it shows as unattributed. See the <a href="/attribute/rules#order">order</a>.</p>
 
     <h2 id="automatic">Automatic</h2>
     <p>Token entries from the endpoint arrive automatically, with the status submitted. They never go on a token sheet.</p>

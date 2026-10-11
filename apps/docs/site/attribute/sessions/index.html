@@ -154,19 +154,16 @@ td:first-child{font-weight:600;white-space:nowrap}
       <li><a href="/attribute/classifier">Classifier</a></li>
     </ul></div>
     <div class="grp"><h4>Account</h4><ul>
-      <li><a href="/account/organizations">Organization</a></li>
+      <li><a href="/account/organizations">Organization settings</a></li>
       <li><a href="/account/tags">Tags and the tag map</a></li>
+      <li><a href="/account/projects">Projects and tickets</a></li>
       <li><a href="/account/roles">Roles</a></li>
-      <li><a href="/account/projects">Projects and clients</a></li>
-      <li><a href="/account/tickets">Tickets</a></li>
-      <li><a href="/account/agent-managers">Agent managers</a></li>
       <li><a href="/account/token-budgets">Token budgets and forecasts</a></li>
       <li><a href="/account/cadence">Cadence and token sheets</a></li>
       <li><a href="/account/approval">Approval</a></li>
       <li><a href="/account/bills">Bills</a></li>
       <li><a href="/account/close">Monthly close</a></li>
       <li><a href="/account/adjustments">Adjustments</a></li>
-      <li><a href="/account/target">Attribution target</a></li>
     </ul></div>
     <div class="grp"><h4>Report</h4><ul>
       <li><a href="/report/cost-sheet">The cost sheet</a></li>
@@ -215,7 +212,7 @@ td:first-child{font-weight:600;white-space:nowrap}
   <main class="main">
     <div class="crumb"><a href="/">Docs</a> / Attribute / Sessions and subagents</div>
     <h1>Sessions and subagents</h1>
-    <p class="lead">One session is one token entry. Long sessions move between branches, so they are split into segments, and subagents are placed on their own signals.</p>
+    <p class="lead">One session is one token entry. Long sessions move between branches, so they are split into segments, each with its own tags, and subagents are tagged by their own signals.</p>
 
     <details class="mside"><summary>Browse the docs</summary><div class="side">
       <div class="grp"><h4>Getting started</h4><ul><li><a href="/">Overview</a></li><li><a href="/quick-start">Quick start</a></li><li><a href="/concepts">Concepts</a></li><li><a href="/plans">Plans and limits</a></li><li><a href="/scope">Scope</a></li></ul></div>
@@ -229,7 +226,7 @@ td:first-child{font-weight:600;white-space:nowrap}
 
 
     <h2 id="segments">Segments</h2>
-    <p>A session that changes branch or working directory is split into segments. Each segment is placed on its own, so one morning's session can post to two tickets.</p>
+    <p>A session that changes branch or working directory is split into segments. Each segment becomes a <a href="/account/tags#splits">split</a> with its own tags, so one morning's session can land on two tickets.</p>
 
     <h2 id="grain">Measured per message</h2>
     <p>Cost is measured per message, not per session. That is how segments split exactly, and how telemetry and bills join token entries: by message and request IDs.</p>

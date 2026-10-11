@@ -1,4 +1,4 @@
-    <p class="lead">A project is a body of work made of tickets. A client is a tag on a project.</p>
+    <p class="lead">Projects and tickets are the two built-in tags with records behind them. Their values are real projects and tickets, so they can carry a ticket key pattern, repositories, a title and a parent.</p>
 
     <h2 id="project">What a project has</h2>
     <ul>
@@ -7,9 +7,24 @@
       <li>tags, such as <code>client: acme</code>, which its token entries inherit</li>
       <li>optionally a token budget and a cadence</li>
     </ul>
+    <p>A client is a tag on projects, not a record of its own. Tag several projects <code>client: acme</code> and cost per client is a filter. To make client a level of the cost object, add it as a rung of the <a href="/account/tags#map">ladder</a>.</p>
 
-    <h2 id="clients">Clients</h2>
-    <p>A client is a tag on projects. Tag several projects <code>client: acme</code> and their token entries inherit it, so cost per client is a filter. An agency that wants client as a level of its own adds <code>client</code> as a rung of the <a href="/account/tags#map">ladder</a>, above project.</p>
+    <h2 id="tickets">Tickets</h2>
+    <p>A ticket is any unit of work: a feature, a story, an epic or a bug. It has a key and, where known, a title, a description, a parent ticket and an assignee. Only the key is required.</p>
+    <ul>
+      <li><b>Synced.</b> Connect <a href="/integrations/jira">Jira Cloud</a>, <a href="/integrations/azure-devops">Azure DevOps</a> or <a href="/integrations/github-issues">GitHub Issues</a>. Tickets sync every 15 minutes, or when you ask.</li>
+      <li><b>By hand.</b> For work no ticket system knows, create a ticket in the web app. It works the same as a synced one.</li>
+    </ul>
+    <p>A ticket can sit inside another, such as a story inside an epic. Cost rolls up: an epic's cost is the sum of its stories, and a project's cost is the sum of its tickets. A ticket's title and description are what <a href="/account/token-budgets#forecasts">token forecasts</a> compare.</p>
+
+    <h2 id="assignee">The assignee</h2>
+    <p>The person a ticket is assigned to. Being assignee costs nothing: the cost of a ticket sits with the cost center of each token entry on it.</p>
 
     <h2 id="overhead">Cost that belongs to no ticket</h2>
-    <p>Project work that belongs to no single ticket, such as research or setup, is project overhead. Work that belongs to no project at all is organization overhead.</p>
+    <p>Project work that belongs to no single ticket, such as research or setup, is tagged <code>kind: project overhead</code>. Work that belongs to no project at all is <code>kind: organization overhead</code>.</p>
+
+    <h2 id="next">Where to next</h2>
+    <div class="pager">
+      <a href="/account/tags"><small>Account</small><b>Tags and the tag map</b></a>
+      <a class="next" href="/account/roles"><small>Account</small><b>Roles</b></a>
+    </div>

@@ -154,19 +154,16 @@ td:first-child{font-weight:600;white-space:nowrap}
       <li><a href="/attribute/classifier">Classifier</a></li>
     </ul></div>
     <div class="grp"><h4>Account</h4><ul>
-      <li><a href="/account/organizations">Organization</a></li>
+      <li><a href="/account/organizations">Organization settings</a></li>
       <li><a href="/account/tags">Tags and the tag map</a></li>
+      <li><a href="/account/projects">Projects and tickets</a></li>
       <li><a href="/account/roles">Roles</a></li>
-      <li><a href="/account/projects">Projects and clients</a></li>
-      <li><a href="/account/tickets">Tickets</a></li>
-      <li><a href="/account/agent-managers">Agent managers</a></li>
       <li><a href="/account/token-budgets">Token budgets and forecasts</a></li>
       <li><a href="/account/cadence">Cadence and token sheets</a></li>
       <li><a href="/account/approval">Approval</a></li>
       <li><a href="/account/bills">Bills</a></li>
       <li><a href="/account/close">Monthly close</a></li>
       <li><a href="/account/adjustments">Adjustments</a></li>
-      <li><a href="/account/target">Attribution target</a></li>
     </ul></div>
     <div class="grp"><h4>Report</h4><ul>
       <li><a href="/report/cost-sheet">The cost sheet</a></li>
@@ -241,12 +238,13 @@ Authorization: Bearer tc_svc_…
   <span class="k">"tokens"</span>: { <span class="k">"input"</span>: 4120, <span class="k">"output"</span>: 610, <span class="k">"cache_read"</span>: 18200 },
   <span class="k">"reported_cost"</span>: 0.031,
   <span class="k">"summary"</span>: <span class="s">"Answered refund question for order 1182"</span>,
-  <span class="k">"project"</span>: <span class="s">"support"</span>
+  <span class="k">"project"</span>: <span class="s">"support"</span>,
+  <span class="k">"tags"</span>: { <span class="k">"client"</span>: <span class="s">"acme"</span>, <span class="k">"purpose"</span>: <span class="s">"support"</span> }
 }</code></pre>
     <p>The service token decides the agent manager: the person who created it. Reported cost is optional; without it, Token Controller computes the list value from the model and the price table. Every field is described in the <a href="/reference/token-entry">token entry schema</a>.</p>
 
-    <h2 id="placing">Placing</h2>
-    <p>Name a ticket or a project in the call, or let your rules place the token entry. A ticket named in the call wins over every rule. When nothing places it, it shows as unattributed. See the <a href="/attribute/rules#order">order</a>.</p>
+    <h2 id="placing">Tags</h2>
+    <p>Name a ticket or a project in the call and add any tags on your organization's list, or let your rules set them. Tags named in the call win over every rule. When nothing places it, it shows as unattributed. See the <a href="/attribute/rules#order">order</a>.</p>
 
     <h2 id="automatic">Automatic</h2>
     <p>Token entries from the endpoint arrive automatically, with the status submitted. They never go on a token sheet.</p>
@@ -262,7 +260,7 @@ Authorization: Bearer tc_svc_…
     <h4>On this page</h4>
     <ul>
       <li><a href="#call">The call</a></li>
-      <li><a href="#placing">Placing</a></li>
+      <li><a href="#placing">Tags</a></li>
       <li><a href="#automatic">Automatic</a></li>
     </ul>
   </nav>

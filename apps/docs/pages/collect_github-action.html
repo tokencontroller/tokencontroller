@@ -6,6 +6,7 @@
   with:
     project: storefront
     ticket: ${{ steps.plan.outputs.ticket }}  <span class="c"># optional</span>
+    tags: purpose=code-review                 <span class="c"># optional, any tags</span>
     token: ${{ secrets.TOKEN_CONTROLLER_TOKEN }}</code></pre>
     <p>Create the service token in the web app under <em>Settings</em>. The person who creates it becomes the agent manager of everything the Action reports.</p>
 

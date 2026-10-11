@@ -154,19 +154,16 @@ td:first-child{font-weight:600;white-space:nowrap}
       <li><a href="/attribute/classifier">Classifier</a></li>
     </ul></div>
     <div class="grp"><h4>Account</h4><ul>
-      <li><a href="/account/organizations">Organization</a></li>
+      <li><a href="/account/organizations">Organization settings</a></li>
       <li><a href="/account/tags">Tags and the tag map</a></li>
+      <li><a href="/account/projects">Projects and tickets</a></li>
       <li><a href="/account/roles">Roles</a></li>
-      <li><a href="/account/projects">Projects and clients</a></li>
-      <li><a href="/account/tickets">Tickets</a></li>
-      <li><a href="/account/agent-managers">Agent managers</a></li>
       <li><a href="/account/token-budgets">Token budgets and forecasts</a></li>
       <li><a href="/account/cadence">Cadence and token sheets</a></li>
       <li><a href="/account/approval">Approval</a></li>
       <li><a href="/account/bills">Bills</a></li>
       <li><a href="/account/close">Monthly close</a></li>
       <li><a href="/account/adjustments">Adjustments</a></li>
-      <li><a href="/account/target">Attribution target</a></li>
     </ul></div>
     <div class="grp"><h4>Report</h4><ul>
       <li><a href="/report/cost-sheet">The cost sheet</a></li>
@@ -255,7 +252,8 @@ td:first-child{font-weight:600;white-space:nowrap}
     </ul>
 
     <h2 id="commands">Commands</h2>
-<pre><code>/tc ticket KD-214     <span class="c"># place this session on a ticket</span>
+<pre><code>/tc ticket KD-214     <span class="c"># set this session's ticket</span>
+/tc tag purpose=spike <span class="c"># set any other tag</span>
 /tc report            <span class="c"># a report table, right in the session</span>
 /tc submit            <span class="c"># submit your token sheet</span></code></pre>
     <p>You can also ask Claude, for example "what did KD-214 cost this week?", and the mod answers with a report table.</p>

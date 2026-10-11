@@ -154,19 +154,16 @@ td:first-child{font-weight:600;white-space:nowrap}
       <li><a href="/attribute/classifier">Classifier</a></li>
     </ul></div>
     <div class="grp"><h4>Account</h4><ul>
-      <li><a href="/account/organizations">Organization</a></li>
+      <li><a href="/account/organizations">Organization settings</a></li>
       <li><a href="/account/tags">Tags and the tag map</a></li>
+      <li><a href="/account/projects">Projects and tickets</a></li>
       <li><a href="/account/roles">Roles</a></li>
-      <li><a href="/account/projects">Projects and clients</a></li>
-      <li><a href="/account/tickets">Tickets</a></li>
-      <li><a href="/account/agent-managers">Agent managers</a></li>
       <li><a href="/account/token-budgets">Token budgets and forecasts</a></li>
       <li><a href="/account/cadence">Cadence and token sheets</a></li>
       <li><a href="/account/approval">Approval</a></li>
       <li><a href="/account/bills">Bills</a></li>
       <li><a href="/account/close">Monthly close</a></li>
       <li><a href="/account/adjustments">Adjustments</a></li>
-      <li><a href="/account/target">Attribution target</a></li>
     </ul></div>
     <div class="grp"><h4>Report</h4><ul>
       <li><a href="/report/cost-sheet">The cost sheet</a></li>
@@ -215,7 +212,7 @@ td:first-child{font-weight:600;white-space:nowrap}
   <main class="main">
     <div class="crumb"><a href="/">Docs</a> / Getting started / Overview</div>
     <h1>Overview</h1>
-    <p class="lead">Token Controller is cost accounting and management control for AI agents. Agents report token entries, rules place them on tickets and projects, and each period closes against the bill your provider actually sent. Token budgets on people, tickets and projects close the loop: plan, record, compare, correct. Every part is optional. This page explains the pieces and gets a first token entry placed.</p>
+    <p class="lead">Token Controller is cost accounting and management control for AI agents. Agents report token entries, rules tag them with their ticket, project and team, and each period closes against the bill your provider actually sent. Token budgets on any tag filter close the loop: plan, record, reconcile, learn. Every part is optional. This page explains the pieces and gets a first token entry placed.</p>
 
     <details class="mside"><summary>Browse the docs</summary><div class="side">
       <div class="grp"><h4>Getting started</h4><ul><li><a class="cur" href="/">Overview</a></li><li><a href="/quick-start">Quick start</a></li><li><a href="/concepts">Concepts</a></li><li><a href="/plans">Plans and limits</a></li><li><a href="/scope">Scope</a></li></ul></div>
@@ -273,8 +270,9 @@ td:first-child{font-weight:600;white-space:nowrap}
     <ol class="steps">
       <li><b>Create the organization.</b><p>Sign up at <a href="https://app.tokencontroller.com/signup"><code>tokencontroller.com/signup</code></a>. Pick your cost source, the way your provider charges you: an Enterprise plan at API rates, Team plan seats, Console, a cloud marketplace, or none yet. This decides what the close reconciles against, and the cost sheet will say so in plain words.</p></li>
       <li><b>Connect the bill.</b><p>Under <em>Bills</em>, add an Anthropic Enterprise Analytics key or a Console admin key, or an OpenAI admin key. The first pull loads the current and previous period. No provider API? Upload the bill as CSV once per period.</p></li>
+      <li><b>Choose your tags.</b><p>Under <em>Tags</em>, list the tag names you want to report by, such as <code>team</code> and <code>client</code>. The defaults work as they are: the person answers for cost, and cost lands on a ticket, else its project, else the organization. Change the <a href="/account/tags#map">tag map</a> if teams answer for money in your organization, or if you want client as its own level.</p></li>
       <li><b>Create your projects.</b><p>Tag each project with its client, give it its ticket key pattern, for example <code>^KD-\d+</code>, and map the repositories that belong to it. Connect Jira Cloud, Azure DevOps or GitHub Issues so tickets sync every fifteen minutes. If you want the loop, give people, tickets or the project a token budget now, or accept a token forecast once there are past periods to learn from.</p></li>
-      <li><b>Invite people.</b><p>Members get a link. When they install the Claude Code mod or the CLI, their sessions turn into draft token entries and the rules you just wrote place them. For everyone on Claude Code at once, paste the <a href="#telemetry">telemetry block</a> into managed settings and skip the laptops entirely. Optionally set a cadence, such as weekly; an agent manager whose token sheet is late gets a reminder.</p></li>
+      <li><b>Invite people.</b><p>Members get a link. Give each their team tag, and their token entries carry it. When they install the Claude Code mod or the CLI, their sessions turn into draft token entries and the rules you just wrote place them. For everyone on Claude Code at once, paste the <a href="#telemetry">telemetry block</a> into managed settings and skip the laptops entirely. Optionally set a cadence, such as weekly; an agent manager whose token sheet is late gets a reminder.</p></li>
       <li><b>Close the first period.</b><p>Once the period's bill is final, a controller opens <em>Close</em>. Some bills take weeks: Anthropic Enterprise figures are final <a href="/integrations/anthropic-enterprise#reconciles">about 30 days</a> after the period ends. Check the unattributed line, reject anything wrong back to its agent manager with a reason, then close the period. With approval on, every token entry in the period has to be approved first. Export the cost sheet as CSV or hand finance the link.</p></li>
     </ol>
 
