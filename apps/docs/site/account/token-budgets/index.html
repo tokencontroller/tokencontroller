@@ -154,7 +154,7 @@ td:first-child{font-weight:600;white-space:nowrap}
       <li><a href="/attribute/classifier">Classifier</a></li>
     </ul></div>
     <div class="grp"><h4>Account</h4><ul>
-      <li><a href="/account/organizations">Organization and team tree</a></li>
+      <li><a href="/account/organizations">Organization and groups</a></li>
       <li><a href="/account/roles">Roles</a></li>
       <li><a href="/account/projects">Projects and clients</a></li>
       <li><a href="/account/tickets">Tickets</a></li>
@@ -228,10 +228,11 @@ td:first-child{font-weight:600;white-space:nowrap}
 
 
     <h2 id="budgets">Token budgets</h2>
-    <p>Put a token budget on a person (for example 1,500 EUR a month), a ticket, a project or a period. Type it, or accept a token forecast. People managers set token budgets for the teams and projects they are assigned.</p>
+    <p>Put a token budget on a person (for example 1,500 EUR a month), a ticket, a project or a period. Type it, or accept a token forecast. People managers set token budgets for the people and projects they are assigned. Groups carry no token budget; a group's people are compared one by one.</p>
 
     <h2 id="forecasts">Token forecasts</h2>
-    <p>A token forecast is the median cost of similar past tickets, with the ticket system's size figure as one input. It is a suggestion. It becomes a token budget only when a person accepts it.</p>
+    <p>A token forecast is a suggestion from similar past work. Token Controller compares the new ticket's title and description with the summaries of past token entries, shows the tickets they belong to with a confidence, and proposes their median cost. You pick the matches that fit, or take the proposal as it is. It becomes a token budget only when a person accepts it.</p>
+    <p>The hosted service runs the comparison with a model on its own key. A self-hosted instance sets its own, or does without forecasts.</p>
     <p>The more periods you close, the better the forecasts get, and a new client project can be quoted from what similar work cost before.</p>
 
     <h2 id="compare">Comparing</h2>

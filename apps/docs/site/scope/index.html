@@ -154,7 +154,7 @@ td:first-child{font-weight:600;white-space:nowrap}
       <li><a href="/attribute/classifier">Classifier</a></li>
     </ul></div>
     <div class="grp"><h4>Account</h4><ul>
-      <li><a href="/account/organizations">Organization and team tree</a></li>
+      <li><a href="/account/organizations">Organization and groups</a></li>
       <li><a href="/account/roles">Roles</a></li>
       <li><a href="/account/projects">Projects and clients</a></li>
       <li><a href="/account/tickets">Tickets</a></li>
@@ -254,7 +254,9 @@ td:first-child{font-weight:600;white-space:nowrap}
         <tr><td>Organization</td><td>One account is one organization. An agency with a separate AI account per client runs one organization per client. The Team plan stops at 150 members.</td></tr>
         <tr><td>Privacy modes</td><td>No aggregate-only mode. People managers see cost per person within their scope, and controllers see all of it.</td></tr>
         <tr><td>Local tool</td><td>No sync between one person's machines. Each machine submits its token entries on its own.</td></tr>
-        <tr><td>Flat fees</td><td>Only token usage is accounted for. Seats, subscriptions and other flat fees stay off the bill and off the cost sheet.</td></tr>
+        <tr><td>Flat fees</td><td>Only metered usage is accounted for: tokens and per-call fees. Seats, subscriptions and other flat fees stay off the bill and off the cost sheet. What the agent harness does not report shows as residual.</td></tr>
+        <tr><td>Org chart</td><td>No team tree. People carry group labels for reporting; groups carry no token budget.</td></tr>
+        <tr><td>Chat</td><td>Usage in a provider's own chat app is not an agent's and never becomes a token entry. It shows as residual.</td></tr>
         <tr><td>Your clients</td><td>Token Controller ends at the cost sheet. It does not invoice your clients, add markups or bill on your behalf. Pass-through happens in your own invoicing tool.</td></tr>
         <tr><td>Open source</td><td>Issues on GitHub are open. Pull requests from outside are not accepted.</td></tr>
       </tbody>

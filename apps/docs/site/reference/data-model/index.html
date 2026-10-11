@@ -154,7 +154,7 @@ td:first-child{font-weight:600;white-space:nowrap}
       <li><a href="/attribute/classifier">Classifier</a></li>
     </ul></div>
     <div class="grp"><h4>Account</h4><ul>
-      <li><a href="/account/organizations">Organization and team tree</a></li>
+      <li><a href="/account/organizations">Organization and groups</a></li>
       <li><a href="/account/roles">Roles</a></li>
       <li><a href="/account/projects">Projects and clients</a></li>
       <li><a href="/account/tickets">Tickets</a></li>
@@ -231,20 +231,20 @@ td:first-child{font-weight:600;white-space:nowrap}
     <table>
       <thead><tr><th>Record</th><th>What it holds</th></tr></thead>
       <tbody>
-        <tr><td>Organization</td><td>Cost source, attribution target, approval on or off, members and their roles, the team tree.</td></tr>
-        <tr><td>Team</td><td>A node in the team tree: a team, a department or the organization.</td></tr>
-        <tr><td>Person</td><td>A member. The smallest cost center. Belongs to one team at a time.</td></tr>
+        <tr><td>Organization</td><td>Cost source, attribution target, approval on or off, members and their roles, reporting currency.</td></tr>
+        <tr><td>Group</td><td>A label on people, such as a team or a department. A person can carry several.</td></tr>
+        <tr><td>Person</td><td>A member. The smallest cost center. Carries any number of group labels.</td></tr>
         <tr><td>Project</td><td>Client label, tags, mapped repositories, ticket key pattern.</td></tr>
-        <tr><td>Ticket</td><td>Synced from a ticket system or created by hand. Optional parent ticket, optional assignee, optional size from the ticket system.</td></tr>
+        <tr><td>Ticket</td><td>Synced from a ticket system or created by hand. A key; optionally a title, a description, a parent ticket and an assignee.</td></tr>
         <tr><td>Token entry</td><td>Agent harness, optional agent name, model, tokens by kind, optional reported cost, list value, billed value, start and end time, summary, agent manager, postings, whether it arrived automatically or on a token sheet, status, evidence.</td></tr>
         <tr><td>Posting</td><td>One share of a token entry on one cost object, with one cost kind.</td></tr>
-        <tr><td>Token sheet</td><td>One agent manager, one cadence period, the token entries that were not reported automatically. Submitted or late.</td></tr>
+        <tr><td>Token sheet</td><td>One agent manager, one cadence period, their reviewed token entries. Submitted or late.</td></tr>
         <tr><td>Cadence</td><td>The rhythm in which token sheets are due, set per project or organization by a people manager.</td></tr>
         <tr><td>Token budget</td><td>Money a human has planned for a person, ticket, project or period.</td></tr>
-        <tr><td>Token forecast</td><td>Money predicted from past cost. Becomes a token budget when a person accepts it.</td></tr>
+        <tr><td>Token forecast</td><td>Money suggested for a ticket from similar past work, with the matched tickets and a confidence. Becomes a token budget when a person accepts it.</td></tr>
         <tr><td>Telemetry event</td><td>One model call. Joins to token entries by session and message ID.</td></tr>
         <tr><td>Cost source</td><td>One way a provider charges: subscription, seat, usage at API rates, API key, cloud marketplace or reseller.</td></tr>
-        <tr><td>Bill</td><td>A provider's figure for one period: gross, discount, credit, net, currency, cost source, revision.</td></tr>
+        <tr><td>Bill</td><td>A provider's figure for one period: gross, discount, credit, net, currency and exchange rate, cost source, revision.</td></tr>
         <tr><td>Period</td><td>One calendar month, open or closed.</td></tr>
         <tr><td>Cost sheet</td><td>The locked account of one closed period, adding up to the bill.</td></tr>
         <tr><td>Rule</td><td>Ordered. Organization rules run before personal ones.</td></tr>
@@ -268,7 +268,7 @@ td:first-child{font-weight:600;white-space:nowrap}
     <ol class="steps">
       <li><b>Every cost has a cost center and a cost object.</b><p>The cost center comes from the token entry's agent manager. The cost object falls back from ticket to project to organization when nothing more specific matches.</p></li>
       <li><b>No token entry without an agent manager.</b><p>One that has none shows as an error to people managers until someone takes it.</p></li>
-      <li><b>History stays as it was.</b><p>When an automation gets a new agent manager, or a person changes team or leaves, only future token entries follow the change. Past postings keep the agent manager and team they had.</p></li>
+      <li><b>History stays as it was.</b><p>When an automation gets a new agent manager, or a person changes group or leaves, only future token entries follow the change. Past postings keep the agent manager and groups they had.</p></li>
     </ol>
 
     <h2 id="next">Where to next</h2>

@@ -19,5 +19,5 @@
     <p><a href="/collect/codex">Codex CLI</a>, <a href="/collect/gemini-cli">Gemini CLI</a>, <a href="/collect/copilot-cli">Copilot CLI</a> and <a href="/collect/cursor">Cursor Enterprise</a> push to the same ingest URL with the same organization token. Each page shows that agent's settings.</p>
 
     <h2 id="sees">What telemetry sees, and what it does not</h2>
-    <p>Each telemetry event is one model call: tokens, cost, model, person, repository and the IDs of the session and message. It does not see the branch, the pull request or a summary. Organizations that only push telemetry get cost on projects, by repository. Adding the <a href="/collect/claude-code">mod</a> or the <a href="/collect/cli">CLI</a> puts cost on tickets.</p>
+    <p>Each telemetry event is one model call: tokens, cost, model, person, repository and the IDs of the session and message. It does not see the branch, the pull request or a summary. Organizations that only push telemetry get cost on projects, by repository, and nobody fills in a token sheet. Adding the <a href="/collect/claude-code">mod</a> or the <a href="/collect/cli">CLI</a> puts cost on tickets, with the person's own review.</p>
     <p>When telemetry and a token entry describe the same session, they are joined by session and message ID and counted once.</p>

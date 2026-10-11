@@ -154,7 +154,7 @@ td:first-child{font-weight:600;white-space:nowrap}
       <li><a href="/attribute/classifier">Classifier</a></li>
     </ul></div>
     <div class="grp"><h4>Account</h4><ul>
-      <li><a href="/account/organizations">Organization and team tree</a></li>
+      <li><a href="/account/organizations">Organization and groups</a></li>
       <li><a href="/account/roles">Roles</a></li>
       <li><a href="/account/projects">Projects and clients</a></li>
       <li><a href="/account/tickets">Tickets</a></li>
@@ -328,18 +328,18 @@ tc submit
     <table>
       <thead><tr><th>Term</th><th>Meaning</th></tr></thead>
       <tbody>
-        <tr><td>Organization</td><td>One customer of Token Controller: its people, teams, projects and periods. One account belongs to one organization. It sets an attribution target and whether approval is on.</td></tr>
+        <tr><td>Organization</td><td>One customer of Token Controller: its people, groups, projects and periods. One account belongs to one organization. It sets a reporting currency, an attribution target and whether approval is on.</td></tr>
         <tr><td>Project</td><td>A body of work made of tickets, with a ticket key pattern and mapped repositories. A client is a label on a project; projects with the same client can be totalled.</td></tr>
         <tr><td>Ticket</td><td>Any unit of work: a feature, a story, an epic or a bug. Synced from Jira Cloud, Azure DevOps or GitHub Issues, or created by hand. Tickets can sit inside other tickets and can carry a token budget.</td></tr>
-        <tr><td>Person</td><td>A human in the organization. A person belongs to one team at a time.</td></tr>
-        <tr><td>Team tree</td><td>The organization's people arranged as person, team, department, organization. Separate from projects, because one person can work on several projects but sits in one team.</td></tr>
+        <tr><td>Person</td><td>A human in the organization. The smallest cost center.</td></tr>
+        <tr><td>Group</td><td>A label on people, such as a team or a department. A person can carry several. Groups total their people in reports and carry no token budget.</td></tr>
         <tr><td>Role</td><td>What someone can see; each role includes the one before it. An agent manager submits token sheets and sees their own cost. A people manager reads reports, sets token budgets and cadence, and approves or rejects token entries, for the teams or projects they are assigned. A controller sees everything, runs the close and posts adjustments.</td></tr>
-        <tr><td>Agent</td><td>Anything that calls a model and so costs money: a coding agent on a laptop, a CI automation such as a review bot, a support agent. Token Controller keeps no record of agents, only of the cost they cause. Each token entry names the agent harness, the model and an optional agent name.</td></tr>
+        <tr><td>Agent</td><td>Software that calls a model on a person's behalf and so costs money: a coding agent on a laptop, a CI automation such as a review bot, a support agent. Token Controller keeps no record of agents, only of the cost they cause. Each token entry names the agent harness, the model and an optional agent name.</td></tr>
         <tr><td>Agent manager</td><td>Every token entry has exactly one, who answers for its cost. Your own sessions are yours; a CI automation belongs to whoever set it up. A token entry without an agent manager shows as an error until someone takes it.</td></tr>
         <tr><td>Token entry</td><td>One agent session's account of what it spent and on what work: tokens, cost, model, time range and a one-line summary. Its status is draft, submitted, approved, rejected or locked.</td></tr>
-        <tr><td>Token sheet</td><td>One agent manager's token entries for one cadence period that were not reported automatically. Automatic token entries, from cloud, CI and support agents, are never on a token sheet.</td></tr>
+        <tr><td>Token sheet</td><td>One agent manager's reviewed token entries for one cadence period: how a person confirms which ticket each session was for. Automatic token entries, from cloud, CI and support agents and from telemetry, are never on a token sheet.</td></tr>
         <tr><td>Cadence</td><td>The rhythm in which token sheets are due, set by a people manager: weekly, every two weeks, monthly or custom. A token sheet not submitted when its cadence period is over is late, and its agent manager gets a reminder.</td></tr>
-        <tr><td>Cost center</td><td>Who answers for a cost. Every posting lands on one person, its agent manager, and rolls up through the team tree.</td></tr>
+        <tr><td>Cost center</td><td>Who answers for a cost. Every posting lands on one person, its agent manager. Groups and the organization total their people.</td></tr>
         <tr><td>Cost object</td><td>The work a cost paid for: a ticket, a project or the organization. When no ticket matches, a posting falls back to the project, then to the organization.</td></tr>
         <tr><td>Posting</td><td>The placement of a token entry, or a share of it, on one cost object with one cost kind: direct, project overhead, organization overhead, personal or unattributed.</td></tr>
         <tr><td>Rule</td><td>An instruction that turns signals, such as a branch or a repository, into postings. Organization rules run before personal ones.</td></tr>

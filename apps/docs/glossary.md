@@ -11,15 +11,15 @@ One agent session's account of what it spent and on what work: tokens, cost, mod
 _Avoid_: Receipt, report item, line item, usage record, voucher
 
 **Bill**:
-A provider's figure for one period's token usage: gross, discount, credit and net. It is the total the token entries must add up to. Seats, subscriptions and other flat fees are not usage and stay off it.
+A provider's figure for one period's metered usage: gross, discount, credit and net, in the currency the provider charges. Metered usage is everything priced per use: tokens, and per-call fees such as web search. It is the total the token entries must add up to. Seats, subscriptions and other flat fees are not usage and stay off it. A bill exists only for metered cost sources; on a seat plan there is none.
 _Avoid_: Statement, invoice
 
 **Token sheet**:
-One agent manager's token entries for one cadence period that were not reported automatically. It is the only way usage that exists on a person's machine reaches the organization.
+One agent manager's reviewed token entries for one cadence period. It is how a person confirms which ticket each of their sessions was for and what it did. Telemetry can carry the money of the same sessions on its own, but never the ticket or the summary; the two are joined by session ID and counted once. Automatic token entries are never on a token sheet.
 _Avoid_: Report, batch
 
 **Automatic**:
-Said of a token entry the agent reports itself, with no person involved: cloud agents, CI agents, support agents. Automatic token entries are never on a token sheet.
+Said of a token entry that arrives with no person involved: from cloud agents, CI agents, support agents, or built from telemetry events when no token sheet claims the session. Automatic token entries start at submitted and are never on a token sheet.
 _Avoid_: Live
 
 **Cost sheet**:
@@ -38,11 +38,11 @@ _Avoid_: Vendor
 One way a provider charges an organization: subscription, seat, usage at API rates, API key, cloud marketplace or reseller.
 
 **Reconciliation**:
-Checking, per period, that postings plus unattributed plus residual equal the bill.
+Checking, per period and per bill, that postings plus unattributed plus residual equal the bill. The cost sheet shows one line per bill and the organization total. In the loop, the step "Reconcile" is wider: it covers rules placing token entries, review, this check and the close.
 _Avoid_: Matching
 
 **Residual**:
-The part of a bill's usage that no token entry explains, such as chat usage or a restated bill. Always shown as its own line.
+The part of a bill that no token entry explains: usage in the provider's own chat app, per-call fees the agent harness does not report, a restated bill. Always shown as its own line.
 _Avoid_: Leftover, difference
 
 ### Where cost sits
@@ -52,8 +52,8 @@ The placement of a token entry, or a share of it, on one cost object with one co
 _Avoid_: Allocation, assignment
 
 **Cost center**:
-A node of the team tree that collects cost: a person, a team, a department or the organization. Every posting lands on exactly one person, its agent manager, and rolls up from there.
-_Avoid_: Who, person side
+The person who answers for a cost. Every posting lands on exactly one person, its agent manager. Groups and the organization total their people.
+_Avoid_: Who, person side, team tree
 
 **Cost object**:
 The work a cost paid for: a ticket, a project or the organization. Ticket cost rolls up to its parent ticket and its project.
@@ -76,11 +76,11 @@ Cost that belongs to no project, such as internal tooling.
 A person's own learning and experiments.
 
 **Unattributed**:
-Spend that no rule or person has placed yet. Always shown as its own line.
+Spend that no rule or person has placed yet. It sits on the organization as its own line until someone places it. It is not overhead: overhead is a choice, unattributed is the absence of one.
 _Avoid_: Unassigned, unallocated, other
 
 **Attribution**:
-The share of spend placed on tickets and projects, as a percentage of the total.
+The share of spend a rule or a person has placed, with any cost kind, as a percentage of the total. Personal and overhead count: they are accounted for. Only unattributed does not. An organization decides how specific a placement must be to count: on a project, or on a ticket.
 _Avoid_: Coverage, allocation rate
 
 **Attribution target**:
@@ -89,7 +89,7 @@ The attribution an organization aims for.
 ### Work
 
 **Organization**:
-One customer of Token Controller: its people, teams, projects and periods.
+One customer of Token Controller: its people, groups, projects and periods. It has one reporting currency.
 _Avoid_: Account, tenant, workspace, company, client
 
 **Project**:
@@ -100,22 +100,18 @@ A label on a project that names who the work is for. Projects with the same clie
 _Avoid_: Customer, account
 
 **Ticket**:
-Any unit of work: a feature, a story, an epic or a bug. Tickets can sit inside other tickets.
+Any unit of work: a feature, a story, an epic or a bug. It has a key, and optionally a title, a description, a parent ticket and an assignee. Tickets can sit inside other tickets.
 _Avoid_: Issue, task, story, work item
 
 ### People
 
 **Person**:
-A human in the organization. A person belongs to one team at a time.
+A human in the organization. The smallest cost center.
 _Avoid_: User, developer
 
-**Team**:
-A node in the team tree: a team, a department or the whole organization.
-_Avoid_: Group
-
-**Team tree**:
-The organization's people arranged as person, team, department, organization.
-_Avoid_: Org chart, hierarchy
+**Group**:
+A label on people, such as a team, a department or a discipline. A person can carry several. Groups total their people in reports and carry no token budget. Token Controller does not model an org chart.
+_Avoid_: Team, department, team tree, org chart, hierarchy
 
 **Member**:
 Anyone in the organization, whatever their role.
@@ -126,7 +122,7 @@ The role that manages agents: submits token sheets and sees its own cost. Every 
 _Avoid_: Member, supervisor, owner, orchestrator, prompter, developer
 
 **People manager**:
-The role that manages people and projects: reads reports, sets token budgets and cadence, and approves or rejects token entries, for the teams or projects it is assigned. A people manager is also an agent manager.
+The role that manages people and projects: reads reports, sets token budgets and cadence, and approves or rejects token entries, for the groups or projects it is assigned. A people manager is also an agent manager.
 _Avoid_: Manager
 
 **Controller**:
@@ -140,7 +136,7 @@ _Avoid_: Ticket owner
 ### Agents
 
 **Agent**:
-Anything that calls a model and so costs money. Token Controller keeps no record of agents, only of the cost they cause: every token entry comes from exactly one agent session.
+Software that calls a model on a person's behalf and so costs money. Token Controller keeps no record of agents, only of the cost they cause: every token entry comes from exactly one agent session. A person typing in a provider's own chat app is not an agent; that usage is residual.
 _Avoid_: Bot, tool
 
 **Agent harness**:
@@ -206,7 +202,7 @@ _Avoid_: Push, sync, upload
 Said of a token sheet whose cadence period is over and that has not been submitted.
 
 **Approval**:
-A people manager accepting submitted token entries. An organization can switch approval off. With approval on, a period cannot be closed while a token entry in it is unapproved.
+A people manager accepting submitted token entries, one by one or in bulk. An organization can switch approval off. With approval on, a period cannot be closed while a token entry in it is unapproved.
 _Avoid_: Sign-off, posted
 
 **Status**:
@@ -234,10 +230,18 @@ A token entry's cost as the provider actually charged it, where a bill or billed
 _Avoid_: Actual cost
 
 **Price table**:
-The published prices per model used to compute list value. Each period keeps the table it was closed with.
+The published prices per model used to compute list value, in USD. Each period keeps the table it was closed with.
 
 **Unknown model**:
 A model missing from the price table. Its cost is labelled, never shown as zero.
+
+**Reporting currency**:
+The one currency an organization computes in. A bill in another currency keeps its original amount and the exchange rate of its date. Any report can be shown in another currency at the rate of the period's last day.
+_Avoid_: Base currency, master currency
+
+**Share view**:
+A report shown as each line's share of the period instead of money. It is the view for organizations on a seat plan, where usage is not charged in money.
+_Avoid_: Percentage mode
 
 ### Time
 
@@ -249,7 +253,7 @@ _Avoid_: Billing cycle, month
 One stretch of the cadence, such as one week. Each has one token sheet per agent manager.
 
 **Close**:
-Locking a period so its token entries and postings can no longer change. It produces the cost sheet.
+Locking a period so its token entries and postings can no longer change. It produces the cost sheet. A token sheet submitted after its period closed is posted as an adjustment to that period, marked late.
 _Avoid_: Month-end, lock
 
 **Adjustment**:
@@ -262,7 +266,7 @@ Money a human has planned for a person, a ticket, a project or a period. It is c
 _Avoid_: Budget, limit, cap, allowance
 
 **Token forecast**:
-Money Token Controller predicts for a ticket, a project or a period from past cost. It becomes a token budget only when a person accepts it.
+Money Token Controller suggests for a ticket from similar past work. It compares the ticket's title and description with the summaries of past token entries, shows the tickets they belong to with a confidence, and proposes their median cost. It becomes a token budget only when a person accepts it.
 _Avoid_: Forecast, estimate, prediction
 
 **Actual**:
@@ -281,4 +285,4 @@ _Avoid_: Anomaly
 ### Plans
 
 **Team plan**, **Enterprise plan**:
-Always written with the word "plan", because team is a node of the team tree and both are also plan names at providers.
+Always written with the word "plan", because both are also plan names at providers and "team" alone reads as a group of people.

@@ -1,4 +1,4 @@
-    <p class="lead">A bill is a provider's figure for one period's token usage: gross, discount, credit and net. Token entries must add up to it. Seats, subscriptions and other flat fees are not usage: they stay off the bill and off the cost sheet, and finance handles them as before.</p>
+    <p class="lead">A bill is a provider's figure for one period's metered usage: gross, discount, credit and net. Metered usage is everything priced per use: tokens, and per-call fees such as web search. Token entries must add up to it. Seats, subscriptions and other flat fees are not usage: they stay off the bill and off the cost sheet, and finance handles them as before.</p>
 
     <h2 id="sources">Where bills come from</h2>
     <table>
@@ -11,10 +11,10 @@
         <tr><td>Anything else</td><td>CSV upload, typed in by hand, or the bills endpoint of the <a href="/reference/api">HTTP API</a></td></tr>
       </tbody>
     </table>
-    <p>A provider can restate a bill. Each bill keeps its revisions.</p>
+    <p>A provider can restate a bill. Each bill keeps its revisions. A bill in another currency than your reporting currency keeps its original amount and the exchange rate of its date.</p>
 
     <h2 id="reconciliation">Reconciliation</h2>
-    <p>For each period: postings plus unattributed plus residual equal the bill. Residual is the part of the usage no token entry explains, such as chat usage or a restated bill. It is always shown.</p>
+    <p>For each period and each bill: postings plus unattributed plus residual equal the bill. With several providers, each bill is checked on its own and the cost sheet adds them up to the organization total. Residual is the part of the bill no token entry explains: usage in the provider's own chat app, per-call fees the agent harness does not report, a restated bill. It is always shown.</p>
 
     <h2 id="what">What the close reconciles against</h2>
     <table>
@@ -22,7 +22,7 @@
       <tbody>
         <tr><td>Enterprise plan, usage at API rates</td><td>The Enterprise Analytics cost report at list price; the discount is its own line</td><td>Money, before discount</td></tr>
         <tr><td>Console or API key</td><td>The Usage and Cost report, per workspace and day</td><td>Money</td></tr>
-        <tr><td>Seat-based plans (Claude Team, Max, Pro)</td><td>Nothing: the seat is a flat fee and usage inside it is not metered in dollars. There is no bill to reconcile.</td><td>Tokens at API rates, labelled as an estimate on every figure. It answers what the usage would cost on an API plan. Reports can show each project's share of the period instead of dollars.</td></tr>
+        <tr><td>Seat-based plans (Claude Team, Max, Pro)</td><td>Nothing: the seat is a flat fee and usage inside it is not metered in dollars. There is no bill to reconcile.</td><td>Tokens at API rates, labelled as an estimate on every figure. It answers what the usage would cost on an API plan. Every report can switch to the share view: each line's share of the period instead of dollars.</td></tr>
         <tr><td>Bedrock, Vertex, Foundry</td><td>The cloud's export</td><td>Approximate</td></tr>
       </tbody>
     </table>
