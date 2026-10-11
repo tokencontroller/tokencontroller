@@ -9,8 +9,9 @@
   --muted: #6b6e67;
   --line: #ddd9cf;
   --line-2: #c6c1b4;
-  --accent: #0f3d33;
-  --mint: #e2ece5;
+  --brand: #1c2030;
+  --accent: #2563cf;
+  --accent-tint: #e7eefa;
   --amber: #b26f12;
   --card: #fcfbf8;
   --shadow-sm: 0 1px 0 rgba(20, 22, 19, 0.04);
@@ -28,7 +29,7 @@
   --sl-color-gray-6: var(--bg-soft);
   --sl-color-gray-7: var(--bg);
   --sl-color-black: var(--bg);
-  --sl-color-accent-low: var(--mint);
+  --sl-color-accent-low: var(--accent-tint);
   --sl-color-accent: var(--accent);
   --sl-color-accent-high: var(--accent);
   --sl-color-text: var(--ink);
@@ -146,8 +147,8 @@ body {
   height: 34px;
   padding: 0 14px;
   border-radius: 8px;
-  border: 1px solid var(--accent);
-  background: var(--accent);
+  border: 1px solid var(--brand);
+  background: var(--brand);
   color: #fff;
   font-weight: 600;
   font-size: 0.86rem;
@@ -197,7 +198,7 @@ body {
   opacity: 1;
 }
 .side li a.cur {
-  background: var(--mint);
+  background: var(--accent-tint);
   color: var(--accent);
   font-weight: 600;
   opacity: 1;
