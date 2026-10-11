@@ -68,3 +68,9 @@ fn the_committed_openapi_document_is_current() {
         "apps/server/openapi.json is out of date: run `cargo run -p tokencontroller-server -- openapi > apps/server/openapi.json`"
     );
 }
+
+#[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
+async fn seed_data_loads_twice_without_error(pool: PgPool) {
+    tokencontroller_server::seed::load(&pool).await.unwrap();
+    tokencontroller_server::seed::load(&pool).await.unwrap();
+}

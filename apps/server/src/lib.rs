@@ -67,12 +67,7 @@ pub async fn serve(extension: Arc<dyn Extension>) -> anyhow::Result<()> {
         "starting Token Controller"
     );
 
-    let db = connect(&config.database_url).await?;
-    MIGRATOR
-        .run(&db)
-        .await
-        .context("could not apply database migrations")?;
-    tracing::info!("database migrations applied");
+    let db = connect_and_migrate(&config.database_url).await?;
 
     let state = AppState::new(db, config, extension);
     let app = router(state);
@@ -87,6 +82,36 @@ pub async fn serve(extension: Arc<dyn Extension>) -> anyhow::Result<()> {
         .context("the HTTP server stopped")?;
     tracing::info!("stopped");
     Ok(())
+}
+
+/// Loads the example organization into the database at `DATABASE_URL`,
+/// after applying migrations, then returns. Staging runs this after every
+/// reset; it can run more than once.
+///
+/// # Errors
+///
+/// Fails if `DATABASE_URL` is not set, Postgres cannot be reached, or a
+/// migration or the seed data fails.
+pub async fn seed() -> anyhow::Result<()> {
+    init_tracing();
+    let database_url = std::env::var("DATABASE_URL")
+        .ok()
+        .filter(|url| !url.trim().is_empty())
+        .ok_or(config::ConfigError::Missing("DATABASE_URL"))?;
+    let db = connect_and_migrate(&database_url).await?;
+    seed::load(&db).await?;
+    db.close().await;
+    Ok(())
+}
+
+async fn connect_and_migrate(database_url: &str) -> anyhow::Result<PgPool> {
+    let db = connect(database_url).await?;
+    MIGRATOR
+        .run(&db)
+        .await
+        .context("could not apply database migrations")?;
+    tracing::info!("database migrations applied");
+    Ok(db)
 }
 
 /// Connects to Postgres, waiting up to a minute for it to come up, so the
