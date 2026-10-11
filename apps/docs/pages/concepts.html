@@ -24,7 +24,7 @@
     </table>
     <p>The two sides are separate on purpose. A developer can work on three projects for three project managers and still be one cost center. Tech leads and heads of department read cost by person and team. Project managers, directors of delivery and account managers read it through tickets, projects and clients, whoever caused it.</p>
     <div class="note"><b>Example.</b> A PR review bot reviews a pull request for ticket KD-214. The cost sits with the tech lead who is the bot's agent manager (cost center) and shows on KD-214 as review cost (cost object). The ticket's assignee is not charged for it, but a ticket with expensive reviews is visible on its report.</div>
-    <p>When no ticket matches, the cost falls back to the project, then to the organization. What nobody tagged at all sits on the organization as <b>unattributed</b>. A token entry without an agent manager shows as an error to people managers until someone takes it.</p>
+    <p>When no ticket matches, the cost falls back to the project, then to the organization. What has neither sits on the organization as organization overhead, still with its person. A token entry without an agent manager shows as an error to people managers until someone takes it.</p>
 
     <h2 id="tags">Tags</h2>
     <p>Beyond person, ticket and project, an organization adds the tags it needs: <code>team</code>, <code>client</code>, <code>feature</code>, <code>purpose</code>. A token entry has one value per tag name, so cost by team or by client always adds up. A report is a saved tag filter, a token budget is money for a tag filter, and a people manager is assigned the filters they look after. Most tags come in on their own: from the person, the project, rules, a repository's config file or telemetry. See <a href="/account/tags">Tags and the tag map</a>.</p>
@@ -34,21 +34,19 @@
     <p>An agent is software that calls a model on a person's behalf and so costs money. A person typing in a provider's own chat app is not an agent; that usage shows as residual. Token Controller keeps no record of agents, only of the cost they cause. Each token entry names the <b>agent harness</b> (Claude Code, Codex), the <b>model</b>, and an optional <b>agent name</b>, a label such as "review bot" so the same automation on several projects can be totalled.</p>
 
     <h2 id="cost-kinds">Cost kinds</h2>
-    <p>Every token entry carries one cost kind, as the built-in tag <code>kind</code>.</p>
+    <p>The cost kind says how specific a cost is. Nobody sets it; it follows from the ticket and project tags.</p>
     <table>
       <thead><tr><th>Cost kind</th><th>Meaning</th></tr></thead>
       <tbody>
-        <tr><td>Direct</td><td>Placed on a ticket.</td></tr>
-        <tr><td>Project overhead</td><td>Project work that belongs to no single ticket, such as research, discovery or setup.</td></tr>
-        <tr><td>Organization overhead</td><td>Work that belongs to no project, such as dependency updates or internal tooling, when nobody made a ticket for it.</td></tr>
-        <tr><td>Personal</td><td>A person's own learning and experiments.</td></tr>
-        <tr><td>Unattributed</td><td>Spend that no rule or person has placed yet. Always shown as its own line. Overhead is a choice; unattributed is the absence of one.</td></tr>
+        <tr><td>Direct</td><td>On a ticket.</td></tr>
+        <tr><td>Project overhead</td><td>On a project but no ticket, such as research, discovery or setup.</td></tr>
+        <tr><td>Organization overhead</td><td>On no project, such as dependency updates, internal tooling, learning, or a session nobody tagged.</td></tr>
       </tbody>
     </table>
 
     <h2 id="accounted">Every token, accounted for</h2>
-    <p>All of the bill is always accounted for. Whatever is not placed shows as unattributed, and whatever no token entry explains shows as residual. Neither is ever hidden.</p>
-    <p><b>Attribution</b> is the share a rule or a person has placed, with any cost kind. Personal and overhead count; only unattributed does not. Your organization decides which tags must be filled to count: a project is enough for some, others want every session on a ticket, or also a <code>purpose</code>. Expect 70 to 80 percent at first, improving month by month. Each organization sets its <a href="/account/tags#attributed">attribution target</a>; the default is 80 percent.</p>
+    <p>All of the bill is always accounted for. Every token entry has a person, so everything Token Controller receives is attributed. Whatever no token entry explains shows as residual, never hidden.</p>
+    <p><b>Attribution</b> is the share of the bill that token entries explain. Tags only add detail: a project, a ticket, a team. How far to go is your choice; reports show how much cost is direct, project overhead and organization overhead, and rules move it towards tickets month by month.</p>
     <p>Every figure says what it is: billed, a list-price estimate, or an unknown model.</p>
 
     <h2 id="loop">The loop</h2>

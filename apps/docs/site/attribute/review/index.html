@@ -232,19 +232,19 @@ td:first-child{font-weight:600;white-space:nowrap}
   2  11:46   $12.10   ticket KD-214 · team web          rule: ticket key in branch
   3  13:05   $88.30   ticket KD-231 · team web          rule: ticket key in PR title
   4  15:20    $9.75   project storefront · team web     rule: repository
-  5  16:41   $60.38   team web                          unattributed, 2 candidates</span></code></pre>
+  5  16:41   $60.38   team web                          no ticket, 2 candidates</span></code></pre>
     <p>The same list is in the Claude Code mod's pane and in the web app.</p>
 
     <h2 id="fix">Fix what is wrong</h2>
 <pre><code>tc tag 5 ticket=KD-231              <span class="c"># set the ticket</span>
-tc tag 4 kind=personal              <span class="c"># mark as personal</span>
+tc tag 4 purpose=learning           <span class="c"># any other tag</span>
 tc split 3 KD-231=60 KD-240=40      <span class="c"># one session, two tickets</span></code></pre>
     <p>Project, client and the other inherited tags follow from the ticket. You can set any tag on your organization's list the same way.</p>
     <p>If the same fix keeps coming back, turn it into a <a href="/attribute/rules">rule</a>.</p>
 
     <h2 id="submit">Submit</h2>
 <pre><code>tc submit
-<span class="p">submitted token sheet · 5 token entries · $212.40 · 100% attributed</span></code></pre>
+<span class="p">submitted token sheet · 5 token entries · $212.40 · 95% on tickets</span></code></pre>
     <p>Submit whenever you like. If your organization has a <a href="/account/cadence">cadence</a>, submit at least once per cadence period. Submitted token entries count in reports at once. If a people manager rejects one, it comes back to your review list with a reason.</p>
 
 
