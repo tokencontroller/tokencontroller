@@ -6,15 +6,15 @@
       <thead><tr><th>Term</th><th>Meaning</th></tr></thead>
       <tbody>
         <tr><td>Token entry</td><td>One agent session&#x27;s account of what it spent and on what work: tokens, cost, model, start and end time, and a summary. It is to a token sheet what a time entry is to a timesheet.<br><span style="color:var(--muted);font-size:.85em">Not: Receipt, report item, line item, usage record, voucher</span></td></tr>
-        <tr><td>Bill</td><td>A provider&#x27;s figure for one period&#x27;s token usage: gross, discount, credit and net. It is the total the token entries must add up to. Seats, subscriptions and other flat fees are not usage and stay off it.<br><span style="color:var(--muted);font-size:.85em">Not: Statement, invoice</span></td></tr>
-        <tr><td>Token sheet</td><td>One agent manager&#x27;s token entries for one cadence period that were not reported automatically. It is the only way usage that exists on a person&#x27;s machine reaches the organization.<br><span style="color:var(--muted);font-size:.85em">Not: Report, batch</span></td></tr>
-        <tr><td>Automatic</td><td>Said of a token entry the agent reports itself, with no person involved: cloud agents, CI agents, support agents. Automatic token entries are never on a token sheet.<br><span style="color:var(--muted);font-size:.85em">Not: Live</span></td></tr>
+        <tr><td>Bill</td><td>A provider&#x27;s figure for one period&#x27;s metered usage: gross, discount, credit and net, in the currency the provider charges. Metered usage is everything priced per use: tokens, and per-call fees such as web search. It is the total the token entries must add up to. Seats, subscriptions and other flat fees are not usage and stay off it. A bill exists only for metered cost sources; on a seat plan there is none.<br><span style="color:var(--muted);font-size:.85em">Not: Statement, invoice</span></td></tr>
+        <tr><td>Token sheet</td><td>One agent manager&#x27;s reviewed token entries for one cadence period. It is how a person confirms which ticket each of their sessions was for and what it did. Telemetry can carry the money of the same sessions on its own, but never the ticket or the summary; the two are joined by session ID and counted once. Automatic token entries are never on a token sheet.<br><span style="color:var(--muted);font-size:.85em">Not: Report, batch</span></td></tr>
+        <tr><td>Automatic</td><td>Said of a token entry that arrives with no person involved: from cloud agents, CI agents, support agents, or built from telemetry events when no token sheet claims the session. Automatic token entries start at submitted and are never on a token sheet.<br><span style="color:var(--muted);font-size:.85em">Not: Live</span></td></tr>
         <tr><td>Cost sheet</td><td>The locked account of one closed period for the whole organization: cost per project and ticket, adding up to the bill. With approval on, it holds approved cost only.<br><span style="color:var(--muted);font-size:.85em">Not: Statement, close sheet, monthly report</span></td></tr>
         <tr><td>Pass-through</td><td>An organization charging a client for the cost on its cost sheet. Token Controller ends at the cost sheet; what the client is invoiced is outside it.<br><span style="color:var(--muted);font-size:.85em">Not: Chargeback, rebilling, invoicing</span></td></tr>
         <tr><td>Provider</td><td>A company that charges for model usage, such as Anthropic, OpenAI or a cloud marketplace.<br><span style="color:var(--muted);font-size:.85em">Not: Vendor</span></td></tr>
         <tr><td>Cost source</td><td>One way a provider charges an organization: subscription, seat, usage at API rates, API key, cloud marketplace or reseller.</td></tr>
-        <tr><td>Reconciliation</td><td>Checking, per period, that postings plus unattributed plus residual equal the bill.<br><span style="color:var(--muted);font-size:.85em">Not: Matching</span></td></tr>
-        <tr><td>Residual</td><td>The part of a bill&#x27;s usage that no token entry explains, such as chat usage or a restated bill. Always shown as its own line.<br><span style="color:var(--muted);font-size:.85em">Not: Leftover, difference</span></td></tr>
+        <tr><td>Reconciliation</td><td>Checking, per period and per bill, that postings plus unattributed plus residual equal the bill. The cost sheet shows one line per bill and the organization total. In the loop, the step &quot;Reconcile&quot; is wider: it covers rules placing token entries, review, this check and the close.<br><span style="color:var(--muted);font-size:.85em">Not: Matching</span></td></tr>
+        <tr><td>Residual</td><td>The part of a bill that no token entry explains: usage in the provider&#x27;s own chat app, per-call fees the agent harness does not report, a restated bill. Always shown as its own line.<br><span style="color:var(--muted);font-size:.85em">Not: Leftover, difference</span></td></tr>
       </tbody>
     </table>
 
@@ -23,15 +23,15 @@
       <thead><tr><th>Term</th><th>Meaning</th></tr></thead>
       <tbody>
         <tr><td>Posting</td><td>The placement of a token entry, or a share of it, on one cost object with one cost kind.<br><span style="color:var(--muted);font-size:.85em">Not: Allocation, assignment</span></td></tr>
-        <tr><td>Cost center</td><td>A node of the team tree that collects cost: a person, a team, a department or the organization. Every posting lands on exactly one person, its agent manager, and rolls up from there.<br><span style="color:var(--muted);font-size:.85em">Not: Who, person side</span></td></tr>
+        <tr><td>Cost center</td><td>The person who answers for a cost. Every posting lands on exactly one person, its agent manager. Groups and the organization total their people.<br><span style="color:var(--muted);font-size:.85em">Not: Who, person side, team tree</span></td></tr>
         <tr><td>Cost object</td><td>The work a cost paid for: a ticket, a project or the organization. Ticket cost rolls up to its parent ticket and its project.<br><span style="color:var(--muted);font-size:.85em">Not: What, work side</span></td></tr>
         <tr><td>Cost kind</td><td>The label on a posting that says how it relates to work: direct, project overhead, organization overhead, personal or unattributed.<br><span style="color:var(--muted);font-size:.85em">Not: Category, cost type</span></td></tr>
         <tr><td>Direct</td><td>Cost placed on a ticket.</td></tr>
         <tr><td>Project overhead</td><td>Project cost that belongs to no single ticket, such as research or setup.</td></tr>
         <tr><td>Organization overhead</td><td>Cost that belongs to no project, such as internal tooling.</td></tr>
         <tr><td>Personal</td><td>A person&#x27;s own learning and experiments.</td></tr>
-        <tr><td>Unattributed</td><td>Spend that no rule or person has placed yet. Always shown as its own line.<br><span style="color:var(--muted);font-size:.85em">Not: Unassigned, unallocated, other</span></td></tr>
-        <tr><td>Attribution</td><td>The share of spend placed on tickets and projects, as a percentage of the total.<br><span style="color:var(--muted);font-size:.85em">Not: Coverage, allocation rate</span></td></tr>
+        <tr><td>Unattributed</td><td>Spend that no rule or person has placed yet. It sits on the organization as its own line until someone places it. It is not overhead: overhead is a choice, unattributed is the absence of one.<br><span style="color:var(--muted);font-size:.85em">Not: Unassigned, unallocated, other</span></td></tr>
+        <tr><td>Attribution</td><td>The share of spend a rule or a person has placed, with any cost kind, as a percentage of the total. Personal and overhead count: they are accounted for. Only unattributed does not. An organization decides how specific a placement must be to count: on a project, or on a ticket.<br><span style="color:var(--muted);font-size:.85em">Not: Coverage, allocation rate</span></td></tr>
         <tr><td>Attribution target</td><td>The attribution an organization aims for.</td></tr>
       </tbody>
     </table>
@@ -40,10 +40,10 @@
     <table>
       <thead><tr><th>Term</th><th>Meaning</th></tr></thead>
       <tbody>
-        <tr><td>Organization</td><td>One customer of Token Controller: its people, teams, projects and periods.<br><span style="color:var(--muted);font-size:.85em">Not: Account, tenant, workspace, company, client</span></td></tr>
+        <tr><td>Organization</td><td>One customer of Token Controller: its people, groups, projects and periods. It has one reporting currency.<br><span style="color:var(--muted);font-size:.85em">Not: Account, tenant, workspace, company, client</span></td></tr>
         <tr><td>Project</td><td>A body of work made of tickets.</td></tr>
         <tr><td>Client</td><td>A label on a project that names who the work is for. Projects with the same client can be totalled.<br><span style="color:var(--muted);font-size:.85em">Not: Customer, account</span></td></tr>
-        <tr><td>Ticket</td><td>Any unit of work: a feature, a story, an epic or a bug. Tickets can sit inside other tickets.<br><span style="color:var(--muted);font-size:.85em">Not: Issue, task, story, work item</span></td></tr>
+        <tr><td>Ticket</td><td>Any unit of work: a feature, a story, an epic or a bug. It has a key, and optionally a title, a description, a parent ticket and an assignee. Tickets can sit inside other tickets.<br><span style="color:var(--muted);font-size:.85em">Not: Issue, task, story, work item</span></td></tr>
       </tbody>
     </table>
 
@@ -51,12 +51,11 @@
     <table>
       <thead><tr><th>Term</th><th>Meaning</th></tr></thead>
       <tbody>
-        <tr><td>Person</td><td>A human in the organization. A person belongs to one team at a time.<br><span style="color:var(--muted);font-size:.85em">Not: User, developer</span></td></tr>
-        <tr><td>Team</td><td>A node in the team tree: a team, a department or the whole organization.<br><span style="color:var(--muted);font-size:.85em">Not: Group</span></td></tr>
-        <tr><td>Team tree</td><td>The organization&#x27;s people arranged as person, team, department, organization.<br><span style="color:var(--muted);font-size:.85em">Not: Org chart, hierarchy</span></td></tr>
+        <tr><td>Person</td><td>A human in the organization. The smallest cost center.<br><span style="color:var(--muted);font-size:.85em">Not: User, developer</span></td></tr>
+        <tr><td>Group</td><td>A label on people, such as a team, a department or a discipline. A person can carry several. Groups total their people in reports and carry no token budget. Token Controller does not model an org chart.<br><span style="color:var(--muted);font-size:.85em">Not: Team, department, team tree, org chart, hierarchy</span></td></tr>
         <tr><td>Member</td><td>Anyone in the organization, whatever their role.<br><span style="color:var(--muted);font-size:.85em">Not: User, seat</span></td></tr>
         <tr><td>Agent manager</td><td>The role that manages agents: submits token sheets and sees its own cost. Every token entry has exactly one agent manager, who answers for its cost.<br><span style="color:var(--muted);font-size:.85em">Not: Member, supervisor, owner, orchestrator, prompter, developer</span></td></tr>
-        <tr><td>People manager</td><td>The role that manages people and projects: reads reports, sets token budgets and cadence, and approves or rejects token entries, for the teams or projects it is assigned. A people manager is also an agent manager.<br><span style="color:var(--muted);font-size:.85em">Not: Manager</span></td></tr>
+        <tr><td>People manager</td><td>The role that manages people and projects: reads reports, sets token budgets and cadence, and approves or rejects token entries, for the groups or projects it is assigned. A people manager is also an agent manager.<br><span style="color:var(--muted);font-size:.85em">Not: Manager</span></td></tr>
         <tr><td>Controller</td><td>The role that sees everything, runs the close and posts adjustments.<br><span style="color:var(--muted);font-size:.85em">Not: Owner, admin</span></td></tr>
         <tr><td>Assignee</td><td>The person a ticket is assigned to.<br><span style="color:var(--muted);font-size:.85em">Not: Ticket owner</span></td></tr>
       </tbody>
@@ -66,7 +65,7 @@
     <table>
       <thead><tr><th>Term</th><th>Meaning</th></tr></thead>
       <tbody>
-        <tr><td>Agent</td><td>Anything that calls a model and so costs money. Token Controller keeps no record of agents, only of the cost they cause: every token entry comes from exactly one agent session.<br><span style="color:var(--muted);font-size:.85em">Not: Bot, tool</span></td></tr>
+        <tr><td>Agent</td><td>Software that calls a model on a person&#x27;s behalf and so costs money. Token Controller keeps no record of agents, only of the cost they cause: every token entry comes from exactly one agent session. A person typing in a provider&#x27;s own chat app is not an agent; that usage is residual.<br><span style="color:var(--muted);font-size:.85em">Not: Bot, tool</span></td></tr>
         <tr><td>Agent harness</td><td>The product an agent ran on, such as Claude Code or Codex, carried on every token entry.</td></tr>
         <tr><td>Agent name</td><td>An optional label on a token entry that says which agent produced it, such as &quot;review bot&quot;. Token entries with the same agent name can be totalled.</td></tr>
         <tr><td>Model</td><td>The model that did the work in a token entry. Together with the provider it decides the price.</td></tr>
@@ -92,7 +91,7 @@
         <tr><td>Review</td><td>An agent manager checking their own draft token entries before submitting the token sheet.</td></tr>
         <tr><td>Submit</td><td>Handing in a token sheet for its cadence period.<br><span style="color:var(--muted);font-size:.85em">Not: Push, sync, upload</span></td></tr>
         <tr><td>Late</td><td>Said of a token sheet whose cadence period is over and that has not been submitted.</td></tr>
-        <tr><td>Approval</td><td>A people manager accepting submitted token entries. An organization can switch approval off. With approval on, a period cannot be closed while a token entry in it is unapproved.<br><span style="color:var(--muted);font-size:.85em">Not: Sign-off, posted</span></td></tr>
+        <tr><td>Approval</td><td>A people manager accepting submitted token entries, one by one or in bulk. An organization can switch approval off. With approval on, a period cannot be closed while a token entry in it is unapproved.<br><span style="color:var(--muted);font-size:.85em">Not: Sign-off, posted</span></td></tr>
         <tr><td>Status</td><td>Where a token entry stands: draft (still on the machine), submitted (counts in reports), approved, rejected (does not count until fixed) or locked (its period is closed). Automatic token entries start at submitted.</td></tr>
         <tr><td>Reject</td><td>A people manager sending a token entry back to its agent manager with a reason.<br><span style="color:var(--muted);font-size:.85em">Not: Decline, return</span></td></tr>
         <tr><td>Cadence</td><td>The rhythm in which token sheets are due, set by a people manager: weekly, every two weeks, monthly or custom.<br><span style="color:var(--muted);font-size:.85em">Not: Reporting cadence, schedule</span></td></tr>
@@ -106,8 +105,10 @@
         <tr><td>Reported cost</td><td>The cost figure an agent supplies with its own token entry. It is optional.</td></tr>
         <tr><td>List value</td><td>A token entry&#x27;s cost at the provider&#x27;s published prices: the reported cost where there is one, otherwise token counts times the price table for the model.<br><span style="color:var(--muted);font-size:.85em">Not: Estimated cost</span></td></tr>
         <tr><td>Billed value</td><td>A token entry&#x27;s cost as the provider actually charged it, where a bill or billed telemetry says so.<br><span style="color:var(--muted);font-size:.85em">Not: Actual cost</span></td></tr>
-        <tr><td>Price table</td><td>The published prices per model used to compute list value. Each period keeps the table it was closed with.</td></tr>
+        <tr><td>Price table</td><td>The published prices per model used to compute list value, in USD. Each period keeps the table it was closed with.</td></tr>
         <tr><td>Unknown model</td><td>A model missing from the price table. Its cost is labelled, never shown as zero.</td></tr>
+        <tr><td>Reporting currency</td><td>The one currency an organization computes in. A bill in another currency keeps its original amount and the exchange rate of its date. Any report can be shown in another currency at the rate of the period&#x27;s last day.<br><span style="color:var(--muted);font-size:.85em">Not: Base currency, master currency</span></td></tr>
+        <tr><td>Share view</td><td>A report shown as each line&#x27;s share of the period instead of money. It is the view for organizations on a seat plan, where usage is not charged in money.<br><span style="color:var(--muted);font-size:.85em">Not: Percentage mode</span></td></tr>
       </tbody>
     </table>
 
@@ -117,7 +118,7 @@
       <tbody>
         <tr><td>Period</td><td>One calendar month, open or closed.<br><span style="color:var(--muted);font-size:.85em">Not: Billing cycle, month</span></td></tr>
         <tr><td>Cadence period</td><td>One stretch of the cadence, such as one week. Each has one token sheet per agent manager.</td></tr>
-        <tr><td>Close</td><td>Locking a period so its token entries and postings can no longer change. It produces the cost sheet.<br><span style="color:var(--muted);font-size:.85em">Not: Month-end, lock</span></td></tr>
+        <tr><td>Close</td><td>Locking a period so its token entries and postings can no longer change. It produces the cost sheet. A token sheet submitted after its period closed is posted as an adjustment to that period, marked late.<br><span style="color:var(--muted);font-size:.85em">Not: Month-end, lock</span></td></tr>
         <tr><td>Adjustment</td><td>A signed correction a controller posts to a closed period.</td></tr>
       </tbody>
     </table>
@@ -127,7 +128,7 @@
       <thead><tr><th>Term</th><th>Meaning</th></tr></thead>
       <tbody>
         <tr><td>Token budget</td><td>Money a human has planned for a person, a ticket, a project or a period. It is compared with actual cost and never stops spending.<br><span style="color:var(--muted);font-size:.85em">Not: Budget, limit, cap, allowance</span></td></tr>
-        <tr><td>Token forecast</td><td>Money Token Controller predicts for a ticket, a project or a period from past cost. It becomes a token budget only when a person accepts it.<br><span style="color:var(--muted);font-size:.85em">Not: Forecast, estimate, prediction</span></td></tr>
+        <tr><td>Token forecast</td><td>Money Token Controller suggests for a ticket from similar past work. It compares the ticket&#x27;s title and description with the summaries of past token entries, shows the tickets they belong to with a confidence, and proposes their median cost. It becomes a token budget only when a person accepts it.<br><span style="color:var(--muted);font-size:.85em">Not: Forecast, estimate, prediction</span></td></tr>
         <tr><td>Actual</td><td>What was spent against a token budget.</td></tr>
         <tr><td>Overrun</td><td>Actual above token budget.</td></tr>
         <tr><td>Underrun</td><td>Actual below token budget.</td></tr>
@@ -139,6 +140,6 @@
     <table>
       <thead><tr><th>Term</th><th>Meaning</th></tr></thead>
       <tbody>
-        <tr><td>Team plan, Enterprise plan</td><td>Always written with the word &quot;plan&quot;, because team is a node of the team tree and both are also plan names at providers.</td></tr>
+        <tr><td>Team plan, Enterprise plan</td><td>Always written with the word &quot;plan&quot;, because both are also plan names at providers and &quot;team&quot; alone reads as a group of people.</td></tr>
       </tbody>
     </table>

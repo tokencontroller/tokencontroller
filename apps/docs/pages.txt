@@ -1,5 +1,5 @@
 scope|Scope|Getting started|Everything Token Controller does and everything it will not do. The scope is fixed.|pages/scope.html
-concepts|Concepts|Getting started|The ideas Token Controller builds on: two sides that match, two trees, cost kinds, the loop.|pages/concepts.html
+concepts|Concepts|Getting started|The ideas Token Controller builds on: two sides that match, cost kinds, groups, the loop.|pages/concepts.html
 plans|Plans and limits|Getting started|Solo, Team plan, Enterprise plan and self-hosted: prices, limits, payment and region.|pages/plans.html
 account/roles|Roles|Account|Agent manager, people manager and controller: who sees what and who can do what.|pages/account_roles.html
 reference/data-model|Data model|Reference|The records Token Controller keeps and the rules that hold between them.|pages/reference_data-model.html
@@ -25,7 +25,7 @@ attribute/ci|CI agents|Attribute|How cost from agents that run without a person 
 attribute/review|Review and submit|Attribute|Check draft token entries, fix the exceptions, submit the token sheet.|pages/attribute_review.html
 attribute/classifier|Classifier|Attribute|An optional program on your machine that picks the ticket when rules cannot.|pages/attribute_classifier.html
 account/cadence|Cadence and token sheets|Account|Token sheets, cadence and what late means.|pages/account_cadence.html
-account/organizations|Organization and team tree|Account|Organization settings, the team tree, and what happens when someone moves.|pages/account_organizations.html
+account/organizations|Organization and groups|Account|Organization settings, groups, and what happens when someone moves.|pages/account_organizations.html
 account/projects|Projects and clients|Account|What a project has, and how client labels total projects.|pages/account_projects.html
 account/tickets|Tickets|Account|Synced and manual tickets, tickets inside tickets, and the assignee.|pages/account_tickets.html
 account/agent-managers|Agent managers|Account|Who answers for a token entry, and how automations are handed over.|pages/account_agent-managers.html

@@ -1,19 +1,20 @@
-    <p class="lead">An organization is one customer of Token Controller: its people, teams, projects and periods. Its people sit in the team tree.</p>
+    <p class="lead">An organization is one customer of Token Controller: its people, groups, projects and periods. It has one reporting currency.</p>
 
     <h2 id="settings">Organization settings</h2>
     <table>
       <thead><tr><th>Setting</th><th>What it does</th></tr></thead>
       <tbody>
         <tr><td>Cost source</td><td>How your provider charges you. It decides what the close reconciles against; see <a href="/account/bills">Bills</a>.</td></tr>
-        <tr><td>Attribution target</td><td>The share of cost you aim to place on tickets and projects. Default 80 percent.</td></tr>
+        <tr><td>Attribution target</td><td>The share of cost you aim to place, and how specific a placement must be to count: on a project, or on a ticket. Default 80 percent, on a ticket.</td></tr>
+        <tr><td>Reporting currency</td><td>The one currency the organization computes in. Bills in other currencies are booked at the exchange rate of their date.</td></tr>
         <tr><td>Approval</td><td>On or off. See <a href="/account/approval">Approval</a>.</td></tr>
         <tr><td>Sign-in</td><td>Which <a href="/integrations/sign-in">sign-in providers</a> members may use, and which email domains.</td></tr>
       </tbody>
     </table>
 
-    <h2 id="team-tree">The team tree</h2>
-    <p>People are arranged as person, team, department, organization, following your org chart. A department is usually a discipline such as engineering, design or QA. Each person belongs to one team at a time. Every node is a cost center, so a team's cost is the sum of its people's.</p>
-    <p>The team tree is separate from projects on purpose: one person can work on several projects but belongs to one team.</p>
+    <h2 id="groups">Groups</h2>
+    <p>A group is a label on people: a team, a department, a discipline such as engineering or design. A person can carry several. Reports total by group, and a people manager can be assigned groups. Token Controller does not model your org chart, and groups carry no token budget: budgets sit on people, tickets, projects and periods.</p>
+    <p>Groups are separate from projects on purpose: one person can work on several projects whatever groups they are in.</p>
 
     <h2 id="changes">When someone moves</h2>
-    <p>When a person changes team or leaves, only future token entries follow. Past postings keep the team they had, so last month's reports do not change.</p>
+    <p>When a person changes group or leaves, only future token entries follow. Past postings keep the groups they had, so last month's reports do not change.</p>

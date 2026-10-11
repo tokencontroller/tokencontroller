@@ -154,7 +154,7 @@ td:first-child{font-weight:600;white-space:nowrap}
       <li><a href="/attribute/classifier">Classifier</a></li>
     </ul></div>
     <div class="grp"><h4>Account</h4><ul>
-      <li><a href="/account/organizations">Organization and team tree</a></li>
+      <li><a href="/account/organizations">Organization and groups</a></li>
       <li><a href="/account/roles">Roles</a></li>
       <li><a href="/account/projects">Projects and clients</a></li>
       <li><a href="/account/tickets">Tickets</a></li>
@@ -235,6 +235,7 @@ td:first-child{font-weight:600;white-space:nowrap}
         <tr><td><code>cost_source</code></td><td>Subscription, seat, usage at API rates, API key, cloud marketplace or reseller.</td></tr>
         <tr><td><code>gross</code>, <code>discount</code>, <code>credit</code>, <code>net</code></td><td>The amounts.</td></tr>
         <tr><td><code>currency</code></td><td>Such as <code>USD</code>.</td></tr>
+        <tr><td><code>exchange_rate</code></td><td>To the organization's reporting currency, at the bill's date. Optional; Token Controller fills it in when left out.</td></tr>
         <tr><td><code>revision</code></td><td>Set by Token Controller when a provider restates a bill.</td></tr>
       </tbody>
     </table>
