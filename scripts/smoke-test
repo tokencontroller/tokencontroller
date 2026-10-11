@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+# End-to-end smoke test (ADR 0011): start the image with the self-hosting
+# compose file from the docs and wait for /api/v1/health to answer `ok`.
+# Usage: scripts/smoke-test [image]   (default: tokencontroller:ci)
+set -euo pipefail
+
+export TC_IMAGE="${1:-tokencontroller:ci}"
+compose=(docker compose -p tc-smoke -f compose.yaml -f .github/compose.ci.yaml)
+
+cleanup() {
+  status=$?
+  if [ "$status" -ne 0 ]; then
+    echo "--- service logs ---"
+    "${compose[@]}" logs --no-color tokencontroller || true
+  fi
+  "${compose[@]}" down -v --remove-orphans >/dev/null 2>&1 || true
+  exit "$status"
+}
+trap cleanup EXIT
+
+"${compose[@]}" up -d --pull missing --quiet-pull
+
+for attempt in $(seq 1 60); do
+  if body=$(curl -fsS http://localhost:8080/api/v1/health 2>/dev/null); then
+    echo "health: $body"
+    echo "$body" | grep -q '"status":"ok"'
+    echo "$body" | grep -q '"database":"ok"'
+    curl -fsS http://localhost:8080/api/v1/openapi.json | grep -q '"/api/v1/health"'
+    echo "smoke test passed after ${attempt} tries"
+    exit 0
+  fi
+  sleep 2
+done
+echo "the service did not answer on /api/v1/health within two minutes" >&2
+exit 1

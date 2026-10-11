@@ -1,0 +1,4 @@
+# One pnpm workspace for every TypeScript project in this repo.
+packages:
+  - "apps/*"
+  - "packages/*"

@@ -1,0 +1,8 @@
+# Tests may crash on purpose: a failed unwrap is a failed test (ADR 0003).
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-panic-in-tests = true
+allow-indexing-slicing-in-tests = true
+
+# Product and provider names, not code, in doc comments.
+doc-valid-idents = ["OpenAPI", "OpenAI", "OpenTelemetry", "OpenTofu", "DevOps", ".."]

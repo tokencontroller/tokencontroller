@@ -1,0 +1,33 @@
+# Nightly mutation testing of the money core (ADR 0003): cargo-mutants breaks
+# the code on purpose and fails if no test notices.
+name: Nightly
+
+on:
+  schedule:
+    - cron: "17 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  mutants:
+    name: Mutation testing of crates/core
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install the pinned toolchain
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-mutants,cargo-nextest
+      - name: Mutate and test
+        run: cargo mutants --package tokencontroller-core --test-tool nextest --no-shuffle
+      - name: Keep the report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: mutants
+          path: mutants.out

@@ -1,0 +1,8 @@
+-- The first migration. The service applies every file in this folder in
+-- order when it starts (ADR 0005), inside a Postgres advisory lock, so
+-- several replicas can start at once.
+--
+-- Naming: <UTC timestamp YYYYMMDDHHMMSS>_<area>_<what>.sql, where <area> is
+-- the module folder under src/ that owns the tables. Timestamps keep work
+-- from different areas from colliding. Never edit a migration that has
+-- reached main; add a new one.

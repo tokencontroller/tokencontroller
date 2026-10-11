@@ -13,10 +13,44 @@ The docs at [docs.tokencontroller.com](https://docs.tokencontroller.com) say exa
 | `apps/server/` | The service at app.tokencontroller.com, in Rust: sign-in, API, telemetry ingest, background jobs, MCP server. It also serves the web app | AGPL-3.0 |
 | `apps/web/` | The web app, built into the service's Docker image | AGPL-3.0 |
 | `apps/cli/` | The `tc` command, in Rust | MIT |
-| `crates/` | Rust libraries the service and the CLI share, such as `core` (money and rules) | AGPL-3.0 or MIT, per crate |
+| `crates/` | Rust libraries the service and the CLI share: `core` holds money, rules and the `Extension` trait | AGPL-3.0 or MIT, per crate; `core` is MIT |
 | `packages/` | Everything published to a registry, one folder each: `claude-code-mod` first, then one mod per agent harness that allows mods, `sdk` and `github-action` | MIT |
+| `tests/golden/` | Acceptance cases as CSV, one folder per scenario in the docs | |
+| `scripts/` | The harness check and the end-to-end smoke test CI runs | |
 
-Rust code is one Cargo workspace (`Cargo.toml` at the root). TypeScript code is one pnpm workspace (`pnpm-workspace.yaml` at the root). The `Dockerfile` for the service image sits at the root too. Only `apps/docs/` and `docs/adr/` exist so far; the rest arrives with the code.
+Rust code is one Cargo workspace (`Cargo.toml` at the root). TypeScript code is one pnpm workspace (`pnpm-workspace.yaml` at the root). The `Dockerfile` for the service image and `compose.yaml`, the self-hosting compose file from the docs, sit at the root too.
+
+### The service, by area
+
+The service has one module folder per area under `apps/server/src/`, so work on different areas never touches the same files. Each folder registers its own routes; `api.rs` only puts them together.
+
+| Module | Area |
+|---|---|
+| `status` | `/api/v1/health` and the status signals status.tokencontroller.com reads |
+| `organizations` | Organizations, members, invites, roles, organization settings |
+| `sign_in` | Magic links, sessions, API tokens |
+| `tags` | Tags and the tag map |
+| `projects` | Projects, clients and tickets |
+| `mcp` | The MCP server |
+| `seed` | The example organization for local runs, CI, staging and screenshots |
+| `ingest` | Telemetry, the token entries endpoint, manual entry, CSV import, dedupe per message |
+| `jobs` | The job runner: advisory locks and heartbeats |
+| `integrations` | Bill pulls, ticket sync, the price table refresh, reminders |
+| `token_sheets` | Review, submit, cadence, approval |
+| `bills` | Bills and reconciliation |
+| `close` | The monthly close, adjustments, the cost sheet |
+| `budgets` | Token budgets and token forecasts |
+| `reports` | Reports, CSV exports, the reporting API, the raw export |
+| `billing` | Team plan subscriptions on the hosted service, off unless Stripe is configured |
+| `customer_relations` | Feedback, the newsletter, the support inbox |
+
+## Working on the code
+
+- `cargo nextest run` runs every test. Tests that touch the database need Postgres 15 or newer at `DATABASE_URL`; each test gets its own fresh database.
+- Migrations live in `apps/server/migrations/`, named `<UTC timestamp>_<module>_<what>.sql`. The service applies them when it starts. A migration that reached `main` is never edited.
+- Queries are checked against the database when the code compiles. After adding or changing a query, run `cargo sqlx prepare --workspace` and commit `.sqlx/`, so the image builds without a database.
+- After changing the API, run `cargo run -p tokencontroller-server -- openapi > apps/server/openapi.json` and commit it. The web app's client is generated from this file.
+- CI fails on any warning, a skipped test, a lint switched off in the code, fewer tests than before, or a changed harness file without the maintainer's label (ADR 0003, ADR 0013). A pull request merges itself when CI is green, unless it carries the `hold` label.
 
 ## Open core
 
