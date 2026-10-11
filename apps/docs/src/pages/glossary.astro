@@ -3,7 +3,6 @@
 // "## Language" part. Edit glossary.md, never this page.
 import StarlightPage from '@astrojs/starlight/components/StarlightPage.astro';
 import { execSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
 import source from '../../glossary.md?raw';
 
 type Term = { term: string; meaning: string; avoid?: string };
@@ -35,7 +34,8 @@ for (const block of source.split('## Language')[1].split(/\n(?=### )/)) {
   sections.push({ id: slug(title), title, terms });
 }
 
-const file = fileURLToPath(new URL('../../glossary.md', import.meta.url));
+// The build runs in apps/docs.
+const file = 'glossary.md';
 let lastUpdated: Date | undefined;
 try {
   lastUpdated = new Date(execSync(`git log -1 --format=%cI -- "${file}"`, { encoding: 'utf8' }).trim());
