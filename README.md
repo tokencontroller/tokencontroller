@@ -9,13 +9,14 @@ The docs at [docs.tokencontroller.com](https://docs.tokencontroller.com) say exa
 | Folder | What it holds | License |
 |---|---|---|
 | `apps/docs/` | The docs: page sources, the glossary, the build script and the built site | |
+| `docs/adr/` | Architecture decision records: how the code is built and why | |
 | `apps/server/` | The service at app.tokencontroller.com, in Rust: sign-in, API, telemetry ingest, background jobs, MCP server. It also serves the web app | AGPL-3.0 |
 | `apps/web/` | The web app, built into the service's Docker image | AGPL-3.0 |
 | `apps/cli/` | The `tc` command, in Rust | MIT |
 | `crates/` | Rust libraries the service and the CLI share, such as `core` (money and rules) | AGPL-3.0 or MIT, per crate |
 | `packages/` | Everything published to a registry, one folder each: `claude-code-mod` first, then one mod per agent harness that allows mods, `sdk` and `github-action` | MIT |
 
-Rust code is one Cargo workspace (`Cargo.toml` at the root). TypeScript code is one pnpm workspace (`pnpm-workspace.yaml` at the root). The `Dockerfile` for the service image sits at the root too. Only `apps/docs/` exists so far; the rest arrives with the code.
+Rust code is one Cargo workspace (`Cargo.toml` at the root). TypeScript code is one pnpm workspace (`pnpm-workspace.yaml` at the root). The `Dockerfile` for the service image sits at the root too. Only `apps/docs/` and `docs/adr/` exist so far; the rest arrives with the code.
 
 ## Open core
 
