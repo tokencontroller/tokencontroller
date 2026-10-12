@@ -119,3 +119,26 @@ async fn seed_data_loads_twice_without_error(pool: PgPool) {
     tokencontroller_server::seed::load(&pool).await.unwrap();
     tokencontroller_server::seed::load(&pool).await.unwrap();
 }
+
+#[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
+async fn every_answer_carries_a_request_id(pool: PgPool) {
+    let app = router(AppState::new(pool, test_config(), Arc::new(NoExtension)));
+    let request = Request::get("/api/v1/health").body(Body::empty()).unwrap();
+    let response = app.clone().oneshot(request).await.unwrap();
+    // Feedback reports quote this id (docs: Security and privacy).
+    let id = response
+        .headers()
+        .get("x-request-id")
+        .unwrap()
+        .to_str()
+        .unwrap();
+    assert!(uuid::Uuid::parse_str(id).is_ok(), "{id}");
+
+    // An id the caller already sent is kept.
+    let request = Request::get("/api/v1/health")
+        .header("x-request-id", "abc-123")
+        .body(Body::empty())
+        .unwrap();
+    let response = app.oneshot(request).await.unwrap();
+    assert_eq!(response.headers().get("x-request-id").unwrap(), "abc-123");
+}
