@@ -42,3 +42,22 @@ The hosted service bills the Team plan through Stripe with these two. Billing is
 | --- | --- |
 | `TC_STRIPE_SECRET_KEY` | The Stripe API key the service calls Stripe with. |
 | `TC_STRIPE_WEBHOOK_SECRET` | The signing secret of the Stripe webhook endpoint, `/api/v1/billing/stripe-webhook`. |
+
+## Enterprise plan settings {#enterprise}
+
+These turn on the [Enterprise plan](/self-hosting/enterprise) features in the Enterprise image. The open-source image ignores them.
+
+| Variable | Meaning |
+| --- | --- |
+| `TC_LICENSE_KEY` | The license key that comes with the contract. Without a valid key, the image works like the open-source one. From 30 days before the key's last day of support, controllers see a renewal notice. The features keep working for 30 days after that day. |
+| `TC_TELEMETRY_FORWARD_URL` | Your collector's OTLP HTTP endpoint, such as `https://otel.example.com:4318`. Every telemetry batch the service accepts goes there unchanged, before the service drops prompt text. |
+| `TC_TELEMETRY_FORWARD_HEADERS` | Headers for your collector, in the form `name=value,name2=value2`, the same as `OTEL_EXPORTER_OTLP_HEADERS`. |
+
+Each cloud bill connector is on when its settings are set. Once a day it fetches last month's bill and this month's so far, and a new fetch of the same period replaces the earlier one.
+
+| Variable | Meaning |
+| --- | --- |
+| `TC_BEDROCK_ACCESS_KEY_ID`, `TC_BEDROCK_SECRET_ACCESS_KEY` | An AWS access key allowed only `ce:GetCostAndUsage`. AWS charges a cent per request. `TC_BEDROCK_SESSION_TOKEN` is for temporary keys. |
+| `TC_VERTEX_SERVICE_ACCOUNT`, `TC_VERTEX_BILLING_TABLE` | A Google Cloud service account key (JSON) with BigQuery Job User on its project and BigQuery Data Viewer on the billing export dataset, and the export table as `project.dataset.table`. Google Cloud has no cost API, so the connector reads the [billing export](https://cloud.google.com/billing/docs/how-to/export-data-bigquery). |
+| `TC_FOUNDRY_TENANT_ID`, `TC_FOUNDRY_CLIENT_ID`, `TC_FOUNDRY_CLIENT_SECRET`, `TC_FOUNDRY_SCOPE` | An Entra app registration with Cost Management Reader on the scope, and the scope, such as `/subscriptions/<id>`. |
+| `TC_BEDROCK_SERVICES`, `TC_VERTEX_SERVICES`, `TC_FOUNDRY_SERVICES` | Optional. Comma-separated parts of service names that count as model usage. By default: `bedrock`; `vertex ai`, `claude`, `gemini`; `foundry`, `azure openai`, `cognitive services`, `claude`, `anthropic`. |
