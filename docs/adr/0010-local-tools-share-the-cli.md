@@ -4,6 +4,8 @@ The CLI, `tc`, is the one local program: it reads session files through the ccus
 
 There is no background process and no sync between a person's machines; each machine submits its own token entries.
 
+ADR 0017 replaces the ccusage adapter crates with readers of our own that follow ccusage's rules, and fills in the rest of how `tc` works.
+
 ## Why
 
 One implementation of rules and local state means one set of golden tests and no drift between what the mod shows and what the service computes. The CLI stays fully useful with no service connected, as the docs promise, and any compatible service can be connected because the protocol is the public API.

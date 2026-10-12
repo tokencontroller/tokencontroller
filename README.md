@@ -12,9 +12,10 @@ The docs at [docs.tokencontroller.com](https://docs.tokencontroller.com) say exa
 | `docs/adr/` | Architecture decision records: how the code is built and why | |
 | `apps/server/` | The service at app.tokencontroller.com, in Rust: sign-in, API, telemetry ingest, background jobs, MCP server. It also serves the web app | AGPL-3.0 |
 | `apps/web/` | The web app, built into the service's Docker image | AGPL-3.0 |
-| `apps/cli/` | The `tc` command, in Rust | MIT |
+| `apps/cli/` | The `tc` command, in Rust, with its reference classifier script and the release packaging. A `v*` tag runs `.github/workflows/release.yml` | MIT |
 | `crates/` | Rust libraries the service and the CLI share: `core` holds money, rules and the `Extension` trait | AGPL-3.0 or MIT, per crate; `core` is MIT |
 | `packages/` | Everything published to a registry, one folder each: `claude-code-mod` first, then one mod per agent harness that allows mods, `sdk` and `github-action` | MIT |
+| `Formula/` | The Homebrew formula for `tc`, so `brew tap tokencontroller/tap https://github.com/tokencontroller/tokencontroller` works. The release workflow writes it | MIT |
 | `.claude-plugin/` | The plugin marketplace Claude Code reads with `/plugin marketplace add tokencontroller/tokencontroller`. It lists the mod in `packages/claude-code-mod` | |
 | `tests/golden/` | Acceptance cases as CSV, one folder per scenario in the docs | |
 | `scripts/` | The harness check and the end-to-end smoke test CI runs | |
