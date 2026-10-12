@@ -1,6 +1,5 @@
 import { useEffect, type ComponentProps, type ReactNode } from "react";
 import { additions } from "@/lib/additions";
-import { recordError } from "@/lib/diagnostics";
 
 const control =
   "h-9 rounded-md border border-line-strong bg-page px-2.5 text-sm text-ink placeholder:text-muted focus:border-accent focus:outline-none disabled:opacity-60";
@@ -38,7 +37,6 @@ export function FormError({ error }: { error: unknown }) {
   const message = !error ? null : error instanceof Error ? error.message : "Something went wrong.";
   useEffect(() => {
     if (!message) return;
-    recordError(message);
     additions.onErrorShown(message);
   }, [message]);
   if (!message) return null;

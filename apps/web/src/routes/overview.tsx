@@ -10,7 +10,7 @@ import { Kpi, KpiRow, Loading, MoneyText, Note, PageHeader, RowBar, Section, Sha
 import { addMonths, describeFilter, filterToText, formatPeriod } from "@/lib/format";
 import { additions } from "@/lib/additions";
 import { formatMoney, formatShare, fromDecimal, nanosOf, shareOf, sum } from "@/lib/money";
-import { refreshAll, useBilling, useFirstOpenPeriod, useMe, usePeriods, usePersonName } from "@/lib/queries";
+import { refreshAll, useFirstOpenPeriod, useMe, usePeriods, usePersonName } from "@/lib/queries";
 import { Field, FormError, Input } from "@/components/ui/form";
 import { forgetSignUp, readSignUp, rememberSignUp, type SignUpChoices } from "@/lib/remember";
 import { hasRole } from "@/lib/roles";
@@ -288,7 +288,6 @@ function FirstSteps() {
 
 export function OverviewPage(): ReactNode {
   const me = useMe();
-  const billing = useBilling();
   const isController = me.person.role === "controller";
   const { OverviewNote } = additions.parts;
   return (
@@ -302,16 +301,6 @@ export function OverviewPage(): ReactNode {
         <Section title="Your own cost">
           <MyCost />
         </Section>
-      ) : null}
-      {billing.data?.plan === "solo" ? (
-        <p className="text-xs text-muted">
-          Solo: one person holds every role.{" "}
-          {isController ? (
-            <Link to="/billing" className="underline">
-              Invite people with the Team plan.
-            </Link>
-          ) : null}
-        </p>
       ) : null}
       {OverviewNote ? <OverviewNote /> : null}
     </>

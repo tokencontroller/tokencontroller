@@ -6,7 +6,7 @@ import { ErrorBox } from "./display";
 import { FormError } from "./form";
 
 // Every error message the app shows reaches a build's additions once, such as
-// for a feedback report's last error messages.
+// for a list of the last errors a person saw.
 describe("shown errors", () => {
   afterEach(() => {
     cleanup();

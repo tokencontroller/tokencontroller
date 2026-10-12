@@ -1,5 +1,4 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Link } from "@tanstack/react-router";
 import { useState, type ReactNode } from "react";
 import type { ApiToken, ApiTokenKind, CostSource, TicketSystem } from "@/api/contract";
 import { api } from "@/api/endpoints";
@@ -8,7 +7,7 @@ import { EnterpriseSettings } from "@/components/enterprise-settings";
 import { currencies } from "@/routes/sign-in";
 import { saveCadence, useCadences } from "@/routes/projects";
 import { Badge } from "@/components/ui/badge";
-import { Button, buttonClass } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { Loading, Note, PageHeader, Section } from "@/components/ui/display";
 import { Field, FormError, Input, Select } from "@/components/ui/form";
@@ -19,7 +18,7 @@ import { costSourceOrder, costSourceText, describeCostSource } from "@/lib/cost-
 import { additions } from "@/lib/additions";
 import { downloadFile } from "@/lib/csv";
 import { displayName, formatDate, formatDateTime } from "@/lib/format";
-import { refreshAll, useAdmin, useBilling, useMe, usePeople, usePersonName, useProjects } from "@/lib/queries";
+import { refreshAll, useMe, usePeople, usePersonName, useProjects } from "@/lib/queries";
 import { hasRole } from "@/lib/roles";
 import { today } from "@/lib/today";
 
@@ -389,44 +388,6 @@ function ApiTokens() {
   );
 }
 
-/** The plan in one line, with the way to the billing page. Hidden where billing is off. */
-function Plan() {
-  const billing = useBilling();
-  if (!billing.data) return null;
-  const b = billing.data;
-  return (
-    <Section title="Plan">
-      <div className="flex flex-col gap-3 rounded-lg border border-line p-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="text-sm">
-          <span className="font-medium">{b.plan === "team" ? "Team plan" : "Solo"}</span>
-          <span className="text-muted"> · {b.plan === "team" ? `${String(b.members)} of ${String(b.member_limit)} members` : "free forever for one person"}</span>
-        </div>
-        <Link to="/billing" className={buttonClass()}>
-          {b.plan === "team" ? "Billing" : "Choose Team plan"}
-        </Link>
-      </div>
-    </Section>
-  );
-}
-
-/**
- * On an instance without operators, feedback reports go to the controllers,
- * who read their own organization's reports here.
- */
-function FeedbackReports() {
-  const admin = useAdmin();
-  const reports = useQuery({ queryKey: ["admin", "feedback", ""], queryFn: () => api.receivedFeedback(), enabled: admin.data === null, retry: false });
-  if (admin.data !== null || !reports.data) return null;
-  const open = reports.data.filter((r) => r.report.status === "received").length;
-  return (
-    <Section title="Feedback reports" lead="Bugs, ideas and questions your members send with the feedback button come to the controllers on this instance.">
-      <Link to="/admin/feedback" className={buttonClass()}>
-        Feedback reports{open ? ` (${String(open)} new)` : ""}
-      </Link>
-    </Section>
-  );
-}
-
 export function SettingsPage(): ReactNode {
   const me = useMe();
   const controller = hasRole(me.person, "controller");
@@ -452,9 +413,7 @@ export function SettingsPage(): ReactNode {
       <Section id="api-tokens" title="API tokens" lead="Service tokens report token entries, read tokens read reports, the organization token takes telemetry.">
         <ApiTokens />
       </Section>
-      {controller ? <Plan /> : null}
       {controller && SettingsPlan ? <SettingsPlan /> : null}
-      {controller ? <FeedbackReports /> : null}
       {controller ? (
         <Section title="Raw export" lead="Everything your organization has, as a zip of JSON: every token entry, split, tag, bill, rule, ticket and period.">
           <Button onClick={() => exportRaw.mutate()} disabled={exportRaw.isPending}>

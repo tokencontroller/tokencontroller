@@ -1,7 +1,6 @@
 import createClient from "openapi-fetch";
 import type { components, paths } from "./generated";
 import { additions } from "@/lib/additions";
-import { recordRequest } from "@/lib/diagnostics";
 
 // One client for the whole app. Endpoints in the service's OpenAPI document
 // are called through `typed`, whose types are generated from it in CI, so a
@@ -31,9 +30,8 @@ typed.use({
   },
 });
 
-/** Every answer from the service passes here, also to the build's additions. */
+/** Every answer from the service passes here, to the build's additions. */
 function answered(response: Response): void {
-  recordRequest(response);
   additions.onResponse(response);
 }
 

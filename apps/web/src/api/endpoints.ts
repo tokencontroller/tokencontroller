@@ -7,22 +7,17 @@ import type {
   BillCsvQuery,
   BillInput,
   CadenceInput,
-  FeedbackStatus,
   Filter,
-  Interval,
-  IssueText,
   MemberChange,
   NewBillConnection,
   NewMember,
   NewProject,
-  NewReport,
   NewTicket,
   NewTokenEntry,
   OrganizationChange,
   OrganizationRulesChange,
   PeriodId,
   ProjectChange,
-  ReportChange,
   Rule,
   SaveInput,
   ShareInput,
@@ -99,14 +94,10 @@ export const api = {
   invite: (code: string) => ok(typed.GET("/api/v1/invites/{code}", { params: { path: { code } } })),
   health: () => ok(typed.GET("/api/v1/health")),
 
-  // Who is signed in, the organization and its plan
+  // Who is signed in and the organization
   me: () => ok(typed.GET("/api/v1/me")),
   organization: () => ok(typed.GET("/api/v1/organization")),
   updateOrganization: (body: OrganizationChange) => ok(typed.PATCH("/api/v1/organization", { body })),
-  /** 404 where billing is off: self-hosted. */
-  billing: () => ok(typed.GET("/api/v1/billing")),
-  checkout: (interval: Interval, country: string) => ok(typed.POST("/api/v1/billing/checkout", { body: { interval, country } })),
-  billingPortal: () => ok(typed.POST("/api/v1/billing/portal")),
   cadences: () => ok(typed.GET("/api/v1/cadences")),
   setCadence: (body: CadenceInput) => ok(typed.PUT("/api/v1/cadences", { body })),
   removeCadence: (id: string) => ok(typed.DELETE("/api/v1/cadences/{id}", path(id))),
@@ -265,32 +256,6 @@ export const api = {
   changeOrganizationRules: (body: OrganizationRulesChange) => ok(typed.PUT("/api/v1/organization/rules", { body })),
   myRules: () => ok(typed.GET("/api/v1/me/rules")),
   setMyRules: (rules: Rule[]) => ok(typed.PUT("/api/v1/me/rules", { body: { rules } })),
-
-  // Feedback reports and support inside the app (every member)
-  /** 404 where the service has no feedback reports, as on an Enterprise plan instance. */
-  feedback: () => ok(typed.GET("/api/v1/feedback")),
-  sendFeedback: (body: NewReport) => ok(typed.POST("/api/v1/feedback", { body })),
-  /** 404 where support is off, as on most self-hosted instances. */
-  support: () => ok(typed.GET("/api/v1/support")),
-  sendSupportMessage: (message: string) => ok(typed.POST("/api/v1/support/messages", { body: { message } })),
-
-  // The admin area: 404 to everyone who is not an operator
-  adminOverview: () => ok(typed.GET("/api/v1/admin")),
-  supportConversations: (state?: string) => ok(typed.GET("/api/v1/admin/support", { params: { query: state ? { state } : {} } })),
-  supportConversation: (id: string) => ok(typed.GET("/api/v1/admin/support/{id}", path(id))),
-  replyToSupport: (id: string, text: string) => ok(typed.POST("/api/v1/admin/support/{id}/replies", { ...path(id), body: { text } })),
-  closeSupport: (id: string) => ok(typed.POST("/api/v1/admin/support/{id}/close", path(id))),
-  receivedFeedback: (status?: FeedbackStatus) => ok(typed.GET("/api/v1/admin/feedback", { params: { query: status ? { status } : {} } })),
-  receivedReport: (id: string) => ok(typed.GET("/api/v1/admin/feedback/{id}", path(id))),
-  updateReport: (id: string, body: ReportChange) => ok(typed.PATCH("/api/v1/admin/feedback/{id}", { ...path(id), body })),
-  customers: () => ok(typed.GET("/api/v1/admin/customers")),
-  customer: (id: string) => ok(typed.GET("/api/v1/admin/customers/{id}", path(id))),
-  addCustomerNote: (id: string, text: string) => ok(typed.POST("/api/v1/admin/customers/{id}/notes", { ...path(id), body: { text } })),
-  assistantQuestions: (answered?: boolean) => ok(typed.GET("/api/v1/admin/assistant/questions", { params: { query: answered === undefined ? {} : { answered } } })),
-  newsletter: () => ok(typed.GET("/api/v1/admin/newsletter")),
-  createIssue: (subject: string, body: string) => ok(typed.POST("/api/v1/admin/newsletter/issues", { body: { subject, body } })),
-  updateIssue: (id: string, body: IssueText) => ok(typed.PATCH("/api/v1/admin/newsletter/issues/{id}", { ...path(id), body })),
-  sendIssue: (id: string) => ok(typed.POST("/api/v1/admin/newsletter/issues/{id}/send", path(id))),
 
   // Settings: API tokens, ticket systems, the raw export
   apiTokens: () => ok(typed.GET("/api/v1/api-tokens")),
