@@ -46,7 +46,7 @@ A rule is a signal, a test, a value and the tags it sets. The signals are `branc
 
 With `--json` every command prints one JSON value and nothing else. Messages go to standard error. The exit code is 0 on success, 1 for a mistake in the command or a missing connection, 2 when the service answered with an error, and 3 for a problem on the machine.
 
-`tc submit --tag NAME=VALUE` names a tag for every token entry it sends, and `--signal NAME=VALUE` passes what the session files lack: `repository`, `branch`, `pull_request` or `pull_request_title`. The [GitHub Action](/collect/github-action) uses both.
+`tc submit --tag NAME=VALUE` names a tag for every token entry it sends, and `--signal NAME=VALUE` passes what the session files lack: `repository`, `branch`, `pull_request` or `pull_request_title`. The [GitHub Action](/collect/github-action) passes the same through the variables below.
 
 | Variable | What it does |
 | --- | --- |
