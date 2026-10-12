@@ -10,6 +10,7 @@ pub mod csv_import;
 pub mod entry;
 pub mod model;
 pub mod otlp;
+pub mod provider;
 
 use utoipa_axum::router::OpenApiRouter;
 

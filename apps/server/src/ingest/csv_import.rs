@@ -20,10 +20,13 @@ use super::model::TokenCounts;
 pub const MAX_ROWS: usize = 10_000;
 
 /// Columns that are not tags, in the order `tc export --csv` writes them.
-pub const COLUMNS: [&str; 19] = [
+pub const COLUMNS: [&str; 22] = [
     "agent_harness",
     "agent_name",
     "model",
+    "provider",
+    "effort",
+    "speed",
     "started_at",
     "ended_at",
     "tokens.input",
@@ -200,6 +203,9 @@ fn entry_from_cells(cells: &BTreeMap<&str, &str>) -> Result<NewTokenEntry, Strin
         agent_harness: required(cells, "agent_harness")?,
         agent_name: text(cells, "agent_name"),
         model: required(cells, "model")?,
+        provider: text(cells, "provider"),
+        effort: text(cells, "effort"),
+        speed: text(cells, "speed"),
         started_at: time(cells, "started_at")?,
         ended_at: time(cells, "ended_at")?,
         tokens: TokenCounts {
@@ -298,7 +304,7 @@ mod tests {
     #[test]
     fn every_column_tc_writes_is_read() {
         let header = COLUMNS.join(",");
-        let row = "claude-code,review bot,claude-sonnet-5,2026-09-18T09:12:00Z,2026-09-18T09:40:00Z,1,2,3,4,0.1,did it,KD-1,storefront,s-9,KD-1-fix,/src/shop,github.com/kestrel/storefront,#42,review";
+        let row = "claude-code,review bot,claude-sonnet-5,anthropic,high,,2026-09-18T09:12:00Z,2026-09-18T09:40:00Z,1,2,3,4,0.1,did it,KD-1,storefront,s-9,KD-1-fix,/src/shop,github.com/kestrel/storefront,#42,review";
         let rows = parse(&format!("{header}\n{row}\n")).unwrap();
         let entry = &rows[0].result.as_ref().unwrap().entry;
         assert_eq!(entry.agent_name.as_deref(), Some("review bot"));

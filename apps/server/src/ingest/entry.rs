@@ -54,6 +54,17 @@ pub struct NewTokenEntry {
     pub agent_name: Option<String>,
     /// The model that did the work.
     pub model: String,
+    /// Who charges for the model calls: `anthropic`, `openai`, `google`,
+    /// `aws_bedrock`, `gcp_vertex`, `azure_foundry`, `github`, `cursor` or
+    /// `other`. Without it, it follows from the model's name.
+    #[serde(default)]
+    pub provider: Option<String>,
+    /// The effort setting the agent ran with, such as `high`.
+    #[serde(default)]
+    pub effort: Option<String>,
+    /// The speed setting the agent ran with, such as `fast`.
+    #[serde(default)]
+    pub speed: Option<String>,
     /// When the session started.
     #[serde(with = "time::serde::rfc3339")]
     #[schema(value_type = String, format = DateTime)]
@@ -265,6 +276,16 @@ impl NewTokenEntry {
             }
         }
         optional_label("placed_by", self.placed_by.as_ref())?;
+        optional_label("effort", self.effort.as_ref())?;
+        optional_label("speed", self.speed.as_ref())?;
+        if let Some(provider) = &self.provider
+            && !super::provider::PROVIDERS.contains(&provider.as_str())
+        {
+            return Err(EntryError(format!(
+                "provider {provider:?} is not one of {}",
+                super::provider::PROVIDERS.join(", ")
+            )));
+        }
         optional_label("local_id", self.local_id.as_ref())?;
         let reported_cost = cost("reported_cost", self.reported_cost.as_ref())?;
         let messages = self.check_messages()?;
