@@ -15,15 +15,12 @@ pub mod change;
 pub mod config;
 pub mod error;
 pub mod hooks;
-pub mod hosted;
 pub mod mail;
 pub mod state;
 
-pub mod billing;
 pub mod bills;
 pub mod budgets;
 pub mod close;
-pub mod customer_relations;
 pub mod ingest;
 pub mod integrations;
 pub mod jobs;
@@ -39,7 +36,7 @@ pub mod token_sheets;
 pub mod web;
 
 use std::io::IsTerminal as _;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 
 use anyhow::Context as _;
@@ -55,7 +52,16 @@ pub const LISTEN_ADDRESS: &str = "0.0.0.0:8080";
 
 /// Every migration in `migrations/`, applied in order when the service starts
 /// (ADR 0005).
-pub static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
+///
+/// A database may hold migrations that are no longer here: those of the
+/// hosted service's billing and customer relations, which left this repo
+/// (ADR 0020). The migrator passes over them, so such a database still
+/// starts. It still refuses a migration here that was changed after it ran.
+pub static MIGRATOR: LazyLock<sqlx::migrate::Migrator> = LazyLock::new(|| {
+    let mut migrator = sqlx::migrate!("./migrations");
+    migrator.set_ignore_missing(true);
+    migrator
+});
 
 /// Starts the service: reads the configuration, connects to Postgres,
 /// applies migrations and serves HTTP until the process is asked to stop.

@@ -24,7 +24,7 @@ Rust code is one Cargo workspace (`Cargo.toml` at the root). TypeScript code is 
 
 ### The service, by area
 
-The service has one module folder per area under `apps/server/src/`, so work on different areas never touches the same files. Each folder registers its own routes; `api.rs` only puts them together. Next to it, `mail.rs` sends the service's own mail (sign-in links, invites), `change.rs` reads optional fields of a change request, `web.rs` serves the web app on every path outside `/api/`, `hooks.rs` holds the plug-in points for a build that adds areas of its own, and `hosted.rs` plugs the hosted service's billing and customer relations into them.
+The service has one module folder per area under `apps/server/src/`, so work on different areas never touches the same files. Each folder registers its own routes; `api.rs` only puts them together. Next to it, `mail.rs` sends the service's own mail (sign-in links, invites), `change.rs` reads optional fields of a change request, `web.rs` serves the web app on every path outside `/api/`, and `hooks.rs` holds the plug-in points for a build that adds areas of its own.
 
 | Module | Area |
 |---|---|
@@ -43,8 +43,6 @@ The service has one module folder per area under `apps/server/src/`, so work on 
 | `close` | The monthly close, adjustments, the cost sheet |
 | `budgets` | Token budgets and token forecasts |
 | `reports` | Reports, CSV exports, the reporting API, the raw export |
-| `billing` | Team plan subscriptions on the hosted service, off unless Stripe is configured |
-| `customer_relations` | Feedback, the newsletter, the support inbox |
 
 ## Working on the code
 

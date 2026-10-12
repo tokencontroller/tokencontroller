@@ -87,9 +87,9 @@ pub fn router_with(state: AppState, extra: OpenApiRouter<AppState>) -> Router {
         .with_state(state)
 }
 
-/// One log span per request, with its `x-request-id`, which the web app's
-/// feedback reports carry (docs: Security and privacy). The path goes
-/// without its query, which can hold a sign-in token.
+/// One log span per request, with its `x-request-id`, so the log lines of
+/// one answer can be found. The path goes without its query, which can hold
+/// a sign-in token.
 fn request_span<B>(request: &axum::http::Request<B>) -> tracing::Span {
     let id = request
         .headers()
@@ -111,7 +111,7 @@ fn request_span<B>(request: &axum::http::Request<B>) -> tracing::Span {
 ///
 /// Only if the document cannot be written as JSON.
 pub fn openapi_json() -> anyhow::Result<String> {
-    openapi_json_with(crate::hosted::openapi())
+    pretty(&api(OpenApiRouter::new()).into_openapi())
 }
 
 /// The OpenAPI document with a build's own paths and schemas (`extra`, with
@@ -123,6 +123,10 @@ pub fn openapi_json() -> anyhow::Result<String> {
 pub fn openapi_json_with(extra: utoipa::openapi::OpenApi) -> anyhow::Result<String> {
     let mut document = api(OpenApiRouter::new()).into_openapi();
     document.merge(extra);
+    pretty(&document)
+}
+
+fn pretty(document: &utoipa::openapi::OpenApi) -> anyhow::Result<String> {
     document
         .to_pretty_json()
         .context("could not write the OpenAPI document")
