@@ -1,5 +1,6 @@
 import createClient from "openapi-fetch";
 import type { components, paths } from "./generated";
+import { recordRequest } from "@/lib/diagnostics";
 
 // One client for the whole app. Endpoints in the service's OpenAPI document
 // are called through `typed`, whose types are generated from it in CI, so a
@@ -23,6 +24,11 @@ export class ApiError extends Error {
 }
 
 export const typed = createClient<paths>({ credentials: "same-origin" });
+typed.use({
+  onResponse({ response }) {
+    recordRequest(response);
+  },
+});
 
 type Query = Record<string, string | number | boolean | undefined>;
 
@@ -69,6 +75,7 @@ export async function call<T>(method: string, path: string, options: CallOptions
     credentials: "same-origin",
     ...(body === undefined ? {} : { body }),
   });
+  recordRequest(response);
   if (!response.ok) throw await errorFrom(response);
   if (response.status === 204) return undefined as T;
   const type = response.headers.get("content-type") ?? "";
@@ -79,6 +86,7 @@ export async function call<T>(method: string, path: string, options: CallOptions
 /** Fetches a file, such as a CSV or the raw export zip, as a Blob. */
 export async function download(path: string, query?: Query): Promise<Blob> {
   const response = await fetch(url(path, query), { credentials: "same-origin" });
+  recordRequest(response);
   if (!response.ok) throw await errorFrom(response);
   return response.blob();
 }

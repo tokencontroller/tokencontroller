@@ -1,4 +1,5 @@
-import type { ComponentProps, ReactNode } from "react";
+import { useEffect, type ComponentProps, type ReactNode } from "react";
+import { recordError } from "@/lib/diagnostics";
 
 const control =
   "h-9 rounded-md border border-line-strong bg-page px-2.5 text-sm text-ink placeholder:text-muted focus:border-accent focus:outline-none disabled:opacity-60";
@@ -33,8 +34,11 @@ export function Select({ className = "", children, ...props }: ComponentProps<"s
 }
 
 export function FormError({ error }: { error: unknown }) {
-  if (!error) return null;
-  const message = error instanceof Error ? error.message : "Something went wrong.";
+  const message = !error ? null : error instanceof Error ? error.message : "Something went wrong.";
+  useEffect(() => {
+    if (message) recordError(message);
+  }, [message]);
+  if (!message) return null;
   return (
     <p role="alert" className="rounded-md bg-exception-tint px-3 py-2 text-sm text-exception">
       {message}

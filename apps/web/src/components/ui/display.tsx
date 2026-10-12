@@ -1,6 +1,7 @@
 import type { Money, ValueLabel } from "@/api/contract";
 import { formatMoney, formatShare } from "@/lib/money";
-import type { ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
+import { recordError } from "@/lib/diagnostics";
 import { valueLabelText } from "./badge";
 
 export function MoneyText({ value, label, signed = false, share }: { value: Money | null; label?: ValueLabel; signed?: boolean; share?: number | undefined }) {
@@ -107,6 +108,7 @@ export function Loading() {
 
 export function ErrorBox({ error }: { error: unknown }) {
   const message = error instanceof Error ? error.message : "Something went wrong.";
+  useEffect(() => recordError(message), [message]);
   return (
     <div role="alert" className="rounded-lg border border-exception/30 bg-exception-tint px-4 py-3 text-sm text-exception">
       {message}

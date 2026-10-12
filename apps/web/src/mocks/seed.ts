@@ -23,6 +23,7 @@ import type {
   TokenCounts,
   TokenEntryStatus,
 } from "@/api/contract";
+import { createCustomerRelations, type CustomerRelations } from "./customer-relations";
 
 export const TODAY = "2026-10-12";
 export const CURRENCY = "USD";
@@ -133,6 +134,8 @@ export interface Db {
   rules: Rule[];
   tokens: ApiToken[];
   ticketSystems: TicketSystem[];
+  /** Feedback reports, support and what the operators see. */
+  cr: CustomerRelations;
   nextId: number;
 }
 
@@ -646,8 +649,21 @@ export function createDb(): Db {
       { id: "a0ce0000-0000-4000-8000-000000000004", kind: "read", name: "Power BI", shown_prefix: "tc_read_2c44", person_id: who("kai").id, needs_owner: false, created_at: "2026-07-20T13:00:00Z", last_used_at: "2026-10-11T07:00:00Z" },
     ],
     ticketSystems: [
-      { id: "ts_1", kind: "jira", site: "kestrel.atlassian.net", mappings: [{ external: "KD", project: "storefront" }, { external: "CP", project: "claims-portal" }], last_sync_at: "2026-10-12T16:45:00Z", status: "ok" },
+      {
+        id: "a0c70000-0000-4000-8000-000000000001",
+        kind: "jira",
+        site: "https://kestrel.atlassian.net",
+        key_hint: "x7Qa",
+        mappings: [
+          { external: "KD", external_name: "Storefront", project: "storefront" },
+          { external: "CP", external_name: "Claims Portal", project: "claims-portal" },
+        ],
+        last_sync_at: "2026-10-12T16:45:00Z",
+        message: null,
+        status: "ok",
+      },
     ],
+    cr: createCustomerRelations(people, ORGANIZATION_ID),
     nextId: 1000,
   };
   return db;

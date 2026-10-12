@@ -36,17 +36,30 @@ export function useMe(): Account {
 export function useBilling({ untilTeam = false }: { untilTeam?: boolean } = {}) {
   return useQuery({
     queryKey: ["billing"],
-    queryFn: async (): Promise<Billing | null> => {
-      try {
-        return await api.billing();
-      } catch (error) {
-        if (error instanceof ApiError && error.status === 404) return null;
-        throw error;
-      }
-    },
+    queryFn: (): Promise<Billing | null> => unlessMissing(api.billing),
     staleTime: 5 * 60_000,
     refetchInterval: (query) => (untilTeam && query.state.data?.plan === "solo" ? 3000 : false),
   });
+}
+
+/** Runs a call and turns a 404 into null: the service's way to say "not here". */
+async function unlessMissing<T>(load: () => Promise<T>): Promise<T | null> {
+  try {
+    return await load();
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) return null;
+    throw error;
+  }
+}
+
+/** The admin area's counts, or null for everyone who is not an operator. */
+export function useAdmin() {
+  return useQuery({ queryKey: ["admin"], queryFn: () => unlessMissing(api.adminOverview), staleTime: 60_000 });
+}
+
+/** Where support answers, or null where support is off (most self-hosted instances). */
+export function useSupport() {
+  return useQuery({ queryKey: ["support"], queryFn: () => unlessMissing(api.support), staleTime: 5 * 60_000 });
 }
 
 export function usePeople() {

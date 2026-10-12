@@ -10,14 +10,17 @@ import type {
   CloseCheck,
   CostSheet,
   CsvPreview,
+  FeedbackStatus,
   Filter,
   HarnessCut,
   Interval,
+  IssueText,
   MemberChange,
   NewAdjustment,
   NewBill,
   NewMember,
   NewProject,
+  NewReport,
   NewRule,
   NewTicket,
   NewTokenBudget,
@@ -26,9 +29,9 @@ import type {
   Outlier,
   Period,
   PeriodId,
-  Project,
   ProjectChange,
   Reconciliation,
+  ReportChange,
   ReportQuery,
   ReportResult,
   Rule,
@@ -36,10 +39,9 @@ import type {
   SavedReport,
   SubmitResult,
   TagMapChange,
-  TagName,
   Tags,
-  Ticket,
-  TicketSystem,
+  NewTicketSystem,
+  TicketMapping,
   TokenBudget,
   TokenEntry,
   TokenEntryStatus,
@@ -58,7 +60,8 @@ export const api = {
   // Sign-in. The link in the mail opens a page of the service, which signs
   // the browser in and sends it to the start page.
   signIn: (email: string) => ok(typed.POST("/api/v1/sign-in", { body: { email } })),
-  signUp: (email: string, organization_name: string) => ok(typed.POST("/api/v1/sign-up", { body: { email, organization_name } })),
+  signUp: (email: string, organization_name: string, name: string) =>
+    ok(typed.POST("/api/v1/sign-up", { body: { email, organization_name, ...(name ? { name } : {}) } })),
   signOut: () => ok(typed.POST("/api/v1/sign-out")),
   invite: (code: string) => ok(typed.GET("/api/v1/invites/{code}", { params: { path: { code } } })),
   health: () => ok(typed.GET("/api/v1/health")),
@@ -91,18 +94,18 @@ export const api = {
   removeTagName: (name: string) => ok(typed.DELETE("/api/v1/tags/{name}", { params: { path: { name } } })),
   tagValues: (name: string) => ok(typed.GET("/api/v1/tags/{name}/values", { params: { path: { name } } })),
   mergeTagValues: (name: string, from: string[], into: string) =>
-    call<TagName>("POST", `/tags/${enc(name)}/merge`, { body: { from, into } }),
+    ok(typed.POST("/api/v1/tags/{name}/merge", { params: { path: { name } }, body: { from, into } })),
   tagMap: () => ok(typed.GET("/api/v1/tag-map")),
   setTagMap: (body: TagMapChange) => ok(typed.PUT("/api/v1/tag-map", { body })),
 
-  // Projects, clients and tickets. Their list filters go as a query string.
-  projects: (archived = false) => call<Project[]>("GET", "/projects", { query: { archived: archived || undefined } }),
+  // Projects, clients and tickets
+  projects: (archived = false) => ok(typed.GET("/api/v1/projects", { params: { query: archived ? { archived } : {} } })),
   createProject: (body: NewProject) => ok(typed.POST("/api/v1/projects", { body })),
   updateProject: (id: string, body: ProjectChange) => ok(typed.PATCH("/api/v1/projects/{id}", { ...path(id), body })),
   archiveProject: (id: string) => ok(typed.DELETE("/api/v1/projects/{id}", path(id))),
   clients: () => ok(typed.GET("/api/v1/clients")),
   tickets: (query: { project_id?: string; parent_id?: string; q?: string } = {}) =>
-    call<Ticket[]>("GET", "/tickets", { query: { ...query, limit: 500 } }),
+    ok(typed.GET("/api/v1/tickets", { params: { query: { ...query, limit: 500 } } })),
   createTicket: (body: NewTicket) => ok(typed.POST("/api/v1/tickets", { body })),
 
   // Token entries, review and approval
@@ -179,14 +182,42 @@ export const api = {
   orderRules: (ids: string[]) => call<Rule[]>("PUT", "/rules/order", { body: { ids } }),
 
   // Settings: API tokens, ticket systems, the raw export
+  // Feedback reports and support inside the app (every member)
+  feedback: () => ok(typed.GET("/api/v1/feedback")),
+  sendFeedback: (body: NewReport) => ok(typed.POST("/api/v1/feedback", { body })),
+  /** 404 where support is off, as on most self-hosted instances. */
+  support: () => ok(typed.GET("/api/v1/support")),
+  sendSupportMessage: (message: string) => ok(typed.POST("/api/v1/support/messages", { body: { message } })),
+
+  // The admin area: 404 to everyone who is not an operator
+  adminOverview: () => ok(typed.GET("/api/v1/admin")),
+  supportConversations: (state?: string) => ok(typed.GET("/api/v1/admin/support", { params: { query: state ? { state } : {} } })),
+  supportConversation: (id: string) => ok(typed.GET("/api/v1/admin/support/{id}", path(id))),
+  replyToSupport: (id: string, text: string) => ok(typed.POST("/api/v1/admin/support/{id}/replies", { ...path(id), body: { text } })),
+  closeSupport: (id: string) => ok(typed.POST("/api/v1/admin/support/{id}/close", path(id))),
+  receivedFeedback: (status?: FeedbackStatus) => ok(typed.GET("/api/v1/admin/feedback", { params: { query: status ? { status } : {} } })),
+  receivedReport: (id: string) => ok(typed.GET("/api/v1/admin/feedback/{id}", path(id))),
+  updateReport: (id: string, body: ReportChange) => ok(typed.PATCH("/api/v1/admin/feedback/{id}", { ...path(id), body })),
+  customers: () => ok(typed.GET("/api/v1/admin/customers")),
+  customer: (id: string) => ok(typed.GET("/api/v1/admin/customers/{id}", path(id))),
+  addCustomerNote: (id: string, text: string) => ok(typed.POST("/api/v1/admin/customers/{id}/notes", { ...path(id), body: { text } })),
+  assistantQuestions: (answered?: boolean) => ok(typed.GET("/api/v1/admin/assistant/questions", { params: { query: answered === undefined ? {} : { answered } } })),
+  newsletter: () => ok(typed.GET("/api/v1/admin/newsletter")),
+  createIssue: (subject: string, body: string) => ok(typed.POST("/api/v1/admin/newsletter/issues", { body: { subject, body } })),
+  updateIssue: (id: string, body: IssueText) => ok(typed.PATCH("/api/v1/admin/newsletter/issues/{id}", { ...path(id), body })),
+  sendIssue: (id: string) => ok(typed.POST("/api/v1/admin/newsletter/issues/{id}/send", path(id))),
+
   apiTokens: () => ok(typed.GET("/api/v1/api-tokens")),
   createApiToken: (kind: ApiTokenKind, name: string) => ok(typed.POST("/api/v1/api-tokens", { body: { kind, name } })),
   revokeApiToken: (id: string) => ok(typed.DELETE("/api/v1/api-tokens/{id}", path(id))),
   handOverApiToken: (id: string, person_id: string) => ok(typed.POST("/api/v1/api-tokens/{id}/hand-over", { ...path(id), body: { person_id } })),
-  ticketSystems: () => call<TicketSystem[]>("GET", "/ticket-systems"),
-  connectTicketSystem: (body: { kind: TicketSystem["kind"]; site: string; token: string }) =>
-    call<TicketSystem>("POST", "/ticket-systems", { body }),
-  syncTickets: (id: string) => call<TicketSystem>("POST", `/ticket-systems/${enc(id)}/sync`),
+  ticketSystems: () => ok(typed.GET("/api/v1/ticket-systems")),
+  connectTicketSystem: (body: NewTicketSystem) => ok(typed.POST("/api/v1/ticket-systems", { body })),
+  disconnectTicketSystem: (id: string) => ok(typed.DELETE("/api/v1/ticket-systems/{id}", path(id))),
+  /** The projects the ticket system has, to map onto ours. */
+  externalProjects: (id: string) => ok(typed.GET("/api/v1/ticket-systems/{id}/projects", path(id))),
+  mapProjects: (id: string, mappings: TicketMapping[]) => ok(typed.PUT("/api/v1/ticket-systems/{id}/mappings", { ...path(id), body: mappings })),
+  syncTickets: (id: string) => ok(typed.POST("/api/v1/ticket-systems/{id}/sync", path(id))),
   rawExport: () => download("/export/raw"),
 
   // Connecting a computer (`tc connect`, a device sign-in)

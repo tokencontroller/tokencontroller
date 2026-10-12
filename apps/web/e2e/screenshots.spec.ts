@@ -75,3 +75,53 @@ test("a new organization", async ({ page }) => {
   await page.getByLabel("Billing country").selectOption("AT");
   await page.screenshot({ path: `${dir}/22-billing-solo.png`, fullPage: true });
 });
+
+test("feedback panel", async ({ page }) => {
+  await signIn(page, "mara");
+  await page.goto("/review");
+  await page.getByRole("navigation", { name: "Main" }).getByRole("button", { name: "Send feedback" }).click();
+  const panel = page.getByRole("dialog", { name: "Send feedback" });
+  await panel.getByLabel("What happened, or what you would like").fill("The ticket list in the token entry dialog cuts off on my phone, so I cannot pick CP-12.");
+  await panel.getByRole("switch", { name: "Add a screenshot" }).click();
+  const box = await panel.getByTestId("screenshot").boundingBox();
+  if (box) {
+    await page.mouse.move(box.x + box.width * 0.22, box.y + box.height * 0.3);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width * 0.75, box.y + box.height * 0.55, { steps: 4 });
+    await page.mouse.up();
+  }
+  await panel.getByText("What goes along").click();
+  await page.screenshot({ path: `${dir}/23-feedback-panel.png` });
+});
+
+test("admin area", async ({ page }) => {
+  await signIn(page, "nadia");
+  await page.evaluate(() => fetch("/api/v1/__mock/operator", { method: "POST" }));
+  const shots: [string, string][] = [
+    ["/admin", "24-admin-overview"],
+    ["/admin/support/5c000000-0000-4000-8000-000000000001", "25-admin-support-conversation"],
+    ["/admin/customers/6b657374-0000-4000-8000-000000000001", "26-admin-customer"],
+    ["/admin/newsletter", "27-admin-newsletter"],
+  ];
+  for (const [path, name] of shots) {
+    await page.goto(path);
+    await page.waitForLoadState("networkidle");
+    await page.screenshot({ path: `${dir}/${name}.png`, fullPage: true });
+  }
+});
+
+test("ticket systems", async ({ page }) => {
+  await signIn(page, "nadia");
+  await page.goto("/settings");
+  await page.getByRole("button", { name: "Connect a ticket system" }).click();
+  const connect = page.getByRole("dialog", { name: "Connect a ticket system" });
+  await connect.getByLabel("Jira Cloud site").fill("https://kestrel-labs.atlassian.net");
+  await connect.getByLabel("Email of the Atlassian account").fill("n.berger@kestrel.example");
+  await connect.getByLabel("API token").fill("ATATT3x-labs-9fQe");
+  await page.screenshot({ path: `${dir}/28-connect-jira.png` });
+  await connect.getByRole("button", { name: "Connect" }).click();
+  const map = page.getByRole("dialog", { name: "Map Jira Cloud projects" });
+  await map.getByLabel("Project for Storefront").selectOption("storefront");
+  await map.getByLabel("Project for Intranet").selectOption("intranet");
+  await page.screenshot({ path: `${dir}/29-map-jira-projects.png` });
+});

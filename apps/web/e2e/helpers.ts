@@ -1,4 +1,4 @@
-import { expect, type Page } from "@playwright/test";
+import { expect, type Locator, type Page } from "@playwright/test";
 
 /** People of the docs' example organization, Kestrel Digital. */
 export const people = {
@@ -20,9 +20,16 @@ export async function signIn(page: Page, who: keyof typeof people): Promise<void
   await expect(page.getByRole("heading", { level: 1, name: /^Hello/ })).toBeVisible();
 }
 
-/** Opens a page from the menu, which is a drawer on a phone. */
-export async function openFromMenu(page: Page, name: string): Promise<void> {
+/** The main menu, opened first where it is a drawer (on a phone). */
+export async function mainMenu(page: Page): Promise<Locator> {
+  // The app shell is on screen once the page has loaded.
+  await page.getByRole("main").waitFor();
   const menu = page.getByRole("button", { name: "Menu" });
   if (await menu.isVisible()) await menu.click();
-  await page.getByRole("navigation").getByRole("link", { name, exact: true }).click();
+  return page.getByRole("navigation", { name: "Main" });
+}
+
+/** Opens a page from the menu, which is a drawer on a phone. */
+export async function openFromMenu(page: Page, name: string): Promise<void> {
+  await (await mainMenu(page)).getByRole("link", { name, exact: true }).click();
 }
