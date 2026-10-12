@@ -1,0 +1,10 @@
+{
+  "data": [
+    {
+      "starting_at": "2026-09-01T00:00:00Z",
+      "ending_at": "2026-09-02T00:00:00Z",
+      "results": [
+        {
+          "amount": "1250.5",
+          "currency": "USD",
+          "descr

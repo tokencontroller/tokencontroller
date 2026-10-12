@@ -1,0 +1,66 @@
+{
+  "data": [
+    {
+      "starting_at": "2026-09-01T00:00:00Z",
+      "ending_at": "2026-09-02T00:00:00Z",
+      "results": [
+        {
+          "amount": "1250.5",
+          "context_window": "0-200k",
+          "cost_type": "tokens",
+          "currency": "USD",
+          "description": "Claude Sonnet 4.5 Usage - Input Tokens",
+          "inference_geo": "global",
+          "model": "claude-sonnet-4-5",
+          "service_tier": "standard",
+          "token_type": "uncached_input_tokens",
+          "workspace_id": "wrkspc_01JwQvzr7rXLA5AGx3HKfFUJ"
+        },
+        {
+          "amount": "3400.25",
+          "context_window": "0-200k",
+          "cost_type": "tokens",
+          "currency": "USD",
+          "description": "Claude Sonnet 4.5 Usage - Output Tokens",
+          "inference_geo": "global",
+          "model": "claude-sonnet-4-5",
+          "service_tier": "standard",
+          "token_type": "output_tokens",
+          "workspace_id": "wrkspc_01JwQvzr7rXLA5AGx3HKfFUJ"
+        },
+        {
+          "amount": "100",
+          "context_window": null,
+          "cost_type": "web_search",
+          "currency": "USD",
+          "description": "Web Search Usage",
+          "inference_geo": null,
+          "model": null,
+          "service_tier": null,
+          "token_type": null,
+          "workspace_id": null
+        }
+      ]
+    },
+    {
+      "starting_at": "2026-09-02T00:00:00Z",
+      "ending_at": "2026-09-03T00:00:00Z",
+      "results": [
+        {
+          "amount": "75.123456",
+          "context_window": "200k-1M",
+          "cost_type": "tokens",
+          "currency": "USD",
+          "description": "Claude Opus 4.6 Usage - Cache Read",
+          "inference_geo": "us",
+          "model": "claude-opus-4-6",
+          "service_tier": "batch",
+          "token_type": "cache_read_input_tokens",
+          "workspace_id": "wrkspc_01JwQvzr7rXLA5AGx3HKfFUJ"
+        }
+      ]
+    }
+  ],
+  "has_more": true,
+  "next_page": "page_MjAyNi0wOS0wM1QwMDowMDowMFo="
+}
