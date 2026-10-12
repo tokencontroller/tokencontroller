@@ -24,7 +24,7 @@ This fills in ADR 0010 where the CLI needed details.
 
 ## Signing in
 
-`tc connect` uses a device sign-in like RFC 8628: the service gives a short code, the person confirms it in the browser while signed in, and `tc` receives a `tc_cli_…` token. That token belongs to one person on one machine, can be revoked under _Settings_, and may only submit that person's token sheet, read what placing needs and edit that person's rules. With a `tc_svc_…` service token, as in CI, `tc submit` reports automatic token entries instead of a token sheet.
+`tc connect` signs in with a magic link, as the web app does (`POST /api/v1/sign-in` with `local_tool`). With an invite link it takes the address from the invite; for an instance address it asks for it. The person presses Sign in in the mail, and `tc` collects a session token (`tc_ses_…`) by polling and keeps it in its settings file. With a `tc_svc_…` service token, as in CI, `tc submit` reports automatic token entries instead of a token sheet.
 
 ## Shipping
 
@@ -33,4 +33,4 @@ This fills in ADR 0010 where the CLI needed details.
 
 ## Why
 
-Readers we own can keep what placing needs and still count exactly as ccusage does, with nothing fetched at build time. One JSON contract and one exit code scheme let the mod and the Action wrap `tc` without parsing tables. Device sign-in keeps passwords and sign-in links out of the terminal.
+Readers we own can keep what placing needs and still count exactly as ccusage does, with nothing fetched at build time. One JSON contract and one exit code scheme let the mod and the Action wrap `tc` without parsing tables. Signing in with the web app's magic link keeps passwords out of the terminal and needs no second sign-in in the service.

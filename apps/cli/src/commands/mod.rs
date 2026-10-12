@@ -22,7 +22,7 @@ use crate::sync::Sources;
 pub fn run(args: Args, out: &mut dyn Write) -> Result<()> {
     let mut app = App::open(args.json, out, Sources::on_this_machine())?;
     match args.command {
-        Command::Connect { url } => connect::run(&mut app, &url),
+        Command::Connect { url } => connect::run(&mut app, &url, &mut std::io::stdin().lock()),
         Command::Status => status::run(&mut app),
         Command::Review { all } => review::run(&mut app, all),
         Command::Tag { number, tags } => review::tag(&mut app, number, &tags),

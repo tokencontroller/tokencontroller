@@ -329,7 +329,7 @@ mod tests {
         assert!(service.is_service_token());
         let person = Connection {
             service: "https://x".into(),
-            token: "tc_cli_1".into(),
+            token: "tc_ses_1".into(),
         };
         assert!(!person.is_service_token());
     }
