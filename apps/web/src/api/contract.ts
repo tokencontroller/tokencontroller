@@ -58,6 +58,41 @@ export type SeveralKeys = Schemas["SeveralKeys"];
 export type OrganizationRules = Schemas["OrganizationRules"];
 export type OrganizationRulesChange = Schemas["OrganizationRulesChange"];
 
+// Token budgets and token forecasts (docs: Account > Token budgets and
+// forecasts; Report > Token budget vs actual).
+/** A token budget; `applies` says in words when, such as `every month from 2026-09`. */
+export type TokenBudgetView = Schemas["TokenBudgetView"];
+export type TokenBudgetInput = Schemas["TokenBudgetInput"];
+export type TokenBudgetReport = Schemas["TokenBudgetReport"];
+export type TokenBudgetRow = Schemas["TokenBudgetRow"];
+/** One token budget opened down to its tickets, token entries and adjustments. */
+export type TokenBudgetDetail = Schemas["TokenBudgetDetail"];
+/** Overrun, underrun, or exactly at the token budget. */
+export type Outcome = Schemas["Outcome"];
+export type TicketActual = Schemas["TicketActual"];
+/** One token entry behind a token budget's actual. */
+export type TokenBudgetEntry = Schemas["EntryView"];
+/** An adjustment to a closed period that counts in a token budget's actual. */
+export type TokenBudgetAdjustment = Schemas["AdjustmentLine"];
+export type TokenForecastView = Schemas["TokenForecastView"];
+export type ForecastMatch = Schemas["ForecastMatch"];
+export type AcceptInput = Schemas["AcceptInput"];
+export type TokenForecastSettings = Schemas["TokenForecastSettings"];
+
+// Reports (docs: Report > Reading reports, Agent harness reports, Outliers).
+/** A report: a tag filter with a grouping, in money or as shares of the period. */
+export type CostReport = Schemas["Report"];
+export type CostReportRow = Schemas["ReportRow"];
+/** Which counting token entries a report shows: `all`, or `approved` only. */
+export type ReportStatus = Schemas["StatusView"];
+/** `money`, or `share`: each line's share of the period. */
+export type MoneyOrShare = Schemas["View"];
+export type SavedReport = Schemas["SavedReport"];
+/** A report to save; its filter is text, such as `client:acme,team:web`. */
+export type SaveInput = Schemas["SaveInput"];
+export type Outliers = Schemas["Outliers"];
+export type Outlier = Schemas["Outlier"];
+
 /** Who is signed in, with the whole organization the pages read settings from. */
 export interface Account {
   person: Person;
@@ -328,84 +363,3 @@ export interface CostSheet {
   reconciliation: Reconciliation;
   approval: boolean;
 }
-
-export interface TokenBudget {
-  id: string;
-  filter: Filter;
-  period: PeriodId;
-  amount: Money;
-  actual: Money;
-  from_forecast: boolean;
-  created_by: string;
-}
-
-export interface NewTokenBudget {
-  filter: Filter;
-  period: PeriodId;
-  amount: Money;
-  from_forecast: boolean;
-}
-
-export interface TokenForecast {
-  ticket: string;
-  matches: { ticket: string; title: string | null; cost: Money; confidence: number }[];
-  /** The median cost of the matches. */
-  proposal: Money;
-}
-
-export interface SavedReport {
-  id: string;
-  name: string;
-  filter: Filter;
-  group_by: string;
-}
-
-export interface ReportQuery {
-  period: PeriodId;
-  filter: Filter;
-  group_by: string;
-  currency?: string;
-  approved_only?: boolean;
-}
-
-export interface ReportRow {
-  /** Null is the line for entries without the tag. */
-  value: string | null;
-  amount: Money;
-  /** Share of the report's total, in basis points. */
-  share: number;
-  label: ValueLabel;
-}
-
-export interface ReportResult {
-  period: PeriodId;
-  currency: string;
-  group_by: string;
-  rows: ReportRow[];
-  total: Money;
-  /** True on a seat plan: every figure is an estimate at API prices. */
-  estimate: boolean;
-}
-
-export interface BudgetVsActualRow {
-  budget: string;
-  filter: Filter;
-  amount: Money;
-  actual: Money;
-  /** Actual minus token budget. */
-  difference: Money;
-}
-
-export type HarnessCut = "agent_harness" | "agent_name" | "model" | "effort";
-
-export interface Outlier {
-  ticket: string;
-  title: string | null;
-  cost: Money;
-  baseline: Money;
-  /** Cost divided by baseline, times 100. */
-  ratio: number;
-}
-
-
-

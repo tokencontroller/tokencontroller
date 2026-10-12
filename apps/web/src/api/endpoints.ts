@@ -1,17 +1,16 @@
 import { call, download, ok, typed } from "./client";
 import type {
+  AcceptInput,
   Adjustment,
   ApiTokenKind,
   Bill,
   BillConnection,
-  BudgetVsActualRow,
   CadenceInput,
   CloseCheck,
   CostSheet,
   CsvPreview,
   FeedbackStatus,
   Filter,
-  HarnessCut,
   Interval,
   IssueText,
   MemberChange,
@@ -21,29 +20,24 @@ import type {
   NewProject,
   NewReport,
   NewTicket,
-  NewTokenBudget,
   NewTokenEntry,
   OrganizationChange,
   OrganizationRulesChange,
-  Outlier,
   Period,
   PeriodId,
   ProjectChange,
   Reconciliation,
   ReportChange,
-  ReportQuery,
-  ReportResult,
   Rule,
-  SavedReport,
+  SaveInput,
   SubmitResult,
   TagMapChange,
   Tags,
   NewTicketSystem,
   TicketMapping,
-  TokenBudget,
+  TokenBudgetInput,
   TokenEntry,
   TokenEntryStatus,
-  TokenForecast,
   TokenSheet,
 } from "./contract";
 import { filterToText } from "@/lib/format";
@@ -55,6 +49,48 @@ const enc = encodeURIComponent;
 const path = <T extends string>(id: T) => ({ params: { path: { id } } });
 /** A CSV file goes as it is. */
 const csvBody = { bodySerializer: (csv: string) => csv, headers: { "content-type": "text/csv" } };
+
+/** What every report can be shown with (docs: Reading reports). */
+export interface ReportControls {
+  period: PeriodId;
+  /** Approved token entries only; for organizations with approval on. */
+  approvedOnly?: boolean;
+  /** Another currency than the reporting currency, such as `EUR`. */
+  currency?: string;
+  /** Each line's share of the period instead of money. */
+  share?: boolean;
+}
+
+/** A report on a tag filter with a grouping, such as cost by team for `client: acme`. */
+export interface CostReportQuery extends ReportControls {
+  /** A tag name, or `agent_harness`, `agent_name`, `model`, `effort`, `speed`, `day` or `cost_kind`. */
+  by?: string;
+  filter?: Filter;
+}
+
+/** A report's controls as the service's query parameters; the defaults are left out. */
+function controls(query: ReportControls) {
+  return {
+    period: query.period,
+    ...(query.approvedOnly ? { status: "approved" as const } : {}),
+    ...(query.currency ? { currency: query.currency } : {}),
+    ...(query.share ? { view: "share" as const } : {}),
+  };
+}
+
+/**
+ * The data of a `typed` call to a report or list that the service can also
+ * send as a CSV file (`format=csv`). Without that parameter it answers JSON.
+ */
+async function json<T>(request: Promise<{ data?: T; error?: unknown; response: Response }>): Promise<Exclude<T, string>> {
+  return (await ok(request)) as Exclude<T, string>;
+}
+
+/** A tag filter as the `filter` parameter, such as `client:acme,team:web`; none for the whole organization. */
+function filterQuery(filter: Filter | undefined) {
+  const text = filterToText(filter ?? {});
+  return text ? { filter: text } : {};
+}
 
 export const api = {
   // Sign-in. The link in the mail opens a page of the service, which signs
@@ -150,30 +186,33 @@ export const api = {
   postAdjustment: (period: PeriodId, body: NewAdjustment) =>
     call<Adjustment>("POST", `/periods/${enc(period)}/adjustments`, { body }),
 
-  // Token budgets and forecasts
-  budgets: (period: PeriodId) => call<TokenBudget[]>("GET", "/budgets", { query: { period } }),
-  addBudget: (body: NewTokenBudget) => call<TokenBudget>("POST", "/budgets", { body }),
-  removeBudget: (id: string) => call<undefined>("DELETE", `/budgets/${enc(id)}`),
-  forecast: (ticket: string) => call<TokenForecast>("GET", `/forecasts/${enc(ticket)}`),
+  // Token budgets and token forecasts. Token budgets are not per period:
+  // `applies` says when, and the report compares them for one period.
+  tokenBudgets: () => json(typed.GET("/api/v1/token-budgets")),
+  addTokenBudget: (body: TokenBudgetInput) => ok(typed.POST("/api/v1/token-budgets", { body })),
+  changeTokenBudget: (id: string, body: TokenBudgetInput) => ok(typed.PUT("/api/v1/token-budgets/{id}", { ...path(id), body })),
+  removeTokenBudget: (id: string) => ok(typed.DELETE("/api/v1/token-budgets/{id}", path(id))),
+  /** Off on an instance without an embeddings model or when a controller switched them off: 409 with the reason. */
+  makeTokenForecast: (key: string) => ok(typed.POST("/api/v1/tickets/{key}/token-forecast", { params: { path: { key } } })),
+  acceptTokenForecast: (id: string, body: AcceptInput) => ok(typed.POST("/api/v1/token-forecasts/{id}/accept", { ...path(id), body })),
+  tokenForecastSettings: () => ok(typed.GET("/api/v1/token-forecasts/settings")),
+  switchTokenForecasts: (enabled: boolean) => ok(typed.PUT("/api/v1/token-forecasts/settings", { body: { enabled } })),
 
-  // Reports
-  savedReports: () => call<SavedReport[]>("GET", "/reports/saved"),
-  saveReport: (body: Omit<SavedReport, "id">) => call<SavedReport>("POST", "/reports/saved", { body }),
-  removeReport: (id: string) => call<undefined>("DELETE", `/reports/saved/${enc(id)}`),
-  cost: (query: ReportQuery) =>
-    call<ReportResult>("GET", "/reports/cost", {
-      query: {
-        period: query.period,
-        by: query.group_by,
-        filter: filterToText(query.filter),
-        currency: query.currency,
-        approved_only: query.approved_only ? "true" : undefined,
-      },
-    }),
-  budgetVsActual: (period: PeriodId) => call<BudgetVsActualRow[]>("GET", "/reports/budget-vs-actual", { query: { period } }),
-  agentHarness: (period: PeriodId, by: HarnessCut) =>
-    call<ReportResult>("GET", "/reports/agent-harness", { query: { period, by } }),
-  outliers: (period: PeriodId) => call<Outlier[]>("GET", "/reports/outliers", { query: { period } }),
+  // Reports. Every report takes the same controls: period, status (approved
+  // only, with approval on), another currency, and the share view.
+  savedReports: () => ok(typed.GET("/api/v1/reports/saved")),
+  saveReport: (body: SaveInput) => ok(typed.POST("/api/v1/reports/saved", { body })),
+  removeReport: (id: string) => ok(typed.DELETE("/api/v1/reports/saved/{id}", path(id))),
+  savedReport: (id: string, query: ReportControls) => json(typed.GET("/api/v1/reports/saved/{id}", { params: { path: { id }, query: controls(query) } })),
+  cost: (query: CostReportQuery) =>
+    json(typed.GET("/api/v1/reports/cost", { params: { query: { ...controls(query), ...(query.by ? { by: query.by } : {}), ...filterQuery(query.filter) } } })),
+  agentHarness: (query: CostReportQuery) =>
+    json(typed.GET("/api/v1/reports/agent-harness", { params: { query: { ...controls(query), ...(query.by ? { by: query.by } : {}), ...filterQuery(query.filter) } } })),
+  tokenBudgetReport: (period: PeriodId, approvedOnly = false) =>
+    json(typed.GET("/api/v1/reports/token-budgets", { params: { query: { period, ...(approvedOnly ? { status: "approved" as const } : {}) } } })),
+  tokenBudgetDetail: (id: string, period: PeriodId, approvedOnly = false) =>
+    json(typed.GET("/api/v1/reports/token-budgets/{id}", { params: { path: { id }, query: { period, ...(approvedOnly ? { status: "approved" as const } : {}) } } })),
+  outliers: (period: PeriodId, filter?: Filter) => json(typed.GET("/api/v1/reports/outliers", { params: { query: { period, ...filterQuery(filter) } } })),
 
   // Rules: the organization's (controllers change them) and your own. Each
   // list is replaced as a whole, in order.

@@ -13,7 +13,7 @@ import { Field, FormError, Input, Select, Textarea } from "@/components/ui/form"
 import { DataTable, type Column } from "@/components/ui/table";
 import { TagRow } from "@/components/ui/tag";
 import { notify } from "@/components/ui/toast";
-import { money, nanosOf, toDecimal } from "@/lib/money";
+import { fromDecimal, money, nanosOf, toDecimal } from "@/lib/money";
 import { refreshAll, useMe, usePeople, usePersonName, useProjects, useTickets } from "@/lib/queries";
 import { thisPeriod } from "@/lib/today";
 
@@ -243,12 +243,16 @@ export function ProjectPage(): ReactNode {
   const cadences = useCadences();
   const project = projects.data?.find((p) => p.name === name);
   const tickets = useQuery({ queryKey: ["tickets", project?.id], queryFn: () => api.tickets({ project_id: project?.id ?? "" }), enabled: Boolean(project) });
-  const cost = useQuery({ queryKey: ["report", period, `project:${name}`, "ticket"], queryFn: () => api.cost({ period, filter: { project: name }, group_by: "ticket" }) });
+  const cost = useQuery({ queryKey: ["report", period, `project:${name}`, "ticket"], queryFn: () => api.cost({ period, filter: { project: name }, by: "ticket" }) });
   const [editing, setEditing] = useState(false);
   const [adding, setAdding] = useState(false);
   if (projects.isPending) return <Loading />;
   if (!project) return <ErrorBox error={new Error("No such project.")} />;
-  const own = new Map((cost.data?.rows ?? []).filter((r) => r.value !== null).map((r) => [r.value ?? "", nanosOf(r.amount)]));
+  // Each ticket's own cost; an adjustment to a closed period adds to its ticket.
+  const own = new Map<string, bigint>();
+  for (const r of cost.data?.rows ?? []) {
+    if (r.value) own.set(r.value, (own.get(r.value) ?? 0n) + nanosOf(fromDecimal(r.amount, cost.data?.currency ?? me.organization.reporting_currency)));
+  }
   const rows = ticketTree(tickets.data ?? [], own, cost.data?.currency ?? (cost.isPending ? null : me.organization.reporting_currency));
   const keyOf = (id: string | null | undefined) => tickets.data?.find((t) => t.id === id)?.key ?? "";
   const columns: Column<TicketRow>[] = [
