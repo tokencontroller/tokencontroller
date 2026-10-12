@@ -12,7 +12,8 @@ import type {
   NewTokenEntry,
   Person,
   Role,
-  RuleSignal,
+  OrganizationRulesChange,
+  Rule,
   SignUpRequest,
   Tags,
   TicketMapping,
@@ -22,7 +23,7 @@ import type {
 import { parseCsv } from "@/lib/csv";
 import { filterFromText } from "@/lib/format";
 import { customerRelationsHandlers } from "./customer-relations";
-import { createDb, TODAY, type Db, type EntryRecord } from "./seed";
+import { createDb, defaultRules, TODAY, type Db, type EntryRecord } from "./seed";
 import {
   budgetVsActual,
   canSee,
@@ -121,6 +122,28 @@ const siteExample: Record<TicketSystem["kind"], string> = {
   azure_devops: "an Azure DevOps organization, such as https://dev.azure.com/acme",
   github_issues: "https://api.github.com",
 };
+
+/** Every rule list: the organization's and each person's. */
+function allRules(db: Db): Rule[] {
+  return [...db.rules.rules, ...Object.values(db.personalRules).flat()];
+}
+
+/** The service's check of a rule list, or null when it is fine. */
+function checkRules(db: Db, rules: Rule[]): string | null {
+  if (rules.length > 100) return "A list holds at most 100 rules.";
+  for (const rule of rules) {
+    const name = rule.name.trim();
+    if (!name || name.length > 100) return "Every rule needs a name of 1 to 100 characters.";
+    if (typeof rule.then !== "object" || !("set_tags" in rule.then)) continue;
+    const tags = Object.keys(rule.then.set_tags);
+    if (!tags.length) return `The rule "${name}" sets no tags.`;
+    for (const tag of tags) {
+      if (tag === "person") return `The rule "${name}" sets person. The person is who did the work; no rule can change it.`;
+      if (!db.tagNames.includes(tag)) return `The rule "${name}" sets "${tag}", which is not on the organization's list of tag names.`;
+    }
+  }
+  return null;
+}
 
 /** The service's check of a ticket system's address. */
 function siteFits(kind: TicketSystem["kind"], site: string): boolean {
@@ -295,7 +318,8 @@ function organizationOf(db: Db, name: string, email: string, founderName: string
     tokens: [],
     ticketSystems: [],
     tagNames: ["person", "ticket", "project"],
-    rules: db.rules.filter((r) => r.built_in),
+    rules: { rules: defaultRules(), several_keys: "most_often", summary_match: true },
+    personalRules: {},
     periods: [{ id: TODAY.slice(0, 7), status: "open", closed_at: null, closed_by: null, tag_map: null }],
     pendingLink: { token: `link_${founder.id}`, email },
     session: null,
@@ -397,11 +421,6 @@ export const handlers = [
     if (db.billing.plan !== "team") return error(409, "conflict", "There is no subscription to manage yet.");
     return HttpResponse.json({ url: "https://billing.stripe.com/p/session/mock" });
   }, CONTROLLER)),
-  http.get(`${API}/rules/settings`, member(({ db }) => HttpResponse.json(db.ruleSettings))),
-  http.patch(`${API}/rules/settings`, member(async ({ db, request }) => {
-    Object.assign(db.ruleSettings, (await request.json()) as object);
-    return HttpResponse.json(db.ruleSettings);
-  }, CONTROLLER)),
   http.get(`${API}/cadences`, member(({ db }) => HttpResponse.json(db.cadences))),
   http.put(`${API}/cadences`, member(async ({ db, me, request }) => {
     const body = (await request.json()) as { kind: CadenceView["kind"]; every_days?: number | null; project?: string | null };
@@ -477,6 +496,10 @@ export const handlers = [
   http.delete(`${API}/tags/:name`, member(({ db, params }) => {
     if (["person", "ticket", "project"].includes(String(params.name))) return error(409, "conflict", "Built-in tags cannot be removed.");
     db.tagNames = db.tagNames.filter((n) => n !== params.name);
+    // As the service: rules stop setting it; a rule left setting nothing stays, so its owner sees it.
+    for (const rule of allRules(db)) {
+      if (typeof rule.then === "object" && "set_tags" in rule.then) rule.then.set_tags = Object.fromEntries(Object.entries(rule.then.set_tags).filter(([name]) => name !== params.name));
+    }
     return new HttpResponse(null, { status: 204 });
   }, CONTROLLER)),
   http.get(`${API}/tags/:name/values`, member(({ db, params }) => HttpResponse.json(tagValues(db, String(params.name))))),
@@ -496,7 +519,7 @@ export const handlers = [
     }
     for (const record of [...db.people, ...db.projects, ...db.tickets]) rename(record.tags);
     for (const person of db.people) person.filters.forEach(rename);
-    for (const rule of db.rules) rename(rule.sets);
+    for (const rule of allRules(db)) if (typeof rule.then === "object" && "set_tags" in rule.then) rename(rule.then.set_tags);
     return HttpResponse.json(tagValues(db, name));
   }, CONTROLLER)),
   http.get(`${API}/tag-map`, member(({ db }) => HttpResponse.json(db.tagMap))),
@@ -775,22 +798,25 @@ export const handlers = [
   http.get(`${API}/reports/outliers`, member(({ db, me, url }) => HttpResponse.json(outliers(db, me, url.searchParams.get("period") ?? TODAY.slice(0, 7))))),
 
   // Rules
-  http.get(`${API}/rules`, member(({ db, me }) => HttpResponse.json(db.rules.filter((r) => r.scope === "organization" || r.id.endsWith(`:${me.id}`))))),
-  http.post(`${API}/rules`, member(async ({ db, me, request }) => {
-    const body = (await request.json()) as { scope: "organization" | "personal"; name: string; signal: RuleSignal; match: "ticket_key" | "starts_with" | "contains" | "equals"; pattern: string; sets: Tags };
-    if (body.scope === "organization" && me.role !== "controller") return error(403, "forbidden", "Only a controller sets organization rules.");
-    const rule = { ...body, id: body.scope === "personal" ? `${nextId(db, "r")}:${me.id}` : nextId(db, "r"), built_in: false };
-    db.rules.push(rule);
-    return HttpResponse.json(rule, { status: 201 });
-  })),
-  http.delete(`${API}/rules/:id`, member(({ db, params }) => {
-    db.rules = db.rules.filter((r) => r.id !== params.id || r.built_in);
-    return new HttpResponse(null, { status: 204 });
-  })),
-  http.put(`${API}/rules/order`, member(async ({ db, request }) => {
-    const { ids } = (await request.json()) as { ids: string[] };
-    db.rules.sort((a, b) => ids.indexOf(a.id) - ids.indexOf(b.id));
+  http.get(`${API}/organization/rules`, member(({ db }) => HttpResponse.json(db.rules))),
+  http.put(`${API}/organization/rules`, member(async ({ db, request }) => {
+    const change = (await request.json()) as OrganizationRulesChange;
+    if (change.rules) {
+      const problem = checkRules(db, change.rules);
+      if (problem) return error(400, "bad_request", problem);
+      db.rules.rules = change.rules;
+    }
+    if (change.several_keys) db.rules.several_keys = change.several_keys;
+    if (typeof change.summary_match === "boolean") db.rules.summary_match = change.summary_match;
     return HttpResponse.json(db.rules);
+  }, CONTROLLER)),
+  http.get(`${API}/me/rules`, member(({ db, me }) => HttpResponse.json({ rules: db.personalRules[me.id] ?? [] }))),
+  http.put(`${API}/me/rules`, member(async ({ db, me, request }) => {
+    const { rules } = (await request.json()) as { rules: Rule[] };
+    const problem = checkRules(db, rules);
+    if (problem) return error(400, "bad_request", problem);
+    db.personalRules[me.id] = rules;
+    return HttpResponse.json({ rules });
   })),
 
   // Settings

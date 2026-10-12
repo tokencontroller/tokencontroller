@@ -21,11 +21,11 @@ import type {
   NewMember,
   NewProject,
   NewReport,
-  NewRule,
   NewTicket,
   NewTokenBudget,
   NewTokenEntry,
   OrganizationChange,
+  OrganizationRulesChange,
   Outlier,
   Period,
   PeriodId,
@@ -35,7 +35,6 @@ import type {
   ReportQuery,
   ReportResult,
   Rule,
-  RuleSettings,
   SavedReport,
   SubmitResult,
   TagMapChange,
@@ -74,8 +73,6 @@ export const api = {
   billing: () => ok(typed.GET("/api/v1/billing")),
   checkout: (interval: Interval, country: string) => ok(typed.POST("/api/v1/billing/checkout", { body: { interval, country } })),
   billingPortal: () => ok(typed.POST("/api/v1/billing/portal")),
-  ruleSettings: () => call<RuleSettings>("GET", "/rules/settings"),
-  updateRuleSettings: (body: Partial<RuleSettings>) => call<RuleSettings>("PATCH", "/rules/settings", { body }),
   cadences: () => call<CadenceView[]>("GET", "/cadences"),
   setCadence: (body: CadenceInput) => call<CadenceView>("PUT", "/cadences", { body }),
   removeCadence: (id: string) => call<undefined>("DELETE", `/cadences/${enc(id)}`),
@@ -175,13 +172,13 @@ export const api = {
     call<ReportResult>("GET", "/reports/agent-harness", { query: { period, by } }),
   outliers: (period: PeriodId) => call<Outlier[]>("GET", "/reports/outliers", { query: { period } }),
 
-  // Rules
-  rules: () => call<Rule[]>("GET", "/rules"),
-  addRule: (scope: Rule["scope"], body: NewRule) => call<Rule>("POST", "/rules", { body: { ...body, scope } }),
-  removeRule: (id: string) => call<undefined>("DELETE", `/rules/${enc(id)}`),
-  orderRules: (ids: string[]) => call<Rule[]>("PUT", "/rules/order", { body: { ids } }),
+  // Rules: the organization's (controllers change them) and your own. Each
+  // list is replaced as a whole, in order.
+  organizationRules: () => ok(typed.GET("/api/v1/organization/rules")),
+  changeOrganizationRules: (body: OrganizationRulesChange) => ok(typed.PUT("/api/v1/organization/rules", { body })),
+  myRules: () => ok(typed.GET("/api/v1/me/rules")),
+  setMyRules: (rules: Rule[]) => ok(typed.PUT("/api/v1/me/rules", { body: { rules } })),
 
-  // Settings: API tokens, ticket systems, the raw export
   // Feedback reports and support inside the app (every member)
   feedback: () => ok(typed.GET("/api/v1/feedback")),
   sendFeedback: (body: NewReport) => ok(typed.POST("/api/v1/feedback", { body })),
@@ -207,6 +204,7 @@ export const api = {
   updateIssue: (id: string, body: IssueText) => ok(typed.PATCH("/api/v1/admin/newsletter/issues/{id}", { ...path(id), body })),
   sendIssue: (id: string) => ok(typed.POST("/api/v1/admin/newsletter/issues/{id}/send", path(id))),
 
+  // Settings: API tokens, ticket systems, the raw export
   apiTokens: () => ok(typed.GET("/api/v1/api-tokens")),
   createApiToken: (kind: ApiTokenKind, name: string) => ok(typed.POST("/api/v1/api-tokens", { body: { kind, name } })),
   revokeApiToken: (id: string) => ok(typed.DELETE("/api/v1/api-tokens/{id}", path(id))),
@@ -219,6 +217,4 @@ export const api = {
   mapProjects: (id: string, mappings: TicketMapping[]) => ok(typed.PUT("/api/v1/ticket-systems/{id}/mappings", { ...path(id), body: mappings })),
   syncTickets: (id: string) => ok(typed.POST("/api/v1/ticket-systems/{id}/sync", path(id))),
   rawExport: () => download("/export/raw"),
-
-  // Connecting a computer (`tc connect`, a device sign-in)
 };
