@@ -14,7 +14,7 @@ import { DataTable, type Column } from "@/components/ui/table";
 import { TagRow } from "@/components/ui/tag";
 import { notify } from "@/components/ui/toast";
 import { describeFilter, filterFromText, filterToText, formatDay, formatTime, formatTokens, totalTokens } from "@/lib/format";
-import { formatMoney, parseAmount, sum, toDecimal } from "@/lib/money";
+import { formatMoney, sum, toDecimal } from "@/lib/money";
 import { refreshAll, useMe, usePeople, usePersonName } from "@/lib/queries";
 import { hasRole } from "@/lib/roles";
 import { thisPeriod, today } from "@/lib/today";
@@ -23,24 +23,44 @@ const tokenEntriesRoute = getRouteApi("/app/token-entries");
 
 const harnesses = ["Claude Code", "Codex", "Gemini CLI", "Copilot CLI", "Cursor", "Other"];
 
+/** A decimal string such as `12.5`, or null when the text is not one. */
+function decimal(text: string): string | null {
+  const clean = text.replace(/[,\s]/g, "");
+  return /^\d+(\.\d{1,9})?$/.test(clean) ? clean : null;
+}
+
+const tokenFields = [
+  ["input", "Input"],
+  ["output", "Output"],
+  ["cache_write", "Cache write"],
+  ["cache_read", "Cache read"],
+] as const;
+
 function AddEntry({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const me = useMe();
-  const [form, setForm] = useState({ agent_harness: "Claude Code", agent_name: "", model: "", date: today(), start: "09:00", end: "10:00", cost: "", summary: "" });
+  const [form, setForm] = useState({ agent_harness: "Claude Code", agent_name: "", model: "", date: today(), start: "09:00", end: "10:00", cost: "", summary: "", input: "", output: "", cache_write: "", cache_read: "" });
   const [tags, setTags] = useState<Tags>({});
   const add = useMutation({
     mutationFn: () => {
-      const cost = form.cost ? parseAmount(form.cost, me.organization.reporting_currency) : null;
+      const cost = form.cost ? decimal(form.cost) : null;
       if (form.cost && !cost) throw new Error("The cost is not a number.");
+      const count = (text: string) => Number(text.replace(/[,\s]/g, "")) || 0;
+      const tokens = { input: count(form.input), output: count(form.output), cache_write: count(form.cache_write), cache_read: count(form.cache_read) };
+      if (!cost && !Object.values(tokens).some(Boolean)) throw new Error("Give the tokens or the cost.");
+      const { ticket, project, ...rest } = tags;
       const body: NewTokenEntry = {
         agent_harness: form.agent_harness,
         agent_name: form.agent_name || null,
         model: form.model,
         started_at: `${form.date}T${form.start}:00Z`,
         ended_at: `${form.date}T${form.end}:00Z`,
-        tokens: { input: 0, output: 0, cache_write: 0, cache_read: 0 },
+        tokens,
         reported_cost: cost,
         summary: form.summary,
-        tags,
+        ticket: ticket ?? null,
+        project: project ?? null,
+        tags: rest,
+        // Where a person picked the ticket or project, no rule overrides it.
+        placed_by: ticket || project ? "hand" : null,
       };
       return api.addTokenEntry(body);
     },
@@ -84,7 +104,17 @@ function AddEntry({ open, onClose }: { open: boolean; onClose: () => void }) {
             <Input type="time" required value={form.end} onChange={(e) => set("end", e.target.value)} />
           </Field>
         </div>
-        <Field label={`Cost in ${me.organization.reporting_currency}`} hint="Leave empty to compute the list value from tokens and the price table.">
+        <fieldset>
+          <legend className="mb-1 text-[13px] font-medium text-ink-soft">Tokens</legend>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            {tokenFields.map(([key, label]) => (
+              <Field key={key} label={label}>
+                <Input inputMode="numeric" value={form[key]} onChange={(e) => set(key, e.target.value)} placeholder="0" />
+              </Field>
+            ))}
+          </div>
+        </fieldset>
+        <Field label="Reported cost in US dollars" hint="The agent's own figure, if it shows one. Leave empty to compute the list value from the tokens and the price table.">
           <Input inputMode="decimal" value={form.cost} onChange={(e) => set("cost", e.target.value)} placeholder="12.50" />
         </Field>
         <Field label="Summary" hint="What the session did. With the tags, the only text in a token entry.">
@@ -103,7 +133,8 @@ function AddEntry({ open, onClose }: { open: boolean; onClose: () => void }) {
   );
 }
 
-const csvExample = "agent_harness,model,started_at,ended_at,input,output,cache_write,cache_read,reported_cost,summary,ticket,project\nClaude Code,claude-opus-5,2026-10-09T09:00:00Z,2026-10-09T10:10:00Z,1200,38000,210000,5900000,41.87,Fixed checkout loop,KD-214,\n";
+// As docs Manual entry and CSV import shows it.
+const csvExample = "agent_harness,model,started_at,ended_at,tokens.input,tokens.output,reported_cost,summary,ticket,tags.team\nclaude-code,claude-sonnet-5,2026-09-18T09:12:00Z,2026-09-18T09:40:00Z,41200,6100,0.42,Fixed the cart total,KD-214,web\n";
 
 function ImportCsv({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [text, setText] = useState("");
@@ -112,7 +143,9 @@ function ImportCsv({ open, onClose }: { open: boolean; onClose: () => void }) {
     mutationFn: () => api.importEntries(text),
     onSuccess: async (r) => {
       await refreshAll();
-      notify(`${r.entries} token entries imported`, "They are on your token sheet as drafts.");
+      const dropped = [...new Set(r.token_entries.flatMap((e) => e.dropped_tags))];
+      const count = r.token_entries.length;
+      notify(`${String(count)} ${count === 1 ? "token entry" : "token entries"} imported`, dropped.length ? `They are on your token sheet as drafts. Left out tags not on your list: ${dropped.join(", ")}.` : "They are on your token sheet as drafts.");
       setText("");
       preview.reset();
       onClose();
@@ -135,19 +168,12 @@ function ImportCsv({ open, onClose }: { open: boolean; onClose: () => void }) {
         {preview.data ? (
           <div className="rounded-md border border-line p-3 text-sm">
             <p className="font-medium">
-              Read {preview.data.rows.length} {preview.data.rows.length === 1 ? "row" : "rows"}
-              {preview.data.problems.length ? `, ${preview.data.problems.length} with problems` : ", all fine"}.
+              {preview.data.ready} {preview.data.ready === 1 ? "row is" : "rows are"} ready
+              {preview.data.problems.length ? `, ${String(preview.data.problems.length)} cannot be read. Fix them and check the file again; nothing is saved until every row can be read.` : "."}
             </p>
-            <ul className="mt-2 space-y-1 text-[13px]">
-              {preview.data.rows.slice(0, 5).map((row, i) => (
-                <li key={i} className="truncate text-ink-soft">
-                  {row.started_at.slice(0, 10)} · {row.agent_harness} · {row.model} · {row.reported_cost ? formatMoney(row.reported_cost) : "list value"} · {row.summary}
-                </li>
-              ))}
-            </ul>
             {preview.data.problems.map((p) => (
-              <p key={`${p.row}${p.message}`} className="mt-1 text-[13px] text-exception">
-                Row {p.row}: {p.message}
+              <p key={`${String(p.line)}${p.problem}`} className="mt-1 text-[13px] text-exception">
+                Line {p.line}: {p.problem}
               </p>
             ))}
           </div>
@@ -155,9 +181,9 @@ function ImportCsv({ open, onClose }: { open: boolean; onClose: () => void }) {
         <FormError error={preview.error ?? save.error} />
         <div className="flex justify-end gap-2">
           <Button onClick={onClose}>Cancel</Button>
-          {preview.data && !preview.data.problems.length ? (
+          {preview.data && preview.data.ready && !preview.data.problems.length ? (
             <Button variant="primary" onClick={() => save.mutate()} disabled={save.isPending}>
-              Import {preview.data.rows.length} token entries
+              Import {preview.data.ready} {preview.data.ready === 1 ? "token entry" : "token entries"}
             </Button>
           ) : (
             <Button variant="primary" onClick={() => preview.mutate()} disabled={!text.trim() || preview.isPending}>

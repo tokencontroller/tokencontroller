@@ -10,6 +10,7 @@ import type {
   NewBill,
   NewTicketSystem,
   NewTokenEntry,
+  StoredEntry,
   Person,
   Role,
   OrganizationRulesChange,
@@ -209,65 +210,66 @@ function retag(db: Db, entry: EntryRecord, tags: Tags): Tags {
   return Object.fromEntries(Object.entries(merged).filter(([, value]) => value));
 }
 
-function csvEntries(db: Db, text: string) {
+/** The service's CSV reading: columns named after the token entry schema, nested ones with a dot. */
+function csvEntries(text: string): { rows: { line: number; entry: NewTokenEntry }[]; problems: { line: number; problem: string }[] } | string {
   const [header = [], ...rows] = parseCsv(text);
-  const col = (name: string) => header.findIndex((h) => h.trim() === name);
-  const problems: { row: number; message: string }[] = [];
-  const parsed: NewTokenEntry[] = [];
+  const names = header.map((h) => h.trim());
+  if (!names.length || !names.some(Boolean)) return "the file is empty";
+  const known = ["agent_harness", "agent_name", "model", "provider", "effort", "speed", "started_at", "ended_at", "tokens.input", "tokens.output", "tokens.cache_write", "tokens.cache_read", "reported_cost", "summary", "ticket", "project", "session_id", "signals.branch", "signals.working_directory", "signals.repository", "signals.pull_request", "signals.subagent_type"];
+  for (const name of names) if (!known.includes(name) && !name.startsWith("tags.")) return `column "${name}" is not a field of the token entry schema; tags go in columns named tags.<name>`;
+  for (const required of ["agent_harness", "model", "started_at", "ended_at"]) if (!names.includes(required)) return `the file has no ${required} column`;
+  const problems: { line: number; problem: string }[] = [];
+  const read: { line: number; entry: NewTokenEntry }[] = [];
   rows.forEach((cells, index) => {
-    const get = (name: string) => (col(name) === -1 ? "" : (cells[col(name)] ?? "").trim());
-    const row = index + 1;
-    for (const required of ["agent_harness", "model", "started_at", "ended_at"]) {
-      if (!get(required)) problems.push({ row, message: `${required} is missing.` });
-    }
-    const tags: Tags = {};
-    if (get("ticket")) tags.ticket = get("ticket");
-    if (get("project")) tags.project = get("project");
-    for (const name of db.tagNames) if (!["person", "ticket", "project"].includes(name) && get(name)) tags[name] = get(name);
+    const line = index + 2;
+    const get = (name: string) => (cells[names.indexOf(name)] ?? "").trim();
+    const missing = ["agent_harness", "model", "started_at", "ended_at"].find((name) => !get(name));
+    if (missing) return problems.push({ line, problem: `${missing} is empty` });
+    if (Number.isNaN(Date.parse(get("started_at"))) || Number.isNaN(Date.parse(get("ended_at")))) return problems.push({ line, problem: "started_at and ended_at must be RFC 3339 times, such as 2026-09-18T09:12:00Z" });
+    const count = (name: string) => Number(get(name) || "0");
+    const tokens = { input: count("tokens.input"), output: count("tokens.output"), cache_write: count("tokens.cache_write"), cache_read: count("tokens.cache_read") };
+    if (Object.values(tokens).some((n) => !Number.isInteger(n) || n < 0)) return problems.push({ line, problem: "token counts must be whole numbers of 0 or more" });
     const cost = get("reported_cost");
-    parsed.push({
-      agent_harness: get("agent_harness"),
-      agent_name: get("agent_name") || null,
-      model: get("model"),
-      started_at: get("started_at"),
-      ended_at: get("ended_at"),
-      tokens: { input: Number(get("input")) || 0, output: Number(get("output")) || 0, cache_write: Number(get("cache_write")) || 0, cache_read: Number(get("cache_read")) || 0 },
-      reported_cost: cost ? m(Math.round(Number(cost) * 100) * 10_000_000, cur(db)) : null,
-      summary: get("summary"),
-      tags,
-    });
+    if (cost && !/^\d+(\.\d{1,9})?$/.test(cost)) return problems.push({ line, problem: "reported_cost must be a decimal number such as 0.42" });
+    const tags = Object.fromEntries(names.flatMap((name, i) => (name.startsWith("tags.") && (cells[i] ?? "").trim() ? [[name.slice(5), (cells[i] ?? "").trim()]] : [])));
+    read.push({ line, entry: { agent_harness: get("agent_harness"), agent_name: get("agent_name") || null, model: get("model"), started_at: get("started_at"), ended_at: get("ended_at"), tokens, reported_cost: cost || null, summary: get("summary") || null, ticket: get("ticket") || null, project: get("project") || null, tags } });
+    return undefined;
   });
-  return { rows: parsed, problems };
+  return { rows: read, problems };
 }
 
-function addEntry(db: Db, me: Person, body: NewTokenEntry): EntryRecord {
-  const ticket = body.tags.ticket ?? body.tags.project ?? "";
-  const extra = Object.fromEntries(Object.entries(body.tags).filter(([k]) => !["ticket", "project"].includes(k)));
+/** Stores a token entry the way the service does: tags not on the list are left out. */
+function addEntry(db: Db, me: Person, body: NewTokenEntry): StoredEntry {
+  const sent = body.tags ?? {};
+  const dropped = Object.keys(sent).filter((name) => !db.tagNames.includes(name) || ["person", "ticket", "project"].includes(name));
+  const extra = Object.fromEntries(Object.entries(sent).filter(([name]) => !dropped.includes(name)));
+  const reported = body.reported_cost ? Math.round(Number(body.reported_cost) * 1e9) : null;
   const record: EntryRecord = {
     id: nextId(db, "te"),
     period: body.started_at.slice(0, 7),
     agent_harness: body.agent_harness,
-    agent_name: body.agent_name,
+    agent_name: body.agent_name ?? null,
     model: body.model,
-    effort: null,
+    effort: body.effort ?? null,
     started_at: new Date(body.started_at).toISOString(),
     ended_at: new Date(body.ended_at).toISOString(),
     tokens: body.tokens,
-    list: body.reported_cost ? toNanos(body.reported_cost) : Math.round((body.tokens.input * 3 + body.tokens.output * 15 + body.tokens.cache_write * 3.75 + body.tokens.cache_read * 0.3) * 1000),
+    list: reported ?? Math.round((body.tokens.input * 3 + body.tokens.output * 15 + body.tokens.cache_write * 3.75 + body.tokens.cache_read * 0.3) * 1000),
     billed: null,
-    summary: body.summary,
+    summary: body.summary ?? "",
     agent_manager: me.id,
     automatic: false,
     status: "draft",
     reject_reason: null,
-    placed_by: "by hand",
+    placed_by: body.placed_by === "hand" ? "by hand" : body.ticket || body.project ? "by hand" : "none",
     candidates: [],
-    splits: [{ share: 10000, tags: tagsFor(db, me.id, ticket, extra) }],
+    splits: [{ share: 10000, tags: tagsFor(db, me.id, body.ticket ?? body.project ?? "", extra) }],
     late: false,
-    provider: body.agent_harness === "Codex" ? "openai" : "anthropic",
+    provider: body.provider ?? (body.agent_harness.toLowerCase().includes("codex") ? "openai" : "anthropic"),
   };
   db.entries.push(record);
-  return record;
+  const [split] = toEntry(db, record).splits;
+  return { id: record.id, status: "draft", currency: cur(db), cost_kind: split?.cost_kind ?? "organization_overhead", dropped_tags: dropped, list_value: (Number(record.list) / 1e9).toFixed(2), local_id: body.local_id ?? null };
 }
 
 function billCsv(db: Db, text: string) {
@@ -595,15 +597,21 @@ export const handlers = [
     return HttpResponse.json(rows.map((e) => toEntry(db, e)));
   })),
   http.post(`${API}/token-entries`, member(async ({ db, me, request }) => {
-    const record = addEntry(db, me, (await request.json()) as NewTokenEntry);
-    return HttpResponse.json(toEntry(db, record), { status: 201 });
+    const body = (await request.json()) as NewTokenEntry | NewTokenEntry[];
+    const stored = Array.isArray(body) ? body.map((entry) => addEntry(db, me, entry)) : addEntry(db, me, body);
+    return HttpResponse.json(stored, { status: 201 });
   })),
-  http.post(`${API}/token-entries/import/preview`, member(async ({ db, request }) => HttpResponse.json(csvEntries(db, await request.text())))),
-  http.post(`${API}/token-entries/import`, member(async ({ db, me, request }) => {
-    const { rows, problems } = csvEntries(db, await request.text());
-    if (problems.length) return error(400, "invalid_csv", "Fix the rows with problems first.");
-    for (const row of rows) addEntry(db, me, row);
-    return HttpResponse.json({ entries: rows.length });
+  http.post(`${API}/token-entries/csv/preview`, member(async ({ request }) => {
+    const read = csvEntries(await request.text());
+    if (typeof read === "string") return error(400, "bad_request", read);
+    return HttpResponse.json({ ready: read.rows.length, problems: read.problems });
+  })),
+  http.post(`${API}/token-entries/csv`, member(async ({ db, me, request }) => {
+    const read = csvEntries(await request.text());
+    if (typeof read === "string") return error(400, "bad_request", read);
+    const [first] = read.problems;
+    if (first) return error(400, "bad_request", `Line ${String(first.line)}: ${first.problem}. Nothing was saved.`);
+    return HttpResponse.json({ token_entries: read.rows.map((row) => addEntry(db, me, row.entry)) }, { status: 201 });
   })),
   http.patch(`${API}/token-entries/:id/tags`, member(async ({ db, me, params, request }) => {
     const entry = db.entries.find((e) => e.id === params.id);

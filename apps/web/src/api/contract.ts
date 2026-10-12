@@ -39,6 +39,13 @@ export type Person = Schemas["MemberView"];
 export type Me = Schemas["Me"];
 export type SignUpRequest = Schemas["SignUpRequest"];
 
+/** One token entry as it arrives (docs: Reference > Token entry). */
+export type NewTokenEntry = Schemas["NewTokenEntry"];
+/** What storing a token entry gave. */
+export type StoredEntry = Schemas["StoredEntryBody"];
+/** What a CSV file of token entries holds, before anything is saved. */
+export type EntriesCsvPreview = Schemas["CsvPreview"];
+
 /** A rule: when every condition holds, do the action (docs: Rules). */
 export type Rule = Schemas["Rule"];
 export type RuleCondition = Schemas["RuleCondition"];
@@ -192,17 +199,6 @@ export interface TokenEntry {
   late: boolean;
 }
 
-export interface NewTokenEntry {
-  agent_harness: string;
-  agent_name: string | null;
-  model: string;
-  started_at: string;
-  ended_at: string;
-  tokens: TokenCounts;
-  reported_cost: Money | null;
-  summary: string;
-  tags: Tags;
-}
 
 export interface CsvPreview<Row> {
   rows: Row[];

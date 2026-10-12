@@ -54,6 +54,8 @@ import { filterToText } from "@/lib/format";
 
 const enc = encodeURIComponent;
 const path = <T extends string>(id: T) => ({ params: { path: { id } } });
+/** A CSV file goes as it is. */
+const csvBody = { bodySerializer: (csv: string) => csv, headers: { "content-type": "text/csv" } };
 
 export const api = {
   // Sign-in. The link in the mail opens a page of the service, which signs
@@ -110,11 +112,11 @@ export const api = {
     call<TokenEntry[]>("GET", "/token-entries", {
       query: { period: query.period, status: query.status, person: query.person, filter: filterToText(query.filter ?? {}) },
     }),
-  addTokenEntry: (body: NewTokenEntry) => call<TokenEntry>("POST", "/token-entries", { body }),
-  previewImport: (csv: string) =>
-    call<CsvPreview<NewTokenEntry>>("POST", "/token-entries/import/preview", { body: csv, contentType: "text/csv" }),
-  importEntries: (csv: string) =>
-    call<{ entries: number }>("POST", "/token-entries/import", { body: csv, contentType: "text/csv" }),
+  addTokenEntry: (body: NewTokenEntry) => ok(typed.POST("/api/v1/token-entries", { body })),
+  /** Reads a CSV file and shows the problem in each row; saves nothing. */
+  previewImport: (csv: string) => ok(typed.POST("/api/v1/token-entries/csv/preview", { ...csvBody, body: csv })),
+  /** Saves every row as a draft, or nothing when a row cannot be read. */
+  importEntries: (csv: string) => ok(typed.POST("/api/v1/token-entries/csv", { ...csvBody, body: csv })),
   setTags: (id: string, tags: Tags) => call<TokenEntry>("PATCH", `/token-entries/${enc(id)}/tags`, { body: { tags } }),
   setSplits: (id: string, splits: { share: number; tags: Tags }[]) =>
     call<TokenEntry>("PUT", `/token-entries/${enc(id)}/splits`, { body: { splits } }),
