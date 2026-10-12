@@ -341,14 +341,16 @@ export function parseBills(text: string): CsvBill[] {
     const currency = currencyText.toUpperCase();
     if (!/^[A-Z]{3}$/.test(currency)) throw problem(columns.currency, `${quoted(currencyText)} is not a currency. Use a three-letter code such as USD.`);
 
-    const amount = (column: Column, emptyIsZero: boolean): bigint => {
+    // A reduction (discount or credit) may be empty, and is never below zero.
+    const amount = (column: Column, reduction: boolean): bigint => {
       const text = value(column);
       if (!text) {
-        if (emptyIsZero) return 0n;
+        if (reduction) return 0n;
         throw problem(column, "The amount is empty. Write the amount, or 0.");
       }
       const nanos = readAmount(text, sheet.decimalComma);
       if (nanos === null) throw problem(column, `${quoted(text)} is not an amount. Write a plain number such as 1234.56.`);
+      if (reduction && nanos < 0n) throw problem(column, `${quoted(text)} is below zero. Discount and credit are positive amounts taken off gross; write it without the minus sign.`);
       return nanos;
     };
     const gross = amount(columns.gross, false);

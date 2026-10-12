@@ -63,9 +63,9 @@ function MyCost() {
   const sheet = useQuery({ queryKey: ["token-sheet"], queryFn: api.tokenSheet });
   // The person tag holds the email.
   const kinds = useCostKinds(period, { person: me.person.email });
-  const budgets = useQuery({ queryKey: ["token-budget-report", period], queryFn: () => api.tokenBudgetReport(period) });
+  const budgets = useQuery({ queryKey: ["token-budget-report", period], queryFn: () => api.tokenBudgetReport({ period }) });
   const myBudget = budgets.data?.rows.find((r) => filterToText(r.token_budget.filter) === `person:${me.person.email}`);
-  const budgetMoney = myBudget ? { amount: fromDecimal(myBudget.amount, myBudget.token_budget.currency), actual: fromDecimal(myBudget.actual, myBudget.token_budget.currency) } : null;
+  const budgetMoney = myBudget && budgets.data ? { amount: fromDecimal(myBudget.amount, budgets.data.currency), actual: fromDecimal(myBudget.actual, budgets.data.currency) } : null;
   const drafts = sheet.data?.token_entries.filter((e) => e.status === "draft").length ?? 0;
   const rejected = sheet.data?.token_entries.filter((e) => e.status === "rejected").length ?? 0;
   const onTickets = sheet.data?.share_on_tickets ?? null;
@@ -128,7 +128,7 @@ function PeopleManagerView() {
   const period = thisPeriod();
   const toApprove = useFirstOpenPeriod() ?? period;
   const waiting = useQuery({ queryKey: ["approval", toApprove, ""], queryFn: () => api.approvalQueue(toApprove) });
-  const budgets = useQuery({ queryKey: ["token-budget-report", period], queryFn: () => api.tokenBudgetReport(period) });
+  const budgets = useQuery({ queryKey: ["token-budget-report", period], queryFn: () => api.tokenBudgetReport({ period }) });
   const current = useQuery({ queryKey: ["token-entries", period, "all"], queryFn: () => api.tokenEntries({ period, limit: 5000 }) });
   const orphans = current.data?.token_entries.filter((e) => (e.agent_manager ?? null) === null) ?? [];
   const overruns = budgets.data?.rows.filter((r) => r.outcome === "overrun") ?? [];

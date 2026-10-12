@@ -89,4 +89,17 @@ describe("bill CSV files", () => {
   test("a problem names its row and column", () => {
     expect(() => parseBills("period,cost_source,gross,discount,credit,net,currency\n2026-09,api_key,10,0,0,9,USD\n")).toThrow(CsvBillProblem);
   });
+
+  test("discount and credit are never below zero", () => {
+    const problemOf = (text: string) => {
+      try {
+        parseBills(`period,cost_source,gross,discount,credit,net,currency\n${text}\n`);
+      } catch (error) {
+        if (error instanceof CsvBillProblem) return `Row ${String(error.row)}, column ${String(error.column)}: ${error.message}`;
+      }
+      return null;
+    };
+    expect(problemOf("2026-09,api_key,10,-5,0,15,USD")).toMatch(/^Row 2, column discount: "-5" is below zero\./);
+    expect(problemOf("2026-09,api_key,10,0,-1,11,USD")).toMatch(/^Row 2, column credit: "-1" is below zero\./);
+  });
 });

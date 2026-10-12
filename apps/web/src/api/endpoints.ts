@@ -1,4 +1,4 @@
-import { download, ok, typed } from "./client";
+import { ApiError, download, ok, typed } from "./client";
 import type {
   AcceptInput,
   AdjustmentInput,
@@ -227,6 +227,15 @@ export const api = {
   removeTokenBudget: (id: string) => ok(typed.DELETE("/api/v1/token-budgets/{id}", path(id))),
   /** Off on an instance without an embeddings model or when a controller switched them off: 409 with the reason. */
   makeTokenForecast: (key: string) => ok(typed.POST("/api/v1/tickets/{key}/token-forecast", { params: { path: { key } } })),
+  /** The latest token forecast made for a ticket, as it was made; `null` when none was. */
+  tokenForecast: async (key: string) => {
+    try {
+      return await ok(typed.GET("/api/v1/tickets/{key}/token-forecast", { params: { path: { key } } }));
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 404) return null;
+      throw error;
+    }
+  },
   acceptTokenForecast: (id: string, body: AcceptInput) => ok(typed.POST("/api/v1/token-forecasts/{id}/accept", { ...path(id), body })),
   tokenForecastSettings: () => ok(typed.GET("/api/v1/token-forecasts/settings")),
   switchTokenForecasts: (enabled: boolean) => ok(typed.PUT("/api/v1/token-forecasts/settings", { body: { enabled } })),
@@ -241,11 +250,11 @@ export const api = {
     json(typed.GET("/api/v1/reports/cost", { params: { query: { ...controls(query), ...(query.by ? { by: query.by } : {}), ...filterQuery(query.filter) } } })),
   agentHarness: (query: CostReportQuery) =>
     json(typed.GET("/api/v1/reports/agent-harness", { params: { query: { ...controls(query), ...(query.by ? { by: query.by } : {}), ...filterQuery(query.filter) } } })),
-  tokenBudgetReport: (period: PeriodId, approvedOnly = false) =>
-    json(typed.GET("/api/v1/reports/token-budgets", { params: { query: { period, ...(approvedOnly ? { status: "approved" as const } : {}) } } })),
-  tokenBudgetDetail: (id: string, period: PeriodId, approvedOnly = false) =>
-    json(typed.GET("/api/v1/reports/token-budgets/{id}", { params: { path: { id }, query: { period, ...(approvedOnly ? { status: "approved" as const } : {}) } } })),
-  outliers: (period: PeriodId, filter?: Filter) => json(typed.GET("/api/v1/reports/outliers", { params: { query: { period, ...filterQuery(filter) } } })),
+  tokenBudgetReport: (query: ReportControls) => json(typed.GET("/api/v1/reports/token-budgets", { params: { query: controls(query) } })),
+  tokenBudgetDetail: (id: string, query: ReportControls) => json(typed.GET("/api/v1/reports/token-budgets/{id}", { params: { path: { id }, query: controls(query) } })),
+  /** Outliers have no share view: how many times the baseline a ticket cost reads without money. */
+  outliers: (query: ReportControls, filter?: Filter) =>
+    json(typed.GET("/api/v1/reports/outliers", { params: { query: { ...controls({ ...query, share: false }), ...filterQuery(filter) } } })),
 
   // Rules: the organization's (controllers change them) and your own. Each
   // list is replaced as a whole, in order.
