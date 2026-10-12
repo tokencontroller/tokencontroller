@@ -6,6 +6,8 @@
 //! this folder, and its migrations in `migrations/` named
 //! `<timestamp>_ingest_<what>.sql`.
 
+pub mod csv_import;
+pub mod entry;
 pub mod model;
 pub mod otlp;
 
