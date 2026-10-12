@@ -47,16 +47,19 @@ unused_must_use = "forbid"
 all = { level = "deny", priority = -1 }
 pedantic = { level = "deny", priority = -1 }
 unwrap_used = "forbid"
-expect_used = "deny"     # deny, not forbid: #[tokio::main] and #[tokio::test] allow it in generated code; scripts/harness-check forbids lint attributes in our own code (ADR 0013)
+expect_used = "deny"     # deny, not forbid: #[tokio::main] and #[tokio::test] allow it in generated code; scripts/harness_check.py forbids lint attributes in our own code (ADR 0013)
 panic = "forbid"
 todo = "forbid"
 unimplemented = "forbid"
+unreachable = "deny"     # deny, not forbid: sqlx::query! allows it in generated code; scripts/harness_check.py forbids lint attributes in our own code (ADR 0013)
 indexing_slicing = "forbid"
+string_slice = "forbid"
 float_arithmetic = "forbid"
 arithmetic_side_effects = "forbid"
 as_conversions = "forbid"
 cast_possible_truncation = "forbid"
 let_underscore_must_use = "forbid"
+unused_result_ok = "forbid"
 allow_attributes = "forbid"
 allow_attributes_without_reason = "forbid"
 dbg_macro = "forbid"

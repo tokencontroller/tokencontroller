@@ -87,6 +87,8 @@ jobs:
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - name: Test
         run: cargo nextest run --workspace --locked --profile ci --no-tests=fail
+      - name: Every test in the code ran
+        run: python3 scripts/harness_check.py --tests-ran target/nextest/ci/junit.xml
       - name: Summary
         if: always()
         run: |
@@ -101,6 +103,68 @@ jobs:
           print(f"- {tests} tests ran, {failures + errors} failed, none skipped.\n")
           PY
           fi
+
+  mutants:
+    # Mutation testing (ADR 0003) of the core lines a pull request changes, so
+    # a test that checks nothing blocks the merge. The nightly run covers the
+    # whole crate.
+    name: Mutation testing of changed core code
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Find the changed core code
+        id: diff
+        env:
+          BASE: origin/${{ github.base_ref }}
+        run: |
+          git diff "$BASE...HEAD" -- crates/core > core.diff
+          if [ -s core.diff ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "### Mutation testing" >> "$GITHUB_STEP_SUMMARY"
+            echo "- No core code changed." >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Install the pinned toolchain
+        if: steps.diff.outputs.changed == 'true'
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        if: steps.diff.outputs.changed == 'true'
+      - uses: taiki-e/install-action@v2
+        if: steps.diff.outputs.changed == 'true'
+        with:
+          tool: cargo-mutants,cargo-nextest
+      - name: Mutate the changed lines and test
+        if: steps.diff.outputs.changed == 'true'
+        shell: bash
+        run: |
+          set +e
+          cargo mutants --package tokencontroller-core --in-diff core.diff --test-tool nextest --jobs 4 2>&1 | tee mutants.log
+          status=${PIPESTATUS[0]}
+          set -e
+          {
+            echo "### Mutation testing"
+            echo
+            line=$(grep -E 'mutants tested|[Nn]o mutants|no Rust source' mutants.log | tail -n 1 | sed 's/^ *INFO *//')
+            echo "- ${line:-No mutants in the changed lines.}"
+            if [ -s mutants.out/missed.txt ]; then
+              echo "- Not caught by any test:"
+              sed 's/^/  - /' mutants.out/missed.txt
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          # Exit code 3 means a mutant made the tests hang, which counts as caught.
+          if [ "$status" -ne 0 ] && [ "$status" -ne 3 ]; then
+            exit "$status"
+          fi
+      - name: Keep the report
+        if: failure() && steps.diff.outputs.changed == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: mutants
+          path: mutants.out
 
   deny:
     name: Dependencies
@@ -192,7 +256,7 @@ jobs:
       && github.event.pull_request.head.repo.full_name == github.repository
       && !github.event.pull_request.draft
       && !contains(github.event.pull_request.labels.*.name, 'hold')
-    needs: [harness, rust, deny, typescript, image]
+    needs: [harness, rust, mutants, deny, typescript, image]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
