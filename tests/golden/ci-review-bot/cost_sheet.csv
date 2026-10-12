@@ -1,0 +1,12 @@
+bill,line,cost_kind,project,ticket,person,purpose,amount,note
+anthropic-api-2026-10,cost,direct,storefront,KD-214,mara,,41.87,
+anthropic-api-2026-10,cost,direct,storefront,KD-214,tom,code-review,3.40,
+anthropic-api-2026-10,cost,direct,storefront,KD-240,tom,code-review,2.10,
+anthropic-api-2026-10,cost,project overhead,intranet,,tom,,0.80,
+anthropic-api-2026-10,cost,project overhead,storefront,,tom,,1.25,
+anthropic-api-2026-10,residual,,,,,,10.58,
+anthropic-api-2026-10,gross,,,,,,60.00,
+anthropic-api-2026-10,discount,,,,,,0.00,
+anthropic-api-2026-10,credit,,,,,,0.00,
+anthropic-api-2026-10,net,,,,,,60.00,
+,total,,,,,,60.00,

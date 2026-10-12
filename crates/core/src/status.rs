@@ -20,9 +20,9 @@ pub enum Status {
 }
 
 impl Status {
-    /// Whether a token entry in this status counts in reports and on the
-    /// cost sheet. With approval on, only approved cost counts; a locked
-    /// entry was counted when its period closed, so it always counts.
+    /// Whether a token entry in this status counts on the cost sheet. With
+    /// approval on, only approved cost counts; a locked entry was counted
+    /// when its period closed, so it always counts.
     #[must_use]
     pub const fn counts(self, approval_on: bool) -> bool {
         match self {
@@ -30,6 +30,14 @@ impl Status {
             Self::Submitted => !approval_on,
             Self::Approved | Self::Locked => true,
         }
+    }
+
+    /// Whether a token entry in this status counts in reports. Submitted
+    /// cost counts at once, with approval on too, where reports mark it as
+    /// not yet approved.
+    #[must_use]
+    pub const fn counts_in_reports(self) -> bool {
+        !matches!(self, Self::Draft | Self::Rejected)
     }
 }
 
@@ -75,6 +83,11 @@ mod tests {
     fn approval_decides_whether_submitted_cost_counts() {
         assert!(Status::Submitted.counts(false));
         assert!(!Status::Submitted.counts(true));
+        assert!(Status::Submitted.counts_in_reports());
+        assert!(Status::Approved.counts_in_reports());
+        assert!(Status::Locked.counts_in_reports());
+        assert!(!Status::Draft.counts_in_reports());
+        assert!(!Status::Rejected.counts_in_reports());
         for approval_on in [false, true] {
             assert!(!Status::Draft.counts(approval_on));
             assert!(!Status::Rejected.counts(approval_on));

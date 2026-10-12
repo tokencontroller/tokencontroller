@@ -1,0 +1,18 @@
+bill,line,cost_kind,project,ticket,person,amount,note
+openai-2026-10,cost,direct,storefront,KD-214,mara,7.50,
+openai-2026-10,cost,direct,storefront,KD-231,tom,0.00,unknown model
+openai-2026-10,residual,,,,,4.50,
+openai-2026-10,gross,,,,,12.00,
+openai-2026-10,discount,,,,,0.00,
+openai-2026-10,credit,,,,,0.00,
+openai-2026-10,net,,,,,12.00,
+anthropic-2026-10,cost,direct,storefront,KD-240,mara,10.50,
+anthropic-2026-10,cost,organization overhead,,,,1.20,
+anthropic-2026-10,residual,,,,,2.30,
+anthropic-2026-10,gross,,,,,14.00,
+anthropic-2026-10,discount,,,,,0.00,
+anthropic-2026-10,credit,,,,,0.00,
+anthropic-2026-10,net,,,,,14.00,
+,adjustment,direct,storefront,KD-214,mara,-2.25,"Entry 1 counted a test run twice, says Mara"
+,late adjustment,direct,storefront,KD-231,tom,6.30,Token sheet for 30 October submitted after the close
+,total,,,,,30.05,

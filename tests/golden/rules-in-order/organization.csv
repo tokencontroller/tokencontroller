@@ -1,0 +1,7 @@
+setting,value
+reporting_currency,USD
+cost_source,api_key
+tag_names,team;purpose;feature
+missing_tickets,KD-998
+period,2026-10
+columns,purpose;feature
