@@ -51,12 +51,24 @@ function useValueLabel(by: string): (row: Pick<CostReportRow, "value" | "adjustm
   };
 }
 
-/** What a report says about itself: the period, whether it is closed, the label and the exchange rate. */
-function ReportFacts({ period, closed, label, currency, exchangeRate }: { period: string; closed: boolean; label: string; currency: string; exchangeRate?: string | null | undefined }) {
+interface Facts {
+  period: string;
+  /** Left out where the report does not say. */
+  closed?: boolean;
+  label: string;
+  currency: string;
+  exchangeRate?: string | null | undefined;
+  status?: "all" | "approved";
+}
+
+/** What a report says about itself: the period, whether it is closed, the label, the exchange rate and which token entries count. */
+function ReportFacts({ period, closed, label, currency, exchangeRate, status }: Facts) {
   const me = useMe();
   return (
     <p className="mb-3 text-[13px] text-muted">
-      {formatPeriod(period)} · {closed ? "closed" : "open"} · {label}
+      {formatPeriod(period)}
+      {closed === undefined ? "" : closed ? " · closed" : " · open"} · {label}
+      {status === "approved" ? " · approved token entries only" : ""}
       {exchangeRate ? ` · in ${currency} at the rate of the period's last day, 1 ${me.organization.reporting_currency} = ${exchangeRate} ${currency}` : ""}
     </p>
   );
@@ -180,8 +192,6 @@ function OwnReports({ controls }: { controls: ReportControls }) {
     },
   });
   const open = (r: SavedReport) => setCurrent({ filter: r.filter, by: r.by, name: r.name, id: r.id });
-  // Its creator or a controller can remove a saved report.
-  const mayRemove = (r: SavedReport) => hasRole(me.person, "controller") || r.created_by === me.person.name;
   const options = [...(names.data ?? []).map((n) => n.name), ...Object.keys(groupings)];
   if (!options.includes(current.by)) options.unshift(current.by);
   return (
@@ -195,7 +205,7 @@ function OwnReports({ controls }: { controls: ReportControls }) {
                 <button type="button" onClick={() => open(r)} aria-current={current.id === r.id ? "true" : undefined} className={`flex-1 rounded-md px-2 py-1.5 text-left text-sm ${current.id === r.id ? "bg-accent-tint font-medium" : "hover:bg-sand"}`}>
                   {r.name}
                 </button>
-                {mayRemove(r) ? <Menu label={`Actions for ${r.name}`} items={[{ label: "Remove", danger: true, onClick: () => remove.mutate(r.id) }]} /> : null}
+                {r.can_remove ? <Menu label={`Actions for ${r.name}`} items={[{ label: "Remove", danger: true, onClick: () => remove.mutate(r.id) }]} /> : null}
               </li>
             ))}
           </ul>
@@ -265,11 +275,11 @@ const outcomeText = (row: TokenBudgetRow) => (row.outcome ? outcomes[row.outcome
 
 const budgetTitle = (row: TokenBudgetRow) => row.token_budget.name ?? describeFilter(row.token_budget.filter);
 
-/** One token budget opened down to its tickets, token entries and adjustments. */
-function BudgetDetail({ row, period, approvedOnly, onClose }: { row: TokenBudgetRow; period: string; approvedOnly: boolean; onClose: () => void }) {
+/** One token budget opened down to its tickets, token entries and adjustments, in the report's currency. */
+function BudgetDetail({ row, currency, controls, onClose }: { row: TokenBudgetRow; currency: string; controls: ReportControls; onClose: () => void }) {
   const id = row.token_budget.id;
-  const detail = useQuery({ queryKey: ["token-budget-report", id, period, approvedOnly], queryFn: () => api.tokenBudgetDetail(id, period, approvedOnly) });
-  const currency = row.token_budget.currency;
+  const period = controls.period;
+  const detail = useQuery({ queryKey: ["token-budget-report", id, controls], queryFn: () => api.tokenBudgetDetail(id, controls) });
   const ticketColumns: Column<TicketActual>[] = [
     { key: "ticket", header: "Ticket", cell: (t) => (t.ticket ? <span className="font-mono text-[13px]">{t.ticket}</span> : <span className="text-muted">no ticket</span>), csv: (t) => t.ticket ?? "" },
     { key: "title", header: "Title", wide: true, cell: (t) => t.title ?? "", csv: (t) => t.title ?? "" },
@@ -303,10 +313,11 @@ function BudgetDetail({ row, period, approvedOnly, onClose }: { row: TokenBudget
   const amount = fromDecimal(row.amount, currency);
   return (
     <Dialog open wide onOpenChange={(open) => !open && onClose()} title={budgetTitle(row)} description={<span className="flex flex-wrap items-center gap-2"><FilterTags filter={row.token_budget.filter} /> · {row.actual_period ? formatPeriod(row.actual_period) : "all time"}</span>}>
-      <div className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-3">
+      <div className={`mb-5 grid grid-cols-2 gap-3 ${row.share == null ? "sm:grid-cols-3" : "sm:grid-cols-4"}`}>
         <Kpi label="Token budget" value={<MoneyText value={amount} />} />
         <Kpi label="Actual" value={<MoneyText value={fromDecimal(row.actual, currency)} />} />
         <Kpi label="Difference" value={<MoneyText value={fromDecimal(row.difference, currency)} signed />} note={<OutcomeBadge row={row} />} tone={row.outcome === "overrun" ? "exception" : row.outcome === "underrun" ? "posted" : undefined} />
+        {row.share == null ? null : <Kpi label="Share of the period" value={formatShare(row.share)} />}
       </div>
       {detail.isPending ? <Loading /> : detail.isError ? <ErrorBox error={detail.error} /> : (
         <>
@@ -327,12 +338,15 @@ function BudgetDetail({ row, period, approvedOnly, onClose }: { row: TokenBudget
   );
 }
 
-function TokenBudgetVsActual({ period, approvedOnly }: { period: string; approvedOnly: boolean }) {
-  const report = useQuery({ queryKey: ["token-budget-report", period, approvedOnly], queryFn: () => api.tokenBudgetReport(period, approvedOnly) });
+function TokenBudgetVsActual({ controls }: { controls: ReportControls }) {
+  const period = controls.period;
+  const report = useQuery({ queryKey: ["token-budget-report", controls], queryFn: () => api.tokenBudgetReport(controls) });
   const [opened, setOpened] = useState<TokenBudgetRow | null>(null);
   if (report.isPending) return <Loading />;
   if (report.isError) return <ErrorBox error={report.error} />;
-  const currency = report.data.currency;
+  const { currency } = report.data;
+  // The share view shows actual as a share of the period instead of money; the CSV keeps both.
+  const share = report.data.view === "share";
   const columns: Column<TokenBudgetRow>[] = [
     {
       key: "budget",
@@ -349,11 +363,12 @@ function TokenBudgetVsActual({ period, approvedOnly }: { period: string; approve
     },
     { key: "filter", header: "Filter", csvOnly: true, cell: () => null, csv: (r) => filterToText(r.token_budget.filter) },
     { key: "applies", header: "Applies", wide: true, cell: (r) => describeApplies(r.token_budget), csv: (r) => r.token_budget.applies },
-    { key: "amount", header: "Amount", align: "right", cell: (r) => <MoneyText value={fromDecimal(r.amount, currency)} />, csv: (r) => r.amount },
+    { key: "amount", header: "Amount", align: "right", csvOnly: share, cell: (r) => <MoneyText value={fromDecimal(r.amount, currency)} />, csv: (r) => r.amount },
     {
       key: "actual",
       header: "Actual",
       align: "right",
+      csvOnly: share,
       cell: (r) => (
         <span className="flex flex-col items-end">
           <MoneyText value={fromDecimal(r.actual, currency)} />
@@ -362,7 +377,23 @@ function TokenBudgetVsActual({ period, approvedOnly }: { period: string; approve
       ),
       csv: (r) => r.actual,
     },
-    { key: "difference", header: "Difference", align: "right", cell: (r) => <MoneyText value={fromDecimal(r.difference, currency)} signed />, csv: (r) => r.difference },
+    { key: "difference", header: "Difference", align: "right", csvOnly: share, cell: (r) => <MoneyText value={fromDecimal(r.difference, currency)} signed />, csv: (r) => r.difference },
+    ...(share
+      ? [
+          {
+            key: "share",
+            header: "Share of the period",
+            align: "right",
+            cell: (r) => (
+              <span className="flex flex-col items-end">
+                {r.share == null ? <span className="text-muted">none</span> : formatShare(r.share)}
+                {r.unknown_model_entries ? <span className="text-xs text-exception">{r.unknown_model_entries} unknown model</span> : null}
+              </span>
+            ),
+            csv: (r) => (r.share == null ? "" : formatShare(r.share)),
+          } satisfies Column<TokenBudgetRow>,
+        ]
+      : []),
     { key: "outcome", header: "Outcome", cell: (r) => <OutcomeBadge row={r} />, csv: (r) => outcomeText(r) },
     { key: "entries", header: "Token entries", csvOnly: true, cell: () => null, csv: (r) => r.token_entries },
   ];
@@ -371,7 +402,12 @@ function TokenBudgetVsActual({ period, approvedOnly }: { period: string; approve
       <p className="mb-2 text-sm text-muted">
         Actual cost against each token budget in force in {formatPeriod(period)}. Overrun is actual above token budget; underrun is actual below. Both get a look: an overrun may be a problem, and an underrun may mean someone can teach the others, or that the next token forecast should be lower.
       </p>
-      <p className="mb-4 text-xs text-muted">Token budgets can overlap, so never add them up. Open a row for its tickets and token entries.</p>
+      <p className="mb-4 text-xs text-muted">
+        {share
+          ? "Each share is actual's share of all the cost you see over the same period. Token budgets can overlap, so the shares do not add up. Open a row for its tickets and token entries."
+          : "Token budgets can overlap, so never add them up. Open a row for its tickets and token entries."}
+      </p>
+      <ReportFacts period={report.data.period} label={report.data.label} currency={currency} exchangeRate={report.data.exchange_rate} status={report.data.status} />
       <DataTable
         stack
         columns={columns}
@@ -382,7 +418,7 @@ function TokenBudgetVsActual({ period, approvedOnly }: { period: string; approve
         caption="Token budget vs actual"
         empty="No token budgets in force in this period."
       />
-      {opened ? <BudgetDetail key={opened.token_budget.id} row={opened} period={period} approvedOnly={approvedOnly} onClose={() => setOpened(null)} /> : null}
+      {opened ? <BudgetDetail key={opened.token_budget.id} row={opened} currency={currency} controls={controls} onClose={() => setOpened(null)} /> : null}
     </>
   );
 }
@@ -414,8 +450,9 @@ function AgentHarness({ controls }: { controls: ReportControls }) {
   );
 }
 
-function Outliers({ period }: { period: string }) {
-  const result = useQuery({ queryKey: ["outliers", period], queryFn: () => api.outliers(period) });
+function Outliers({ controls }: { controls: ReportControls }) {
+  const period = controls.period;
+  const result = useQuery({ queryKey: ["outliers", controls.period, controls.approvedOnly, controls.currency], queryFn: () => api.outliers(controls) });
   if (result.isPending) return <Loading />;
   if (result.isError) return <ErrorBox error={result.error} />;
   const { currency } = result.data;
@@ -463,7 +500,8 @@ function Outliers({ period }: { period: string }) {
         Tickets furthest from your organization's own baseline for similar work, high or low: a ticket at twice the baseline is as far as one at half. The baseline is the median cost of similar past tickets: those of the same project in the twelve months before the period, or of the whole organization when the project has fewer than three.
       </p>
       <p className="mb-4 text-xs text-muted">An outlier is a question to ask, not an alert: nothing is sent and nothing is stopped. Open the token entries and read the summaries.</p>
-      <ReportFacts period={result.data.period} closed={result.data.closed} label={result.data.label} currency={currency} />
+      {controls.share ? <p className="mb-3 text-xs text-muted">Outliers have no share view: how many times the baseline a ticket cost already reads without money.</p> : null}
+      <ReportFacts period={result.data.period} closed={result.data.closed} label={result.data.label} currency={currency} exchangeRate={result.data.exchange_rate} status={result.data.status} />
       <DataTable stack columns={columns} rows={result.data.tickets} rowKey={(o) => o.ticket} csvName={`outliers-${period}.csv`} caption="Outliers" empty="No outliers this period." />
       {result.data.without_baseline ? (
         <p className="mt-2 text-xs text-muted">
@@ -524,8 +562,7 @@ export function ReportsPage(): ReactNode {
         </TabPanel>
         <TabPanel value="budgets">
           <Section title={`Token budget vs actual, ${formatPeriod(period)}`}>
-            {currency !== reporting || share ? <p className="mb-3 text-xs text-muted">Token budgets are compared in money, in {reporting}.</p> : null}
-            <TokenBudgetVsActual period={period} approvedOnly={Boolean(controls.approvedOnly)} />
+            <TokenBudgetVsActual controls={controls} />
           </Section>
         </TabPanel>
         <TabPanel value="harness">
@@ -535,7 +572,7 @@ export function ReportsPage(): ReactNode {
         </TabPanel>
         <TabPanel value="outliers">
           <Section title={`Outliers, ${formatPeriod(period)}`}>
-            <Outliers period={period} />
+            <Outliers controls={controls} />
           </Section>
         </TabPanel>
       </Tabs>

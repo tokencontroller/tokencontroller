@@ -15,7 +15,7 @@ import { Switch } from "@/components/ui/switch";
 import { DataTable, type Column } from "@/components/ui/table";
 import { Tag, TagValueList } from "@/components/ui/tag";
 import { notify } from "@/components/ui/toast";
-import { addMonths, describeFilter, filterToText, formatPeriod } from "@/lib/format";
+import { addMonths, describeFilter, filterToText, formatDateTime, formatPeriod } from "@/lib/format";
 import { formatMoney, fromDecimal, money, nanosOf } from "@/lib/money";
 import { refreshAll, useMe, useProjects, useTagNames, useTickets } from "@/lib/queries";
 import { hasRole } from "@/lib/roles";
@@ -211,27 +211,30 @@ function Forecast() {
   const tickets = useTickets();
   const projects = useProjects();
   const [ticket, setTicket] = useState("");
-  const [forecast, setForecast] = useState<TokenForecastView | null>(null);
+  const [made, setMade] = useState<TokenForecastView | null>(null);
+  // The latest token forecast already made for the ticket, as it was made.
+  const latest = useQuery({ queryKey: ["token-forecast", ticket], queryFn: () => api.tokenForecast(ticket), enabled: ticket !== "" });
+  const forecast = made ?? (ticket ? (latest.data ?? null) : null);
   const [dropped, setDropped] = useState<ReadonlySet<string>>(new Set());
   const [typed, setTyped] = useState("");
   const make = useMutation({
     mutationFn: api.makeTokenForecast,
-    onSuccess: (made) => {
-      setForecast(made);
+    onSuccess: (fresh) => {
+      setMade(fresh);
       setDropped(new Set());
       setTyped("");
     },
   });
   const accept = useMutation({
-    mutationFn: (made: TokenForecastView) => {
+    mutationFn: (shown: TokenForecastView) => {
       const amount = plainAmount(typed);
-      const body: AcceptInput = amount ? { amount } : dropped.size ? { tickets: made.matches.filter((m) => !dropped.has(m.ticket)).map((m) => m.ticket) } : {};
-      return api.acceptTokenForecast(made.id, body);
+      const body: AcceptInput = amount ? { amount } : dropped.size ? { tickets: shown.matches.filter((m) => !dropped.has(m.ticket)).map((m) => m.ticket) } : {};
+      return api.acceptTokenForecast(shown.id, body);
     },
     onSuccess: async (budget) => {
       await refreshAll();
       notify("Token budget saved", `${describeFilter(budget.filter)}, all time`);
-      setForecast(null);
+      setMade(null);
       setTicket("");
     },
   });
@@ -258,7 +261,7 @@ function Forecast() {
     <div className="rounded-lg border border-line p-4">
       <form className="flex flex-col gap-3 sm:flex-row sm:items-end" onSubmit={(e) => { e.preventDefault(); if (ticket) make.mutate(ticket); }}>
         <Field label="Ticket" hint="Compares its title and description with the summaries of past token entries." className="min-w-0 flex-1">
-          <Select aria-label="Ticket for the token forecast" value={ticket} onChange={(e) => { setTicket(e.target.value); setForecast(null); make.reset(); accept.reset(); }}>
+          <Select aria-label="Ticket for the token forecast" value={ticket} onChange={(e) => { setTicket(e.target.value); setMade(null); setDropped(new Set()); setTyped(""); make.reset(); accept.reset(); }}>
             <option value="">Pick a ticket</option>
             {covered.map((t) => (
               <option key={t.key} value={t.key}>
@@ -269,23 +272,28 @@ function Forecast() {
           </Select>
         </Field>
         <Button type="submit" disabled={!ticket || make.isPending}>
-          Make a token forecast
+          {forecast ? "Make a new token forecast" : "Make a token forecast"}
         </Button>
       </form>
       <div className="mt-3">
         <FormError error={make.error} />
+        <FormError error={latest.error} />
       </div>
       {forecast ? (
         <div className="mt-2">
+          <p className="mb-2 text-[13px] text-muted">
+            Made {formatDateTime(forecast.created_at)}
+            {forecast.token_budget_id ? " · accepted as a token budget" : ""}
+          </p>
           {forecast.matches.length ? (
             <>
               <p className="mb-2 text-[13px] text-muted">
-                Similar past tickets for {forecast.ticket}, with what each cost. Untick the ones that do not fit.
+                Similar past tickets for {forecast.ticket}, with what each cost.{forecast.token_budget_id ? "" : " Untick the ones that do not fit."}
               </p>
               <ul className="divide-y divide-line" aria-label="Similar past tickets">
                 {forecast.matches.map((m) => (
                   <li key={m.ticket} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2 text-sm">
-                    <Checkbox label={`Use ${m.ticket}`} checked={!dropped.has(m.ticket)} onCheckedChange={(on) => toggle(m.ticket, on)} />
+                    {forecast.token_budget_id ? null : <Checkbox label={`Use ${m.ticket}`} checked={!dropped.has(m.ticket)} onCheckedChange={(on) => toggle(m.ticket, on)} />}
                     <span className="font-mono text-[13px]">{m.ticket}</span>
                     <span className="min-w-0 flex-1 basis-40 truncate text-ink-soft">{m.title}</span>
                     <Badge tone={m.confidence >= 70 ? "posted" : "neutral"}>{m.confidence}% confidence</Badge>
@@ -297,27 +305,33 @@ function Forecast() {
           ) : (
             <Empty title={`No similar past work for ${forecast.ticket} yet`}>The more periods you close, the better token forecasts get. You can still type a token budget.</Empty>
           )}
-          <div className="mt-4 space-y-3 border-t border-ink pt-3">
-            <p className="text-sm">
-              {proposed === null ? (
-                "No ticked match has a known cost, so there is no proposal. Type an amount instead."
-              ) : (
-                <>
-                  Proposal, the median: <b className="num">{formatMoney(money(proposed, forecast.currency))}</b>
-                </>
-              )}
+          {forecast.token_budget_id ? (
+            <p className="mt-4 border-t border-ink pt-3 text-sm">
+              It became the token budget on ticket: {forecast.ticket} in the list above, for all time.
             </p>
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-              <Field label={`Or type an amount in ${forecast.currency}`} className="sm:w-56">
-                <Input inputMode="decimal" value={typed} onChange={(e) => setTyped(e.target.value)} placeholder={proposed === null ? "1,500" : ""} />
-              </Field>
-              <Button variant="primary" disabled={(proposed === null && !plainAmount(typed)) || accept.isPending} onClick={() => accept.mutate(forecast)}>
-                Accept as token budget
-              </Button>
+          ) : (
+            <div className="mt-4 space-y-3 border-t border-ink pt-3">
+              <p className="text-sm">
+                {proposed === null ? (
+                  "No ticked match has a known cost, so there is no proposal. Type an amount instead."
+                ) : (
+                  <>
+                    Proposal, the median: <b className="num">{formatMoney(money(proposed, forecast.currency))}</b>
+                  </>
+                )}
+              </p>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+                <Field label={`Or type an amount in ${forecast.currency}`} className="sm:w-56">
+                  <Input inputMode="decimal" value={typed} onChange={(e) => setTyped(e.target.value)} placeholder={proposed === null ? "1,500" : ""} />
+                </Field>
+                <Button variant="primary" disabled={(proposed === null && !plainAmount(typed)) || accept.isPending} onClick={() => accept.mutate(forecast)}>
+                  Accept as token budget
+                </Button>
+              </div>
+              <p className="text-xs text-muted">It becomes a token budget on ticket: {forecast.ticket} for all time.</p>
+              <FormError error={withinFilters(accept.error)} />
             </div>
-            <p className="text-xs text-muted">It becomes a token budget on ticket: {forecast.ticket} for all time.</p>
-            <FormError error={withinFilters(accept.error)} />
-          </div>
+          )}
         </div>
       ) : null}
     </div>

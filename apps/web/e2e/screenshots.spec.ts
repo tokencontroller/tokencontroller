@@ -48,6 +48,15 @@ test("token forecast and token budget vs actual", async ({ page }) => {
   await page.getByRole("dialog", { name: "ticket: KD-214" }).getByRole("table", { name: "Token entries" }).waitFor();
   await page.waitForLoadState("networkidle");
   await page.screenshot({ path: `${dir}/32-token-budget-vs-actual.png` });
+  await page.getByRole("dialog", { name: "ticket: KD-214" }).getByRole("button", { name: "Close" }).click();
+  await page.getByRole("switch", { name: "Share view" }).click();
+  await page.getByText(/· share of the period/).waitFor();
+  await page.screenshot({ path: `${dir}/33-token-budget-share-view.png`, fullPage: true });
+  // The token forecast made for KD-231 in September, read again with the token budget it became.
+  await page.goto("/budgets");
+  await page.getByLabel("Ticket for the token forecast").selectOption("KD-231");
+  await page.getByText("accepted as a token budget").waitFor();
+  await page.screenshot({ path: `${dir}/34-token-forecast-accepted.png`, fullPage: true });
 });
 
 test("phone", async ({ browser, baseURL }) => {

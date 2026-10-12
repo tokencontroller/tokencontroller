@@ -224,6 +224,27 @@ interface ReportSpec {
   share: boolean;
 }
 
+/** The currency a report shows money in, the service's `reports::cost::shown_in`: the reporting currency unless another is asked for. */
+function shownIn(reporting: string, asked: string | null, period: string, fail: Fail): string | Response {
+  if (asked === null) return reporting;
+  const target = asked.trim();
+  if (!/^[A-Z]{3}$/.test(target)) return fail(400, "bad_request", `${quoted(target)} is not a currency code: use three capital letters, such as EUR`);
+  if (!RATES[target] || !RATES[reporting]) {
+    const day = `${period}-${String(new Date(Date.UTC(Number(period.slice(0, 4)), Number(period.slice(5, 7)), 0)).getUTCDate())}`;
+    return fail(409, "conflict", `there is no exchange rate from ${reporting} to ${target} for ${day < TODAY ? day : TODAY} yet: it arrives with the daily rate refresh, or a controller can enter it`);
+  }
+  return target;
+}
+
+/** The rate a report shows when its money is in another currency than the reporting currency. */
+const rateShown = (reporting: string, target: string) => (target === reporting ? null : rateText(reporting, target));
+
+/** `part`'s share of `total` in basis points, the core's way; null when there is no total to share or `part` lies outside it. */
+function shareOf(part: number, total: number): number | null {
+  if (part > total) return null;
+  return sharePoints([part, total - part])[0] ?? null;
+}
+
 /** Runs a report the way the service's `reports::cost::run` does. */
 function runReport(db: Db, me: Person, spec: ReportSpec, fail: Fail): CostReport | Response {
   const reporting = cur(db);
@@ -252,15 +273,8 @@ function runReport(db: Db, me: Person, spec: ReportSpec, fail: Fail): CostReport
   const all = [...rows, ...adjustmentRows];
   const total = all.reduce((sum, row) => sum + row.nanos, 0);
 
-  let target = reporting;
-  if (spec.currency !== null) {
-    target = spec.currency.trim();
-    if (!/^[A-Z]{3}$/.test(target)) return fail(400, "bad_request", `${quoted(target)} is not a currency code: use three capital letters, such as EUR`);
-  }
-  if (!RATES[target] || !RATES[reporting]) {
-    const day = `${spec.period}-${String(new Date(Date.UTC(Number(spec.period.slice(0, 4)), Number(spec.period.slice(5, 7)), 0)).getUTCDate())}`;
-    return fail(409, "conflict", `there is no exchange rate from ${reporting} to ${target} for ${day < TODAY ? day : TODAY} yet: it arrives with the daily rate refresh, or a controller can enter it`);
-  }
+  const target = shownIn(reporting, spec.currency, spec.period, fail);
+  if (target instanceof Response) return target;
   const amounts = all.map((row) => convert(row.nanos, reporting, target));
   const usage = sharePoints(amounts.filter((_, i) => !all[i]?.adjustment));
   let next = 0;
@@ -273,7 +287,7 @@ function runReport(db: Db, me: Person, spec: ReportSpec, fail: Fail): CostReport
     status: spec.approved ? "approved" : "all",
     view: spec.share ? "share" : "money",
     currency: target,
-    exchange_rate: target === reporting ? null : rateText(reporting, target),
+    exchange_rate: rateShown(reporting, target),
     label: spec.share ? "share of the period" : "list-price estimate",
     rows: all.map(
       (row, i): CostReportRow => ({
@@ -296,15 +310,22 @@ function readPeriod(url: URL, fail: Fail): string | Response {
   return parsePeriod(text) ?? fail(400, "bad_request", `Failed to deserialize query string: ${notAPeriod(text)}`);
 }
 
-/** The controls every report takes, read as the service reads its query. */
-function readControls(url: URL, fail: Fail): Omit<ReportSpec, "by" | "filter"> | Response {
-  const period = readPeriod(url, fail);
-  if (period instanceof Response) return period;
+/** Which token entries count and how money is shown, read as the service reads its query. */
+function readShowing(url: URL, fail: Fail): Omit<ReportSpec, "by" | "filter" | "period"> | Response {
   const status = url.searchParams.get("status") ?? "all";
   if (status !== "all" && status !== "approved") return fail(400, "bad_request", `Failed to deserialize query string: status: unknown variant \`${status}\`, expected \`all\` or \`approved\``);
   const view = url.searchParams.get("view") ?? "money";
   if (view !== "money" && view !== "share") return fail(400, "bad_request", `Failed to deserialize query string: view: unknown variant \`${view}\`, expected \`money\` or \`share\``);
-  return { period, approved: status === "approved", currency: url.searchParams.get("currency"), share: view === "share" };
+  return { approved: status === "approved", currency: url.searchParams.get("currency"), share: view === "share" };
+}
+
+/** The controls every report takes, read as the service reads its query. */
+function readControls(url: URL, fail: Fail): Omit<ReportSpec, "by" | "filter"> | Response {
+  const period = readPeriod(url, fail);
+  if (period instanceof Response) return period;
+  const showing = readShowing(url, fail);
+  if (showing instanceof Response) return showing;
+  return { period, ...showing };
 }
 
 function reportSpec(url: URL, defaultBy: string, fail: Fail): ReportSpec | Response {
@@ -422,23 +443,37 @@ function actualOf(db: Db, me: Person, filter: Tags, periods: string[], approved:
   };
 }
 
-function budgetRow(db: Db, me: Person, b: BudgetRecord, period: string, approved: boolean): { row: TokenBudgetRow; actual: Actual; difference: number } {
+/** How a token budget report shows money: in which currency, and whether as shares of the period. */
+interface Showing {
+  approved: boolean;
+  target: string;
+  share: boolean;
+}
+
+function budgetRow(db: Db, me: Person, b: BudgetRecord, period: string, showing: Showing): { row: TokenBudgetRow; actual: Actual; difference: number } {
   const actualPeriod = b.period === null ? null : period;
-  const actual = actualOf(db, me, b.filter, actualPeriod === null ? allPeriods(db) : [actualPeriod], approved);
+  const periods = actualPeriod === null ? allPeriods(db) : [actualPeriod];
+  const actual = actualOf(db, me, b.filter, periods, showing.approved);
   const difference = actual.value - b.amount;
   // Token entries on an unknown model leave an underrun open, never an overrun.
   const outcome: Outcome | null = difference > 0 ? "overrun" : actual.unknown.size ? null : difference === 0 ? "at_token_budget" : "underrun";
-  const currency = cur(db);
+  // Compared in the reporting currency, shown in the one asked for.
+  const reporting = cur(db);
+  const amount = convert(b.amount, reporting, showing.target);
+  const shownActual = convert(actual.value, reporting, showing.target);
+  // In the share view, actual's share of all the cost the person sees over the same period.
+  const share = showing.share ? shareOf(actual.value, actualOf(db, me, {}, periods, showing.approved).value) : null;
   return {
     actual,
     difference,
     row: {
       token_budget: budgetView(db, b),
       actual_period: actualPeriod,
-      amount: dec(b.amount, currency),
-      actual: dec(actual.value, currency),
-      difference: dec(difference, currency),
+      amount: dec(amount, showing.target),
+      actual: dec(shownActual, showing.target),
+      difference: dec(shownActual - amount, showing.target),
       outcome,
+      share,
       token_entries: actual.entries.size,
       unknown_model_entries: actual.unknown.size,
     },
@@ -476,7 +511,7 @@ function entryViews(db: Db, lines: Line[]): TokenBudgetEntry[] {
   });
 }
 
-function perTicket(db: Db, actual: Actual): TicketActual[] {
+function perTicket(db: Db, actual: Actual, target: string): TicketActual[] {
   const buckets = new Map<string | null, { nanos: number; entries: Set<string>; unknown: Set<string> }>();
   const bucket = (key: string | null) => {
     const found = buckets.get(key) ?? { nanos: 0, entries: new Set<string>(), unknown: new Set<string>() };
@@ -496,7 +531,7 @@ function perTicket(db: Db, actual: Actual): TicketActual[] {
     .map(([ticket, b]) => ({
       ticket,
       title: ticket ? (db.tickets.find((t) => t.key === ticket)?.title ?? null) : null,
-      actual: dec(b.nanos, currency),
+      actual: dec(convert(b.nanos, currency, target), target),
       token_entries: b.entries.size,
       unknown_model_entries: b.unknown.size,
     }));
@@ -537,6 +572,7 @@ function forecastView(db: Db, f: Db["forecasts"]["made"][number]): TokenForecast
     matches: f.matches.map((match) => ({ ticket: match.ticket, title: match.title, confidence: match.confidence, actual: dec(match.actual, f.currency), token_entries: match.token_entries, unknown_model_entries: match.unknown_model_entries })),
     model: f.model,
     created_at: f.created_at,
+    token_budget_id: db.budgets.find((b) => b.token_forecast_id === f.id)?.id ?? null,
   };
 }
 
@@ -546,7 +582,7 @@ const knownCosts = (found: ForecastMatchRecord[]) => found.filter((match) => mat
 
 const MIN_SIMILAR = 3;
 
-function outliersOf(db: Db, me: Person, period: string, filter: Tags, limit: number): Outliers {
+function outliersOf(db: Db, me: Person, period: string, filter: Tags, limit: number, approved: boolean, target: string): Outliers {
   const currency = cur(db);
   interface Ticket {
     project: string | null;
@@ -572,9 +608,9 @@ function outliersOf(db: Db, me: Person, period: string, filter: Tags, limit: num
     const index = year * 12 + (month - 1) - (i + 1);
     return `${String(Math.floor(index / 12))}-${String((index % 12) + 1).padStart(2, "0")}`;
   });
-  const past = db.entries.filter((entry) => months.includes(entry.period) && counts(entry)).flatMap(linesOf);
+  const past = db.entries.filter((entry) => months.includes(entry.period) && counts(entry, approved)).flatMap(linesOf);
   const tickets = new Map<string, Ticket>();
-  add(tickets, account(db, me, period, false, filter));
+  add(tickets, account(db, me, period, approved, filter));
   add(tickets, past.filter((line) => seesLine(me, line) && matches(line.tags, filter) && tickets.has(line.tags.ticket ?? "")));
   const earlier = new Map<string, Ticket>();
   add(earlier, past);
@@ -599,8 +635,8 @@ function outliersOf(db: Db, me: Person, period: string, filter: Tags, limit: num
       outlier: {
         ticket: key,
         project: ticket.project,
-        amount: dec(ticket.nanos, currency),
-        baseline: dec(compared.amount, currency),
+        amount: dec(convert(ticket.nanos, currency, target), target),
+        baseline: dec(convert(compared.amount, currency, target), target),
         ratio: `${String(Math.floor(tenths / 10))}.${String(tenths % 10)}`,
         direction: ticket.nanos >= compared.amount ? "high" : "low",
         compared_with: compared.with,
@@ -611,7 +647,16 @@ function outliersOf(db: Db, me: Person, period: string, filter: Tags, limit: num
     });
   }
   found.sort((a, b) => b.far - a.far || a.outlier.ticket.localeCompare(b.outlier.ticket));
-  return { period, closed: isClosed(db, period), status: "all", currency, label: "list-price estimate", tickets: found.slice(0, limit).map((f) => f.outlier), without_baseline: withoutBaseline };
+  return {
+    period,
+    closed: isClosed(db, period),
+    status: approved ? "approved" : "all",
+    currency: target,
+    exchange_rate: rateShown(currency, target),
+    label: "list-price estimate",
+    tickets: found.slice(0, limit).map((f) => f.outlier),
+    without_baseline: withoutBaseline,
+  };
 }
 
 function savedView(db: Db, me: Person, r: SavedReportRecord): SavedReport {
@@ -645,6 +690,17 @@ export function reportsHandlers({ API, member, fail, now }: { API: string; membe
     const text = url.searchParams.get("period")?.trim();
     if (!text) return THIS_MONTH;
     return parsePeriod(text) ?? bad(notAPeriod(text));
+  };
+
+  /** A token budget report's period, which token entries count and how money is shown. */
+  const budgetShowing = (db: Db, url: URL): { period: string; showing: Showing } | Response => {
+    const period = periodOrNow(url);
+    if (period instanceof Response) return period;
+    const asked = readShowing(url, fail);
+    if (asked instanceof Response) return asked;
+    const target = shownIn(cur(db), asked.currency, period, fail);
+    if (target instanceof Response) return target;
+    return { period, showing: { approved: asked.approved, target, share: asked.share } };
   };
 
   return [
@@ -681,31 +737,43 @@ export function reportsHandlers({ API, member, fail, now }: { API: string; membe
 
     // Token budget vs actual
     http.get(`${API}/reports/token-budgets`, member(({ db, me, url }) => {
-      const period = periodOrNow(url);
-      if (period instanceof Response) return period;
-      const approved = url.searchParams.get("status") === "approved";
+      const asked = budgetShowing(db, url);
+      if (asked instanceof Response) return asked;
+      const { period, showing } = asked;
       const rows = visibleBudgets(db, me)
         .filter((b) => inForce(b, period))
-        .map((b) => budgetRow(db, me, b, period, approved))
+        .map((b) => budgetRow(db, me, b, period, showing))
         .sort((a, b) => b.difference - a.difference || a.row.token_budget.id.localeCompare(b.row.token_budget.id))
         .map((r) => r.row);
-      const report: TokenBudgetReport = { period, currency: cur(db), status: approved ? "approved" : "all", view: "money", label: "list-price estimate", rows };
+      const report: TokenBudgetReport = {
+        period,
+        currency: showing.target,
+        exchange_rate: rateShown(cur(db), showing.target),
+        status: showing.approved ? "approved" : "all",
+        view: showing.share ? "share" : "money",
+        label: showing.share ? "share of the period" : "list-price estimate",
+        rows,
+      };
       return HttpResponse.json(report);
     })),
     http.get(`${API}/reports/token-budgets/:id`, member(({ db, me, url, params }) => {
-      const period = periodOrNow(url);
-      if (period instanceof Response) return period;
+      const asked = budgetShowing(db, url);
+      if (asked instanceof Response) return asked;
+      const { period, showing } = asked;
       const budget = findBudget(db, me, params.id ?? "");
       if (!budget) return notFound();
       if (!inForce(budget, period)) return conflict(`this token budget applies to ${appliesText(budget)}, not to ${period}`);
-      const { row, actual } = budgetRow(db, me, budget, period, url.searchParams.get("status") === "approved");
+      const { row, actual } = budgetRow(db, me, budget, period, showing);
+      const reporting = cur(db);
       const detail: TokenBudgetDetail = {
         period,
-        currency: cur(db),
+        currency: showing.target,
+        exchange_rate: rateShown(reporting, showing.target),
         row,
-        tickets: perTicket(db, actual),
+        tickets: perTicket(db, actual, showing.target),
+        // Token entries keep their own currency.
         token_entries: entryViews(db, actual.lines),
-        adjustments: actual.adjustments.map((a) => ({ id: a.id, amount: dec(a.amount, cur(db)), tags: a.tags, reason: a.reason, late: a.late })),
+        adjustments: actual.adjustments.map((a) => ({ id: a.id, amount: dec(convert(a.amount, reporting, showing.target), showing.target), tags: a.tags, reason: a.reason, late: a.late })),
       };
       return HttpResponse.json(detail);
     })),
@@ -717,6 +785,14 @@ export function reportsHandlers({ API, member, fail, now }: { API: string; membe
       const { enabled } = (await request.json()) as { enabled: boolean };
       db.forecasts.enabled = enabled;
       return HttpResponse.json(settingsOf(db));
+    })),
+    http.get(`${API}/tickets/:key/token-forecast`, member(({ db, me, params }) => {
+      if (!atLeast(me, "people_manager")) return forbidden();
+      const key = (params.key ?? "").trim();
+      const latest = db.forecasts.made.filter((f) => f.ticket === key).sort((a, b) => b.created_at.localeCompare(a.created_at) || b.id.localeCompare(a.id))[0];
+      if (!latest) return notFound();
+      if (!covers(me, expand(db, { ticket: latest.ticket }))) return forbidden();
+      return HttpResponse.json(forecastView(db, latest));
     })),
     http.post(`${API}/tickets/:key/token-forecast`, member(({ db, me, params }) => {
       if (!atLeast(me, "people_manager")) return forbidden();
@@ -795,12 +871,14 @@ export function reportsHandlers({ API, member, fail, now }: { API: string; membe
       return report instanceof Response ? report : HttpResponse.json(report);
     })),
     http.get(`${API}/reports/outliers`, member(({ db, me, url }) => {
-      // Outliers take a period, a filter and a limit; no status, currency or share view.
-      const period = readPeriod(url, fail);
-      if (period instanceof Response) return period;
+      // Outliers take every report's controls but the share view, which they ignore.
+      const controls = readControls(url, fail);
+      if (controls instanceof Response) return controls;
       const filter = parseFilter(url.searchParams.get("filter") ?? "");
       if (typeof filter === "string") return bad(filter);
-      return HttpResponse.json(outliersOf(db, me, period, filter, Number(url.searchParams.get("limit") ?? 20)));
+      const target = shownIn(cur(db), controls.currency, controls.period, fail);
+      if (target instanceof Response) return target;
+      return HttpResponse.json(outliersOf(db, me, controls.period, filter, Number(url.searchParams.get("limit") ?? 20), controls.approved, target));
     })),
     http.get(`${API}/reports/saved`, member(({ db, me }) =>
       HttpResponse.json([...db.reports].sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()) || a.created_at.localeCompare(b.created_at)).map((r) => savedView(db, me, r))),

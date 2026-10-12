@@ -28,6 +28,13 @@ test("a people manager accepts a token forecast, opens it in token budget vs act
   await expect(accepted).toContainText("All time");
   await expect(accepted).toContainText("$259.03");
 
+  // The token forecast reads again later, with the token budget it became.
+  await page.getByLabel("Ticket for the token forecast").selectOption("KD-260");
+  await expect(page.getByText("accepted as a token budget")).toBeVisible();
+  await expect(page.getByText("It became the token budget on ticket: KD-260")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Accept as token budget" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Make a new token forecast" })).toBeEnabled();
+
   // Token budget vs actual, opened down to the ticket and its token entries.
   await page.getByRole("link", { name: "Token budget vs actual" }).click();
   await page.getByRole("tab", { name: "Token budget vs actual" }).click();
@@ -111,4 +118,47 @@ test("an agent manager reads their own cost and token budget", async ({ page }) 
   const report = page.getByRole("table", { name: "Token budget vs actual" });
   await expect(report.getByRole("button", { name: "Mara, monthly" })).toBeVisible();
   await expect(report.getByRole("button", { name: "Team web, monthly" })).toHaveCount(0);
+});
+
+// Docs: Reading reports, Token budget vs actual, Outliers. Every report shows
+// another currency at the rate of the period's last day. In the share view,
+// a token budget's actual is a share of all the cost the person sees over the
+// same period; outliers have no share view, since their ratio reads without
+// money.
+test("a controller reads token budget vs actual and outliers in another currency and as shares", async ({ page }) => {
+  await signIn(page, "nadia");
+  await page.goto("/reports?period=2026-09");
+  await page.getByRole("tab", { name: "Token budget vs actual" }).click();
+  const report = page.getByRole("table", { name: "Token budget vs actual" });
+  const mara = report.getByRole("row").filter({ hasText: "Mara, monthly" });
+  await expect(mara).toContainText("$");
+
+  await page.getByLabel("Currency").selectOption("EUR");
+  const budgets = page.getByRole("tabpanel", { name: "Token budget vs actual" });
+  await expect(budgets.getByText("1 USD = 0.92 EUR")).toBeVisible();
+  await expect(mara).toContainText("€");
+
+  await page.getByRole("switch", { name: "Share view" }).click();
+  await expect(budgets.getByText(/· share of the period/)).toBeVisible();
+  await expect(mara.getByText(/^\d+(\.\d+)?%$/).filter({ visible: true })).toBeVisible();
+  await expect(mara).not.toContainText("€");
+  await expect(budgets.getByText("the shares do not add up")).toBeVisible();
+
+  await page.getByRole("tab", { name: "Outliers" }).click();
+  const outliers = page.getByRole("tabpanel", { name: "Outliers" });
+  await expect(outliers.getByText("Outliers have no share view")).toBeVisible();
+  await expect(outliers.getByText("1 USD = 0.92 EUR")).toBeVisible();
+});
+
+// Docs: Reading reports. Saved reports belong to the organization; whoever
+// saved one, or a controller, removes it.
+test("a people manager removes only the saved reports they saved", async ({ page }) => {
+  await signIn(page, "kai");
+  await openFromMenu(page, "Reports");
+  const saved = page.getByRole("list", { name: "Saved reports" });
+  await expect(saved.getByRole("button", { name: "Code review cost by project", exact: true })).toBeVisible();
+  await expect(saved.getByRole("button", { name: "Actions for Code review cost by project" })).toHaveCount(0);
+  await saved.getByRole("button", { name: "Actions for Cost per team for Acme" }).click();
+  await page.getByRole("menuitem", { name: "Remove" }).click();
+  await expect(saved.getByRole("button", { name: "Cost per team for Acme", exact: true })).toHaveCount(0);
 });
