@@ -76,9 +76,35 @@ pub struct AuditEvent {
 #[derive(Debug, Clone, Copy)]
 pub struct TelemetryBatch<'a> {
     pub organization_id: &'a str,
+    /// Which OTLP endpoint it arrived on, so a forwarder can send it to the
+    /// same endpoint of another collector.
+    pub signal: TelemetrySignal,
     /// `application/x-protobuf` or `application/json`.
     pub content_type: &'a str,
     pub body: &'a [u8],
+}
+
+/// The kind of OpenTelemetry data in a batch, one per OTLP endpoint.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TelemetrySignal {
+    /// Arrived on `/v1/metrics`.
+    Metrics,
+    /// Arrived on `/v1/logs`.
+    Logs,
+    /// Arrived on `/v1/traces`.
+    Traces,
+}
+
+impl TelemetrySignal {
+    /// The path an OTLP exporter appends to its endpoint for this signal.
+    #[must_use]
+    pub const fn otlp_path(self) -> &'static str {
+        match self {
+            Self::Metrics => "/v1/metrics",
+            Self::Logs => "/v1/logs",
+            Self::Traces => "/v1/traces",
+        }
+    }
 }
 
 #[cfg(test)]
@@ -99,8 +125,16 @@ mod tests {
         });
         extension.forward_telemetry(&TelemetryBatch {
             organization_id: "org",
+            signal: TelemetrySignal::Logs,
             content_type: "application/json",
             body: b"{}",
         });
+    }
+
+    #[test]
+    fn each_signal_has_its_otlp_path() {
+        assert_eq!(TelemetrySignal::Metrics.otlp_path(), "/v1/metrics");
+        assert_eq!(TelemetrySignal::Logs.otlp_path(), "/v1/logs");
+        assert_eq!(TelemetrySignal::Traces.otlp_path(), "/v1/traces");
     }
 }
