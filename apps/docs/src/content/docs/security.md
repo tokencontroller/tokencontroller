@@ -31,6 +31,19 @@ This is the full list. The summary and the tag values are the only text. The age
 | Summary | Fixed checkout redirect loop |
 | Tags | ticket KD-214, project storefront, kind direct, team web |
 
+## What a feedback report contains {#feedback}
+
+The feedback button in the web app sends a bug, an idea or a question. You see the whole report before you send it.
+
+| Part | What it holds |
+| --- | --- |
+| Kind | Bug, idea or question |
+| Text | What you write |
+| Screenshot | Only when you turn it on. You see it first and can blur any part of it. It is deleted after 90 days. |
+| Diagnostics | The page's path without anything after `?`, the app version, the browser, the screen size, the last error messages the app showed, and the IDs of the last requests. Never what a request contained. |
+
+On the hosted service a report goes to us and is stored in the EU with your organization. On a self-hosted instance it goes to the organization's controllers, or to the people in `TC_OPERATOR_EMAILS` when that is set. A report is deleted two years after its last change. Your reports and their answers are under Feedback in the web app. When one is answered or fixed, you get an email with a link, never the answer itself.
+
 ## Telemetry {#telemetry}
 
 Telemetry push sends numbers and identifiers only, with the exact settings shown in the [quick start](/#telemetry). The ingest endpoint drops any event that carries prompt text.

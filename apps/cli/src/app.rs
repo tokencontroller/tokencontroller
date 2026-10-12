@@ -4,13 +4,16 @@
 
 use std::io::Write;
 
+use tokencontroller_core::Rule;
+
 use crate::api::Client;
 use crate::classifier;
-use crate::context::{Context, Rule, Scope};
+use crate::context::Context;
 use crate::entries::{self, Entry, Placing, Run};
 use crate::error::{Error, Result};
 use crate::home::{Config, Home};
 use crate::keys::KeyPattern;
+use crate::placing::Placer;
 use crate::sources::Harness;
 use crate::store::{Status, Store};
 use crate::sync::{Sources, sync};
@@ -105,10 +108,6 @@ impl<'a> App<'a> {
             .personal_rules()?
             .iter()
             .filter_map(|text| serde_json::from_str::<Rule>(text).ok())
-            .map(|mut rule| {
-                rule.scope = Scope::Personal;
-                rule
-            })
             .collect();
         Ok(Context {
             rules,
@@ -207,17 +206,18 @@ impl<'a> App<'a> {
         self.classify()
     }
 
-    pub fn placing(&self) -> (Vec<KeyPattern>, Run) {
-        (self.patterns(), self.run.clone())
+    pub fn placer(&self) -> Placer {
+        Placer::new(&self.context, self.config.ticket_key_pattern.as_deref())
     }
 
     /// Entries with the given statuses, built and placed.
     pub fn entries(&self, statuses: &[Status]) -> Result<Vec<Entry>> {
-        let (patterns, run) = self.placing();
+        let patterns = self.patterns();
+        let placer = self.placer();
         let placing = Placing {
-            context: &self.context,
+            placer: &placer,
             patterns: &patterns,
-            run: &run,
+            run: &self.run,
         };
         entries::load(&self.store, statuses, &placing)
     }
@@ -229,11 +229,12 @@ impl<'a> App<'a> {
                 "there is no token entry {number}; tc review lists them"
             ))
         })?;
-        let (patterns, run) = self.placing();
+        let patterns = self.patterns();
+        let placer = self.placer();
         let placing = Placing {
-            context: &self.context,
+            placer: &placer,
             patterns: &patterns,
-            run: &run,
+            run: &self.run,
         };
         entries::build(&self.store, row, &placing)
     }
@@ -328,7 +329,7 @@ mod tests {
         assert!(service.is_service_token());
         let person = Connection {
             service: "https://x".into(),
-            token: "tc_cli_1".into(),
+            token: "tc_ses_1".into(),
         };
         assert!(!person.is_service_token());
     }

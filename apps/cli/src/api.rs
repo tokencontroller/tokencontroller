@@ -6,8 +6,9 @@ use std::time::Duration;
 
 use serde::Serialize;
 use serde::de::DeserializeOwned;
+use tokencontroller_core::Rule;
 
-use crate::context::{Context, Rule};
+use crate::context::Context;
 use crate::error::{Error, Result};
 
 /// A connection to a service.
@@ -17,40 +18,39 @@ pub struct Client {
     agent: ureq::Agent,
 }
 
-/// Where `tc connect` sends the person to confirm this computer.
+/// What an invite link is for: the organization and the address invited.
 #[derive(Debug, Clone, serde::Deserialize, PartialEq, Eq)]
-pub struct Authorization {
-    pub id: String,
-    pub user_code: String,
-    pub verification_url: String,
-    pub poll_secret: String,
-    #[serde(default = "default_interval")]
-    pub interval_seconds: u64,
-}
-
-fn default_interval() -> u64 {
-    2
-}
-
-/// The answer to one poll while the person confirms.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Poll {
-    Pending,
-    Connected {
-        token: String,
-        organization: Option<String>,
-        person: Option<String>,
-    },
-    Ended,
+pub struct Invite {
+    pub organization_name: String,
+    pub email: String,
 }
 
 #[derive(serde::Deserialize)]
-struct Granted {
-    token: String,
+struct LinkSent {
     #[serde(default)]
-    organization: Option<String>,
+    poll_token: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+struct PollAnswer {
     #[serde(default)]
-    person: Option<String>,
+    session_token: Option<String>,
+}
+
+/// Who a token signs in as (`GET /me`).
+#[derive(Debug, Clone, serde::Deserialize, PartialEq, Eq)]
+pub struct Me {
+    pub person: Named,
+    pub organization: Named,
+}
+
+/// A person or an organization, as far as `tc` shows it.
+#[derive(Debug, Clone, Default, serde::Deserialize, PartialEq, Eq)]
+pub struct Named {
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub email: Option<String>,
 }
 
 /// What the service says about a submitted token sheet.
@@ -173,10 +173,6 @@ impl Client {
         };
         let status = response.status().as_u16();
         let text = response.into_body().read_to_string().map_err(network)?;
-        // Waiting for the person, or the code ran out: no body to read.
-        if status == 202 || status == 410 {
-            return Ok((status, None));
-        }
         if (200..300).contains(&status) {
             let parsed = if text.trim().is_empty() {
                 None
@@ -191,29 +187,33 @@ impl Client {
         })
     }
 
-    /// Starts connecting this computer: the service gives a code the person
-    /// confirms in the browser.
-    pub fn authorize(&self, invite: Option<&str>, device: &str) -> Result<Authorization> {
-        let body = serde_json::json!({"invite": invite, "device": device});
-        let (_, answer) = self.send("POST", "/cli/authorizations", Some(&body))?;
-        answer.ok_or_else(|| Error::Data("the service sent no code to confirm".into()))
+    /// The organization and address an invite code is for.
+    pub fn invite(&self, code: &str) -> Result<Invite> {
+        let (_, invite) = self.send("GET", &format!("/invites/{code}"), None)?;
+        invite.ok_or_else(|| Error::Data("the service sent no invite".into()))
     }
 
-    /// Asks whether the person confirmed yet.
-    pub fn poll(&self, authorization: &Authorization) -> Result<Poll> {
-        let body = serde_json::json!({"poll_secret": authorization.poll_secret});
-        let path = format!("/cli/authorizations/{}/token", authorization.id);
-        let (status, answer) = self.send::<Granted>("POST", &path, Some(&body))?;
-        Ok(match (status, answer) {
-            (202, _) => Poll::Pending,
-            (410, _) => Poll::Ended,
-            (_, Some(granted)) => Poll::Connected {
-                token: granted.token,
-                organization: granted.organization,
-                person: granted.person,
-            },
-            (_, None) => Poll::Pending,
-        })
+    /// Asks for a sign-in link for a local tool. Returns the token to poll
+    /// with until the person has used the link.
+    pub fn sign_in(&self, email: &str) -> Result<String> {
+        let body = serde_json::json!({"email": email, "local_tool": true});
+        let (_, sent) = self.send::<LinkSent>("POST", "/sign-in", Some(&body))?;
+        sent.and_then(|sent| sent.poll_token)
+            .ok_or_else(|| Error::Data("the service sent no poll token".into()))
+    }
+
+    /// The session token once the person has used the link, `None` while
+    /// the service still waits.
+    pub fn poll_sign_in(&self, poll_token: &str) -> Result<Option<String>> {
+        let body = serde_json::json!({"poll_token": poll_token});
+        let (_, answer) = self.send::<PollAnswer>("POST", "/sign-in/poll", Some(&body))?;
+        Ok(answer.and_then(|answer| answer.session_token))
+    }
+
+    /// Who the token signs in as.
+    pub fn me(&self) -> Result<Me> {
+        let (_, me) = self.send("GET", "/me", None)?;
+        me.ok_or_else(|| Error::Data("the service did not say who you are".into()))
     }
 
     /// The organization, person, projects, rules and cadence.
@@ -244,12 +244,12 @@ impl Client {
     }
 }
 
-/// The service's error body is `{"error": "…"}` or `{"message": "…"}`; fall
-/// back to the status.
+/// The service's error body is `{"error": "code", "message": "…"}`: the
+/// message is written for people. Fall back to the code, then the status.
 fn error_message(status: u16, body: &str) -> String {
     let parsed: Option<serde_json::Value> = serde_json::from_str(body).ok();
     let message = parsed.as_ref().and_then(|value| {
-        ["error", "message", "detail"]
+        ["message", "error", "detail"]
             .iter()
             .find_map(|field| match value.get(field) {
                 Some(serde_json::Value::String(text)) => Some(text.clone()),
@@ -302,6 +302,13 @@ mod tests {
     #[test]
     fn service_errors_say_what_went_wrong() {
         assert_eq!(error_message(400, r#"{"error":"bad tag"}"#), "bad tag");
+        assert_eq!(
+            error_message(
+                410,
+                r#"{"error":"gone","message":"The sign-in link expired after 15 minutes. Sign in again."}"#
+            ),
+            "The sign-in link expired after 15 minutes. Sign in again."
+        );
         assert_eq!(
             error_message(422, r#"{"error":{"message":"no such ticket"}}"#),
             "no such ticket"

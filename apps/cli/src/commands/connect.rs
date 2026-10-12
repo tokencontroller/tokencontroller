@@ -1,70 +1,61 @@
 //! `tc connect URL`: connects this computer to an organization with an
-//! invite link, or to a self-hosted instance. The person confirms in the
-//! browser, signed in as themselves; `tc` never sees a password.
+//! invite link, or to a self-hosted instance. It signs in with a magic link,
+//! as the web app does: the service mails a link, the person presses Sign
+//! in, and `tc` collects a session token for this machine. `tc` never sees a
+//! password.
 
+use std::io::BufRead;
 use std::time::{Duration, Instant};
 
-use crate::api::{Client, Poll, parse_connect_url};
+use crate::api::{Client, parse_connect_url};
 use crate::app::App;
 use crate::error::{Error, Result};
 use crate::output;
 
-/// How long the code stays valid on this side.
+/// How long a sign-in link works.
 const WAIT: Duration = Duration::from_mins(15);
 
-pub fn run(app: &mut App<'_>, url: &str) -> Result<()> {
+/// How often to ask whether the link was used.
+const POLL_EVERY: Duration = Duration::from_secs(2);
+
+pub fn run(app: &mut App<'_>, url: &str, input: &mut dyn BufRead) -> Result<()> {
     let (base, invite) = parse_connect_url(url)?;
     let client = Client::new(&base, None);
-    let authorization = client.authorize(invite.as_deref(), &device_name())?;
     // Instructions go to standard error, so `--json` output stays one value.
-    eprintln!(
-        "Open {} and confirm the code {} to connect this computer.",
-        authorization.verification_url, authorization.user_code
-    );
-    open_browser(&authorization.verification_url);
+    let email = match invite {
+        Some(code) => {
+            let invite = client.invite(&code)?;
+            eprintln!("Joining {} as {}.", invite.organization_name, invite.email);
+            invite.email
+        }
+        None => ask_email(&base, input)?,
+    };
+    let poll_token = client.sign_in(&email)?;
+    eprintln!("Sent a sign-in link to {email}. Open the mail and press Sign in; tc waits here.");
 
     let started = Instant::now();
-    let interval = Duration::from_secs(authorization.interval_seconds.clamp(1, 30));
-    let (token, organization, person) = loop {
-        match client.poll(&authorization)? {
-            Poll::Connected {
-                token,
-                organization,
-                person,
-            } => break (token, organization, person),
-            Poll::Ended => {
-                return Err(Error::usage(
-                    "the code was declined or ran out; run tc connect again",
-                ));
-            }
-            Poll::Pending => {
-                if started.elapsed() > WAIT {
-                    return Err(Error::usage(
-                        "nobody confirmed the code in time; run tc connect again",
-                    ));
-                }
-                std::thread::sleep(interval);
-            }
+    let token = loop {
+        if let Some(token) = client.poll_sign_in(&poll_token)? {
+            break token;
         }
+        if started.elapsed() > WAIT {
+            return Err(Error::usage(
+                "the sign-in link was not used in time; run tc connect again",
+            ));
+        }
+        std::thread::sleep(POLL_EVERY);
     };
 
     app.config.service = Some(base.clone());
-    app.config.token = Some(token);
+    app.config.token = Some(token.clone());
     app.home.write_config(&app.config)?;
-    // New patterns and rules: read the session files again with them.
-    app.refresh_context(true)?;
-    let organization = app
-        .context
-        .organization
-        .as_ref()
-        .map(|o| o.name.clone())
-        .or(organization);
-    let person = app
-        .context
-        .person
-        .as_ref()
-        .map(|p| p.email.clone())
-        .or(person);
+    let me = Client::new(&base, Some(token)).me()?;
+    let organization = me.organization.name;
+    let person = me.person.email.or(Some(email));
+    // New patterns and rules: placing uses them from the next command on.
+    if let Err(error) = app.refresh_context(true) {
+        eprintln!("tc: connected, but your organization's rules could not be read yet: {error}");
+    }
     if app.json {
         return output::json(
             app.out,
@@ -85,43 +76,19 @@ pub fn run(app: &mut App<'_>, url: &str) -> Result<()> {
     Ok(())
 }
 
-/// A name for this computer, so the person can tell their devices apart
-/// under Settings.
-fn device_name() -> String {
-    ["HOSTNAME", "COMPUTERNAME"]
-        .iter()
-        .find_map(|name| {
-            std::env::var(name)
-                .ok()
-                .filter(|value| !value.trim().is_empty())
-        })
-        .or_else(|| {
-            std::fs::read_to_string("/etc/hostname")
-                .ok()
-                .map(|text| text.trim().to_owned())
-                .filter(|text| !text.is_empty())
-        })
-        .unwrap_or_else(|| "this computer".to_owned())
-}
-
-/// Opens the page in the default browser. If that fails the printed link is
-/// still there. `TC_NO_BROWSER` turns it off, such as over SSH.
-fn open_browser(url: &str) {
-    if std::env::var_os("TC_NO_BROWSER").is_some() {
-        return;
-    }
-    let mut command = if cfg!(target_os = "macos") {
-        std::process::Command::new("open")
-    } else if cfg!(windows) {
-        let mut command = std::process::Command::new("cmd");
-        command.args(["/C", "start", ""]);
-        command
+/// The address to sign in with, typed by the person.
+fn ask_email(base: &str, input: &mut dyn BufRead) -> Result<String> {
+    eprint!("Your email address at {base}: ");
+    let mut line = String::new();
+    input
+        .read_line(&mut line)
+        .map_err(|source| Error::file("standard input", source))?;
+    let email = line.trim();
+    if email.contains('@') {
+        Ok(email.to_owned())
     } else {
-        std::process::Command::new("xdg-open")
-    };
-    let _ignored = command
-        .arg(url)
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn();
+        Err(Error::usage(
+            "tc connect needs the email address you sign in with, or your invite link",
+        ))
+    }
 }

@@ -100,7 +100,7 @@ fn gather(app: &App<'_>) -> Result<View> {
         organization: app.context.organization.as_ref().map(|o| o.name.clone()),
         person: app.context.person.as_ref().map(|p| p.email.clone()),
         agents,
-        rules: app.context.rules.len(),
+        rules: own_rules(app),
         drafts,
         today: Today {
             list_value: decimal(total, CURRENCY),
@@ -164,4 +164,15 @@ fn print(app: &mut App<'_>, view: &View) -> Result<()> {
         )?;
     }
     Ok(())
+}
+
+/// The organization's rules besides the built-in ones, and the person's.
+fn own_rules(app: &App<'_>) -> usize {
+    let built_in = tokencontroller_core::Rule::defaults();
+    app.context
+        .organization_rules()
+        .iter()
+        .filter(|rule| !built_in.contains(rule))
+        .count()
+        .saturating_add(app.context.rules.len())
 }

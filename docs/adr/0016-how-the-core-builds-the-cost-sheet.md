@@ -8,7 +8,8 @@ This fills in the Bills, Monthly close and Cost sheet pages and ADR 0004 where t
 - **Converting keeps totals.** A block's lines and residual are converted into the reporting currency together, with running totals, so they still add up to the converted gross. Each line is at most one nano-unit away from converting it alone.
 - **Shown cents keep totals.** The cost sheet rounds a block's lines and residual to the minor unit with running totals, so the shown lines add up to the shown gross; net is shown gross minus shown discount and credit, and the total row adds up the shown figures. A line can be one cent away from rounding it alone.
 - **The cost sheet CSV has one row per line:** `bill, line, cost_kind`, one column per rung of the ladder from the broadest, the extra tag columns, `amount` and `note`. Lines are `cost`, then `residual`, `gross`, `discount`, `credit` and `net` per bill, then `adjustment` or `late adjustment`, and one `total`.
-- **A seat plan's block has no bill.** Its lines are estimates, converted at a rate the caller gives (the period's last day), and it adds its lines to the total.
+- **Seat plans and subscriptions are not on the cost sheet.** As the Bills page says, their fees stay off the bill and off the cost sheet, and the usage inside them has no bill to add up to. That usage shows in reports, valued at API rates as estimates, and in the share view. The cost sheet has one block per bill, and its total is what bills charged plus adjustments, the money finance can check against invoices.
+- **Reports count submitted cost at once, with approval on too**; the cost sheet counts approved cost only. The core gives both rules (`Status::counts_in_reports` and `Status::counts`).
 - **With approval on, a rejected token entry also stops the close**, as it is not approved.
 - **An adjustment carries tags, not only a cost object,** so its cost kind and ladder columns come from the same tag map as every other line.
 

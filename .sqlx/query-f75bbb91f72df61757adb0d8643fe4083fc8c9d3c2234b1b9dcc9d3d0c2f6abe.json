@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE feedback_reports SET reviewers_notified_at = now() WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f75bbb91f72df61757adb0d8643fe4083fc8c9d3c2234b1b9dcc9d3d0c2f6abe"
+}
