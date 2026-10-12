@@ -14,3 +14,17 @@ The service is configured with environment variables.
 | `TC_SECRET_KEY` | A long random string for signing sessions and tokens. Required. |
 | `TC_SMTP_URL` | The mail server for magic links and reminders. Required for magic links. |
 | `TC_PRICES_REFRESH` | Set to `off` to stop the daily price table refresh, for instances without internet access. |
+
+## Support and newsletter settings {#customer-relations}
+
+The hosted service uses these to run its own support inbox, site assistant and newsletter. Each part is off until its settings are set, and a self-hosted instance leaves them all unset.
+
+| Variable | Meaning |
+| --- | --- |
+| `TC_OPERATOR_EMAILS` | Comma-separated addresses of the people who run the instance. They get a notice with a link when a support conversation needs a person. |
+| `TC_INBOUND_MAIL_SECRET` | The secret incoming support mail is signed with. Turns on the support inbox. Needs `TC_SUPPORT_FROM`. |
+| `TC_SUPPORT_FROM` | The sender of support answers, such as `Support <support@example.com>`. |
+| `TC_ANTHROPIC_API_KEY` | A Claude API key. Support answers and the site assistant answer from these docs with it. Without it, every support message goes to the operators. |
+| `TC_SITE_URL` | The public website, such as `https://example.com`. Its pages may use the site assistant, the contact form and the newsletter sign-up. |
+| `TC_RESEND_API_KEY` | A Resend API key. Turns on the newsletter. Needs `TC_NEWSLETTER_FROM`. |
+| `TC_NEWSLETTER_FROM` | The sender of the newsletter, such as `News <news@news.example.com>`. |

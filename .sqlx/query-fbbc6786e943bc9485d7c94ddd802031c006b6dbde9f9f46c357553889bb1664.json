@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO support_messages (conversation_id, author, body, mail_message_id, inbound_message_id)\n         VALUES ($1, 'customer', $2, $3, $4)\n         ON CONFLICT (mail_message_id) WHERE mail_message_id IS NOT NULL DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "fbbc6786e943bc9485d7c94ddd802031c006b6dbde9f9f46c357553889bb1664"
+}

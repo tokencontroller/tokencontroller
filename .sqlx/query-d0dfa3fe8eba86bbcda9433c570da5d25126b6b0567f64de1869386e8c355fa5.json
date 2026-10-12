@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE newsletter_issues i SET status = 'sent', sent_at = now()\n         WHERE i.status = 'sending'\n           AND NOT EXISTS (SELECT 1 FROM newsletter_deliveries d WHERE d.issue_id = i.id AND d.sent_at IS NULL)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "d0dfa3fe8eba86bbcda9433c570da5d25126b6b0567f64de1869386e8c355fa5"
+}
