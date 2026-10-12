@@ -20,6 +20,7 @@ import { formatShare, toDecimal } from "@/lib/money";
 import { refreshAll, useMe, usePersonName } from "@/lib/queries";
 import { hasRole } from "@/lib/roles";
 import { thisPeriod } from "@/lib/today";
+import { isFlatFee } from "@/lib/cost-source";
 
 const reportsRoute = getRouteApi("/app/reports");
 
@@ -220,7 +221,7 @@ export function ReportsPage(): ReactNode {
   const search = reportsRoute.useSearch();
   const period = search.period ?? thisPeriod();
   const [tab, setTab] = useState("own");
-  const [view, setView] = useState<ViewOptions>({ share: me.organization.cost_source === "seat_plan", currency: me.organization.reporting_currency });
+  const [view, setView] = useState<ViewOptions>({ share: isFlatFee(me.organization.cost_source), currency: me.organization.reporting_currency });
   const [approvedOnly, setApprovedOnly] = useState(false);
   const tabs = [
     { value: "own", label: hasRole(me.person, "people_manager") ? "Your reports" : "Your cost" },

@@ -1,41 +1,41 @@
-import { call, download } from "./client";
+import { call, download, ok, typed } from "./client";
 import type {
   Adjustment,
-  ApiToken,
   ApiTokenKind,
   Bill,
   BillConnection,
   BudgetVsActualRow,
-  Cadence,
-  CheckoutSession,
-  CliAuthorization,
+  CadenceInput,
+  CadenceView,
   CloseCheck,
   CostSheet,
   CsvPreview,
   Filter,
   HarnessCut,
-  Me,
+  Interval,
+  MemberChange,
   NewAdjustment,
-  NewApiTokenResult,
   NewBill,
+  NewMember,
+  NewProject,
   NewRule,
+  NewTicket,
   NewTokenBudget,
   NewTokenEntry,
-  Organization,
+  OrganizationChange,
   Outlier,
   Period,
   PeriodId,
-  Person,
   Project,
+  ProjectChange,
   Reconciliation,
   ReportQuery,
   ReportResult,
-  Role,
   Rule,
+  RuleSettings,
   SavedReport,
-  SignUp,
   SubmitResult,
-  TagMap,
+  TagMapChange,
   TagName,
   Tags,
   Ticket,
@@ -48,47 +48,62 @@ import type {
 } from "./contract";
 import { filterToText } from "@/lib/format";
 
-// Every call the web app makes, one function each. Paths are relative to /api/v1.
+// Every call the web app makes, one function each. `typed` calls follow the
+// service's OpenAPI document; `call` paths are relative to /api/v1.
 
 const enc = encodeURIComponent;
+const path = <T extends string>(id: T) => ({ params: { path: { id } } });
 
 export const api = {
-  // Sign-in and the organization
-  me: () => call<Me>("GET", "/me"),
-  /** `next` is the page the link opens after sign-in, such as /cli/WDJB-MJHT. */
-  signIn: (email: string, next?: string) => call<undefined>("POST", "/sign-in", { body: { email, ...(next ? { next } : {}) } }),
-  verify: (token: string) => call<Me>("POST", "/sign-in/verify", { body: { token } }),
-  signOut: () => call<undefined>("POST", "/sign-out"),
-  signUp: (body: SignUp) => call<undefined>("POST", "/sign-up", { body }),
-  updateOrganization: (body: Partial<Omit<Organization, "id" | "plan" | "billing" | "members" | "member_limit">>) =>
-    call<Organization>("PATCH", "/organization", { body }),
-  organizationCadence: () => call<Cadence | null>("GET", "/organization/cadence"),
-  setOrganizationCadence: (cadence: Cadence | null) => call<Cadence | null>("PUT", "/organization/cadence", { body: cadence }),
+  // Sign-in. The link in the mail opens a page of the service, which signs
+  // the browser in and sends it to the start page.
+  signIn: (email: string) => ok(typed.POST("/api/v1/sign-in", { body: { email } })),
+  signUp: (email: string, organization_name: string) => ok(typed.POST("/api/v1/sign-up", { body: { email, organization_name } })),
+  signOut: () => ok(typed.POST("/api/v1/sign-out")),
+  invite: (code: string) => ok(typed.GET("/api/v1/invites/{code}", { params: { path: { code } } })),
+  health: () => ok(typed.GET("/api/v1/health")),
+
+  // Who is signed in, the organization and its plan
+  me: () => ok(typed.GET("/api/v1/me")),
+  organization: () => ok(typed.GET("/api/v1/organization")),
+  updateOrganization: (body: OrganizationChange) => ok(typed.PATCH("/api/v1/organization", { body })),
+  /** 404 where billing is off: self-hosted. */
+  billing: () => ok(typed.GET("/api/v1/billing")),
+  checkout: (interval: Interval, country: string) => ok(typed.POST("/api/v1/billing/checkout", { body: { interval, country } })),
+  billingPortal: () => ok(typed.POST("/api/v1/billing/portal")),
+  ruleSettings: () => call<RuleSettings>("GET", "/rules/settings"),
+  updateRuleSettings: (body: Partial<RuleSettings>) => call<RuleSettings>("PATCH", "/rules/settings", { body }),
+  cadences: () => call<CadenceView[]>("GET", "/cadences"),
+  setCadence: (body: CadenceInput) => call<CadenceView>("PUT", "/cadences", { body }),
+  removeCadence: (id: string) => call<undefined>("DELETE", `/cadences/${enc(id)}`),
 
   // People
-  members: () => call<Person[]>("GET", "/members"),
-  invite: (body: { name: string; email: string; role: Role; tags: Tags }) => call<Person>("POST", "/members", { body }),
-  updateMember: (id: string, body: Partial<Pick<Person, "role" | "tags" | "filters">>) =>
-    call<Person>("PATCH", `/members/${enc(id)}`, { body }),
-  removeMember: (id: string) => call<undefined>("DELETE", `/members/${enc(id)}`),
+  members: () => ok(typed.GET("/api/v1/members")),
+  addMember: (body: NewMember) => ok(typed.POST("/api/v1/members", { body })),
+  updateMember: (id: string, body: MemberChange) => ok(typed.PATCH("/api/v1/members/{id}", { ...path(id), body })),
+  setFilters: (id: string, filters: Filter[]) => ok(typed.PUT("/api/v1/members/{id}/filters", { ...path(id), body: filters })),
+  resendInvite: (id: string) => ok(typed.POST("/api/v1/members/{id}/invite", path(id))),
+  removeMember: (id: string) => ok(typed.DELETE("/api/v1/members/{id}", path(id))),
 
   // Tags and the tag map
-  tagNames: () => call<TagName[]>("GET", "/tag-names"),
-  addTagName: (name: string) => call<TagName>("POST", "/tag-names", { body: { name } }),
-  removeTagName: (name: string) => call<undefined>("DELETE", `/tag-names/${enc(name)}`),
+  tagNames: () => ok(typed.GET("/api/v1/tags")),
+  addTagName: (name: string) => ok(typed.POST("/api/v1/tags", { body: { name } })),
+  removeTagName: (name: string) => ok(typed.DELETE("/api/v1/tags/{name}", { params: { path: { name } } })),
+  tagValues: (name: string) => ok(typed.GET("/api/v1/tags/{name}/values", { params: { path: { name } } })),
   mergeTagValues: (name: string, from: string[], into: string) =>
-    call<TagName>("POST", `/tag-names/${enc(name)}/merge`, { body: { from, into } }),
-  tagMap: () => call<TagMap>("GET", "/tag-map"),
-  setTagMap: (body: TagMap) => call<TagMap>("PUT", "/tag-map", { body }),
+    call<TagName>("POST", `/tags/${enc(name)}/merge`, { body: { from, into } }),
+  tagMap: () => ok(typed.GET("/api/v1/tag-map")),
+  setTagMap: (body: TagMapChange) => ok(typed.PUT("/api/v1/tag-map", { body })),
 
-  // Projects and tickets
-  projects: () => call<Project[]>("GET", "/projects"),
-  createProject: (body: Omit<Project, "id">) => call<Project>("POST", "/projects", { body }),
-  updateProject: (key: string, body: Partial<Omit<Project, "id" | "key">>) =>
-    call<Project>("PATCH", `/projects/${enc(key)}`, { body }),
-  tickets: (project?: string) => call<Ticket[]>("GET", "/tickets", { query: { project } }),
-  createTicket: (body: Pick<Ticket, "key" | "title" | "description" | "parent" | "assignee" | "project">) =>
-    call<Ticket>("POST", "/tickets", { body }),
+  // Projects, clients and tickets. Their list filters go as a query string.
+  projects: (archived = false) => call<Project[]>("GET", "/projects", { query: { archived: archived || undefined } }),
+  createProject: (body: NewProject) => ok(typed.POST("/api/v1/projects", { body })),
+  updateProject: (id: string, body: ProjectChange) => ok(typed.PATCH("/api/v1/projects/{id}", { ...path(id), body })),
+  archiveProject: (id: string) => ok(typed.DELETE("/api/v1/projects/{id}", path(id))),
+  clients: () => ok(typed.GET("/api/v1/clients")),
+  tickets: (query: { project_id?: string; parent_id?: string; q?: string } = {}) =>
+    call<Ticket[]>("GET", "/tickets", { query: { ...query, limit: 500 } }),
+  createTicket: (body: NewTicket) => ok(typed.POST("/api/v1/tickets", { body })),
 
   // Token entries, review and approval
   tokenEntries: (query: { period: PeriodId; status?: TokenEntryStatus | ""; filter?: Filter; person?: string }) =>
@@ -105,7 +120,6 @@ export const api = {
     call<TokenEntry>("PUT", `/token-entries/${enc(id)}/splits`, { body: { splits } }),
   approve: (ids: string[]) => call<{ approved: number }>("POST", "/token-entries/approve", { body: { ids } }),
   reject: (id: string, reason: string) => call<TokenEntry>("POST", `/token-entries/${enc(id)}/reject`, { body: { reason } }),
-  takeOver: (id: string) => call<TokenEntry>("POST", `/token-entries/${enc(id)}/take-over`),
   tokenSheet: () => call<TokenSheet>("GET", "/token-sheets/current"),
   submit: () => call<SubmitResult>("POST", "/token-sheets/submit"),
   askToSubmit: (period: PeriodId) => call<{ reminded: number }>("POST", "/token-sheets/remind", { body: { period } }),
@@ -164,21 +178,16 @@ export const api = {
   removeRule: (id: string) => call<undefined>("DELETE", `/rules/${enc(id)}`),
   orderRules: (ids: string[]) => call<Rule[]>("PUT", "/rules/order", { body: { ids } }),
 
-  // Settings: tokens, ticket systems, raw export, plan
-  apiTokens: () => call<ApiToken[]>("GET", "/api-tokens"),
-  createApiToken: (kind: ApiTokenKind, name: string) => call<NewApiTokenResult>("POST", "/api-tokens", { body: { kind, name } }),
-  revokeApiToken: (id: string) => call<undefined>("DELETE", `/api-tokens/${enc(id)}`),
-  moveApiToken: (id: string, person: string) => call<ApiToken>("POST", `/api-tokens/${enc(id)}/owner`, { body: { person } }),
+  // Settings: API tokens, ticket systems, the raw export
+  apiTokens: () => ok(typed.GET("/api/v1/api-tokens")),
+  createApiToken: (kind: ApiTokenKind, name: string) => ok(typed.POST("/api/v1/api-tokens", { body: { kind, name } })),
+  revokeApiToken: (id: string) => ok(typed.DELETE("/api/v1/api-tokens/{id}", path(id))),
+  handOverApiToken: (id: string, person_id: string) => ok(typed.POST("/api/v1/api-tokens/{id}/hand-over", { ...path(id), body: { person_id } })),
   ticketSystems: () => call<TicketSystem[]>("GET", "/ticket-systems"),
   connectTicketSystem: (body: { kind: TicketSystem["kind"]; site: string; token: string }) =>
     call<TicketSystem>("POST", "/ticket-systems", { body }),
   syncTickets: (id: string) => call<TicketSystem>("POST", `/ticket-systems/${enc(id)}/sync`),
   rawExport: () => download("/export/raw"),
-  checkout: (interval: "month" | "year") => call<CheckoutSession>("POST", "/billing/checkout", { body: { interval } }),
-  billingPortal: () => call<CheckoutSession>("POST", "/billing/portal"),
 
   // Connecting a computer (`tc connect`, a device sign-in)
-  cliAuthorization: (code: string) => call<CliAuthorization>("GET", `/cli/authorizations/by-code/${enc(code)}`),
-  confirmCli: (code: string) => call<CliAuthorization>("POST", `/cli/authorizations/by-code/${enc(code)}/confirm`),
-  declineCli: (code: string) => call<CliAuthorization>("POST", `/cli/authorizations/by-code/${enc(code)}/decline`),
 };

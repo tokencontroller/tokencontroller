@@ -1,6 +1,6 @@
 import type { Tags } from "@/api/contract";
 import { tagList } from "@/lib/format";
-import { usePersonName } from "@/lib/queries";
+import { usePersonName, useTagValues } from "@/lib/queries";
 
 // Tags carry a spectrum color per tag name, so the eye finds the ticket or
 // the client in a row. Color is used here because it means something.
@@ -17,7 +17,7 @@ export function tagColor(name: string): string {
 }
 
 export function Tag({ name, value, onRemove }: { name: string; value: string; onRemove?: () => void }) {
-  // The person tag holds a person's id; people read their name.
+  // The person tag holds an email; people read the name.
   const personName = usePersonName();
   const shown = name === "person" ? personName(value) : value;
   return (
@@ -43,5 +43,17 @@ export function TagRow({ tags, hide = ["person"] }: { tags: Tags; hide?: string[
         <Tag key={name} name={name} value={value} />
       ))}
     </span>
+  );
+}
+
+/** The known values of a tag name, for an input's `list`. */
+export function TagValueList({ id, name }: { id: string; name: string }) {
+  const values = useTagValues(name);
+  return (
+    <datalist id={id}>
+      {(values.data ?? []).map((v) => (
+        <option key={v.value} value={v.value} />
+      ))}
+    </datalist>
   );
 }

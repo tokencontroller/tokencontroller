@@ -4,7 +4,7 @@ import { openFromMenu, signIn } from "./helpers";
 // Docs: Monthly close. With approval on, September cannot close until every
 // submitted token entry in it is approved.
 test("a controller approves what is open and closes September", async ({ page }) => {
-  await signIn(page, "dana");
+  await signIn(page, "nadia");
   await openFromMenu(page, "Close");
   await expect(page.getByRole("heading", { name: "Close September 2026" })).toBeVisible();
   await expect(page.getByText("Check the bill")).toBeVisible();
@@ -28,7 +28,7 @@ test("a controller approves what is open and closes September", async ({ page })
 
   // The cost sheet: closed, and token entries plus residual add up to the bills.
   await expect(page.getByRole("heading", { name: "Cost sheet, September 2026" })).toBeVisible();
-  await expect(page.getByTestId("closed-block")).toContainText("Dana Fischer");
+  await expect(page.getByTestId("closed-block")).toContainText("Nadia Berger");
   const total = page.getByRole("table", { name: "Reconciliation" }).locator("tfoot td");
   await expect(total.first()).toHaveText("Organization");
 });

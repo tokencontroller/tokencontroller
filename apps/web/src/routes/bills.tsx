@@ -1,7 +1,7 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { getRouteApi } from "@tanstack/react-router";
 import { useState, type ReactNode } from "react";
-import type { Bill, BillConnection, BillProvider, CostSource, Reconciliation } from "@/api/contract";
+import type { Bill, BillConnection, BillProvider, Reconciliation } from "@/api/contract";
 import { api } from "@/api/endpoints";
 import { PeriodSelect } from "@/components/period-select";
 import { Badge } from "@/components/ui/badge";
@@ -16,17 +16,9 @@ import { formatMoney, formatShare, parseAmount, toDecimal } from "@/lib/money";
 import { refreshAll, useMe, usePeriods } from "@/lib/queries";
 import { addMonths } from "@/lib/format";
 import { thisPeriod } from "@/lib/today";
+import { describeCostSource } from "@/lib/cost-source";
 
 const billsRoute = getRouteApi("/app/bills");
-
-/** What the close reconciles against, per cost source (docs: Bills). */
-export const costSourceText: Record<CostSource, { name: string; against: string; list: string }> = {
-  enterprise_api_rates: { name: "Enterprise plan, usage at API rates", against: "the Enterprise Analytics cost report at list price; the discount is its own line", list: "money, before discount" },
-  console_api_key: { name: "Console or API key", against: "the Usage and Cost report, per workspace and day", list: "money" },
-  seat_plan: { name: "Seat-based plan (Claude Team, Max, Pro)", against: "nothing: the seat is a flat fee and there is no bill to reconcile", list: "tokens at API rates, labelled as an estimate on every figure" },
-  cloud_marketplace: { name: "Bedrock, Vertex, Foundry", against: "the cloud's export, uploaded as CSV", list: "approximate" },
-  none: { name: "None yet", against: "nothing yet; pick a cost source under Settings", list: "a list-price estimate" },
-};
 
 const providerName: Record<BillConnection["provider"], string> = {
   anthropic_enterprise: "Anthropic Enterprise Analytics API",
@@ -245,7 +237,7 @@ export function BillsPage(): ReactNode {
   const pull = useMutation({ mutationFn: api.pullBills, onSuccess: async () => { await refreshAll(); notify("Pulled", "Bills are up to date."); } });
   const [dialog, setDialog] = useState<"" | "connect" | "type" | "csv">("");
   const [revisions, setRevisions] = useState<Bill | null>(null);
-  const source = costSourceText[me.organization.cost_source];
+  const source = describeCostSource(me.organization.cost_source);
   const closed = periods.data?.find((p) => p.id === period)?.status === "closed";
   const columns: Column<Bill>[] = [
     { key: "provider", header: "Provider", cell: (b) => <span className="font-medium">{b.label}</span>, csv: (b) => b.label },

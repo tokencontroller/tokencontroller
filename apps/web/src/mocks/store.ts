@@ -196,7 +196,7 @@ export function costReport(
       label: "list_estimate",
     })),
     total: m(convert(total, from, to), to),
-    estimate: db.organization.cost_source === "seat_plan",
+    estimate: db.organization.cost_source === "seat",
   };
 }
 
@@ -217,7 +217,7 @@ export function harnessReport(db: Db, person: Person, period: string, by: Harnes
       .sort((a, b) => (a[0] === null ? 1 : b[0] === null ? -1 : b[1] - a[1]))
       .map(([value, nanos]) => ({ value, amount: m(nanos, currency), share: total ? Math.round((nanos * 10000) / total) : 0, label: "list_estimate" })),
     total: m(total, currency),
-    estimate: db.organization.cost_source === "seat_plan",
+    estimate: db.organization.cost_source === "seat",
   };
 }
 
@@ -308,7 +308,7 @@ export function tokenSheet(db: Db, person: Person): TokenSheet {
   const cadence = cadencePeriod(drafts[0]?.started_at ?? `${TODAY}T00:00:00Z`);
   return {
     person: person.id,
-    cadence: db.cadence ?? { every: "weekly", days: null },
+    cadence: db.cadences.find((c) => !c.project)?.kind ?? null,
     starts: cadence.starts,
     ends: cadence.ends,
     late: lateSheets(db).some((s) => s.person === person.id),
@@ -367,7 +367,6 @@ function lineOf(node: Node, db: Db, currency: string): CostSheetLine {
 
 function labelOf(db: Db, rung: string, value: string): string | null {
   if (rung === "ticket") return db.tickets.find((t) => t.key === value)?.title ?? null;
-  if (rung === "project") return db.projects.find((p) => p.key === value)?.name ?? null;
   return null;
 }
 
@@ -448,17 +447,12 @@ export function costSheetCsv(db: Db, period: string, columns: string[]): string 
   return lines.join("\r\n") + "\r\n";
 }
 
-export function ticketCost(db: Db, key: string): number {
-  const keys = new Set([key, ...db.tickets.filter((t) => t.parent === key).map((t) => t.key)]);
-  return db.entries
-    .filter((e) => counts(e))
-    .flatMap(splitsOf)
-    .filter((r) => r.tags.ticket && keys.has(r.tags.ticket))
-    .reduce((s, r) => s + (r.nanos ?? 0), 0);
-}
-
-export function toTicket(db: Db, t: Db["tickets"][number]): Ticket {
-  return { key: t.key, title: t.title, description: t.description, parent: t.parent, assignee: t.assignee, project: t.project, source: t.source, cost: m(ticketCost(db, t.key), cur(db)) };
+export function toTicket(t: Db["tickets"][number]): Ticket {
+  const ticket: Ticket = { id: t.id, key: t.key, source: t.source, tags: t.tags, updated_at: t.updated_at };
+  for (const field of ["title", "description", "parent_id", "assignee_id", "project_id"] as const) {
+    if (t[field] !== undefined) ticket[field] = t[field];
+  }
+  return ticket;
 }
 
 export function budgetActual(db: Db, filter: Filter, period: string): number {
@@ -473,7 +467,7 @@ export function visibleBudgets(db: Db, person: Person, period: string): TokenBud
   const currency = cur(db);
   return db.budgets
     .filter((b) => b.period === period)
-    .filter((b) => person.role === "controller" || matches(b.filter, { person: person.id }) || person.filters.some((f) => Object.entries(f).every(([k, v]) => b.filter[k] === v) || overlaps(db, b.filter, f)))
+    .filter((b) => person.role === "controller" || matches(b.filter, { person: person.email }) || person.filters.some((f) => Object.entries(f).every(([k, v]) => b.filter[k] === v) || overlaps(db, b.filter, f)))
     .map((b) => ({ id: b.id, filter: b.filter, period: b.period, amount: m(b.amount, currency), actual: m(budgetActual(db, b.filter, period), currency), from_forecast: b.from_forecast, created_by: b.created_by }));
 }
 
@@ -507,7 +501,7 @@ export function forecast(db: Db, key: string): TokenForecast | null {
       const have = words(`${t.title ?? ""} ${summaryText}`);
       const shared = [...want].filter((w) => have.has(w)).length;
       const cost = db.entries.filter((e) => closed.has(e.period)).flatMap(splitsOf).filter((r) => r.tags.ticket === t.key).reduce((s, r) => s + (r.nanos ?? 0), 0);
-      const sameProject = t.project === target.project ? 1 : 0;
+      const sameProject = t.project_id === target.project_id ? 1 : 0;
       return { t, cost, confidence: Math.min(92, 38 + shared * 18 + sameProject * 12) };
     })
     .filter((c) => c.cost > 0)
@@ -520,7 +514,7 @@ export function forecast(db: Db, key: string): TokenForecast | null {
   const currency = cur(db);
   return {
     ticket: key,
-    matches: candidates.map((c) => ({ ticket: c.t.key, title: c.t.title, cost: m(c.cost, currency), confidence: c.confidence })),
+    matches: candidates.map((c) => ({ ticket: c.t.key, title: c.t.title ?? null, cost: m(c.cost, currency), confidence: c.confidence })),
     proposal: m(Math.round(median / 1e9) * 1e9, currency),
   };
 }

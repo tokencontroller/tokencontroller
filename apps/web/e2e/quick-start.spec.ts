@@ -6,15 +6,19 @@ import { openFromMenu } from "./helpers";
 test("a people manager creates an organization and puts in the first bill", async ({ page }) => {
   await page.goto("/signup");
   await page.getByLabel("Organization", { exact: true }).fill("Harbor Labs");
-  await page.getByLabel("Your name").fill("Ada Brandt");
   await page.getByLabel("Work email").fill("ada@harbor.example");
   await page.getByLabel("I manage people").check();
   await page.getByLabel("Reporting currency").selectOption("EUR");
   await page.getByRole("button", { name: "Create organization" }).click();
 
   await expect(page.getByRole("heading", { name: "Check your email" })).toBeVisible();
-  await page.getByRole("link", { name: "Open the sign-in link" }).click();
+  await page.getByRole("button", { name: "Open the sign-in link" }).click();
+  await expect(page.getByRole("heading", { name: "Hello", exact: true })).toBeVisible();
+  // Sign-up asks for no name; the start page does, once.
+  await page.getByLabel("Your name").fill("Ada Brandt");
+  await page.getByRole("button", { name: "Save" }).click();
   await expect(page.getByRole("heading", { name: "Hello, Ada" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "First steps" })).toBeVisible();
   await expect(page.getByRole("main").getByText(/Harbor Labs/)).toBeVisible();
 
   // The bill: here a provider with no API, typed in.

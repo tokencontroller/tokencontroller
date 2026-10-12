@@ -1,21 +1,23 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
 import { useState, type ReactNode } from "react";
 import type { ApiToken, ApiTokenKind, CostSource, TicketSystem } from "@/api/contract";
 import { api } from "@/api/endpoints";
-import { costSources } from "@/routes/sign-in";
-import { CadenceSelect, describeCadence } from "@/routes/projects";
-import { costSourceText } from "@/routes/bills";
+import { CadenceSelect, describeCadence, type CadenceChoice } from "@/components/cadence-select";
+import { currencies } from "@/routes/sign-in";
+import { saveCadence, useCadences } from "@/routes/projects";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Button, buttonClass } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { Loading, Note, PageHeader, Section } from "@/components/ui/display";
 import { Field, FormError, Input, Select } from "@/components/ui/form";
 import { Switch } from "@/components/ui/switch";
 import { DataTable, type Column } from "@/components/ui/table";
 import { notify } from "@/components/ui/toast";
+import { costSourceOrder, costSourceText, describeCostSource } from "@/lib/cost-source";
 import { downloadFile } from "@/lib/csv";
-import { formatDate, formatDateTime } from "@/lib/format";
-import { refreshAll, useMe, usePeople, usePersonName } from "@/lib/queries";
+import { displayName, formatDate, formatDateTime } from "@/lib/format";
+import { refreshAll, useBilling, useMe, usePeople, usePersonName } from "@/lib/queries";
 import { hasRole } from "@/lib/roles";
 import { today } from "@/lib/today";
 
@@ -34,24 +36,36 @@ function Row({ label, hint, children }: { label: string; hint?: string; children
 function OrganizationSettings() {
   const me = useMe();
   const org = me.organization;
-  const cadence = useQuery({ queryKey: ["org-cadence"], queryFn: api.organizationCadence });
+  const cadences = useCadences();
+  const current = cadences.data?.find((c) => !c.project) ?? null;
   const update = useMutation({ mutationFn: api.updateOrganization, onSuccess: async () => { await refreshAll(); notify("Saved"); } });
-  const setCadence = useMutation({ mutationFn: api.setOrganizationCadence, onSuccess: async () => { await refreshAll(); notify("Cadence saved"); } });
+  const setCadence = useMutation({
+    mutationFn: (choice: CadenceChoice | null) => saveCadence(cadences.data ?? [], null, choice),
+    onSuccess: async () => { await refreshAll(); notify("Cadence saved"); },
+  });
+  const [name, setName] = useState(org.name);
   const [domains, setDomains] = useState(org.sign_in_domains.join(", "));
   return (
     <div className="rounded-lg border border-line px-4">
-      <Row label="Cost source" hint={`The close reconciles against ${costSourceText[org.cost_source].against}.`}>
-        <Select aria-label="Cost source" value={org.cost_source} onChange={(e) => update.mutate({ cost_source: e.target.value as CostSource })}>
-          {costSources.map((c) => (
-            <option key={c.value} value={c.value}>
-              {c.label}
+      <Row label="Name" hint="Shown in the sidebar, in invites and on the cost sheet.">
+        <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); update.mutate({ name }); }}>
+          <Input aria-label="Organization name" required value={name} onChange={(e) => setName(e.target.value)} />
+          <Button type="submit">Save</Button>
+        </form>
+      </Row>
+      <Row label="Cost source" hint={`The close reconciles against ${describeCostSource(org.cost_source).against}.`}>
+        <Select aria-label="Cost source" value={org.cost_source ?? ""} onChange={(e) => update.mutate({ cost_source: (e.target.value || null) as CostSource | null })}>
+          {costSourceOrder.map((source) => (
+            <option key={source} value={source}>
+              {costSourceText[source].name}
             </option>
           ))}
+          <option value="">None yet</option>
         </Select>
       </Row>
       <Row label="Reporting currency" hint="The one currency the organization computes in. Bills in other currencies are booked at the rate of their date.">
         <Select aria-label="Reporting currency" value={org.reporting_currency} onChange={(e) => update.mutate({ reporting_currency: e.target.value })}>
-          {["USD", "EUR", "GBP", "CHF"].map((c) => (
+          {currencies.map((c) => (
             <option key={c}>{c}</option>
           ))}
         </Select>
@@ -59,17 +73,14 @@ function OrganizationSettings() {
       <Row label="Approval" hint="With approval on, a period cannot be closed while a token entry in it is unapproved.">
         <Switch label="Approval" checked={org.approval} onCheckedChange={(approval) => update.mutate({ approval })} />
       </Row>
-      <Row label="Cadence for the whole organization" hint={`Token sheets are due ${describeCadence(cadence.data ?? null).toLowerCase()}. A project's own cadence wins.`}>
-        {cadence.isPending ? <Loading /> : <CadenceSelect value={cadence.data ?? null} onChange={(c) => setCadence.mutate(c)} />}
+      <Row label="Cadence for the whole organization" hint={`Token sheets are due ${describeCadence(current).toLowerCase()}. A project's own cadence wins.`}>
+        {cadences.isPending ? <Loading /> : <CadenceSelect value={current} onChange={(c) => setCadence.mutate(c)} />}
       </Row>
       <Row label="Sign-in domains" hint="Magic link sign-in limited to these email domains. Empty means any.">
         <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); update.mutate({ sign_in_domains: domains.split(/[\s,]+/).filter(Boolean) }); }}>
           <Input aria-label="Sign-in domains" value={domains} onChange={(e) => setDomains(e.target.value)} placeholder="company.com" />
           <Button type="submit">Save</Button>
         </form>
-      </Row>
-      <Row label="Token forecasts" hint="Compare new tickets with the summaries of past token entries. A self-hosted instance can run without them.">
-        <Switch label="Token forecasts" checked={org.forecasts} onCheckedChange={(forecasts) => update.mutate({ forecasts })} />
       </Row>
       <FormError error={update.error ?? setCadence.error} />
     </div>
@@ -147,9 +158,9 @@ function TicketSystems() {
 }
 
 const kindText: Record<ApiTokenKind, { name: string; hint: string }> = {
-  svc: { name: "Service token", hint: "For an agent that reports token entries, such as a CI bot. You become its agent manager." },
+  service: { name: "Service token", hint: "For an agent that reports token entries, such as a CI bot. You become its agent manager." },
   read: { name: "Read token", hint: "For the reporting API in Excel, Google Sheets or Power BI. It sees what your role sees." },
-  org: { name: "Organization token", hint: "For telemetry push from managed settings." },
+  organization: { name: "Organization token", hint: "For telemetry push from managed settings." },
 };
 
 function ApiTokens() {
@@ -162,16 +173,16 @@ function ApiTokens() {
   const [moving, setMoving] = useState<ApiToken | null>(null);
   const [owner, setOwner] = useState("");
   const create = useMutation({
-    mutationFn: () => api.createApiToken(creating?.kind ?? "svc", creating?.name ?? ""),
+    mutationFn: () => api.createApiToken(creating?.kind ?? "service", creating?.name ?? ""),
     onSuccess: async (r) => {
       await refreshAll();
       setCreating(null);
-      setSecret(r.secret);
+      setSecret(r.token);
     },
   });
   const revoke = useMutation({ mutationFn: api.revokeApiToken, onSuccess: async () => { await refreshAll(); notify("Token revoked"); } });
   const move = useMutation({
-    mutationFn: () => api.moveApiToken(moving?.id ?? "", owner),
+    mutationFn: () => api.handOverApiToken(moving?.id ?? "", owner),
     onSuccess: async () => {
       await refreshAll();
       notify("Service token moved", "Only future token entries follow.");
@@ -182,15 +193,20 @@ function ApiTokens() {
   const columns: Column<ApiToken>[] = [
     { key: "name", header: "Name", cell: (t) => <span className="font-medium">{t.name}</span>, csv: (t) => t.name },
     { key: "kind", header: "Kind", cell: (t) => <Badge>{kindText[t.kind].name}</Badge>, csv: (t) => t.kind },
-    { key: "prefix", header: "Starts with", wide: true, cell: (t) => <span className="font-mono text-[13px]">{t.prefix}…</span>, csv: (t) => t.prefix },
-    { key: "owner", header: "Agent manager", cell: (t) => (t.owner ? name(t.owner) : <Badge tone="exception">nobody</Badge>), csv: (t) => t.owner ?? "" },
+    { key: "prefix", header: "Starts with", wide: true, cell: (t) => <span className="font-mono text-[13px]">{t.shown_prefix}…</span>, csv: (t) => t.shown_prefix },
+    {
+      key: "owner",
+      header: "Belongs to",
+      cell: (t) => (t.needs_owner ? <Badge tone="exception">{name(t.person_id)} left</Badge> : name(t.person_id)),
+      csv: (t) => t.person_id,
+    },
     { key: "used", header: "Last used", wide: true, cell: (t) => (t.last_used_at ? formatDate(t.last_used_at) : "never"), csv: (t) => t.last_used_at ?? "" },
     {
       key: "actions",
       header: "",
       cell: (t) => (
         <span className="flex justify-end gap-1">
-          {controller && t.kind === "svc" ? <Button size="sm" variant="ghost" onClick={() => { setOwner(t.owner ?? ""); setMoving(t); }}>Move</Button> : null}
+          {controller && t.kind === "service" ? <Button size="sm" variant="ghost" onClick={() => { setOwner(""); setMoving(t); }}>Move</Button> : null}
           <Button size="sm" variant="ghost" onClick={() => revoke.mutate(t.id)}>Revoke</Button>
         </span>
       ),
@@ -198,18 +214,20 @@ function ApiTokens() {
   ];
   return (
     <>
-      {tokens.data?.some((t) => t.owner === null) ? <Note tone="exception">A service token belongs to nobody, so its token entries have no agent manager. Move it to someone.</Note> : null}
+      {tokens.data?.some((t) => t.needs_owner && t.kind === "service") ? (
+        <Note tone="exception">A service token belongs to someone who left, so its token entries show as an error. {controller ? "Move it to someone." : "A controller can move it to someone."}</Note>
+      ) : null}
       {tokens.isPending ? <Loading /> : <DataTable stack columns={columns} rows={tokens.data ?? []} rowKey={(t) => t.id} caption="API tokens" empty="No tokens yet." />}
       <div className="mt-3 flex flex-wrap gap-2">
-        <Button onClick={() => setCreating({ kind: "svc", name: "" })}>New service token</Button>
+        <Button onClick={() => setCreating({ kind: "service", name: "" })}>New service token</Button>
         <Button onClick={() => setCreating({ kind: "read", name: "" })}>New read token</Button>
-        {controller ? <Button onClick={() => setCreating({ kind: "org", name: "Telemetry push" })}>New organization token</Button> : null}
+        {controller ? <Button onClick={() => setCreating({ kind: "organization", name: "Telemetry push" })}>New organization token</Button> : null}
       </div>
       <Dialog open={Boolean(creating)} onOpenChange={(o) => !o && setCreating(null)} title={creating ? `New ${kindText[creating.kind].name.toLowerCase()}` : ""} description={creating ? kindText[creating.kind].hint : undefined}>
         {creating ? (
           <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); create.mutate(); }}>
             <Field label="Name">
-              <Input required autoFocus value={creating.name} onChange={(e) => setCreating({ ...creating, name: e.target.value })} placeholder={creating.kind === "svc" ? "review bot (GitHub Action)" : "Power BI"} />
+              <Input required autoFocus value={creating.name} onChange={(e) => setCreating({ ...creating, name: e.target.value })} placeholder={creating.kind === "service" ? "review bot (GitHub Action)" : "Power BI"} />
             </Field>
             <FormError error={create.error} />
             <div className="flex justify-end gap-2">
@@ -236,9 +254,9 @@ function ApiTokens() {
         <Field label="Agent manager">
           <Select value={owner} onChange={(e) => setOwner(e.target.value)}>
             <option value="">Pick a person</option>
-            {(people.data ?? []).filter((p) => p.status === "active").map((p) => (
+            {(people.data ?? []).filter((p) => p.status === "joined" && p.id !== moving?.person_id).map((p) => (
               <option key={p.id} value={p.id}>
-                {p.name}
+                {displayName(p)}
               </option>
             ))}
           </Select>
@@ -255,45 +273,23 @@ function ApiTokens() {
   );
 }
 
+/** The plan in one line, with the way to the billing page. Hidden where billing is off. */
 function Plan() {
-  const me = useMe();
-  const org = me.organization;
-  const [interval, setInterval] = useState<"month" | "year">("month");
-  const checkout = useMutation({ mutationFn: () => api.checkout(interval), onSuccess: ({ url }) => window.location.assign(url) });
-  const portal = useMutation({ mutationFn: api.billingPortal, onSuccess: ({ url }) => window.location.assign(url) });
-  const name = { solo: "Solo", team: "Team plan", enterprise: "Enterprise plan", self_hosted: "Self-hosted" }[org.plan];
+  const billing = useBilling();
+  if (!billing.data) return null;
+  const b = billing.data;
   return (
-    <div className="rounded-lg border border-line p-4">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <div className="text-sm font-medium">{name}</div>
-          <div className="text-[13px] text-muted">
-            {org.plan === "solo"
-              ? "Free forever for one person, every feature, no invites."
-              : org.plan === "team"
-                ? `${org.members} of ${org.member_limit ?? 150} members. Roles, review, approval, monthly close, ticket sync.`
-                : "Billed by invoice."}
-          </div>
+    <Section title="Plan">
+      <div className="flex flex-col gap-3 rounded-lg border border-line p-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="text-sm">
+          <span className="font-medium">{b.plan === "team" ? "Team plan" : "Solo"}</span>
+          <span className="text-muted"> · {b.plan === "team" ? `${String(b.members)} of ${String(b.member_limit)} members` : "free forever for one person"}</span>
         </div>
-        {org.plan === "solo" ? (
-          <div className="flex flex-wrap items-center gap-2">
-            <Select aria-label="Billing interval" value={interval} onChange={(e) => setInterval(e.target.value as "month" | "year")} className="w-auto">
-              <option value="month">Monthly</option>
-              <option value="year">Yearly</option>
-            </Select>
-            <Button variant="primary" onClick={() => checkout.mutate()} disabled={checkout.isPending}>
-              Choose Team plan
-            </Button>
-          </div>
-        ) : org.plan === "team" ? (
-          <Button onClick={() => portal.mutate()} disabled={portal.isPending}>
-            Manage payment and invoices
-          </Button>
-        ) : null}
+        <Link to="/billing" className={buttonClass()}>
+          {b.plan === "team" ? "Billing" : "Choose Team plan"}
+        </Link>
       </div>
-      {org.plan === "solo" ? <p className="mt-3 text-xs text-muted">The Team plan is paid by card through Stripe. Customers in the EU pay in EUR, everyone else in USD. The price shows at checkout.</p> : null}
-      <FormError error={checkout.error ?? portal.error} />
-    </div>
+    </Section>
   );
 }
 
@@ -317,14 +313,10 @@ export function SettingsPage(): ReactNode {
           <TicketSystems />
         </Section>
       ) : null}
-      <Section title="API tokens" lead="Service tokens report token entries, read tokens read reports, the organization token takes telemetry.">
+      <Section id="api-tokens" title="API tokens" lead="Service tokens report token entries, read tokens read reports, the organization token takes telemetry.">
         <ApiTokens />
       </Section>
-      {controller && me.organization.billing ? (
-        <Section title="Plan">
-          <Plan />
-        </Section>
-      ) : null}
+      {controller ? <Plan /> : null}
       {controller ? (
         <Section title="Raw export" lead="Everything your organization has, as a zip of JSON: every token entry, split, tag, bill, rule, ticket and period.">
           <Button onClick={() => exportRaw.mutate()} disabled={exportRaw.isPending}>

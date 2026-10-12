@@ -150,7 +150,8 @@ export function RulesPage(): ReactNode {
   const rules = useQuery({ queryKey: ["rules"], queryFn: api.rules });
   const [adding, setAdding] = useState<Rule["scope"] | null>(null);
   const controller = hasRole(me.person, "controller");
-  const update = useMutation({ mutationFn: api.updateOrganization, onSuccess: async () => { await refreshAll(); notify("Saved"); } });
+  const settings = useQuery({ queryKey: ["rule-settings"], queryFn: api.ruleSettings });
+  const update = useMutation({ mutationFn: api.updateRuleSettings, onSuccess: async () => { await refreshAll(); notify("Saved"); } });
   if (rules.isPending) return <Loading />;
   if (rules.isError) return <ErrorBox error={rules.error} />;
   const org = rules.data.filter((r) => r.scope === "organization");
@@ -165,21 +166,26 @@ export function RulesPage(): ReactNode {
         <RuleList rules={personal} editable all={rules.data} />
       </Section>
       <Section title="When no rule finds a ticket">
+        {!settings.data ? (
+          settings.isError ? <ErrorBox error={settings.error} /> : <Loading />
+        ) : (
         <div className="space-y-4 rounded-lg border border-line p-4">
           <label className="flex items-start gap-3 text-sm">
-            <Switch label="Summary match" checked={me.organization.summary_match} disabled={!controller} onCheckedChange={(summary_match) => update.mutate({ summary_match })} />
+            <Switch label="Summary match" checked={settings.data.summary_match} disabled={!controller} onCheckedChange={(summary_match) => update.mutate({ summary_match })} />
             <span>
               <b className="font-medium">Summary match.</b> Compare the summary with the titles of open tickets and place the token entry on one that clearly fits, marked matched by summary.
             </span>
           </label>
           <Field label="When prompts name several tickets" className="max-w-md">
-            <Select disabled={!controller} value={me.organization.several_keys} onChange={(e) => update.mutate({ several_keys: e.target.value as SeveralKeys })}>
+            <Select disabled={!controller} value={settings.data.several_keys} onChange={(e) => update.mutate({ several_keys: e.target.value as SeveralKeys })}>
               <option value="most_named">The ticket named most often; on a tie the latest</option>
               <option value="equal_split">An equal split between the tickets</option>
               <option value="first_named">The first one named</option>
             </Select>
           </Field>
+          <FormError error={update.error} />
         </div>
+        )}
       </Section>
       {adding ? <NewRule scope={adding} open onClose={() => setAdding(null)} /> : null}
     </>

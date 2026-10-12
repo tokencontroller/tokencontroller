@@ -1,25 +1,27 @@
 // The example organization the docs use, Kestrel Digital, for development,
-// tests and screenshots while the service's endpoints are being built. The
-// service's own seed command loads the same organization into Postgres.
-//
-// Everything is generated from a fixed random seed, so every run and every
+// tests and screenshots while the service's endpoints are being built. People,
+// projects and tickets are the ones the service's seed command loads (same
+// IDs, emails and titles), so screenshots match staging. Token entries, bills
+// and the rest are generated from a fixed random seed, so every run and every
 // screenshot shows the same numbers. "Today" is fixed too.
 
 import type {
   ApiToken,
-  Cadence,
-  CostSource,
+  BillProvider,
+  CadenceView,
+  Interval,
   Organization,
   Person,
+  Plan,
   Project,
   Rule,
+  RuleSettings,
   SavedReport,
   Tags,
   Ticket,
   TicketSystem,
   TokenCounts,
   TokenEntryStatus,
-  BillProvider,
 } from "@/api/contract";
 
 export const TODAY = "2026-10-12";
@@ -40,6 +42,7 @@ export interface EntryRecord {
   list: number | null;
   billed: number | null;
   summary: string;
+  /** The person id of the agent manager. */
   agent_manager: string | null;
   automatic: boolean;
   status: TokenEntryStatus;
@@ -98,20 +101,28 @@ export interface PeriodRecord {
   tag_map: { cost_center: string; ladder: string[] } | null;
 }
 
-export interface TicketRecord extends Omit<Ticket, "cost"> {
+export interface TicketRecord extends Ticket {
+  /** Whether work still goes on it; closed tickets only have past cost. */
   open: boolean;
 }
 
 export interface Db {
   organization: Organization;
+  /** Team plan billing; `enabled` false is a self-hosted instance. */
+  billing: { enabled: boolean; plan: Plan; status: string | null; interval: Interval | null; current_period_end: string | null; cancel_at_period_end: boolean };
+  ruleSettings: RuleSettings;
+  forecasts: boolean;
   session: string | null;
   /** The last magic link "sent", so the mock sign-in page can offer it. */
-  pendingLink: { token: string; email: string; next?: string } | null;
+  pendingLink: { token: string; email: string } | null;
   people: Person[];
+  /** Invite codes, as in `/i/kestrel-4f2a`. */
+  invites: { code: string; person: string }[];
   tagNames: string[];
-  tagMap: { cost_center: string; ladder: string[] };
+  tagMap: { cost_center: string; ladder: string[]; version: number; created_at: string };
   projects: Project[];
   tickets: TicketRecord[];
+  cadences: CadenceView[];
   entries: EntryRecord[];
   bills: BillRecord[];
   connections: { id: string; provider: "anthropic_enterprise" | "anthropic_console" | "openai"; status: "ok" | "failing"; last_pull_at: string | null; message: string | null }[];
@@ -122,9 +133,12 @@ export interface Db {
   rules: Rule[];
   tokens: ApiToken[];
   ticketSystems: TicketSystem[];
-  cadence: Cadence | null;
   nextId: number;
 }
+
+/** The fixed IDs of the service's seed data (`seed::ids`). */
+const uuid = (group: number, n: number) => `6b657374-0000-4000-800${group}-${n.toString(16).padStart(12, "0")}`;
+export const ORGANIZATION_ID = uuid(0, 1);
 
 // A small, fast, seeded random number generator (mulberry32).
 function random(seed: number): () => number {
@@ -138,46 +152,93 @@ function random(seed: number): () => number {
   };
 }
 
+function person(n: number, name: string, email: string, role: Person["role"], tags: Tags, joined = true): Person {
+  return {
+    id: uuid(1, n),
+    name,
+    email,
+    role,
+    tags,
+    filters: [],
+    status: joined ? "joined" : "invited",
+    invited_at: "2026-05-04T09:00:00Z",
+    joined_at: joined ? "2026-05-04T09:20:00Z" : null,
+  };
+}
+
 const people: Person[] = [
-  { id: "mara", name: "Mara Ortner", email: "m.ortner@kestrel.example", role: "agent_manager", tags: { team: "web" }, filters: [], status: "active" },
-  { id: "lukas", name: "Lukas Kern", email: "l.kern@kestrel.example", role: "agent_manager", tags: { team: "web" }, filters: [], status: "active" },
-  { id: "tara", name: "Tara Reyes", email: "t.reyes@kestrel.example", role: "agent_manager", tags: { team: "data" }, filters: [], status: "active" },
-  { id: "aiko", name: "Aiko Sato", email: "a.sato@kestrel.example", role: "agent_manager", tags: { team: "mobile" }, filters: [], status: "active" },
-  { id: "priya", name: "Priya Nair", email: "p.nair@kestrel.example", role: "people_manager", tags: { team: "web" }, filters: [{ team: "web" }], status: "active" },
-  { id: "kai", name: "Kai Berg", email: "k.berg@kestrel.example", role: "people_manager", tags: { team: "delivery" }, filters: [{ client: "acme" }], status: "active" },
-  { id: "dana", name: "Dana Fischer", email: "d.fischer@kestrel.example", role: "controller", tags: { team: "finance" }, filters: [], status: "active" },
-  { id: "noah", name: "Noah Weber", email: "n.weber@kestrel.example", role: "agent_manager", tags: { team: "mobile" }, filters: [], status: "invited" },
+  person(1, "Nadia Berger", "n.berger@kestrel.example", "controller", { department: "operations" }),
+  { ...person(2, "Priya Shah", "p.shah@kestrel.example", "people_manager", { team: "web", department: "engineering" }), filters: [{ team: "web" }] },
+  { ...person(3, "Kai Novak", "k.novak@kestrel.example", "people_manager", { department: "accounts" }), filters: [{ client: "acme" }] },
+  person(4, "Mara Ortner", "m.ortner@kestrel.example", "agent_manager", { team: "web", department: "engineering" }),
+  person(5, "Jonas Weber", "j.weber@kestrel.example", "agent_manager", { team: "web", department: "engineering" }),
+  { ...person(6, "Tom Brandt", "t.brandt@kestrel.example", "people_manager", { team: "mobile", department: "engineering" }), filters: [{ team: "mobile" }] },
+  person(7, "Sam Rossi", "s.rossi@kestrel.example", "agent_manager", { team: "mobile", department: "engineering" }),
+  person(8, "Lena Hofer", "l.hofer@kestrel.example", "agent_manager", { team: "data", department: "engineering" }),
+  person(9, "Ola Nowak", "o.nowak@kestrel.example", "agent_manager", { team: "data", department: "engineering" }, false),
+  // Only in the mocks: someone who left, so a service token needs an owner.
+  { ...person(10, "Felix Wagner", "f.wagner@kestrel.example", "agent_manager", { team: "web", department: "engineering" }), status: "removed" },
 ];
 
-const weekly: Cadence = { every: "weekly", days: null };
+/** People by their first name, as the generator below refers to them. */
+const who = (first: string): Person => {
+  const found = people.find((p) => p.name.toLowerCase().startsWith(`${first} `));
+  if (!found) throw new Error(`no ${first} in the seed`);
+  return found;
+};
+export const MARA = who("mara");
+
+function project(n: number, name: string, pattern: string | null, tags: Tags, repositories: string[]): Project {
+  return { id: uuid(2, n), name, ticket_key_pattern: pattern, tags, repositories, archived: false, created_at: "2026-05-04T10:00:00Z" };
+}
 
 const projects: Project[] = [
-  { id: "p1", key: "storefront", name: "Storefront relaunch", tags: { client: "acme" }, ticket_key_pattern: "^KD-\\d+", repositories: ["kestrel/storefront"], cadence: weekly },
-  { id: "p2", key: "claims-portal", name: "Claims portal", tags: { client: "globex" }, ticket_key_pattern: "^CP-\\d+", repositories: ["kestrel/claims-portal"], cadence: null },
-  { id: "p3", key: "intranet", name: "Intranet", tags: {}, ticket_key_pattern: "^INT-\\d+", repositories: ["kestrel/intranet"], cadence: null },
+  project(1, "storefront", "^KD-\\d+", { client: "acme" }, ["kestrel/storefront"]),
+  project(2, "claims-portal", "^CP-\\d+", { client: "globex" }, ["kestrel/claims-portal"]),
+  project(3, "intranet", "^INT-\\d+", {}, ["kestrel/intranet", "kestrel/sandbox"]),
+  project(4, "support", null, {}, []),
 ];
 
-function ticket(key: string, project: string, title: string, parent: string | null, assignee: string | null, open = true, description: string | null = null): TicketRecord {
-  return { key, title, description, parent, assignee, project, source: key.startsWith("INT") ? "manual" : "jira", open };
+const projectId = (name: string) => projects.find((p) => p.name === name)?.id ?? null;
+/** Ticket ids follow the service's seed: KD-n is n, CP-n is 1000 + n, INT-n is 2000 + n. */
+const ticketId = (key: string) => {
+  const [prefix = "", number = "0"] = key.split("-");
+  return uuid(3, Number(number) + ({ KD: 0, CP: 1000, INT: 2000 }[prefix] ?? 3000));
+};
+
+function ticket(key: string, projectName: string, title: string, parent: string | null, assignee: string | null, open = true, description: string | null = null): TicketRecord {
+  return {
+    id: ticketId(key),
+    key,
+    title,
+    description,
+    parent_id: parent ? ticketId(parent) : null,
+    assignee_id: assignee ? who(assignee).id : null,
+    project_id: projectId(projectName),
+    source: key.startsWith("INT") ? "manual" : "jira",
+    tags: {},
+    updated_at: "2026-10-12T06:00:00Z",
+    open,
+  };
 }
 
 const tickets: TicketRecord[] = [
   ticket("KD-120", "storefront", "Cart page", null, "mara", false),
-  ticket("KD-131", "storefront", "Search filters", null, "lukas", false),
-  ticket("KD-150", "storefront", "Checkout address form", null, "mara", false),
-  ticket("KD-200", "storefront", "Checkout", null, "priya"),
-  ticket("KD-214", "storefront", "Fix checkout loop", "KD-200", "mara", true, "Payment step sends the shopper back to the cart after a declined card."),
-  ticket("KD-231", "storefront", "Search ranking", null, "lukas", true, "Rank products by stock and margin, not only by text match."),
-  ticket("KD-240", "storefront", "Product page images", null, "lukas"),
-  ticket("KD-250", "storefront", "Checkout button states", "KD-200", "mara"),
-  ticket("KD-260", "storefront", "Wishlist", null, null, true, "Shoppers save products to a wishlist and get a note when the price drops."),
-  ticket("CP-1", "claims-portal", "Document upload", null, "aiko"),
-  ticket("CP-2", "claims-portal", "Claim status page", null, "aiko", false),
-  ticket("CP-4", "claims-portal", "Upload retry", "CP-1", "aiko"),
-  ticket("CP-7", "claims-portal", "Claims list filters", null, "tara"),
-  ticket("CP-12", "claims-portal", "Pre-release pen test", null, "aiko"),
-  ticket("INT-3", "intranet", "Wiki search", null, "tara"),
-  ticket("INT-8", "intranet", "Dependency updates", null, null),
+  ticket("KD-131", "storefront", "Search filters", null, "jonas", false),
+  ticket("KD-150", "storefront", "Checkout address form", null, "mara", false, "Shoppers type their address once; postcode lookup fills the town."),
+  ticket("KD-200", "storefront", "Checkout rebuild", null, "priya"),
+  ticket("KD-214", "storefront", "Fix checkout redirect loop", "KD-200", "mara", true, "Payment step sends the shopper back to the cart after a declined card."),
+  ticket("KD-231", "storefront", "Saved addresses at checkout", "KD-200", "jonas", true, "Shoppers pick a saved address instead of typing it again."),
+  ticket("KD-240", "storefront", "Address autocomplete", "KD-200", "jonas"),
+  ticket("KD-260", "storefront", "Retry failed card payments", null, "mara", true, "Retry a declined card payment once before sending the shopper back."),
+  ticket("CP-4", "claims-portal", "Claims list filters", null, "lena", false),
+  ticket("CP-9", "claims-portal", "Claim status page", null, "sam", false),
+  ticket("CP-12", "claims-portal", "Claim upload form", null, "sam"),
+  ticket("CP-15", "claims-portal", "Claim status emails", null, "lena"),
+  ticket("CP-18", "claims-portal", "Upload retry", "CP-12", "sam"),
+  ticket("CP-20", "claims-portal", "Pre-release pen test", null, "sam"),
+  ticket("INT-3", "intranet", "Upgrade the build tooling", null, "jonas"),
+  ticket("INT-8", "intranet", "Wiki search", null, "lena"),
 ];
 
 interface Work {
@@ -185,54 +246,58 @@ interface Work {
   harness: string;
   model: string;
   provider: string;
-  /** Ticket keys or project keys this person works on, with weights. */
+  /** Ticket keys or project names this person works on, with weights. */
   work: [string, number][];
   sessionsPerDay: number;
 }
 
 const workers: Work[] = [
-  { person: "mara", harness: "Claude Code", model: "claude-opus-5", provider: "anthropic", work: [["KD-214", 4], ["KD-250", 3], ["KD-150", 2], ["KD-120", 2], ["storefront", 1], ["", 1]], sessionsPerDay: 1.8 },
-  { person: "lukas", harness: "Cursor", model: "claude-sonnet-5", provider: "cursor", work: [["KD-231", 4], ["KD-240", 3], ["KD-131", 2], ["storefront", 1], ["", 1]], sessionsPerDay: 1.3 },
-  { person: "lukas", harness: "Claude Code", model: "claude-sonnet-5", provider: "anthropic", work: [["KD-231", 2], ["KD-240", 1]], sessionsPerDay: 0.5 },
-  { person: "tara", harness: "Gemini CLI", model: "gemini-3-pro", provider: "google", work: [["CP-7", 3], ["INT-3", 3], ["intranet", 1], ["", 1]], sessionsPerDay: 1.0 },
-  { person: "tara", harness: "Claude Code", model: "claude-sonnet-5", provider: "anthropic", work: [["CP-7", 2], ["INT-3", 1]], sessionsPerDay: 0.6 },
-  { person: "aiko", harness: "Codex", model: "gpt-5-codex", provider: "openai", work: [["CP-1", 3], ["CP-4", 3], ["CP-2", 2], ["claims-portal", 1], ["", 1]], sessionsPerDay: 1.4 },
-  { person: "aiko", harness: "Copilot CLI", model: "gpt-5", provider: "copilot", work: [["CP-4", 2], ["CP-12", 1], ["", 1]], sessionsPerDay: 0.4 },
-  { person: "priya", harness: "Claude Code", model: "claude-opus-5", provider: "anthropic", work: [["KD-200", 2], ["INT-8", 2], ["", 1]], sessionsPerDay: 0.4 },
+  { person: "mara", harness: "Claude Code", model: "claude-opus-5", provider: "anthropic", work: [["KD-214", 4], ["KD-260", 3], ["KD-150", 2], ["KD-120", 2], ["storefront", 1], ["", 1]], sessionsPerDay: 1.8 },
+  { person: "jonas", harness: "Cursor", model: "claude-sonnet-5", provider: "cursor", work: [["KD-231", 4], ["KD-240", 3], ["KD-131", 2], ["storefront", 1], ["", 1]], sessionsPerDay: 1.3 },
+  { person: "jonas", harness: "Claude Code", model: "claude-sonnet-5", provider: "anthropic", work: [["KD-231", 2], ["INT-3", 1]], sessionsPerDay: 0.5 },
+  { person: "lena", harness: "Gemini CLI", model: "gemini-3-pro", provider: "google", work: [["CP-15", 3], ["CP-4", 2], ["INT-8", 3], ["intranet", 1], ["", 1]], sessionsPerDay: 1.0 },
+  { person: "lena", harness: "Claude Code", model: "claude-sonnet-5", provider: "anthropic", work: [["CP-15", 2], ["INT-8", 1]], sessionsPerDay: 0.6 },
+  { person: "sam", harness: "Codex", model: "gpt-5-codex", provider: "openai", work: [["CP-12", 3], ["CP-18", 3], ["CP-9", 2], ["claims-portal", 1], ["", 1]], sessionsPerDay: 1.4 },
+  { person: "sam", harness: "Copilot CLI", model: "gpt-5", provider: "copilot", work: [["CP-18", 2], ["CP-20", 1], ["support", 1], ["", 1]], sessionsPerDay: 0.4 },
+  { person: "priya", harness: "Claude Code", model: "claude-opus-5", provider: "anthropic", work: [["KD-200", 2], ["INT-3", 2], ["", 1]], sessionsPerDay: 0.4 },
 ];
 
 const summaries: Record<string, string[]> = {
   "KD-120": ["Built the cart line item list", "Fixed rounding in cart totals"],
   "KD-131": ["Added price and brand filters", "Wrote tests for the filter panel"],
   "KD-150": ["Validated the address form", "Added postcode lookup to checkout"],
-  "KD-200": ["Planned the checkout epic", "Reviewed checkout architecture notes"],
-  "KD-214": ["Fixed checkout loop", "Traced the declined card redirect", "Added a test for the payment retry"],
-  "KD-231": ["Tuned search ranking weights", "Added stock to the ranking score", "Ranking tweaks"],
-  "KD-240": ["Lazy loading for product images", "Resized product images on upload"],
-  "KD-250": ["Checkout button states", "Disabled pay button while loading"],
-  "CP-1": ["Built the upload form", "Checked file types on upload"],
-  "CP-2": ["Claim status timeline", "Status page copy fixes"],
-  "CP-4": ["Built upload retry", "Backoff for failed uploads"],
-  "CP-7": ["Filters for the claims list", "Date range filter"],
-  "CP-12": ["Pre-release pen test"],
-  "INT-3": ["Indexed wiki pages for search", "Search result snippets"],
-  "INT-8": ["Updated dependencies", "Fixed breaking change in the router"],
+  "KD-200": ["Planned the checkout rebuild", "Reviewed checkout architecture notes"],
+  "KD-214": ["Fixed checkout redirect loop", "Traced the declined card redirect", "Added a test for the redirect"],
+  "KD-231": ["Saved address list at checkout", "Address book API for checkout", "Picked the default address"],
+  "KD-240": ["Address autocomplete with the places API", "Debounced the address lookup"],
+  "KD-260": ["Retry for declined card payments", "Backoff for the payment retry"],
+  "CP-4": ["Filters for the claims list", "Date range filter"],
+  "CP-9": ["Claim status timeline", "Status page copy fixes"],
+  "CP-12": ["Built the claim upload form", "Checked file types on upload"],
+  "CP-15": ["Claim status email templates", "Email when a claim changes status"],
+  "CP-18": ["Built upload retry", "Backoff for failed uploads"],
+  "CP-20": ["Pre-release pen test"],
+  "INT-3": ["Upgraded the build tooling", "Fixed a breaking change in the bundler"],
+  "INT-8": ["Indexed wiki pages for search", "Search result snippets"],
   storefront: ["Set up the storefront preview environment", "Read up on the new payment API"],
   "claims-portal": ["Explored the claims API", "Set up the claims dev database"],
   intranet: ["Looked at the intranet build"],
+  support: ["Answered a support question about refunds"],
   "": ["Tried a new test runner", "Internal tooling script", "Learning the new framework", "Wrote a shell helper"],
 };
 
-const projectOfTicket = new Map(tickets.map((t) => [t.key, t.project]));
-const projectTags = new Map(projects.map((p) => [p.key, p.tags]));
-const personTags = new Map(people.map((p) => [p.id, p.tags]));
+const projectOfTicket = new Map(tickets.map((t) => [t.key, projects.find((p) => p.id === t.project_id)?.name ?? ""]));
+const projectTags = new Map(projects.map((p) => [p.name, p.tags]));
 
-/** The tags a token entry ends up with: its person, ticket, project and what they pass on. */
-export function inheritTags(person: string | null, target: string, extra: Tags = {}): Tags {
+/**
+ * The tags a token entry ends up with: its person (by email, as the service
+ * stores it), their tags, the ticket, its project and what they pass on.
+ */
+export function inheritTags(person: Person | null, target: string, extra: Tags = {}): Tags {
   const tags: Tags = {};
   if (person) {
-    tags.person = person;
-    Object.assign(tags, personTags.get(person) ?? {});
+    tags.person = person.email;
+    Object.assign(tags, person.tags);
   }
   const project = projectOfTicket.get(target) ?? (projectTags.has(target) ? target : null);
   if (projectOfTicket.has(target)) tags.ticket = target;
@@ -301,7 +366,7 @@ export function createDb(): Db {
           // Past tickets only get work in July and August.
           const ticketRecord = tickets.find((t) => t.key === target);
           if (ticketRecord && !ticketRecord.open && period > "2026-08") continue;
-          if (ticketRecord?.open && ticketRecord.key !== "KD-200" && period < "2026-09" && !["KD-214", "CP-1", "INT-3"].includes(target)) continue;
+          if (ticketRecord?.open && ticketRecord.key !== "KD-200" && period < "2026-09" && !["KD-214", "CP-12", "INT-3"].includes(target)) continue;
           const startHour = 8 + Math.floor(rand() * 9);
           const minutes = Math.floor(rand() * 60);
           const length = 15 + Math.floor(rand() * 140);
@@ -326,13 +391,13 @@ export function createDb(): Db {
             list: unknown ? null : cents * 10_000_000,
             billed: null,
             summary,
-            agent_manager: worker.person,
+            agent_manager: who(worker.person).id,
             automatic: false,
             status: "submitted",
             reject_reason: null,
             placed_by: placedBy(target, worker.harness),
             candidates: [],
-            splits: [{ share: 10000, tags: inheritTags(worker.person, target, extra) }],
+            splits: [{ share: 10000, tags: inheritTags(who(worker.person), target, extra) }],
             late: false,
             provider: worker.provider,
           });
@@ -340,8 +405,8 @@ export function createDb(): Db {
       }
       // The CI review bot reviews a pull request most days. Priya set it up.
       if (rand() < 0.8) {
-        const target = pick(rand, [["KD-214", 2], ["KD-231", 2], ["KD-240", 1], ["CP-4", 2], ["CP-7", 1]] as [string, number][]);
-        if (period < "2026-09" && !["KD-214", "CP-1"].includes(target)) continue;
+        const target = pick(rand, [["KD-214", 2], ["KD-231", 2], ["KD-240", 1], ["CP-18", 2], ["CP-15", 1]] as [string, number][]);
+        if (period < "2026-09" && !["KD-214", "CP-12"].includes(target)) continue;
         const cents = Math.round(180 + rand() * 500);
         const started = new Date(`${day}T${String(9 + Math.floor(rand() * 8)).padStart(2, "0")}:15:00Z`);
         entries.push({
@@ -357,13 +422,13 @@ export function createDb(): Db {
           list: cents * 10_000_000,
           billed: null,
           summary: `Reviewed pull request for ${target}`,
-          agent_manager: "priya",
+          agent_manager: who("priya").id,
           automatic: true,
           status: "submitted",
           reject_reason: null,
           placed_by: "rule: ticket key in pull request title",
           candidates: [],
-          splits: [{ share: 10000, tags: inheritTags("priya", target, { purpose: "code-review" }) }],
+          splits: [{ share: 10000, tags: inheritTags(who("priya"), target, { purpose: "code-review" }) }],
           late: false,
           provider: "anthropic",
         });
@@ -381,18 +446,18 @@ export function createDb(): Db {
     }
   }
 
-  // Lukas has not submitted his sheet for the last week of September: late.
+  // Jonas has not submitted his sheet for the last week of September: late.
   for (const entry of entries) {
-    if (entry.agent_manager === "lukas" && !entry.automatic && entry.started_at >= "2026-09-28") {
+    if (entry.agent_manager === who("jonas").id && !entry.automatic && entry.started_at >= "2026-09-28") {
       entry.status = "draft";
     }
   }
 
-  // Aiko's entry was sent back with a reason.
-  const rejected = entries.find((e) => e.agent_manager === "aiko" && e.period === "2026-10" && e.splits[0]?.tags.ticket === "CP-4");
+  // Sam's entry was sent back with a reason.
+  const rejected = entries.find((e) => e.agent_manager === who("sam").id && e.period === "2026-10" && e.splits[0]?.tags.ticket === "CP-18");
   if (rejected) {
     rejected.status = "rejected";
-    rejected.reject_reason = "This was the claims list work. Please move it to CP-7.";
+    rejected.reject_reason = "This was the upload form itself. Please move it to CP-12.";
   }
 
   // Mara's drafts for today, as the Review and submit docs page shows them.
@@ -403,7 +468,7 @@ export function createDb(): Db {
     ["15:20", 975, "storefront", "rule: repository", []],
     ["16:41", 6038, "", "no ticket, 2 candidates", ["KD-231", "KD-240"]],
   ];
-  const todaySummaries = ["Fixed checkout loop", "Added a test for the payment retry", "Tuned search ranking weights", "Read up on the new payment API", "Ranking edge cases for empty stock"];
+  const todaySummaries = ["Fixed checkout redirect loop", "Added a test for the redirect", "Saved address list at checkout", "Read up on the new payment API", "Address lookup edge cases"];
   today.forEach(([time, cents, target, by, candidates], index) => {
     const started = new Date(`${TODAY}T${time}:00Z`);
     entries.push({
@@ -419,13 +484,13 @@ export function createDb(): Db {
       list: cents * 10_000_000,
       billed: null,
       summary: todaySummaries[index] ?? "Session",
-      agent_manager: "mara",
+      agent_manager: MARA.id,
       automatic: false,
       status: "draft",
       reject_reason: null,
       placed_by: by,
       candidates,
-      splits: [{ share: 10000, tags: inheritTags("mara", target) }],
+      splits: [{ share: 10000, tags: inheritTags(MARA, target) }],
       late: false,
       provider: "anthropic",
     });
@@ -505,57 +570,60 @@ export function createDb(): Db {
     period,
     amount: dollars * NANOS,
     from_forecast,
-    created_by: filter.client ? "kai" : "priya",
+    created_by: who(filter.client ? "kai" : "priya").id,
   });
   const budgets: BudgetRecord[] = [];
   for (const period of ["2026-09", "2026-10"]) {
     budgets.push(
-      budget({ person: "mara" }, period, 900),
+      budget({ person: MARA.email }, period, 900),
       budget({ team: "web" }, period, 3200),
       budget({ client: "acme" }, period, 2800),
       budget({ ticket: "KD-214" }, period, 560, true),
       budget({ ticket: "KD-231" }, period, 440),
-      budget({ ticket: "CP-4" }, period, 380, true),
+      budget({ ticket: "CP-18" }, period, 380, true),
       budget({ project: "intranet" }, period, 600),
     );
   }
 
   const rule = (id: string, name: string, signal: Rule["signal"], match: Rule["match"], pattern: string, sets: Tags, scope: Rule["scope"] = "organization", built_in = false): Rule => ({ id, scope, name, signal, match, pattern, sets, built_in });
+  const nadia = who("nadia").id;
 
   const db: Db = {
     organization: {
-      id: "org_kestrel",
+      id: ORGANIZATION_ID,
       name: "Kestrel Digital",
-      plan: "team",
-      cost_source: "console_api_key" satisfies CostSource,
+      slug: "kestrel",
+      cost_source: "usage_at_api_rates",
       reporting_currency: CURRENCY,
       approval: true,
       sign_in_domains: ["kestrel.example"],
-      summary_match: true,
-      several_keys: "most_named",
-      forecasts: true,
-      billing: true,
-      members: people.length,
-      member_limit: 150,
+      created_at: "2026-05-04T08:00:00Z",
     },
+    billing: { enabled: true, plan: "team", status: "active", interval: "year", current_period_end: "2027-05-04T08:00:00Z", cancel_at_period_end: false },
+    ruleSettings: { summary_match: true, several_keys: "most_named" },
+    forecasts: true,
     session: null,
     pendingLink: null,
     people,
-    tagNames: ["person", "ticket", "project", "team", "client", "purpose"],
-    tagMap: { cost_center: "person", ladder: ["ticket", "project"] },
+    invites: [{ code: "kestrel-4f2a", person: who("ola").id }],
+    tagNames: ["person", "ticket", "project", "team", "client", "department", "purpose"],
+    tagMap: { cost_center: "person", ladder: ["ticket", "project"], version: 1, created_at: "2026-05-04T08:00:00Z" },
     projects,
     tickets,
+    cadences: [
+      { id: "c0de0000-0000-4000-8000-000000000001", kind: "weekly", every_days: null, project: "storefront", starts_on: "2026-06-01", set_at: "2026-06-01T08:00:00Z", set_by: "p.shah@kestrel.example", current: { starts_on: "2026-10-12", ends_on: "2026-10-18" } },
+    ],
     entries,
     bills,
     connections: [{ id: "bc_1", provider: "anthropic_console", status: "ok", last_pull_at: "2026-10-12T06:00:00Z", message: null }, { id: "bc_2", provider: "openai", status: "ok", last_pull_at: "2026-10-12T06:00:00Z", message: null }],
     periods: [
-      { id: "2026-07", status: "closed", closed_at: "2026-08-06T14:10:00Z", closed_by: "dana", tag_map: { cost_center: "person", ladder: ["ticket", "project"] } },
-      { id: "2026-08", status: "closed", closed_at: "2026-09-07T09:42:00Z", closed_by: "dana", tag_map: { cost_center: "person", ladder: ["ticket", "project"] } },
+      { id: "2026-07", status: "closed", closed_at: "2026-08-06T14:10:00Z", closed_by: nadia, tag_map: { cost_center: "person", ladder: ["ticket", "project"] } },
+      { id: "2026-08", status: "closed", closed_at: "2026-09-07T09:42:00Z", closed_by: nadia, tag_map: { cost_center: "person", ladder: ["ticket", "project"] } },
       { id: "2026-09", status: "open", closed_at: null, closed_by: null, tag_map: null },
       { id: "2026-10", status: "open", closed_at: null, closed_by: null, tag_map: null },
     ],
     adjustments: [
-      { id: "adj_1", period: "2026-08", rung: "project", value: "claims-portal", amount: -18_400_000_000, reason: "Pen test run twice by mistake; the provider credited one run.", posted_by: "dana", posted_at: "2026-09-15T10:20:00Z", late_sheet: false },
+      { id: "adj_1", period: "2026-08", rung: "project", value: "claims-portal", amount: -18_400_000_000, reason: "Pen test run twice by mistake; the provider credited one run.", posted_by: nadia, posted_at: "2026-09-15T10:20:00Z", late_sheet: false },
     ],
     budgets,
     reports: [
@@ -569,18 +637,17 @@ export function createDb(): Db {
       rule("r_3", "Ticket key in prompts or session title", "prompts", "ticket_key", "", {}, "organization", true),
       rule("r_4", "Repository mapped to a project", "repository", "ticket_key", "", {}, "organization", true),
       rule("r_5", "Review branches are code review", "branch", "starts_with", "review/", { purpose: "code-review" }),
-      rule("r_6:mara", "Spike folder is learning", "working_directory", "contains", "/spikes/", { purpose: "learning" }, "personal"),
+      rule(`r_6:${MARA.id}`, "Spike folder is learning", "working_directory", "contains", "/spikes/", { purpose: "learning" }, "personal"),
     ],
     tokens: [
-      { id: "tok_1", kind: "svc", name: "review bot (GitHub Action)", prefix: "tc_svc_7d1e", owner: "priya", created_at: "2026-06-02T09:00:00Z", last_used_at: "2026-10-12T15:02:00Z" },
-      { id: "tok_2", kind: "svc", name: "release-notes bot", prefix: "tc_svc_a93c", owner: null, created_at: "2026-05-14T11:00:00Z", last_used_at: "2026-10-09T17:04:00Z" },
-      { id: "tok_3", kind: "org", name: "Telemetry push", prefix: "tc_org_51b0", owner: "dana", created_at: "2026-06-01T08:00:00Z", last_used_at: "2026-10-12T16:58:00Z" },
-      { id: "tok_4", kind: "read", name: "Power BI", prefix: "tc_read_2c44", owner: "kai", created_at: "2026-07-20T13:00:00Z", last_used_at: "2026-10-11T07:00:00Z" },
+      { id: "a0ce0000-0000-4000-8000-000000000001", kind: "service", name: "review bot (GitHub Action)", shown_prefix: "tc_svc_7d1e", person_id: who("priya").id, needs_owner: false, created_at: "2026-06-02T09:00:00Z", last_used_at: "2026-10-12T15:02:00Z" },
+      { id: "a0ce0000-0000-4000-8000-000000000002", kind: "service", name: "release-notes bot", shown_prefix: "tc_svc_a93c", person_id: who("felix").id, needs_owner: true, created_at: "2026-05-14T11:00:00Z", last_used_at: "2026-10-09T17:04:00Z" },
+      { id: "a0ce0000-0000-4000-8000-000000000003", kind: "organization", name: "Telemetry push", shown_prefix: "tc_org_51b0", person_id: nadia, needs_owner: false, created_at: "2026-06-01T08:00:00Z", last_used_at: "2026-10-12T16:58:00Z" },
+      { id: "a0ce0000-0000-4000-8000-000000000004", kind: "read", name: "Power BI", shown_prefix: "tc_read_2c44", person_id: who("kai").id, needs_owner: false, created_at: "2026-07-20T13:00:00Z", last_used_at: "2026-10-11T07:00:00Z" },
     ],
     ticketSystems: [
       { id: "ts_1", kind: "jira", site: "kestrel.atlassian.net", mappings: [{ external: "KD", project: "storefront" }, { external: "CP", project: "claims-portal" }], last_sync_at: "2026-10-12T16:45:00Z", status: "ok" },
     ],
-    cadence: null,
     nextId: 1000,
   };
   return db;

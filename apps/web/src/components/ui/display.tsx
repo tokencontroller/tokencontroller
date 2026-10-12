@@ -27,9 +27,9 @@ export function PageHeader({ title, lead, actions }: { title: string; lead?: Rea
   );
 }
 
-export function Section({ title, actions, children, lead }: { title: string; actions?: ReactNode; children: ReactNode; lead?: ReactNode }) {
+export function Section({ id, title, actions, children, lead }: { id?: string; title: string; actions?: ReactNode; children: ReactNode; lead?: ReactNode }) {
   return (
-    <section className="mb-8">
+    <section id={id} className="mb-8 scroll-mt-20">
       <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
         <div>
           <h2 className="text-[15px] font-semibold">{title}</h2>
