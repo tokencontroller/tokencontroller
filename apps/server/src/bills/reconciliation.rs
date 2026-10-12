@@ -10,7 +10,9 @@ use std::collections::BTreeMap;
 
 use axum::Json;
 use axum::extract::{Query, State};
+use axum::response::{IntoResponse as _, Response};
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use tokencontroller_core::cost_sheet::Block;
 use tokencontroller_core::{Currency, Money, MoneyError};
 use utoipa::{IntoParams, ToSchema};
@@ -22,6 +24,7 @@ use crate::close::account::{self, Account, AccountError};
 use crate::close::period::Period;
 use crate::error::ApiError;
 use crate::organizations::Role;
+use crate::reports::csv::{self, Column, Csv};
 use crate::reports::filter::Filter;
 use crate::reports::lines::StatusView;
 use crate::reports::scope::Scope;
@@ -218,7 +221,79 @@ pub struct ReconciliationQuery {
     /// The period, such as `2026-09`.
     #[param(value_type = String, example = "2026-09")]
     pub period: Period,
+    /// `csv` for the table as a CSV file instead of JSON.
+    #[param(example = "csv")]
+    pub format: Option<String>,
 }
+
+/// The reconciliation as one CSV line per bill, one per provider without a
+/// bill, and a total line.
+///
+/// # Errors
+///
+/// A row that cannot be turned into JSON.
+pub fn to_csv(reconciliation: &Reconciliation) -> Result<Csv, serde_json::Error> {
+    let period = reconciliation.period.to_string();
+    let currency = reconciliation.reporting_currency.code();
+    let mut rows: Vec<serde_json::Value> = Vec::new();
+    for check in &reconciliation.bills {
+        rows.push(json!({
+            "period": period,
+            "provider": check.bill.provider,
+            "cost_source": check.bill.cost_source,
+            "currency": check.currency.code(),
+            "gross": check.gross,
+            "discount": check.discount,
+            "credit": check.credit,
+            "net": check.net,
+            "token_entries": check.token_entries,
+            "residual": check.residual,
+            "attribution_percent": check.attribution_percent,
+            "token_entry_count": check.token_entry_count,
+            "unknown_model_count": check.unknown_model_count,
+        }));
+    }
+    for missing in &reconciliation.without_bill {
+        rows.push(json!({
+            "period": period,
+            "provider": missing.provider,
+            "cost_source": "no bill",
+            "currency": currency,
+            "token_entries": missing.token_entries,
+            "token_entry_count": missing.token_entry_count,
+            "unknown_model_count": missing.unknown_model_count,
+        }));
+    }
+    let totals = &reconciliation.totals;
+    rows.push(json!({
+        "period": period,
+        "provider": "total",
+        "currency": currency,
+        "discount": totals.discount,
+        "credit": totals.credit,
+        "net": totals.net,
+        "token_entries": totals.token_entries,
+        "residual": totals.residual,
+    }));
+    csv::from_rows(RECONCILIATION_COLUMNS, &rows)
+}
+
+/// The columns of the reconciliation table and its CSV file.
+const RECONCILIATION_COLUMNS: &[Column] = &[
+    ("period", "/period"),
+    ("provider", "/provider"),
+    ("cost_source", "/cost_source"),
+    ("currency", "/currency"),
+    ("gross", "/gross"),
+    ("discount", "/discount"),
+    ("credit", "/credit"),
+    ("net", "/net"),
+    ("token_entries", "/token_entries"),
+    ("residual", "/residual"),
+    ("attribution_percent", "/attribution_percent"),
+    ("token_entry_count", "/token_entry_count"),
+    ("unknown_model_count", "/unknown_model_count"),
+];
 
 /// Each bill of a period against its token entries, with residual.
 #[utoipa::path(
@@ -227,7 +302,7 @@ pub struct ReconciliationQuery {
     tag = "bills",
     params(ReconciliationQuery),
     responses(
-        (status = OK, description = "The period's reconciliation", body = Reconciliation),
+        (status = OK, description = "The period's reconciliation, as JSON or CSV", content((Reconciliation = "application/json"), (String = "text/csv"))),
         (status = FORBIDDEN, description = "Only a controller can read the reconciliation", body = crate::error::ErrorBody),
         (status = CONFLICT, description = "An exchange rate is missing", body = crate::error::ErrorBody),
     ),
@@ -236,7 +311,7 @@ pub(crate) async fn get_reconciliation(
     State(state): State<AppState>,
     caller: Caller,
     Query(query): Query<ReconciliationQuery>,
-) -> Result<Json<Reconciliation>, ApiError> {
+) -> Result<Response, ApiError> {
     caller.require_role(Role::Controller)?;
     let account = account::load(
         &state.db,
@@ -248,7 +323,14 @@ pub(crate) async fn get_reconciliation(
     )
     .await?;
     let sheet = account.cost_sheet(&[], &BTreeMap::new())?;
-    Ok(Json(reconcile(&account, &sheet.blocks)?))
+    let reconciliation = reconcile(&account, &sheet.blocks)?;
+    if csv::wants_csv(query.format.as_deref()) {
+        let filename = format!("reconciliation-{}.csv", reconciliation.period);
+        return Ok(to_csv(&reconciliation)
+            .map_err(|error| ApiError::Internal(error.into()))?
+            .into_download(&filename));
+    }
+    Ok(Json(reconciliation).into_response())
 }
 
 #[cfg(test)]

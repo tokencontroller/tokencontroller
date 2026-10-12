@@ -1296,11 +1296,21 @@
               "type": "string"
             },
             "example": "2026-09"
+          },
+          {
+            "name": "format",
+            "in": "query",
+            "description": "`csv` for the table as a CSV file instead of JSON.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "example": "csv"
           }
         ],
         "responses": {
           "200": {
-            "description": "The bills",
+            "description": "The bills, as JSON or CSV",
             "content": {
               "application/json": {
                 "schema": {
@@ -1308,6 +1318,11 @@
                   "items": {
                     "$ref": "#/components/schemas/BillView"
                   }
+                }
+              },
+              "text/csv": {
+                "schema": {
+                  "type": "string"
                 }
               }
             }
@@ -1536,11 +1551,21 @@
               "type": "string",
               "format": "uuid"
             }
+          },
+          {
+            "name": "format",
+            "in": "query",
+            "description": "`csv` for the table as a CSV file instead of JSON.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "example": "csv"
           }
         ],
         "responses": {
           "200": {
-            "description": "The bill's revisions",
+            "description": "The bill's revisions, as JSON or CSV",
             "content": {
               "application/json": {
                 "schema": {
@@ -1548,6 +1573,11 @@
                   "items": {
                     "$ref": "#/components/schemas/BillView"
                   }
+                }
+              },
+              "text/csv": {
+                "schema": {
+                  "type": "string"
                 }
               }
             }
@@ -3010,9 +3040,21 @@
         ],
         "summary": "Every period from the first with a token entry or a bill up to this\nmonth, newest first.",
         "operationId": "list_periods",
+        "parameters": [
+          {
+            "name": "format",
+            "in": "query",
+            "description": "`csv` for the table as a CSV file instead of JSON.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "example": "csv"
+          }
+        ],
         "responses": {
           "200": {
-            "description": "The periods",
+            "description": "The periods, as JSON or CSV",
             "content": {
               "application/json": {
                 "schema": {
@@ -3020,6 +3062,11 @@
                   "items": {
                     "$ref": "#/components/schemas/PeriodSummary"
                   }
+                }
+              },
+              "text/csv": {
+                "schema": {
+                  "type": "string"
                 }
               }
             }
@@ -3264,11 +3311,21 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "format",
+            "in": "query",
+            "description": "`csv` for the table as a CSV file instead of JSON.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "example": "csv"
           }
         ],
         "responses": {
           "200": {
-            "description": "The links, newest first",
+            "description": "The links, newest first, as JSON or CSV",
             "content": {
               "application/json": {
                 "schema": {
@@ -3276,6 +3333,11 @@
                   "items": {
                     "$ref": "#/components/schemas/CostSheetLink"
                   }
+                }
+              },
+              "text/csv": {
+                "schema": {
+                  "type": "string"
                 }
               }
             }
@@ -3521,15 +3583,30 @@
               "type": "string"
             },
             "example": "2026-09"
+          },
+          {
+            "name": "format",
+            "in": "query",
+            "description": "`csv` for the table as a CSV file instead of JSON.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "example": "csv"
           }
         ],
         "responses": {
           "200": {
-            "description": "The period's reconciliation",
+            "description": "The period's reconciliation, as JSON or CSV",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Reconciliation"
+                }
+              },
+              "text/csv": {
+                "schema": {
+                  "type": "string"
                 }
               }
             }
@@ -3869,9 +3946,21 @@
         ],
         "summary": "The saved reports of the organization, by name.",
         "operationId": "list_saved",
+        "parameters": [
+          {
+            "name": "format",
+            "in": "query",
+            "description": "`csv` for the table as a CSV file instead of JSON.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "example": "csv"
+          }
+        ],
         "responses": {
           "200": {
-            "description": "Saved reports",
+            "description": "Saved reports, as JSON or CSV",
             "content": {
               "application/json": {
                 "schema": {
@@ -3879,6 +3968,11 @@
                   "items": {
                     "$ref": "#/components/schemas/SavedReport"
                   }
+                }
+              },
+              "text/csv": {
+                "schema": {
+                  "type": "string"
                 }
               }
             }
@@ -4367,11 +4461,11 @@
         ],
         "responses": {
           "200": {
-            "description": "The cost sheet, as JSON or CSV",
+            "description": "The cost sheet with the organization's name, as JSON or CSV",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/CostSheet"
+                  "$ref": "#/components/schemas/SharedCostSheet"
                 }
               },
               "text/csv": {
@@ -6414,13 +6508,30 @@
         ],
         "summary": "Your token sheet: drafts, token entries sent back with a reason, and\ntoken entries whose ticket the ticket sync could not find, with the\ncadence period and whether a token sheet is late.",
         "operationId": "current",
+        "parameters": [
+          {
+            "name": "format",
+            "in": "query",
+            "description": "`csv` for the table as a CSV file instead of JSON.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "example": "csv"
+          }
+        ],
         "responses": {
           "200": {
-            "description": "Your token sheet",
+            "description": "Your token sheet, or its token entries as CSV",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/TokenSheet"
+                }
+              },
+              "text/csv": {
+                "schema": {
+                  "type": "string"
                 }
               }
             }
@@ -6445,11 +6556,21 @@
               "type": "string"
             },
             "example": "2026-09"
+          },
+          {
+            "name": "format",
+            "in": "query",
+            "description": "`csv` for the table as a CSV file instead of JSON.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "example": "csv"
           }
         ],
         "responses": {
           "200": {
-            "description": "Late token sheets, oldest first",
+            "description": "Late token sheets, oldest first, as JSON or CSV",
             "content": {
               "application/json": {
                 "schema": {
@@ -6457,6 +6578,11 @@
                   "items": {
                     "$ref": "#/components/schemas/LateSheet"
                   }
+                }
+              },
+              "text/csv": {
+                "schema": {
+                  "type": "string"
                 }
               }
             }
@@ -10974,6 +11100,26 @@
           }
         },
         "additionalProperties": false
+      },
+      "SharedCostSheet": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/CostSheet"
+          },
+          {
+            "type": "object",
+            "required": [
+              "organization"
+            ],
+            "properties": {
+              "organization": {
+                "type": "string",
+                "description": "The organization's name."
+              }
+            }
+          }
+        ],
+        "description": "A cost sheet behind a link: finance sees whose it is, since they are not\nsigned in."
       },
       "SheetSummary": {
         "type": "object",

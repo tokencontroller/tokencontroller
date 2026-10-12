@@ -6,8 +6,8 @@
 
 use std::collections::BTreeMap;
 
-use axum::Json;
 use axum::extract::{Query, State};
+use axum::response::Response;
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use time::{Date, OffsetDateTime};
@@ -22,6 +22,7 @@ use crate::AppState;
 use crate::close::period::{Period, PeriodDates};
 use crate::error::ApiError;
 use crate::organizations::Role;
+use crate::reports::csv::{self, Column};
 use crate::reports::filter::Filter;
 use crate::reports::scope::Scope;
 use crate::sign_in::Caller;
@@ -231,7 +232,18 @@ pub struct LateQuery {
     /// Only cadence periods overlapping this month, such as `2026-09`.
     #[param(value_type = Option<String>, example = "2026-09")]
     pub period: Option<Period>,
+    /// `csv` for the table as a CSV file instead of JSON.
+    #[param(example = "csv")]
+    pub format: Option<String>,
 }
+
+/// The columns of the late token sheets table and its CSV file.
+const LATE_COLUMNS: &[Column] = &[
+    ("person", "/person"),
+    ("email", "/email"),
+    ("period_start", "/period_start"),
+    ("period_end", "/period_end"),
+];
 
 /// Late token sheets: whose, and for which cadence period. A people manager
 /// sees the people within their filters; an agent manager their own.
@@ -240,17 +252,22 @@ pub struct LateQuery {
     path = "/token-sheets/late",
     tag = "token_sheets",
     params(LateQuery),
-    responses((status = OK, description = "Late token sheets, oldest first", body = Vec<LateSheet>)),
+    responses((status = OK, description = "Late token sheets, oldest first, as JSON or CSV", content((Vec<LateSheet> = "application/json"), (String = "text/csv")))),
 )]
 pub(crate) async fn list_late(
     State(state): State<AppState>,
     caller: Caller,
     Query(query): Query<LateQuery>,
-) -> Result<Json<Vec<LateSheet>>, ApiError> {
+) -> Result<Response, ApiError> {
     let today = OffsetDateTime::now_utc().date();
     let late = late_sheets(&state.db, caller.organization_id, query.period, today).await?;
+    let filename = query.period.map_or_else(
+        || "late-token-sheets.csv".to_owned(),
+        |period| format!("late-token-sheets-{period}.csv"),
+    );
+    let csv = csv::wants_csv(query.format.as_deref());
     if caller.role == Role::Controller {
-        return Ok(Json(late));
+        return csv::table(&late, LATE_COLUMNS, csv, &filename);
     }
     let scope = Scope::of(&state.db, &caller).await?;
     let tags = sqlx::query!(
@@ -273,8 +290,8 @@ pub(crate) async fn list_late(
                         .any(|filter| filter.matches(person_tags))
                 })
         })
-        .collect();
-    Ok(Json(visible))
+        .collect::<Vec<_>>();
+    csv::table(&visible, LATE_COLUMNS, csv, &filename)
 }
 
 #[cfg(test)]
