@@ -176,15 +176,9 @@ fn count(cells: &BTreeMap<&str, &str>, column: &str) -> Result<u64, String> {
 }
 
 fn entry_from_cells(cells: &BTreeMap<&str, &str>) -> Result<NewTokenEntry, String> {
-    let reported_cost = match cells.get("reported_cost") {
-        None => None,
-        Some(value) => Some(
-            value
-                .replace(',', ".")
-                .parse::<serde_json::Number>()
-                .map_err(|_| format!("reported_cost {value:?} is not a number"))?,
-        ),
-    };
+    let reported_cost = cells
+        .get("reported_cost")
+        .map(|value| super::entry::Amount::Text(value.replace(',', ".")));
     let pull_request = match cells.get("signals.pull_request") {
         None => None,
         Some(value) => Some(
@@ -229,6 +223,9 @@ fn entry_from_cells(cells: &BTreeMap<&str, &str>) -> Result<NewTokenEntry, Strin
         },
         session_id: text(cells, "session_id"),
         messages: Vec::new(),
+        splits: Vec::new(),
+        placed_by: None,
+        local_id: None,
     })
 }
 

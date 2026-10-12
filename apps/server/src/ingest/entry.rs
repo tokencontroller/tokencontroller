@@ -10,7 +10,7 @@ use tokencontroller_core::{Currency, Money};
 use utoipa::ToSchema;
 
 use super::model::TokenCounts;
-use crate::integrations::decimal::money_from_json_number;
+use crate::integrations::decimal::{money_from_decimal, money_from_json_number};
 
 /// The longest agent harness, agent name, model, ticket, project, session
 /// or message ID, tag name or tag value accepted.
@@ -22,8 +22,26 @@ pub const MAX_SUMMARY_LEN: usize = 10_000;
 /// The most messages one token entry may carry.
 pub const MAX_MESSAGES: usize = 20_000;
 
-/// Tag names Token Controller sets itself or takes from their own fields.
-pub const BUILT_IN_TAGS: [&str; 3] = ["person", "ticket", "project"];
+/// The tag name Token Controller sets itself, from the token.
+pub const PERSON_TAG: &str = "person";
+
+/// A decimal amount in US dollars, as a JSON number (`0.031`) or a decimal
+/// string (`"0.031"`), read without floats.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum Amount {
+    Number(serde_json::Number),
+    Text(String),
+}
+
+impl Amount {
+    fn money(&self) -> Result<Money, crate::integrations::decimal::DecimalError> {
+        match self {
+            Self::Number(number) => money_from_json_number(number, Currency::USD),
+            Self::Text(text) => money_from_decimal(text, Currency::USD),
+        }
+    }
+}
 
 /// One token entry as it arrives.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
@@ -49,8 +67,8 @@ pub struct NewTokenEntry {
     /// The agent's own cost figure in US dollars. Without it the list value
     /// is computed from the model and the price table.
     #[serde(default)]
-    #[schema(value_type = Option<f64>)]
-    pub reported_cost: Option<serde_json::Number>,
+    #[schema(value_type = Option<String>, example = "0.031")]
+    pub reported_cost: Option<Amount>,
     /// What the session did, from one line to a short report.
     #[serde(default)]
     pub summary: Option<String>,
@@ -73,6 +91,33 @@ pub struct NewTokenEntry {
     /// session seen by telemetry too is counted exactly once (ADR 0006).
     #[serde(default)]
     pub messages: Vec<NewMessage>,
+    /// How the token entry is split, when it is: segments by message IDs
+    /// (exact) or shares by hand. Without splits it is one split.
+    #[serde(default)]
+    pub splits: Vec<NewSplit>,
+    /// What placed it: a rule's name, `hand`, `classifier` or `none`.
+    #[serde(default)]
+    pub placed_by: Option<String>,
+    /// The sender's own stable ID for this token entry, such as
+    /// `claude-code:<session id>`. Sending it again replaces the earlier one.
+    #[serde(default)]
+    pub local_id: Option<String>,
+}
+
+/// One share of a token entry with its own tags.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct NewSplit {
+    /// A segment: the messages it holds. Exact.
+    #[serde(default)]
+    pub message_ids: Vec<String>,
+    /// A share by hand, in percent.
+    #[serde(default)]
+    pub share_percent: Option<u32>,
+    #[serde(default)]
+    pub tags: BTreeMap<String, String>,
+    #[serde(default)]
+    pub signals: Signals,
 }
 
 /// Facts about a session that hint at its tags.
@@ -102,17 +147,21 @@ pub struct Signals {
 pub struct NewMessage {
     /// The agent harness's ID for this call, unique within the session.
     pub message_id: String,
+    /// The provider's request ID, when the agent harness knows it.
+    #[serde(default)]
+    pub request_id: Option<String>,
     /// The model of this call, when it differs from the token entry's.
     #[serde(default)]
     pub model: Option<String>,
-    #[serde(with = "time::serde::rfc3339")]
+    /// When the call was made.
+    #[serde(with = "time::serde::rfc3339", alias = "occurred_at")]
     #[schema(value_type = String, format = DateTime)]
-    pub occurred_at: OffsetDateTime,
+    pub at: OffsetDateTime,
     pub tokens: TokenCounts,
     /// The agent's own cost figure for this call, in US dollars.
     #[serde(default)]
-    #[schema(value_type = Option<f64>)]
-    pub reported_cost: Option<serde_json::Number>,
+    #[schema(value_type = Option<String>, example = "0.0042")]
+    pub reported_cost: Option<Amount>,
 }
 
 /// A token entry that passed every check, with its amounts read as money.
@@ -130,6 +179,7 @@ pub struct CheckedMessage {
     pub message_id: String,
     pub model: String,
     pub occurred_at: OffsetDateTime,
+    pub request_id: Option<String>,
     pub tokens: TokenCounts,
     pub reported_cost: Option<Money>,
 }
@@ -155,11 +205,12 @@ fn optional_label(field: &str, value: Option<&String>) -> Result<(), EntryError>
     value.map_or(Ok(()), |value| label(field, value))
 }
 
-fn cost(field: &str, value: Option<&serde_json::Number>) -> Result<Option<Money>, EntryError> {
-    let Some(number) = value else {
+fn cost(field: &str, value: Option<&Amount>) -> Result<Option<Money>, EntryError> {
+    let Some(amount) = value else {
         return Ok(None);
     };
-    let money = money_from_json_number(number, Currency::USD)
+    let money = amount
+        .money()
         .map_err(|error| EntryError(format!("{field}: {error}")))?;
     if money.nanos().is_negative() {
         return Err(EntryError(format!("{field} must not be negative")));
@@ -201,21 +252,21 @@ impl NewTokenEntry {
                 "summary is longer than {MAX_SUMMARY_LEN} characters: send what the session did, not its transcript"
             )));
         }
-        for (name, value) in &self.tags {
-            if !is_tag_name(name) {
+        check_tags(&self.tags)?;
+        for (field, value) in [("ticket", &self.ticket), ("project", &self.project)] {
+            if let (Some(field_value), Some(tag_value)) = (value, self.tags.get(field))
+                && field_value != tag_value
+            {
                 return Err(EntryError(format!(
-                    "tag name {name:?} must be lowercase letters, digits, _ or -, starting with a letter"
+                    "{field} is {field_value:?} but tags.{field} is {tag_value:?}: send one"
                 )));
             }
-            if BUILT_IN_TAGS.contains(&name.as_str()) {
-                return Err(EntryError(format!(
-                    "tag {name:?} is built in: send it as its own field, not as a tag"
-                )));
-            }
-            label(&format!("tag {name}"), value)?;
         }
+        optional_label("placed_by", self.placed_by.as_ref())?;
+        optional_label("local_id", self.local_id.as_ref())?;
         let reported_cost = cost("reported_cost", self.reported_cost.as_ref())?;
         let messages = self.check_messages()?;
+        self.check_splits()?;
         Ok(CheckedTokenEntry {
             entry: self,
             reported_cost,
@@ -255,7 +306,8 @@ impl NewTokenEntry {
             checked.push(CheckedMessage {
                 message_id: message.message_id.clone(),
                 model: message.model.clone().unwrap_or_else(|| self.model.clone()),
-                occurred_at: message.occurred_at,
+                occurred_at: message.at,
+                request_id: message.request_id.clone(),
                 tokens: message.tokens,
                 reported_cost: cost("message reported_cost", message.reported_cost.as_ref())?,
             });
@@ -267,6 +319,85 @@ impl NewTokenEntry {
         }
         Ok(checked)
     }
+
+    fn check_splits(&self) -> Result<(), EntryError> {
+        if self.splits.is_empty() {
+            return Ok(());
+        }
+        for split in &self.splits {
+            check_tags(&split.tags)?;
+        }
+        let by_message = self
+            .splits
+            .iter()
+            .all(|split| !split.message_ids.is_empty() && split.share_percent.is_none());
+        let by_share = self
+            .splits
+            .iter()
+            .all(|split| split.message_ids.is_empty() && split.share_percent.is_some());
+        if by_message {
+            let mut covered = std::collections::BTreeSet::new();
+            for id in self.splits.iter().flat_map(|split| &split.message_ids) {
+                if !covered.insert(id.as_str()) {
+                    return Err(EntryError(format!("message {id:?} is in two splits")));
+                }
+            }
+            let messages: std::collections::BTreeSet<&str> = self
+                .messages
+                .iter()
+                .map(|message| message.message_id.as_str())
+                .collect();
+            if covered != messages {
+                return Err(EntryError(
+                    "splits by message must hold every message of the token entry exactly once"
+                        .to_owned(),
+                ));
+            }
+            return Ok(());
+        }
+        if by_share {
+            let total = self
+                .splits
+                .iter()
+                .filter_map(|split| split.share_percent)
+                .try_fold(0_u32, u32::checked_add);
+            if total != Some(100) {
+                return Err(EntryError(
+                    "split shares must add up to 100 percent".to_owned(),
+                ));
+            }
+            if self
+                .splits
+                .iter()
+                .any(|split| split.share_percent == Some(0))
+            {
+                return Err(EntryError(
+                    "a split share must be above 0 percent".to_owned(),
+                ));
+            }
+            return Ok(());
+        }
+        Err(EntryError(
+            "splits are either all by message_ids or all by share_percent".to_owned(),
+        ))
+    }
+}
+
+fn check_tags(tags: &BTreeMap<String, String>) -> Result<(), EntryError> {
+    for (name, value) in tags {
+        if !is_tag_name(name) {
+            return Err(EntryError(format!(
+                "tag name {name:?} must be lowercase letters, digits, _ or -, starting with a letter"
+            )));
+        }
+        if name == PERSON_TAG {
+            return Err(EntryError(
+                "tag \"person\" is set from the token that sends the token entry".to_owned(),
+            ));
+        }
+        label(&format!("tag {name}"), value)?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -338,7 +469,12 @@ mod tests {
                 serde_json::json!({"Team": "web"}),
                 "tag name \"Team\"",
             ),
-            ("tags", serde_json::json!({"person": "ana"}), "built in"),
+            (
+                "tags",
+                serde_json::json!({"person": "ana"}),
+                "set from the token",
+            ),
+            ("tags", serde_json::json!({"project": "web"}), "send one"),
             (
                 "tags",
                 serde_json::json!({"team": ""}),
@@ -369,7 +505,7 @@ mod tests {
         body["session_id"] = serde_json::json!("s-1");
         body["tokens"] = serde_json::json!({"input": 10, "output": 5});
         body["messages"] = serde_json::json!([
-            {"message_id": "m1", "occurred_at": "2026-09-18T09:12:30Z", "tokens": {"input": 4, "output": 2}, "reported_cost": 0.01},
+            {"message_id": "m1", "at": "2026-09-18T09:12:30Z", "request_id": "req_1", "tokens": {"input": 4, "output": 2}, "reported_cost": 0.01},
             {"message_id": "m2", "model": "claude-haiku-5", "occurred_at": "2026-09-18T09:13:30Z", "tokens": {"input": 6, "output": 3}}
         ]);
         let entry = checked(body.clone()).unwrap();
@@ -377,6 +513,7 @@ mod tests {
         assert_eq!(entry.messages[0].model, "claude-sonnet-5");
         assert_eq!(entry.messages[1].model, "claude-haiku-5");
         assert_eq!(entry.messages[0].reported_cost.unwrap().nanos(), 10_000_000);
+        assert_eq!(entry.messages[0].request_id.as_deref(), Some("req_1"));
 
         let mut wrong_sum = body.clone();
         wrong_sum["tokens"]["input"] = serde_json::json!(11);
@@ -394,6 +531,70 @@ mod tests {
         let mut no_session = body;
         no_session.as_object_mut().unwrap().remove("session_id");
         assert!(checked(no_session).unwrap_err().0.contains("session_id"));
+    }
+
+    #[test]
+    fn costs_may_be_numbers_or_decimal_strings() {
+        let mut body = docs_example();
+        body["reported_cost"] = serde_json::json!("0.031");
+        assert_eq!(
+            checked(body).unwrap().reported_cost.unwrap().nanos(),
+            31_000_000
+        );
+        let mut body = docs_example();
+        body["reported_cost"] = serde_json::json!("lots");
+        assert!(checked(body).unwrap_err().0.contains("reported_cost"));
+    }
+
+    fn with_two_messages() -> serde_json::Value {
+        let mut body = docs_example();
+        body["session_id"] = serde_json::json!("s-1");
+        body["tokens"] = serde_json::json!({"input": 3});
+        body["messages"] = serde_json::json!([
+            {"message_id": "m1", "at": "2026-09-18T09:12:30Z", "tokens": {"input": 1}},
+            {"message_id": "m2", "at": "2026-09-18T09:13:30Z", "tokens": {"input": 2}}
+        ]);
+        body
+    }
+
+    #[test]
+    fn splits_by_message_hold_every_message_once() {
+        let mut body = with_two_messages();
+        body["splits"] = serde_json::json!([
+            {"message_ids": ["m1"], "tags": {"ticket": "KD-1"}},
+            {"message_ids": ["m2"], "tags": {"ticket": "KD-2"}, "signals": {"branch": "KD-2-fix"}}
+        ]);
+        assert!(checked(body.clone()).is_ok());
+
+        let mut missing = body.clone();
+        missing["splits"][1]["message_ids"] = serde_json::json!(["m1"]);
+        assert!(checked(missing).unwrap_err().0.contains("in two splits"));
+
+        let mut partial = body;
+        partial["splits"] = serde_json::json!([{"message_ids": ["m1"]}]);
+        assert!(checked(partial).unwrap_err().0.contains("exactly once"));
+    }
+
+    #[test]
+    fn splits_by_share_add_up_to_a_hundred() {
+        let mut body = docs_example();
+        body["splits"] = serde_json::json!([
+            {"share_percent": 60, "tags": {"client": "acme"}},
+            {"share_percent": 40, "tags": {"client": "globex"}}
+        ]);
+        assert!(checked(body.clone()).is_ok());
+
+        let mut short = body.clone();
+        short["splits"][1]["share_percent"] = serde_json::json!(39);
+        assert!(checked(short).unwrap_err().0.contains("100 percent"));
+
+        let mut zero = body.clone();
+        zero["splits"] = serde_json::json!([{"share_percent": 100}, {"share_percent": 0}]);
+        assert!(checked(zero).unwrap_err().0.contains("above 0"));
+
+        let mut mixed = with_two_messages();
+        mixed["splits"] = serde_json::json!([{"share_percent": 50}, {"message_ids": ["m1", "m2"]}]);
+        assert!(checked(mixed).unwrap_err().0.contains("either all"));
     }
 
     #[test]
