@@ -1,0 +1,142 @@
+{
+  "resourceLogs": [
+    {
+      "resource": {
+        "attributes": [
+          { "key": "service.name", "value": { "stringValue": "claude-code" } },
+          { "key": "service.version", "value": { "stringValue": "2.1.290" } },
+          { "key": "os.type", "value": { "stringValue": "darwin" } },
+          { "key": "os.version", "value": { "stringValue": "25.0.0" } },
+          { "key": "host.arch", "value": { "stringValue": "arm64" } },
+          { "key": "team", "value": { "stringValue": "web" } },
+          { "key": "department", "value": { "stringValue": "engineering" } }
+        ],
+        "droppedAttributesCount": 0
+      },
+      "scopeLogs": [
+        {
+          "scope": { "name": "com.anthropic.claude_code.events", "version": "2.1.290" },
+          "logRecords": [
+            {
+              "timeUnixNano": "1791191643512000000",
+              "observedTimeUnixNano": "1791191643512000000",
+              "severityNumber": 0,
+              "body": { "stringValue": "claude_code.api_request" },
+              "attributes": [
+                { "key": "user.id", "value": { "stringValue": "4b8f0a7c2e1d93f65a0c7e2b9d41f8a3c6e05b17d29f84a6c3e1b0d7f5a29c84" } },
+                { "key": "session.id", "value": { "stringValue": "6d1f7a2e-3b4c-4d5e-8f90-1a2b3c4d5e6f" } },
+                { "key": "organization.id", "value": { "stringValue": "0b2c4e6a-8d1f-4a3b-9c5e-7f1a3b5d7e9c" } },
+                { "key": "user.email", "value": { "stringValue": "Ana.Silva@Acme.example" } },
+                { "key": "user.account_uuid", "value": { "stringValue": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d" } },
+                { "key": "user.account_id", "value": { "stringValue": "user_01BWBeN28kQ7fYxR4tLmZ9pS" } },
+                { "key": "terminal.type", "value": { "stringValue": "vscode" } },
+                { "key": "vcs.repository.url.full", "value": { "stringValue": "https://github.com/acme/storefront" } },
+                { "key": "vcs.owner.name", "value": { "stringValue": "acme" } },
+                { "key": "vcs.repository.name", "value": { "stringValue": "storefront" } },
+                { "key": "vcs.provider.name", "value": { "stringValue": "github" } },
+                { "key": "event.name", "value": { "stringValue": "api_request" } },
+                { "key": "event.timestamp", "value": { "stringValue": "2026-10-05T09:14:03.512Z" } },
+                { "key": "event.sequence", "value": { "intValue": 41 } },
+                { "key": "prompt.id", "value": { "stringValue": "9a7c5e3b-1d2f-4e6a-8b0c-2d4f6a8c0e1b" } },
+                { "key": "model", "value": { "stringValue": "claude-sonnet-5" } },
+                { "key": "cost_usd", "value": { "stringValue": "0.0423915" } },
+                { "key": "cost_usd_micros", "value": { "intValue": "42392" } },
+                { "key": "duration_ms", "value": { "stringValue": "8123" } },
+                { "key": "input_tokens", "value": { "stringValue": "1204" } },
+                { "key": "output_tokens", "value": { "stringValue": "1873" } },
+                { "key": "cache_read_tokens", "value": { "stringValue": "48211" } },
+                { "key": "cache_creation_tokens", "value": { "stringValue": "3170" } },
+                { "key": "request_id", "value": { "stringValue": "req_011CXa8bnL9xkqW5tHzP3mYe" } },
+                { "key": "client_request_id", "value": { "stringValue": "7c9e6679-7425-40de-944b-e07fc1f90ae7" } },
+                { "key": "speed", "value": { "stringValue": "normal" } },
+                { "key": "query_source", "value": { "stringValue": "repl_main_thread" } },
+                { "key": "effort", "value": { "stringValue": "high" } }
+              ],
+              "droppedAttributesCount": 0,
+              "traceId": "",
+              "spanId": ""
+            },
+            {
+              "timeUnixNano": 1791191645020000000,
+              "observedTimeUnixNano": 1791191645020000000,
+              "body": { "stringValue": "claude_code.api_request" },
+              "attributes": [
+                { "key": "user.id", "value": { "stringValue": "4b8f0a7c2e1d93f65a0c7e2b9d41f8a3c6e05b17d29f84a6c3e1b0d7f5a29c84" } },
+                { "key": "session.id", "value": { "stringValue": "6d1f7a2e-3b4c-4d5e-8f90-1a2b3c4d5e6f" } },
+                { "key": "user.email", "value": { "stringValue": "Ana.Silva@Acme.example" } },
+                { "key": "user.account_uuid", "value": { "stringValue": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d" } },
+                { "key": "event.name", "value": { "stringValue": "api_request" } },
+                { "key": "event.timestamp", "value": { "stringValue": "2026-10-05T09:14:05.020Z" } },
+                { "key": "event.sequence", "value": { "intValue": "42" } },
+                { "key": "model", "value": { "stringValue": "claude-haiku-4-5" } },
+                { "key": "cost_usd", "value": { "doubleValue": 0.000792 } },
+                { "key": "duration_ms", "value": { "stringValue": "1450" } },
+                { "key": "input_tokens", "value": { "stringValue": "312" } },
+                { "key": "output_tokens", "value": { "stringValue": "96" } },
+                { "key": "cache_read_tokens", "value": { "stringValue": "0" } },
+                { "key": "cache_creation_tokens", "value": { "stringValue": "0" } }
+              ]
+            },
+            {
+              "timeUnixNano": "1791191640100000000",
+              "body": { "stringValue": "claude_code.user_prompt" },
+              "attributes": [
+                { "key": "session.id", "value": { "stringValue": "6d1f7a2e-3b4c-4d5e-8f90-1a2b3c4d5e6f" } },
+                { "key": "event.name", "value": { "stringValue": "user_prompt" } },
+                { "key": "event.timestamp", "value": { "stringValue": "2026-10-05T09:14:00.100Z" } },
+                { "key": "prompt_length", "value": { "stringValue": "42" } },
+                { "key": "prompt", "value": { "stringValue": "<REDACTED>" } },
+                { "key": "prompt_text", "value": { "stringValue": "<REDACTED>" } }
+              ]
+            },
+            {
+              "timeUnixNano": "1791191650300000000",
+              "body": { "stringValue": "claude_code.user_prompt" },
+              "attributes": [
+                { "key": "session.id", "value": { "stringValue": "6d1f7a2e-3b4c-4d5e-8f90-1a2b3c4d5e6f" } },
+                { "key": "event.name", "value": { "stringValue": "user_prompt" } },
+                { "key": "prompt_length", "value": { "stringValue": "33" } },
+                { "key": "prompt", "value": { "stringValue": "Refactor the checkout form to use" } }
+              ]
+            },
+            {
+              "timeUnixNano": "1791191644000000000",
+              "body": { "stringValue": "claude_code.tool_decision" },
+              "attributes": [
+                { "key": "session.id", "value": { "stringValue": "6d1f7a2e-3b4c-4d5e-8f90-1a2b3c4d5e6f" } },
+                { "key": "event.name", "value": { "stringValue": "tool_decision" } },
+                { "key": "tool_name", "value": { "stringValue": "Bash" } },
+                { "key": "decision", "value": { "stringValue": "accept" } },
+                { "key": "source", "value": { "stringValue": "config" } }
+              ]
+            },
+            {
+              "timeUnixNano": "1791191644900000000",
+              "body": { "stringValue": "claude_code.tool_result" },
+              "attributes": [
+                { "key": "session.id", "value": { "stringValue": "6d1f7a2e-3b4c-4d5e-8f90-1a2b3c4d5e6f" } },
+                { "key": "event.name", "value": { "stringValue": "tool_result" } },
+                { "key": "tool_name", "value": { "stringValue": "Bash" } },
+                { "key": "success", "value": { "stringValue": "true" } },
+                { "key": "duration_ms", "value": { "stringValue": "210" } },
+                { "key": "tool_parameters", "value": { "stringValue": "{\"bash_command\":\"git status\",\"full_command\":\"git status --short\"}" } }
+              ]
+            },
+            {
+              "timeUnixNano": "1791191643600000000",
+              "body": { "stringValue": "claude_code.assistant_response" },
+              "attributes": [
+                { "key": "session.id", "value": { "stringValue": "6d1f7a2e-3b4c-4d5e-8f90-1a2b3c4d5e6f" } },
+                { "key": "event.name", "value": { "stringValue": "assistant_response" } },
+                { "key": "response_length", "value": { "stringValue": "2210" } },
+                { "key": "response", "value": { "stringValue": "<REDACTED>" } },
+                { "key": "model", "value": { "stringValue": "claude-sonnet-5" } },
+                { "key": "request_id", "value": { "stringValue": "req_011CXa8bnL9xkqW5tHzP3mYe" } }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
