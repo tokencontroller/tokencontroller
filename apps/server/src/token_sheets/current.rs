@@ -4,7 +4,7 @@
 //! exceptions here, by setting tags or splitting a token entry, then
 //! submits.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use axum::Json;
 use axum::extract::{Path, Query, State};
@@ -12,16 +12,18 @@ use axum::response::{IntoResponse as _, Response};
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use time::{Date, OffsetDateTime};
-use tokencontroller_core::{Currency, Money};
+use tokencontroller_core::{Currency, ExchangeRate, Money};
 use utoipa::ToSchema;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 use uuid::Uuid;
 
+use super::cadence::CadenceKind;
 use super::cadences::cadence_for;
 use super::late::context_for;
 use crate::AppState;
 use crate::bills::amount::format_amount;
+use crate::bills::rates;
 use crate::close::period::{Period, PeriodDates};
 use crate::error::ApiError;
 use crate::ingest::entry::{self, NewSplit};
@@ -74,9 +76,8 @@ pub struct AskedToSubmit {
 pub struct TokenSheet {
     /// The person's name, or their email until they gave one.
     pub person: String,
-    /// `weekly`, `every_two_weeks`, `monthly` or `custom`; `null` when no
-    /// cadence applies.
-    pub cadence: Option<&'static str>,
+    /// `null` when no cadence applies.
+    pub cadence: Option<CadenceKind>,
     /// The cadence period running now.
     #[serde(with = "crate::close::period::day::option")]
     #[schema(value_type = Option<String>, format = Date)]
@@ -95,7 +96,8 @@ pub struct TokenSheet {
     /// Drafts, token entries sent back with a reason, and token entries
     /// with an unknown ticket, oldest first.
     pub token_entries: Vec<EntryView>,
-    /// The list value of the drafts, known models only. A decimal string.
+    /// The list value of the drafts in US dollars, the currency providers
+    /// price in, known models only. A decimal string.
     pub list_value: String,
     pub currency: String,
     /// The share of that list value on tickets, in basis points; `null`
@@ -118,20 +120,57 @@ fn waits_for_person(line: &CostLine) -> bool {
         || line.unknown_ticket.is_some()
 }
 
+/// List values in US dollars, the currency providers price in, for the
+/// review list and a submit. A value in another currency converts at
+/// today's rate; without a rate it is left out, as an unknown model is.
+#[derive(Debug, Clone, Default)]
+pub struct Dollars {
+    rates: BTreeMap<Currency, ExchangeRate>,
+}
+
+impl Dollars {
+    /// Today's rate into dollars for each of `currencies`.
+    ///
+    /// # Errors
+    ///
+    /// A database error.
+    pub async fn load(
+        db: &PgPool,
+        currencies: impl IntoIterator<Item = Currency>,
+        today: Date,
+    ) -> Result<Self, sqlx::Error> {
+        let mut found = BTreeMap::new();
+        for currency in currencies.into_iter().collect::<BTreeSet<_>>() {
+            if let Ok(rate) = rates::between(db, currency, Currency::USD, today).await? {
+                found.insert(currency, rate);
+            }
+        }
+        Ok(Self { rates: found })
+    }
+
+    /// `value` in dollar nanos; `None` without a rate.
+    #[must_use]
+    pub fn nanos(&self, value: Money) -> Option<i128> {
+        let rate = self.rates.get(&value.currency())?;
+        rate.convert(value)
+            .ok()
+            .map(|dollars| i128::from(dollars.nanos()))
+    }
+}
+
 /// The list value of the lines in US dollars and how much of it is on
-/// tickets, in nanos. Lines in another currency or on an unknown model are
-/// left out.
-fn on_tickets<'a>(lines: impl IntoIterator<Item = &'a CostLine>) -> (i128, i128) {
+/// tickets, in nanos. Lines on an unknown model, or in a currency without
+/// a rate today, are left out.
+fn on_tickets<'a>(
+    lines: impl IntoIterator<Item = &'a CostLine>,
+    dollars: &Dollars,
+) -> (i128, i128) {
     let mut total = 0_i128;
     let mut ticketed = 0_i128;
     for line in lines {
-        let Some(value) = line
-            .list_value
-            .filter(|value| value.currency() == Currency::USD)
-        else {
+        let Some(nanos) = line.list_value.and_then(|value| dollars.nanos(value)) else {
             continue;
         };
-        let nanos = i128::from(value.nanos());
         total = total.saturating_add(nanos);
         if line.tags.contains_key("ticket") {
             ticketed = ticketed.saturating_add(nanos);
@@ -258,11 +297,19 @@ pub(crate) async fn current(
         .into_iter()
         .filter(waits_for_person)
         .collect();
-    let (total, ticketed) = on_tickets(
-        waiting
+    let drafts: Vec<&CostLine> = waiting
+        .iter()
+        .filter(|line| line.status == EntryStatus::Draft)
+        .collect();
+    let dollars = Dollars::load(
+        db,
+        drafts
             .iter()
-            .filter(|line| line.status == EntryStatus::Draft),
-    );
+            .filter_map(|line| line.list_value.map(Money::currency)),
+        today,
+    )
+    .await?;
+    let (total, ticketed) = on_tickets(drafts, &dollars);
     let total_money = Money::from_nanos(i64::try_from(total).unwrap_or(i64::MAX), Currency::USD);
     let token_entries = entries::entries(db, waiting).await?;
     if query.wants_csv() {
@@ -274,7 +321,7 @@ pub(crate) async fn current(
         } else {
             person.name
         },
-        cadence: cadence.map(|cadence| cadence.kind().as_str()),
+        cadence: cadence.map(super::cadence::Cadence::kind),
         period_start: context.cadence.as_ref().map(|sheet| sheet.period_start),
         period_end: context.cadence.as_ref().map(|sheet| sheet.period_end),
         due_at: context

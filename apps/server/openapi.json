@@ -3038,7 +3038,7 @@
         "tags": [
           "close"
         ],
-        "summary": "Every period from the first with a token entry or a bill up to this\nmonth, newest first.",
+        "summary": "Every period from the first with a token entry or a bill up to this\nmonth, newest first. Everyone can list them, to pick a period.",
         "operationId": "list_periods",
         "parameters": [
           {
@@ -4401,6 +4401,16 @@
               "type": "string"
             },
             "example": "submitted,approved"
+          },
+          {
+            "name": "person",
+            "in": "query",
+            "description": "Only this agent manager's token entries.",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
           },
           {
             "name": "format",
@@ -7254,6 +7264,16 @@
           }
         }
       },
+      "BillCostSource": {
+        "type": "string",
+        "description": "How a provider charges for what a bill covers: the metered cost sources.\nSeats and subscriptions are flat fees and have no bill. When one\nprovider has bills from several cost sources, its token entries are\ncharged on the first in this order.",
+        "enum": [
+          "usage_at_api_rates",
+          "api_key",
+          "cloud_marketplace",
+          "reseller"
+        ]
+      },
       "BillCsvBill": {
         "type": "object",
         "description": "One bill as the file holds it.",
@@ -7270,7 +7290,7 @@
         ],
         "properties": {
           "cost_source": {
-            "$ref": "#/components/schemas/CostSource"
+            "$ref": "#/components/schemas/BillCostSource"
           },
           "credit": {
             "type": "string",
@@ -7403,7 +7423,7 @@
         ],
         "properties": {
           "cost_source": {
-            "$ref": "#/components/schemas/CostSource"
+            "$ref": "#/components/schemas/BillCostSource"
           },
           "credit": {
             "type": [
@@ -7497,7 +7517,7 @@
         ],
         "properties": {
           "cost_source": {
-            "$ref": "#/components/schemas/CostSource"
+            "$ref": "#/components/schemas/BillCostSource"
           },
           "credit": {
             "type": "string",
@@ -8657,6 +8677,8 @@
           "model",
           "provider",
           "started_at",
+          "ended_at",
+          "tokens",
           "status",
           "automatic",
           "summary",
@@ -8672,7 +8694,15 @@
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "description": "The agent manager's name."
+          },
+          "agent_manager_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
           },
           "agent_name": {
             "type": [
@@ -8687,6 +8717,10 @@
           "currency": {
             "type": "string",
             "example": "USD"
+          },
+          "ended_at": {
+            "type": "string",
+            "format": "date-time"
           },
           "id": {
             "type": "string",
@@ -8731,6 +8765,10 @@
           },
           "summary": {
             "type": "string"
+          },
+          "tokens": {
+            "$ref": "#/components/schemas/TokenCounts",
+            "description": "The whole token entry's tokens, every split together."
           }
         }
       },
@@ -9857,6 +9895,7 @@
           "providers_without_bill",
           "bills_not_final",
           "organization_overhead",
+          "currency",
           "organization_overhead_entries",
           "late_token_sheets",
           "unapproved",
@@ -9876,6 +9915,11 @@
               "type": "string"
             },
             "description": "Providers whose bill may still change, such as Anthropic Enterprise\nbefore its figures are final. The period cannot close until it is."
+          },
+          "currency": {
+            "type": "string",
+            "description": "The reporting currency, which `organization_overhead` is in.",
+            "example": "EUR"
           },
           "late_token_sheets": {
             "type": "integer",
@@ -11493,6 +11537,14 @@
             "type": "string",
             "description": "What placed it, as the review list shows it, such as `rule: ticket\nkey in branch`, `by hand` or `no ticket`."
           },
+          "share_percent": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Its share of the token entry in percent, when it was split by hand;\n`null` for a whole token entry or one split exactly by messages."
+          },
           "tags": {
             "type": "object",
             "additionalProperties": {
@@ -11657,12 +11709,12 @@
           },
           "late": {
             "type": "integer",
-            "description": "Token entries of a closed month, posted to it as late adjustments.",
+            "description": "Token entries of this submit whose month had closed, posted to it as\nlate adjustments.",
             "minimum": 0
           },
           "list_value": {
             "type": "string",
-            "description": "Their list value, known models only. A decimal string."
+            "description": "Their list value in US dollars, the currency providers price in,\nknown models only. A decimal string."
           },
           "share_on_tickets_percent": {
             "type": [
@@ -12621,11 +12673,15 @@
             ]
           },
           "cadence": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "`weekly`, `every_two_weeks`, `monthly` or `custom`; `null` when no\ncadence applies."
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/CadenceKind",
+                "description": "`null` when no cadence applies."
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "currency": {
             "type": "string"
@@ -12644,7 +12700,7 @@
           },
           "list_value": {
             "type": "string",
-            "description": "The list value of the drafts, known models only. A decimal string."
+            "description": "The list value of the drafts in US dollars, the currency providers\nprice in, known models only. A decimal string."
           },
           "period_end": {
             "type": [

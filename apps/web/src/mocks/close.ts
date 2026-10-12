@@ -260,7 +260,7 @@ function readBillInput(input: BillInput): NewBill | string {
   return {
     period: input.period,
     provider: input.provider,
-    cost_source: input.cost_source as BillCostSource,
+    cost_source: input.cost_source,
     currency,
     gross,
     discount,
@@ -721,6 +721,7 @@ export function periodViewOf(db: Db, period: string): PeriodView {
       providers_without_bill: [...without.keys()].sort(compare),
       bills_not_final: notFinal,
       organization_overhead: dec(sum(overhead.map((l) => l.value ?? 0n)), acc.currency),
+      currency: acc.currency,
       organization_overhead_entries: overhead.length,
       late_token_sheets: lateSheets(db, period).length,
       unapproved,
@@ -837,7 +838,7 @@ export function closeHandlers({ API, member, fail, load, now }: { API: string; m
     http.post(`${API}/bills`, member(async ({ db, request }) => {
       const input = (await request.json()) as BillInput;
       if (!isPeriod(input.period)) return rejected(422, `Failed to deserialize the JSON body into the target type: period: ${periodProblem(input.period)}`);
-      if (!BILL_SOURCES.includes(input.cost_source as BillCostSource)) {
+      if (!BILL_SOURCES.includes(input.cost_source)) {
         return rejected(422, `Failed to deserialize the JSON body into the target type: cost_source: unknown variant \`${input.cost_source}\`, expected one of \`usage_at_api_rates\`, \`api_key\`, \`cloud_marketplace\`, \`reseller\``);
       }
       const bill = readBillInput(input);

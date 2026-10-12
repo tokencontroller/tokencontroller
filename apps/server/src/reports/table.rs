@@ -43,6 +43,8 @@ pub struct TableQuery {
     /// `rejected` and `locked`. Left out: every status that counts.
     #[param(example = "submitted,approved")]
     pub status: Option<String>,
+    /// Only this agent manager's token entries.
+    pub person: Option<uuid::Uuid>,
     /// `csv` for a CSV file of every matching token entry, one row per
     /// split.
     pub format: Option<String>,
@@ -61,8 +63,8 @@ pub struct TokenEntriesPage {
     pub offset: usize,
 }
 
-/// Reads `submitted,approved` into statuses. Drafts never reach the
-/// service.
+/// Reads `submitted,approved` into statuses. Drafts stay their agent
+/// manager's own until submitted, so the table never lists them.
 fn statuses(text: Option<&str>) -> Result<Vec<String>, ApiError> {
     let Some(text) = text.map(str::trim).filter(|text| !text.is_empty()) else {
         return Ok([
@@ -114,7 +116,15 @@ pub(crate) async fn token_entries(
         with_late: true,
     };
     let scope = Scope::of(&state.db, &caller).await?;
-    let lines = lines::fetch(&state.db, &line_query, &scope).await?;
+    let lines = lines::fetch(&state.db, &line_query, &scope)
+        .await?
+        .into_iter()
+        .filter(|line| {
+            query
+                .person
+                .is_none_or(|person| line.agent_manager_id == Some(person))
+        })
+        .collect();
     let views = entries::entries(&state.db, lines).await?;
     if query.format.as_deref() == Some("csv") {
         let filename = query.period.map_or_else(

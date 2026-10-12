@@ -74,7 +74,7 @@ function andList(items: string[]): string {
 /** The cadence period running now, when it is due, or that there is no cadence. */
 function CadenceKpi({ sheet }: { sheet: TokenSheet }) {
   if (!sheet.period_start || !sheet.period_end) return <Kpi label="Cadence period" value="none" note="No cadence: submit whenever you like." />;
-  const kind = sheet.cadence && sheet.cadence in cadenceKindText ? cadenceKindText[sheet.cadence as keyof typeof cadenceKindText] : "Cadence";
+  const kind = sheet.cadence && sheet.cadence in cadenceKindText ? cadenceKindText[sheet.cadence] : "Cadence";
   return (
     <Kpi
       label="Cadence period"
