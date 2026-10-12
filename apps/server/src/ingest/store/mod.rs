@@ -6,6 +6,7 @@
 //! entries inside its own transaction, such as a token sheet submit.
 
 mod entries;
+mod place;
 mod rebuild;
 mod telemetry;
 
@@ -136,6 +137,9 @@ pub struct StoredEntry {
     pub currency: Currency,
     /// The cost kind of its largest split.
     pub cost_kind: CostKind,
+    /// Tag names that were sent but are not on the organization's list, so
+    /// they were left out.
+    pub dropped_tags: Vec<String>,
 }
 
 /// A stored token entry as the API answers with it.
@@ -150,6 +154,9 @@ pub struct StoredEntryBody {
     pub currency: String,
     /// `direct`, `project_overhead` or `organization_overhead`.
     pub cost_kind: &'static str,
+    /// Tag names that were sent but are not on the organization's list, so
+    /// they were left out.
+    pub dropped_tags: Vec<String>,
 }
 
 impl From<&StoredEntry> for StoredEntryBody {
@@ -161,6 +168,7 @@ impl From<&StoredEntry> for StoredEntryBody {
             list_value: entry.list_value.map(money_text),
             currency: entry.currency.code(),
             cost_kind: cost_kind_name(entry.cost_kind),
+            dropped_tags: entry.dropped_tags.clone(),
         }
     }
 }

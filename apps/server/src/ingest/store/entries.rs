@@ -6,7 +6,8 @@ use sqlx::PgConnection;
 use tokencontroller_core::{Currency, Money, TokenCounts};
 use uuid::Uuid;
 
-use super::rebuild::{OrgContext, org_context, rebuild};
+use super::place::{OrgContext, org_context};
+use super::rebuild::rebuild;
 use super::{Door, Pricing, StoreError, StoredEntry, to_i64};
 use crate::ingest::entry::{CheckedMessage, CheckedTokenEntry, NewTokenEntry};
 use crate::ingest::provider;
@@ -159,6 +160,7 @@ async fn store_one(
         list_value: rebuilt.list_value,
         currency: Currency::USD,
         cost_kind: rebuilt.cost_kind,
+        dropped_tags: rebuilt.dropped_tags,
     })
 }
 

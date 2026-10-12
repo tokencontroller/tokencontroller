@@ -15,17 +15,72 @@ use uuid::Uuid;
 
 async fn organization(pool: &PgPool) -> Result<(Uuid, Uuid), sqlx::Error> {
     let organization: Uuid = sqlx::query_scalar(
-        "INSERT INTO organizations (name) VALUES ('Kestrel Digital') RETURNING id",
+        "INSERT INTO organizations (name, slug) VALUES ('Kestrel Digital', 'kestrel') RETURNING id",
     )
     .fetch_one(pool)
     .await?;
     let person: Uuid = sqlx::query_scalar(
-        "INSERT INTO people (organization_id, email, name) VALUES ($1, 'mara@kestrel.example', 'Mara') RETURNING id",
+        "INSERT INTO people (organization_id, email, name, tags)
+         VALUES ($1, 'mara@kestrel.example', 'Mara', '{\"team\": \"web\"}') RETURNING id",
     )
     .bind(organization)
     .fetch_one(pool)
     .await?;
+    sqlx::query(
+        "INSERT INTO tag_names (organization_id, name) VALUES ($1, 'team'), ($1, 'client')",
+    )
+    .bind(organization)
+    .execute(pool)
+    .await?;
+    let project: Uuid = sqlx::query_scalar(
+        "INSERT INTO projects (organization_id, name, ticket_key_pattern, tags)
+         VALUES ($1, 'storefront', '^KD-\\d+', '{\"client\": \"acme\"}') RETURNING id",
+    )
+    .bind(organization)
+    .fetch_one(pool)
+    .await?;
+    sqlx::query(
+        "INSERT INTO project_repositories (organization_id, repository, project_id)
+         VALUES ($1, 'kestrel/storefront', $2)",
+    )
+    .bind(organization)
+    .bind(project)
+    .execute(pool)
+    .await?;
+    sqlx::query("INSERT INTO tickets (organization_id, key, project_id, title) VALUES ($1, 'KD-214', $2, 'Cart total')")
+        .bind(organization)
+        .bind(project)
+        .execute(pool)
+        .await?;
     Ok((organization, person))
+}
+
+async fn split_tags(
+    pool: &PgPool,
+    entry: Uuid,
+) -> Result<Vec<Vec<(String, String, String)>>, sqlx::Error> {
+    let rows: Vec<(i32, String, String, String)> = sqlx::query_as(
+        "SELECT s.position, t.name, t.value, t.source FROM split_tags t JOIN splits s ON s.id = t.split_id
+         WHERE s.token_entry_id = $1 ORDER BY s.position, t.name",
+    )
+    .bind(entry)
+    .fetch_all(pool)
+    .await?;
+    let mut splits: Vec<Vec<(String, String, String)>> = Vec::new();
+    for (position, name, value, source) in rows {
+        let position = usize::try_from(position).unwrap_or_default();
+        while splits.len() <= position {
+            splits.push(Vec::new());
+        }
+        if let Some(split) = splits.get_mut(position) {
+            split.push((name, value, source));
+        }
+    }
+    Ok(splits)
+}
+
+fn tag(name: &str, value: &str, source: &str) -> (String, String, String) {
+    (name.to_owned(), value.to_owned(), source.to_owned())
 }
 
 /// Prices every model at one nano-dollar per token.
@@ -378,4 +433,96 @@ async fn a_broken_entry_stores_nothing(pool: PgPool) {
         .await
         .unwrap();
     assert_eq!(count, 0);
+}
+
+#[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
+async fn the_core_places_a_ticket_in_the_branch_with_its_project_and_tags(pool: PgPool) {
+    let (organization, person) = organization(&pool).await.unwrap();
+    let sent = entry(&serde_json::json!({
+        "signals": { "branch": "feature/KD-214-cart-total" },
+        "tags": { "purpose": "feature" },
+    }))
+    .unwrap();
+    let stored = submit(&pool, organization, person, vec![sent], Door::TokenSheet)
+        .await
+        .unwrap();
+    assert_eq!(stored[0].dropped_tags, vec!["purpose".to_owned()]);
+    assert_eq!(
+        split_tags(&pool, stored[0].id).await.unwrap(),
+        vec![vec![
+            tag("client", "acme", "inherited"),
+            tag("person", "mara@kestrel.example", "person"),
+            tag("project", "storefront", "ticket"),
+            tag("team", "web", "inherited"),
+            tag("ticket", "KD-214", "rule"),
+        ]]
+    );
+    let placed_by: String =
+        sqlx::query_scalar("SELECT placed_by FROM splits WHERE token_entry_id = $1")
+            .bind(stored[0].id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(placed_by, "rule: ticket key in branch");
+}
+
+#[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
+async fn telemetry_lands_on_the_project_of_its_repository(pool: PgPool) {
+    let (organization, _) = organization(&pool).await.unwrap();
+    let mut first = call("s7", "msg_1", datetime!(2026-10-05 09:00 UTC), 10);
+    first.repository = Some("github.com/kestrel/storefront".to_owned());
+    first
+        .attributes
+        .insert("team".to_owned(), "platform".to_owned());
+    first
+        .attributes
+        .insert("os.type".to_owned(), "linux".to_owned());
+    record(&pool, organization, vec![first]).await.unwrap();
+
+    let entry: Uuid = sqlx::query_scalar("SELECT id FROM token_entries WHERE session_id = 's7'")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        split_tags(&pool, entry).await.unwrap(),
+        vec![vec![
+            tag("client", "acme", "inherited"),
+            tag("person", "mara@kestrel.example", "person"),
+            tag("project", "storefront", "rule"),
+            tag("team", "platform", "telemetry"),
+        ]]
+    );
+}
+
+#[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
+async fn segments_that_end_up_with_the_same_tags_are_one_split(pool: PgPool) {
+    let (organization, person) = organization(&pool).await.unwrap();
+    let sent = entry(&serde_json::json!({
+        "session_id": "s8",
+        "tokens": { "input": 60 },
+        "messages": [
+            { "message_id": "m1", "at": "2026-10-05T09:00:00Z", "tokens": { "input": 10 } },
+            { "message_id": "m2", "at": "2026-10-05T09:10:00Z", "tokens": { "input": 20 } },
+            { "message_id": "m3", "at": "2026-10-05T09:20:00Z", "tokens": { "input": 30 } },
+        ],
+        "splits": [
+            { "message_ids": ["m1"], "signals": { "branch": "KD-214-cart" } },
+            { "message_ids": ["m2"], "signals": { "branch": "main" } },
+            { "message_ids": ["m3"], "signals": { "branch": "KD-214-cart" } },
+        ],
+    }))
+    .unwrap();
+    let stored = submit(&pool, organization, person, vec![sent], Door::TokenSheet)
+        .await
+        .unwrap();
+    let splits: Vec<(i64, String)> = sqlx::query_as(
+        "SELECT s.input_tokens, COALESCE(t.value, '') FROM splits s
+         LEFT JOIN split_tags t ON t.split_id = s.id AND t.name = 'ticket'
+         WHERE s.token_entry_id = $1 ORDER BY s.position",
+    )
+    .bind(stored[0].id)
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(splits, vec![(40, "KD-214".to_owned()), (20, String::new())]);
 }

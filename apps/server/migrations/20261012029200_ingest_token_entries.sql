@@ -111,6 +111,12 @@ CREATE TABLE splits (
     list_value_nanos BIGINT,
     billed_value_nanos BIGINT,
     signals JSONB NOT NULL DEFAULT '{}',
+    -- What placed it, as the review list shows it: `rule: ticket key in
+    -- branch`, `by hand`, `config file`, `matched by summary` or `no ticket`.
+    placed_by TEXT NOT NULL,
+    -- Its ticket matched a pattern but is not known yet; it fills in at the
+    -- next ticket sync.
+    ticket_not_synced BOOLEAN NOT NULL DEFAULT false,
     UNIQUE (token_entry_id, position)
 );
 
@@ -121,8 +127,10 @@ CREATE TABLE split_tags (
     organization_id UUID NOT NULL REFERENCES organizations (id) ON DELETE CASCADE,
     name TEXT NOT NULL,
     value TEXT NOT NULL,
-    -- sent: with the token entry. rule, person, project, ticket, repository,
-    -- telemetry: where it came from.
+    -- Where it came from: sent (with the token entry or by hand), telemetry
+    -- (resource attributes), rule, summary (matched by summary), ticket (the
+    -- ticket and the project it brings), person (the agent manager) or
+    -- inherited (from the person, project or ticket records).
     source TEXT NOT NULL,
     PRIMARY KEY (split_id, name)
 );

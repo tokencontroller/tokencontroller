@@ -52,7 +52,7 @@ async fn a_job_runs_once_per_interval_and_writes_its_heartbeat(pool: PgPool) {
     );
     assert_eq!(runs.load(Ordering::SeqCst), 1);
 
-    let beats = jobs::heartbeats(&pool).await.unwrap();
+    let beats = jobs::runs(&pool).await.unwrap();
     assert_eq!(beats.len(), 1);
     assert_eq!(beats[0].job, "example");
     assert_eq!(beats[0].runs, 1);
@@ -65,10 +65,10 @@ async fn a_job_runs_once_per_interval_and_writes_its_heartbeat(pool: PgPool) {
 async fn a_run_on_demand_is_due_at_once(pool: PgPool) {
     let state = state(pool.clone());
     let runs = Arc::new(AtomicU32::new(0));
-    let job = counting_job("on_demand", Arc::clone(&runs), false);
+    let job = counting_job("on-demand", Arc::clone(&runs), false);
 
     jobs::run_if_due(&state, &job).await.unwrap();
-    jobs::request_now(&pool, "on_demand").await.unwrap();
+    jobs::request_now(&pool, "on-demand").await.unwrap();
     assert_eq!(
         jobs::run_if_due(&state, &job).await.unwrap(),
         Attempt::Ran { succeeded: true }
@@ -121,7 +121,7 @@ async fn a_failed_run_keeps_its_error_until_the_next_success(pool: PgPool) {
     );
     jobs::request_now(&pool, "flaky").await.unwrap();
     jobs::run_if_due(&state, &failing).await.unwrap();
-    let beat = &jobs::heartbeats(&pool).await.unwrap()[0];
+    let beat = &jobs::runs(&pool).await.unwrap()[0];
     assert_eq!(beat.failures_in_a_row, 2);
     assert_eq!(beat.last_error.as_deref(), Some("the provider said no"));
     assert_eq!(beat.last_succeeded_at, None);
@@ -129,7 +129,7 @@ async fn a_failed_run_keeps_its_error_until_the_next_success(pool: PgPool) {
     let working = counting_job("flaky", Arc::clone(&runs), false);
     jobs::request_now(&pool, "flaky").await.unwrap();
     jobs::run_if_due(&state, &working).await.unwrap();
-    let beat = &jobs::heartbeats(&pool).await.unwrap()[0];
+    let beat = &jobs::runs(&pool).await.unwrap()[0];
     assert_eq!(beat.failures_in_a_row, 0);
     assert_eq!(beat.last_error, None);
     assert_eq!(beat.runs, 3);
@@ -143,7 +143,7 @@ async fn a_job_is_due_again_once_its_interval_has_passed(pool: PgPool) {
 
     jobs::run_if_due(&state, &job).await.unwrap();
     sqlx::query(
-        "UPDATE job_heartbeats SET last_started_at = now() - interval '59 minutes' WHERE job = 'hourly'",
+        "UPDATE job_runs SET last_started_at = now() - interval '59 minutes' WHERE job = 'hourly'",
     )
     .execute(&pool)
     .await
@@ -153,7 +153,7 @@ async fn a_job_is_due_again_once_its_interval_has_passed(pool: PgPool) {
         Attempt::NotDue
     );
     sqlx::query(
-        "UPDATE job_heartbeats SET last_started_at = now() - interval '61 minutes' WHERE job = 'hourly'",
+        "UPDATE job_runs SET last_started_at = now() - interval '61 minutes' WHERE job = 'hourly'",
     )
     .execute(&pool)
     .await

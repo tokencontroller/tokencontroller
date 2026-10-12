@@ -8,7 +8,8 @@ use sqlx::PgConnection;
 use tokencontroller_core::Money;
 use uuid::Uuid;
 
-use super::rebuild::{org_context, rebuild};
+use super::place::org_context;
+use super::rebuild::rebuild;
 use super::{Pricing, StoreError, to_i64};
 use crate::ingest::model::TelemetryMessage;
 use crate::ingest::provider;

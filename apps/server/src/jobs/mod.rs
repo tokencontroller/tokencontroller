@@ -48,8 +48,8 @@ pub type JobFn = Arc<
 /// One background job.
 #[derive(Clone)]
 pub struct Job {
-    /// A stable name, such as `price_refresh`. It names the heartbeat row and
-    /// the advisory lock.
+    /// A stable name, such as `price-tables`: lower-case words with dashes.
+    /// It names the job's row, its heartbeat and its advisory lock.
     pub name: &'static str,
     /// How long after one start the next run is due.
     pub every: Duration,
@@ -81,9 +81,9 @@ impl std::fmt::Debug for Job {
     }
 }
 
-/// A job's heartbeat, as the status endpoint shows it.
+/// A job's runs so far.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, ToSchema)]
-pub struct Heartbeat {
+pub struct JobRun {
     pub job: String,
     #[serde(with = "time::serde::rfc3339::option")]
     pub last_started_at: Option<OffsetDateTime>,
@@ -97,17 +97,17 @@ pub struct Heartbeat {
     pub failures_in_a_row: i32,
 }
 
-/// Every job's heartbeat, by name.
+/// Every job's runs so far, by name.
 ///
 /// # Errors
 ///
 /// Fails if the query fails.
-pub async fn heartbeats(db: &PgPool) -> Result<Vec<Heartbeat>, sqlx::Error> {
+pub async fn runs(db: &PgPool) -> Result<Vec<JobRun>, sqlx::Error> {
     sqlx::query_as!(
-        Heartbeat,
+        JobRun,
         "SELECT job, last_started_at, last_finished_at, last_succeeded_at, last_error,
                 runs, failures_in_a_row
-         FROM job_heartbeats ORDER BY job"
+         FROM job_runs ORDER BY job"
     )
     .fetch_all(db)
     .await
@@ -121,7 +121,7 @@ pub async fn heartbeats(db: &PgPool) -> Result<Vec<Heartbeat>, sqlx::Error> {
 /// Fails if the query fails.
 pub async fn request_now(db: &PgPool, job: &str) -> Result<(), sqlx::Error> {
     sqlx::query!(
-        "INSERT INTO job_heartbeats (job, requested_at) VALUES ($1, now())
+        "INSERT INTO job_runs (job, requested_at) VALUES ($1, now())
          ON CONFLICT (job) DO UPDATE SET requested_at = now()",
         job
     )
@@ -151,7 +151,7 @@ async fn is_due(connection: &mut sqlx::PgConnection, job: &Job) -> anyhow::Resul
              SELECT last_started_at IS NULL
                  OR COALESCE(requested_at >= last_started_at, false)
                  OR last_started_at <= now() - make_interval(secs => $2::bigint / 1000.0)
-             FROM job_heartbeats WHERE job = $1
+             FROM job_runs WHERE job = $1
            ), true) AS "due!""#,
         job.name,
         every_ms
@@ -213,7 +213,7 @@ async fn run_locked(
         return Ok(Attempt::NotDue);
     }
     sqlx::query!(
-        "INSERT INTO job_heartbeats (job, last_started_at) VALUES ($1, now())
+        "INSERT INTO job_runs (job, last_started_at) VALUES ($1, now())
          ON CONFLICT (job) DO UPDATE SET last_started_at = now()",
         job.name
     )
@@ -234,7 +234,7 @@ async fn run_locked(
     }
     let error = outcome.err().map(|error| format!("{error:#}"));
     sqlx::query!(
-        "UPDATE job_heartbeats SET
+        "UPDATE job_runs SET
              last_finished_at = now(),
              last_succeeded_at = CASE WHEN $2 THEN now() ELSE last_succeeded_at END,
              last_error = $3,
