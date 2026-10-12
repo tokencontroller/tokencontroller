@@ -1,6 +1,6 @@
 //! Token entries from the endpoint, token sheets, manual entry and CSV
 //! import. A token entry for a session telemetry already reported takes
-//! over that session's token entry (ADR 0014).
+//! over that session's token entry (ADR 0017).
 
 use sqlx::PgConnection;
 use tokencontroller_core::{Currency, Money, TokenCounts};

@@ -1,6 +1,6 @@
 //! Telemetry: one message per model call. A session nobody has claimed gets
 //! an automatic token entry built from its calls; a claimed session only
-//! gains the calls its token entry did not know (ADR 0014).
+//! gains the calls its token entry did not know (ADR 0017).
 
 use std::collections::BTreeMap;
 

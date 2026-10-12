@@ -1,6 +1,6 @@
 //! Storing what the doors bring in: model calls as messages, token entries
 //! summed from them, and their splits with every tag copied (ADR 0006, ADR
-//! 0008, ADR 0014).
+//! 0008, ADR 0017).
 //!
 //! Every function here takes a connection, so a caller can store token
 //! entries inside its own transaction, such as a token sheet submit.

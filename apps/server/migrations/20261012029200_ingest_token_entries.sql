@@ -54,7 +54,7 @@ CREATE TABLE token_entries (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- One token entry per session (ADR 0014), and per sender ID.
+-- One token entry per session (ADR 0017), and per sender ID.
 CREATE UNIQUE INDEX token_entries_session ON token_entries (organization_id, session_id)
     WHERE session_id IS NOT NULL;
 CREATE UNIQUE INDEX token_entries_local_id ON token_entries (organization_id, local_id)
@@ -86,7 +86,7 @@ CREATE TABLE messages (
     kind TEXT NOT NULL CHECK (kind IN ('real', 'built', 'stand_in')),
     from_telemetry BOOLEAN NOT NULL DEFAULT false,
     from_entry BOOLEAN NOT NULL DEFAULT false,
-    -- Whether it is summed into its token entry (ADR 0014).
+    -- Whether it is summed into its token entry (ADR 0017).
     counts BOOLEAN NOT NULL DEFAULT true,
     -- The split it belongs to, for splits by segment.
     split_position INTEGER,

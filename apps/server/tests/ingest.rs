@@ -1,6 +1,6 @@
 //! Storing token entries and telemetry against a real Postgres database:
 //! one row per model call, one token entry per session, whichever door a
-//! call came through first (ADR 0006, ADR 0014).
+//! call came through first (ADR 0006, ADR 0017).
 
 use std::collections::BTreeMap;
 
