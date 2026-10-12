@@ -4,6 +4,9 @@
 //! add up (money, splits, reconciliation, rules) lives here so the service and
 //! the command line compute the same answer.
 
+pub mod bill;
+pub mod close;
+pub mod cost_sheet;
 pub mod directory;
 pub mod entry;
 pub mod extension;
@@ -15,12 +18,16 @@ pub mod pattern;
 pub mod period;
 pub mod placement;
 pub mod price;
+pub mod report;
 pub mod rules;
 pub mod status;
 pub mod tag_map;
 pub mod tags;
 pub mod tokens;
 
+pub use bill::{Bill, BillError, Reconciliation};
+pub use close::{CloseCheck, ClosedPeriod};
+pub use cost_sheet::{Adjustment, CostSheet, CostSheetRequest};
 pub use directory::{Directory, Person, Project, Ticket};
 pub use entry::{HandShare, Segment, Split, Splits, TokenEntry};
 pub use extension::{Extension, NoExtension};
@@ -31,6 +38,7 @@ pub use organization::Organization;
 pub use period::Period;
 pub use placement::{PlacedBy, Placement, PlacementRequest, SummaryMatcher};
 pub use price::{Figure, ModelPrice, PriceTable, Valuation};
+pub use report::{TokenBudget, group_by, shares};
 pub use rules::{Rule, SeveralKeys};
 pub use status::{Arrival, CostSource, Status};
 pub use tag_map::{CostCenter, CostKind, CostObject, TagMap};
