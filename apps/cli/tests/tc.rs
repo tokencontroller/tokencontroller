@@ -559,12 +559,30 @@ fn a_token_sheet_is_submitted_with_keys_but_never_prompts() {
     assert_eq!(claude["splits"][0]["tags"]["ticket"], "KD-214");
     assert_eq!(claude["placed_by"], "rule: ticket key in branch");
 
-    // Submitted entries leave the review list; a second submit sends nothing.
+    // Submitted entries leave the review list. A second submit sends an
+    // empty token sheet: nothing to report, so the sheet is not late.
     let review: Value =
         serde_json::from_str(&machine.tc_with(&["review", "--json"], &env, "").unwrap()).unwrap();
     assert_eq!(review["token_entries"].as_array().map(Vec::len), Some(0));
     let again = machine.tc_with(&["submit"], &env, "").unwrap();
-    assert!(again.starts_with("Nothing to submit"), "{again}");
+    assert_eq!(again.trim(), "submitted token sheet · nothing to report");
+    let seen = service.seen();
+    let submits: Vec<&Seen> = seen
+        .iter()
+        .filter(|seen| seen.path == "/api/v1/token-sheets/submit")
+        .collect();
+    assert_eq!(submits.len(), 2);
+    assert_eq!(
+        submits.last().map(|seen| &seen.body),
+        Some(&json!({"token_entries": []}))
+    );
+}
+
+#[test]
+fn with_no_drafts_and_no_service_there_is_nothing_to_submit() {
+    let machine = Machine::new().unwrap();
+    let said = machine.tc(&["submit"]).unwrap();
+    assert!(said.starts_with("Nothing to submit"), "{said}");
 }
 
 #[test]
