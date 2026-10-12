@@ -818,15 +818,6 @@ async fn every_table_downloads_as_csv(pool: PgPool) {
     )
     .await
     .unwrap();
-    call(
-        &kestrel.app,
-        Method::POST,
-        "/api/v1/reports/saved",
-        &kestrel.controller,
-        Some(json!({"name": "Web by ticket", "filter": "team:web", "by": "ticket"})),
-    )
-    .await
-    .unwrap();
     let tables = [
         (
             "/api/v1/bills?period=2026-09&format=csv",
@@ -852,11 +843,6 @@ async fn every_table_downloads_as_csv(pool: PgPool) {
             "/api/v1/periods/2026-09/cost-sheet/links?format=csv",
             "period,created_by,created_at,revoked_at",
             "2026-09,,",
-        ),
-        (
-            "/api/v1/reports/saved?format=csv",
-            "name,filter,by,created_by,created_at",
-            "Web by ticket,team: web,ticket,,",
         ),
         (
             "/api/v1/token-sheets/late?format=csv",
@@ -903,4 +889,101 @@ async fn every_table_downloads_as_csv(pool: PgPool) {
         "{}",
         review.text()
     );
+}
+
+/// The September bill from Anthropic as a pull brings it: 10.00 USD, final
+/// or not yet.
+fn pulled(is_final: bool) -> TestResult<tokencontroller_server::bills::NewBill> {
+    let usd = |cents| {
+        tokencontroller_core::Money::from_minor_units(cents, tokencontroller_core::Currency::USD)
+    };
+    Ok(tokencontroller_server::bills::NewBill {
+        period: tokencontroller_core::Period::parse("2026-09")?,
+        provider: "anthropic".to_owned(),
+        cost_source: tokencontroller_server::bills::CostSource::UsageAtApiRates,
+        gross: usd(1000)?,
+        discount: usd(0)?,
+        credit: usd(0)?,
+        net: usd(1000)?,
+        exchange_rate: None,
+        source: tokencontroller_server::bills::BillSource::Pulled,
+        lines: Vec::new(),
+        recorded_by: None,
+        is_final,
+    })
+}
+
+#[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
+async fn the_close_waits_for_a_bill_that_is_not_final(pool: PgPool) {
+    let kestrel = kestrel(&pool).await.unwrap();
+    let early = tokencontroller_server::bills::record_bill(
+        &pool,
+        kestrel.organization_id,
+        pulled(false).unwrap(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert!(early.changed);
+    assert!(!early.bill.is_final);
+    let view = call(
+        &kestrel.app,
+        Method::GET,
+        "/api/v1/periods/2026-09",
+        &kestrel.controller,
+        None,
+    )
+    .await
+    .unwrap()
+    .json();
+    assert_eq!(view["can_close"], false, "{view}");
+    assert_eq!(
+        view["open_items"]["bills_not_final"][0], "anthropic",
+        "{view}"
+    );
+    let waiting = call(
+        &kestrel.app,
+        Method::POST,
+        "/api/v1/periods/2026-09/close",
+        &kestrel.controller,
+        None,
+    )
+    .await
+    .unwrap();
+    assert_eq!(waiting.status, StatusCode::CONFLICT, "{}", waiting.text());
+    assert!(waiting.text().contains("not final"), "{}", waiting.text());
+
+    // The same figures, now final: no new revision, and the close goes ahead.
+    let settled = tokencontroller_server::bills::record_bill(
+        &pool,
+        kestrel.organization_id,
+        pulled(true).unwrap(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert!(settled.changed);
+    assert!(settled.bill.is_final);
+    assert_eq!(settled.bill.revision, 1);
+    // A final bill never goes back.
+    let again = tokencontroller_server::bills::record_bill(
+        &pool,
+        kestrel.organization_id,
+        pulled(false).unwrap(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert!(!again.changed);
+    assert!(again.bill.is_final);
+    let closed = call(
+        &kestrel.app,
+        Method::POST,
+        "/api/v1/periods/2026-09/close",
+        &kestrel.controller,
+        None,
+    )
+    .await
+    .unwrap();
+    assert_eq!(closed.status, StatusCode::OK, "{}", closed.text());
 }

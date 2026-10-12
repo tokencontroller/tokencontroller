@@ -65,14 +65,12 @@ pub struct SaveInput {
     get,
     path = "/reports/saved",
     tag = "reports",
-    params(super::csv::FormatQuery),
-    responses((status = OK, description = "Saved reports, as JSON or CSV", content((Vec<SavedReport> = "application/json"), (String = "text/csv")))),
+    responses((status = OK, description = "Saved reports", body = Vec<SavedReport>)),
 )]
 pub(crate) async fn list_saved(
     State(state): State<AppState>,
     caller: Caller,
-    Query(query): Query<super::csv::FormatQuery>,
-) -> Result<Response, ApiError> {
+) -> Result<Json<Vec<SavedReport>>, ApiError> {
     caller.require_credential(READERS)?;
     let saved = sqlx::query!(
         r#"SELECT r.id, r.name, r.filter, r.group_by, p.name AS "created_by?", r.created_at
@@ -92,23 +90,9 @@ pub(crate) async fn list_saved(
         created_by: row.created_by,
         created_at: row.created_at,
     })
-    .collect::<Vec<_>>();
-    super::csv::table(
-        &saved,
-        SAVED_COLUMNS,
-        query.wants_csv(),
-        "saved-reports.csv",
-    )
+    .collect();
+    Ok(Json(saved))
 }
-
-/// The columns of the saved reports table and its CSV file.
-const SAVED_COLUMNS: &[super::csv::Column] = &[
-    ("name", "/name"),
-    ("filter", "/filter"),
-    ("by", "/by"),
-    ("created_by", "/created_by"),
-    ("created_at", "/created_at"),
-];
 
 /// Save a tag filter with a grouping as a report.
 #[utoipa::path(
