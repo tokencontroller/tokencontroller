@@ -29,6 +29,10 @@ pub enum MoneyError {
     Overflow,
     #[error("a split needs at least one part with a weight above zero")]
     NoWeights,
+    #[error("{0:?} is not an amount: use digits with at most nine after the point, such as 12.34")]
+    InvalidAmount(String),
+    #[error("{0:?} is not an exchange rate: use a number above zero, such as 0.9234")]
+    InvalidRate(String),
 }
 
 /// An ISO 4217 currency code, such as `EUR` or `USD`.
@@ -72,6 +76,22 @@ impl Currency {
             b"BHD" | b"IQD" | b"JOD" | b"KWD" | b"LYD" | b"OMR" | b"TND" => 3,
             b"CLF" | b"UYW" => 4,
             _ => 2,
+        }
+    }
+
+    /// A whole number of minor units written as a decimal number without the
+    /// currency code, such as `12.35` for 1,235 cents: the form CSV exports use.
+    #[must_use]
+    pub fn format_minor_units(self, minor_units: i64) -> String {
+        let digits = self.minor_unit_digits();
+        let sign = if minor_units.is_negative() { "-" } else { "" };
+        let magnitude = minor_units.unsigned_abs();
+        let scale = 10_u64.checked_pow(digits).unwrap_or(1);
+        let units = magnitude.checked_div(scale).unwrap_or(0);
+        let fraction = magnitude.checked_rem(scale).unwrap_or(0);
+        match usize::try_from(digits) {
+            Ok(width) if width > 0 => format!("{sign}{units}.{fraction:0width$}"),
+            _ => format!("{sign}{units}"),
         }
     }
 
@@ -138,6 +158,19 @@ impl Money {
             .checked_mul(currency.nanos_per_minor_unit())
             .map(|nanos| Self { nanos, currency })
             .ok_or(MoneyError::Overflow)
+    }
+
+    /// Reads an amount written as a decimal number in whole units, such as
+    /// `"12.34"` or `"-0.000000001"`, as CSV files and the API carry it.
+    ///
+    /// # Errors
+    ///
+    /// [`MoneyError::InvalidAmount`] unless the text is digits with an
+    /// optional sign and at most nine digits after the point.
+    pub fn parse(amount: &str, currency: Currency) -> Result<Self, MoneyError> {
+        parse_billionths(amount)
+            .map(|nanos| Self { nanos, currency })
+            .ok_or_else(|| MoneyError::InvalidAmount(amount.to_owned()))
     }
 
     /// The amount in nano-units.
@@ -226,6 +259,34 @@ impl Money {
         } else {
             whole.saturating_add(1)
         }
+    }
+
+    /// Rounds a list of amounts to the minor unit so that the rounded amounts
+    /// add up to the rounded total, as a cost sheet shows them. Each is at
+    /// most one minor unit from rounding it alone.
+    ///
+    /// # Errors
+    ///
+    /// [`MoneyError::CurrencyMismatch`] if the amounts are not all in
+    /// `currency`, or [`MoneyError::Overflow`].
+    pub fn round_all_to_minor_units(
+        amounts: &[Self],
+        currency: Currency,
+    ) -> Result<Vec<i64>, MoneyError> {
+        if let Some(other) = amounts.iter().find(|amount| amount.currency != currency) {
+            return Err(MoneyError::CurrencyMismatch {
+                left: currency,
+                right: other.currency,
+            });
+        }
+        let step = i128::from(currency.nanos_per_minor_unit());
+        running_round(
+            amounts.iter().map(|amount| i128::from(amount.nanos)),
+            |exact| divide_rounded(exact, step),
+        )?
+        .into_iter()
+        .map(|minor| i64::try_from(minor).map_err(|_| MoneyError::Overflow))
+        .collect()
     }
 
     /// Divides the amount into parts in proportion to `weights`, with the
@@ -318,18 +379,188 @@ impl fmt::Display for Money {
     /// Shows the amount rounded to the minor unit, such as `12.35 EUR`.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let minor = self.round_to_minor_units();
-        let digits = self.currency.minor_unit_digits();
-        let sign = if minor.is_negative() { "-" } else { "" };
-        let magnitude = minor.unsigned_abs();
-        let scale = 10_u64.checked_pow(digits).unwrap_or(1);
-        let units = magnitude.checked_div(scale).unwrap_or(0);
-        let fraction = magnitude.checked_rem(scale).unwrap_or(0);
-        if digits == 0 {
-            write!(f, "{sign}{units} {}", self.currency)
-        } else {
-            let width = usize::try_from(digits).map_err(|_| fmt::Error)?;
-            write!(f, "{sign}{units}.{fraction:0width$} {}", self.currency)
+        write!(
+            f,
+            "{} {}",
+            self.currency.format_minor_units(minor),
+            self.currency
+        )
+    }
+}
+
+/// Turns exact running totals into parts that add up to the rounded total.
+///
+/// Each part is the rounded running total after it minus the rounded running
+/// total before it. So the parts always add up to the rounded total, and no
+/// part is more than one rounding step away from its own rounded value. The
+/// cost sheet uses it twice: to convert lines into the reporting currency and
+/// to show them in cents.
+fn running_round(
+    values: impl IntoIterator<Item = i128>,
+    round: impl Fn(i128) -> Option<i128>,
+) -> Result<Vec<i128>, MoneyError> {
+    let mut exact = 0_i128;
+    let mut rounded_before = 0_i128;
+    values
+        .into_iter()
+        .map(|value| {
+            exact = exact.checked_add(value).ok_or(MoneyError::Overflow)?;
+            let rounded = round(exact).ok_or(MoneyError::Overflow)?;
+            let part = rounded
+                .checked_sub(rounded_before)
+                .ok_or(MoneyError::Overflow)?;
+            rounded_before = rounded;
+            Ok(part)
+        })
+        .collect()
+}
+
+/// `numerator / denominator` for a denominator above zero, rounded half away
+/// from zero. `None` if the denominator is zero.
+fn divide_rounded(numerator: i128, denominator: i128) -> Option<i128> {
+    let whole = numerator.checked_div(denominator)?;
+    let rest = numerator.checked_rem(denominator)?;
+    if rest.unsigned_abs().checked_mul(2)? < denominator.unsigned_abs() {
+        Some(whole)
+    } else if numerator.is_negative() {
+        whole.checked_sub(1)
+    } else {
+        whole.checked_add(1)
+    }
+}
+
+/// Reads a decimal number such as `-12.345` as billionths: the format of
+/// amounts and exchange rates in CSV files and the API.
+fn parse_billionths(text: &str) -> Option<i64> {
+    let trimmed = text.trim();
+    let (negative, unsigned) = match trimmed.strip_prefix('-') {
+        Some(rest) => (true, rest),
+        None => (false, trimmed.strip_prefix('+').unwrap_or(trimmed)),
+    };
+    let (whole, fraction) = match unsigned.split_once('.') {
+        Some((whole, fraction)) if !fraction.is_empty() => (whole, fraction),
+        Some(_) => return None,
+        None => (unsigned, ""),
+    };
+    let fraction_digits = u32::try_from(fraction.len()).ok()?;
+    if whole.is_empty() {
+        return None;
+    }
+    let digits = whole
+        .chars()
+        .chain(fraction.chars())
+        .try_fold(0_i64, |sum, digit| {
+            let digit = i64::from(digit.to_digit(10)?);
+            sum.checked_mul(10)?.checked_add(digit)
+        })?;
+    let scale = 10_i64.checked_pow(NANO_DIGITS.checked_sub(fraction_digits)?)?;
+    let magnitude = digits.checked_mul(scale)?;
+    if negative {
+        magnitude.checked_neg()
+    } else {
+        Some(magnitude)
+    }
+}
+
+/// Units of one currency per unit of another, such as 0.92 EUR per USD, to
+/// nine decimal places.
+///
+/// A bill in another currency than the reporting currency keeps its own
+/// amounts and the exchange rate of its date. Converting rounds each amount
+/// half away from zero to the nano-unit; [`ExchangeRate::convert_all`]
+/// converts a list so that the converted parts add up to the converted total.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct ExchangeRate {
+    from: Currency,
+    to: Currency,
+    /// Billionths of a unit of `to` per unit of `from`.
+    nanos: i64,
+}
+
+impl ExchangeRate {
+    /// A rate written as a decimal number, such as `"0.9234"` EUR per USD.
+    ///
+    /// # Errors
+    ///
+    /// [`MoneyError::InvalidRate`] unless the rate is a decimal number above
+    /// zero with at most nine digits after the point.
+    pub fn new(from: Currency, to: Currency, rate: &str) -> Result<Self, MoneyError> {
+        match parse_billionths(rate) {
+            Some(nanos) if nanos > 0 => Ok(Self { from, to, nanos }),
+            _ => Err(MoneyError::InvalidRate(rate.to_owned())),
         }
+    }
+
+    /// The rate of a currency to itself: converting changes nothing.
+    #[must_use]
+    pub const fn identity(currency: Currency) -> Self {
+        Self {
+            from: currency,
+            to: currency,
+            nanos: NANOS_PER_UNIT,
+        }
+    }
+
+    /// The currency amounts are converted from.
+    #[must_use]
+    pub const fn from(self) -> Currency {
+        self.from
+    }
+
+    /// The currency amounts are converted to.
+    #[must_use]
+    pub const fn to(self) -> Currency {
+        self.to
+    }
+
+    /// Billionths of a unit of [`to`](Self::to) per unit of
+    /// [`from`](Self::from).
+    #[must_use]
+    pub const fn nanos(self) -> i64 {
+        self.nanos
+    }
+
+    /// Converts one amount, rounding half away from zero to the nano-unit.
+    ///
+    /// # Errors
+    ///
+    /// [`MoneyError::CurrencyMismatch`] if the amount is not in the rate's
+    /// `from` currency, or [`MoneyError::Overflow`].
+    pub fn convert(self, amount: Money) -> Result<Money, MoneyError> {
+        self.convert_all(&[amount])?
+            .into_iter()
+            .next()
+            .ok_or(MoneyError::Overflow)
+    }
+
+    /// Converts a list of amounts so that the converted amounts add up to the
+    /// converted total exactly. Each is within one nano-unit of converting it
+    /// alone.
+    ///
+    /// # Errors
+    ///
+    /// [`MoneyError::CurrencyMismatch`] if an amount is not in the rate's
+    /// `from` currency, or [`MoneyError::Overflow`].
+    pub fn convert_all(self, amounts: &[Money]) -> Result<Vec<Money>, MoneyError> {
+        if let Some(other) = amounts.iter().find(|amount| amount.currency != self.from) {
+            return Err(MoneyError::CurrencyMismatch {
+                left: self.from,
+                right: other.currency,
+            });
+        }
+        let rate = i128::from(self.nanos);
+        let unit = i128::from(NANOS_PER_UNIT);
+        running_round(
+            amounts.iter().map(|amount| i128::from(amount.nanos)),
+            |exact| divide_rounded(exact.checked_mul(rate)?, unit),
+        )?
+        .into_iter()
+        .map(|nanos| {
+            i64::try_from(nanos)
+                .map(|nanos| Money::from_nanos(nanos, self.to))
+                .map_err(|_| MoneyError::Overflow)
+        })
+        .collect()
     }
 }
 
@@ -455,6 +686,141 @@ mod tests {
         assert_eq!(Money::sum(parts, Currency::EUR).unwrap(), eur(i64::MAX));
     }
 
+    #[test]
+    fn amounts_read_from_decimal_text() {
+        assert_eq!(
+            Money::parse("12.34", Currency::EUR).unwrap(),
+            eur(12_340_000_000)
+        );
+        assert_eq!(
+            Money::parse(" -0.000000001 ", Currency::EUR).unwrap(),
+            eur(-1)
+        );
+        assert_eq!(
+            Money::parse("+7", Currency::EUR).unwrap(),
+            eur(7_000_000_000)
+        );
+        assert_eq!(Money::parse("0", Currency::EUR).unwrap(), eur(0));
+        assert_eq!(
+            Money::parse("9223372036.854775807", Currency::EUR).unwrap(),
+            eur(i64::MAX)
+        );
+        for bad in [
+            "",
+            "-",
+            ".5",
+            "12.",
+            "1.2.3",
+            "1,5",
+            "12 EUR",
+            "0.0000000001",
+            "1e3",
+            "--1",
+            "9223372036.854775808",
+            "92233720368",
+        ] {
+            assert_eq!(
+                Money::parse(bad, Currency::EUR),
+                Err(MoneyError::InvalidAmount(bad.to_owned())),
+                "{bad:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn minor_units_are_written_with_the_currency_digits() {
+        assert_eq!(Currency::EUR.format_minor_units(1235), "12.35");
+        assert_eq!(Currency::EUR.format_minor_units(-5), "-0.05");
+        assert_eq!(Currency::EUR.format_minor_units(0), "0.00");
+        assert_eq!(Currency::new("JPY").unwrap().format_minor_units(-12), "-12");
+        assert_eq!(
+            Currency::new("KWD").unwrap().format_minor_units(1005),
+            "1.005"
+        );
+    }
+
+    #[test]
+    fn rounded_lines_add_up_to_the_rounded_total() {
+        // Three thirds of a cent each round to zero alone, but together they
+        // are one cent.
+        let third = eur(3_333_334);
+        let rounded =
+            Money::round_all_to_minor_units(&[third, third, third], Currency::EUR).unwrap();
+        assert_eq!(rounded, vec![0, 1, 0]);
+        assert_eq!(
+            Money::round_all_to_minor_units(&[eur(-5_000_000), eur(-5_000_000)], Currency::EUR)
+                .unwrap(),
+            vec![-1, 0]
+        );
+        assert_eq!(
+            Money::round_all_to_minor_units(&[eur(4_999_999)], Currency::EUR).unwrap(),
+            vec![0]
+        );
+        assert_eq!(
+            Money::round_all_to_minor_units(&[], Currency::EUR).unwrap(),
+            Vec::<i64>::new()
+        );
+        assert!(matches!(
+            Money::round_all_to_minor_units(&[Money::zero(Currency::USD)], Currency::EUR),
+            Err(MoneyError::CurrencyMismatch { .. })
+        ));
+    }
+
+    #[test]
+    fn exchange_rates_are_decimal_numbers_above_zero() {
+        let rate = ExchangeRate::new(Currency::USD, Currency::EUR, "0.92").unwrap();
+        assert_eq!(rate.from(), Currency::USD);
+        assert_eq!(rate.to(), Currency::EUR);
+        assert_eq!(rate.nanos(), 920_000_000);
+        assert!(ExchangeRate::new(Currency::USD, Currency::EUR, "0.000000001").is_ok());
+        for bad in ["0", "-1", "0.0", "", "abc"] {
+            assert_eq!(
+                ExchangeRate::new(Currency::USD, Currency::EUR, bad),
+                Err(MoneyError::InvalidRate(bad.to_owned()))
+            );
+        }
+        assert_eq!(
+            ExchangeRate::identity(Currency::EUR).nanos(),
+            NANOS_PER_UNIT
+        );
+    }
+
+    #[test]
+    fn converting_rounds_half_away_from_zero() {
+        let usd = |nanos| Money::from_nanos(nanos, Currency::USD);
+        let half = ExchangeRate::new(Currency::USD, Currency::EUR, "0.5").unwrap();
+        assert_eq!(half.convert(usd(3)).unwrap(), eur(2));
+        assert_eq!(half.convert(usd(-3)).unwrap(), eur(-2));
+        assert_eq!(half.convert(usd(2)).unwrap(), eur(1));
+        let rate = ExchangeRate::new(Currency::USD, Currency::EUR, "0.92").unwrap();
+        assert_eq!(
+            rate.convert(usd(100_000_000_000)).unwrap(),
+            eur(92_000_000_000)
+        );
+        assert!(matches!(
+            rate.convert(eur(1)),
+            Err(MoneyError::CurrencyMismatch { .. })
+        ));
+        let large = ExchangeRate::new(Currency::USD, Currency::EUR, "2").unwrap();
+        assert_eq!(large.convert(usd(i64::MAX)), Err(MoneyError::Overflow));
+        let same = ExchangeRate::identity(Currency::EUR);
+        assert_eq!(same.convert(eur(-7)).unwrap(), eur(-7));
+    }
+
+    #[test]
+    fn converted_parts_add_up_to_the_converted_total() {
+        let usd = |nanos| Money::from_nanos(nanos, Currency::USD);
+        let half = ExchangeRate::new(Currency::USD, Currency::EUR, "0.5").unwrap();
+        // Alone each 1 nano-unit converts to 1 (0.5 rounds up), which would
+        // add up to 3 instead of 2.
+        let parts = half.convert_all(&[usd(1), usd(1), usd(1), usd(1)]).unwrap();
+        assert_eq!(parts, vec![eur(1), eur(0), eur(1), eur(0)]);
+        assert!(matches!(
+            half.convert_all(&[usd(1), eur(1)]),
+            Err(MoneyError::CurrencyMismatch { .. })
+        ));
+    }
+
     proptest! {
         #[test]
         fn split_parts_add_up_to_the_whole(
@@ -481,6 +847,42 @@ mod tests {
                 let off = exact_times_total.checked_sub(part_times_total).unwrap();
                 prop_assert!(off.abs() < i128::from(total));
             }
+        }
+
+        #[test]
+        fn converted_parts_add_up_and_stay_close(
+            amounts in prop::collection::vec(-1_000_000_000_000_i64..1_000_000_000_000, 0..20),
+            rate in 1_i64..5_000_000_000,
+        ) {
+            let usd: Vec<Money> = amounts.iter().map(|nanos| Money::from_nanos(*nanos, Currency::USD)).collect();
+            let rate = ExchangeRate { from: Currency::USD, to: Currency::EUR, nanos: rate };
+            let parts = rate.convert_all(&usd).unwrap();
+            let total = Money::sum(usd.iter().copied(), Currency::USD).unwrap();
+            prop_assert_eq!(Money::sum(parts.iter().copied(), Currency::EUR).unwrap(), rate.convert(total).unwrap());
+            for (part, amount) in parts.iter().zip(&usd) {
+                let alone = rate.convert(*amount).unwrap();
+                prop_assert!(part.nanos().checked_sub(alone.nanos()).unwrap().abs() <= 1);
+            }
+        }
+
+        #[test]
+        fn rounded_lines_add_up_and_stay_close(
+            amounts in prop::collection::vec(-1_000_000_000_000_i64..1_000_000_000_000, 0..20),
+        ) {
+            let lines: Vec<Money> = amounts.iter().map(|nanos| eur(*nanos)).collect();
+            let rounded = Money::round_all_to_minor_units(&lines, Currency::EUR).unwrap();
+            let total = Money::sum(lines.iter().copied(), Currency::EUR).unwrap();
+            prop_assert_eq!(rounded.iter().sum::<i64>(), total.round_to_minor_units());
+            for (minor, line) in rounded.iter().zip(&lines) {
+                prop_assert!(minor.checked_sub(line.round_to_minor_units()).unwrap().abs() <= 1);
+            }
+        }
+
+        #[test]
+        fn amounts_read_back_what_display_writes(nanos in any::<i64>()) {
+            let minor = eur(nanos).round_to_minor_units();
+            let text = Currency::EUR.format_minor_units(minor);
+            prop_assert_eq!(Money::parse(&text, Currency::EUR).map(Money::round_to_minor_units), Ok(minor));
         }
 
         #[test]
