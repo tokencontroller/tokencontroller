@@ -1,0 +1,115 @@
+{
+  "resourceLogs": [
+    {
+      "resource": {
+        "attributes": [
+          { "key": "service.name", "value": { "stringValue": "codex_cli_rs" } },
+          { "key": "service.version", "value": { "stringValue": "0.130.0" } },
+          { "key": "env", "value": { "stringValue": "prod" } },
+          { "key": "host.name", "value": { "stringValue": "builder-07" } },
+          { "key": "repository", "value": { "stringValue": "git@github.com:acme/payments-api.git" } }
+        ]
+      },
+      "scopeLogs": [
+        {
+          "scope": { "name": "codex_otel" },
+          "logRecords": [
+            {
+              "observedTimeUnixNano": "1791194531349120000",
+              "severityNumber": 9,
+              "severityText": "INFO",
+              "attributes": [
+                { "key": "event.name", "value": { "stringValue": "codex.sse_event" } },
+                { "key": "event.kind", "value": { "stringValue": "response.completed" } },
+                { "key": "input_token_count", "value": { "stringValue": "18000" } },
+                { "key": "output_token_count", "value": { "stringValue": "950" } },
+                { "key": "cached_token_count", "value": { "intValue": "15000" } },
+                { "key": "cache_write_token_count", "value": { "intValue": "0" } },
+                { "key": "reasoning_token_count", "value": { "intValue": "600" } },
+                { "key": "tool_token_count", "value": { "stringValue": "18950" } },
+                { "key": "ttft_ms", "value": { "intValue": "740" } },
+                { "key": "event.timestamp", "value": { "stringValue": "2026-10-05T10:02:11.348Z" } },
+                { "key": "conversation.id", "value": { "stringValue": "019a1b2c-3d4e-7f60-8a9b-0c1d2e3f4a5b" } },
+                { "key": "app.version", "value": { "stringValue": "0.130.0" } },
+                { "key": "auth_mode", "value": { "stringValue": "Chatgpt" } },
+                { "key": "originator", "value": { "stringValue": "codex_cli_rs" } },
+                { "key": "user.account_id", "value": { "stringValue": "8d2e4f6a-0b1c-4d3e-9f5a-7b9c1d3e5f7a" } },
+                { "key": "user.email", "value": { "stringValue": "Dev.Lee@Acme.example" } },
+                { "key": "terminal.type", "value": { "stringValue": "iTerm.app/3.6.2" } },
+                { "key": "model", "value": { "stringValue": "gpt-5-codex" } },
+                { "key": "slug", "value": { "stringValue": "gpt-5-codex" } }
+              ]
+            },
+            {
+              "observedTimeUnixNano": "1791194531300000000",
+              "severityNumber": 9,
+              "attributes": [
+                { "key": "event.name", "value": { "stringValue": "codex.sse_event" } },
+                { "key": "event.kind", "value": { "stringValue": "response.output_item.done" } },
+                { "key": "duration_ms", "value": { "stringValue": "12" } },
+                { "key": "event.timestamp", "value": { "stringValue": "2026-10-05T10:02:11.300Z" } },
+                { "key": "conversation.id", "value": { "stringValue": "019a1b2c-3d4e-7f60-8a9b-0c1d2e3f4a5b" } },
+                { "key": "model", "value": { "stringValue": "gpt-5-codex" } }
+              ]
+            },
+            {
+              "observedTimeUnixNano": "1791194535000000000",
+              "severityNumber": 9,
+              "attributes": [
+                { "key": "event.name", "value": { "stringValue": "codex.tool_result" } },
+                { "key": "tool_name", "value": { "stringValue": "shell" } },
+                { "key": "call_id", "value": { "stringValue": "call_7Hq2" } },
+                { "key": "arguments", "value": { "stringValue": "{\"command\":[\"cargo\",\"test\"]}" } },
+                { "key": "duration_ms", "value": { "stringValue": "3120" } },
+                { "key": "success", "value": { "stringValue": "true" } },
+                { "key": "output", "value": { "stringValue": "test result: ok. 12 passed" } },
+                { "key": "event.timestamp", "value": { "stringValue": "2026-10-05T10:02:15.000Z" } },
+                { "key": "conversation.id", "value": { "stringValue": "019a1b2c-3d4e-7f60-8a9b-0c1d2e3f4a5b" } }
+              ]
+            },
+            {
+              "observedTimeUnixNano": "1791194530000000000",
+              "severityNumber": 9,
+              "attributes": [
+                { "key": "event.name", "value": { "stringValue": "codex.user_prompt" } },
+                { "key": "prompt_length", "value": { "stringValue": "57" } },
+                { "key": "prompt", "value": { "stringValue": "[REDACTED]" } },
+                { "key": "event.timestamp", "value": { "stringValue": "2026-10-05T10:02:10.000Z" } },
+                { "key": "conversation.id", "value": { "stringValue": "019a1b2c-3d4e-7f60-8a9b-0c1d2e3f4a5b" } }
+              ]
+            },
+            {
+              "observedTimeUnixNano": "1791194539902000000",
+              "severityNumber": 9,
+              "attributes": [
+                { "key": "event.name", "value": { "stringValue": "codex.sse_event" } },
+                { "key": "event.kind", "value": { "stringValue": "response.completed" } },
+                { "key": "input_token_count", "value": { "stringValue": "19210" } },
+                { "key": "output_token_count", "value": { "stringValue": "312" } },
+                { "key": "cached_token_count", "value": { "intValue": 17920 } },
+                { "key": "reasoning_token_count", "value": { "intValue": 128 } },
+                { "key": "tool_token_count", "value": { "stringValue": "19522" } },
+                { "key": "event.timestamp", "value": { "stringValue": "2026-10-05T10:02:19.901Z" } },
+                { "key": "conversation.id", "value": { "stringValue": "019a1b2c-3d4e-7f60-8a9b-0c1d2e3f4a5b" } },
+                { "key": "user.email", "value": { "stringValue": "Dev.Lee@Acme.example" } },
+                { "key": "model", "value": { "stringValue": "gpt-5-codex" } }
+              ]
+            },
+            {
+              "observedTimeUnixNano": "1791194540000000000",
+              "severityNumber": 9,
+              "attributes": [
+                { "key": "event.name", "value": { "stringValue": "codex.sse_event" } },
+                { "key": "event.kind", "value": { "stringValue": "response.completed" } },
+                { "key": "error.message", "value": { "stringValue": "stream closed before response.completed" } },
+                { "key": "event.timestamp", "value": { "stringValue": "2026-10-05T10:02:20.000Z" } },
+                { "key": "conversation.id", "value": { "stringValue": "019a1b2c-3d4e-7f60-8a9b-0c1d2e3f4a5b" } },
+                { "key": "model", "value": { "stringValue": "gpt-5-codex" } }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
