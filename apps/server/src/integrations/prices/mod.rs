@@ -3,13 +3,15 @@
 //!
 //! [`fetch`] reads both sources and merges them into one price table,
 //! [`table_digest`] tells whether a refresh changed it, [`lookup`] finds a
-//! model's row and [`list_value`] turns token counts into list value. Storing
-//! versions and scheduling the refresh happen elsewhere.
+//! model's row and [`list_value`] turns token counts into list value.
+//! [`refresh`] stores a new version when the prices changed, and
+//! [`current_pricing`] prices with the version in force.
 
 mod fetch;
 mod litellm;
 mod models_dev;
 mod names;
+mod store;
 mod table;
 mod value;
 
@@ -28,6 +30,7 @@ pub use fetch::{Fetched, LITELLM_URL, MODELS_DEV_URL, fetch};
 pub use litellm::parse_litellm;
 pub use models_dev::parse_models_dev;
 pub use names::lookup;
+pub use store::{PriceTableVersion, Refreshed, current, current_pricing, refresh, save, version};
 pub use table::{merge, table_digest};
 pub use value::list_value;
 

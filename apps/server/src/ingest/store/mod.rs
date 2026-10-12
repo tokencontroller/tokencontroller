@@ -249,3 +249,70 @@ fn to_i64(count: u64) -> Result<i64, StoreError> {
 fn to_u64(count: i64) -> u64 {
     u64::try_from(count).unwrap_or_default()
 }
+
+/// Prices the calls whose model the price table did not know, in token
+/// entries of open periods, and rebuilds those token entries. Runs after a
+/// price table refresh made a new version. Returns how many token entries
+/// changed.
+///
+/// # Errors
+///
+/// Fails if a query fails.
+pub async fn reprice_unknown(db: &sqlx::PgPool, pricing: &Pricing) -> Result<u64, StoreError> {
+    let calls = sqlx::query!(
+        r#"SELECT m.organization_id, m.session_id, m.message_id, m.model, m.token_entry_id AS "token_entry_id!",
+                  m.input_tokens, m.output_tokens, m.cache_write_tokens, m.cache_read_tokens
+           FROM messages m JOIN token_entries e ON e.id = m.token_entry_id
+           WHERE m.list_value_nanos IS NULL AND m.reported_cost_nanos IS NULL
+             AND e.status <> 'locked'
+           ORDER BY m.organization_id, m.token_entry_id
+           LIMIT 100000"#
+    )
+    .fetch_all(db)
+    .await?;
+    let mut changed: std::collections::BTreeMap<Uuid, std::collections::BTreeSet<Uuid>> =
+        std::collections::BTreeMap::new();
+    let mut tx = db.begin().await?;
+    for call in calls {
+        let tokens = TokenCounts {
+            input: to_u64(call.input_tokens),
+            output: to_u64(call.output_tokens),
+            cache_write: to_u64(call.cache_write_tokens),
+            cache_read: to_u64(call.cache_read_tokens),
+        };
+        let Some(value) = pricing.list_value(&call.model, tokens, None) else {
+            continue;
+        };
+        sqlx::query!(
+            "UPDATE messages SET list_value_nanos = $4
+             WHERE organization_id = $1 AND session_id = $2 AND message_id = $3",
+            call.organization_id,
+            call.session_id,
+            call.message_id,
+            value.nanos()
+        )
+        .execute(&mut *tx)
+        .await?;
+        changed
+            .entry(call.organization_id)
+            .or_default()
+            .insert(call.token_entry_id);
+    }
+    let mut count = 0_u64;
+    for (organization_id, entries) in changed {
+        let context = place::org_context(&mut tx, organization_id).await?;
+        for entry_id in entries {
+            sqlx::query!(
+                "UPDATE token_entries SET price_table_version_id = $2 WHERE id = $1",
+                entry_id,
+                pricing.version_id
+            )
+            .execute(&mut *tx)
+            .await?;
+            rebuild::rebuild(&mut tx, organization_id, entry_id, &context).await?;
+            count = count.saturating_add(1);
+        }
+    }
+    tx.commit().await?;
+    Ok(count)
+}

@@ -526,3 +526,56 @@ async fn segments_that_end_up_with_the_same_tags_are_one_split(pool: PgPool) {
     .unwrap();
     assert_eq!(splits, vec![(40, "KD-214".to_owned()), (20, String::new())]);
 }
+
+#[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
+async fn a_new_price_table_prices_calls_whose_model_was_unknown(pool: PgPool) {
+    use tokencontroller_server::integrations::prices::{self, ModelPrice};
+
+    let (organization, person) = organization(&pool).await.unwrap();
+    let sent =
+        entry(&serde_json::json!({ "model": "claude-brand-new", "tokens": { "input": 2_000_000 } }))
+            .unwrap();
+    let mut tx = pool.begin().await.unwrap();
+    let stored = store::store_token_entries(
+        &mut tx,
+        organization,
+        person,
+        vec![sent],
+        Door::Endpoint,
+        &prices::current_pricing(&pool).await.unwrap(),
+    )
+    .await
+    .unwrap();
+    tx.commit().await.unwrap();
+    assert_eq!(stored[0].list_value, None);
+
+    let price = Money::from_nanos(3_000_000_000, Currency::USD);
+    let table = vec![ModelPrice {
+        model: "claude-brand-new".to_owned(),
+        provider: Some("anthropic".to_owned()),
+        input: Some(price),
+        output: Some(price),
+        cache_write: Some(price),
+        cache_read: Some(price),
+    }];
+    let saved = prices::save(&pool, &table, &[]).await.unwrap();
+    assert!(matches!(
+        saved,
+        prices::Refreshed::NewVersion { models: 1, .. }
+    ));
+    assert!(matches!(
+        prices::save(&pool, &table, &[]).await.unwrap(),
+        prices::Refreshed::Unchanged { .. }
+    ));
+
+    let pricing = prices::current_pricing(&pool).await.unwrap();
+    assert_eq!(store::reprice_unknown(&pool, &pricing).await.unwrap(), 1);
+    let value: Option<i64> =
+        sqlx::query_scalar("SELECT list_value_nanos FROM token_entries WHERE id = $1")
+            .bind(stored[0].id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    // Two million tokens at 3 USD per million.
+    assert_eq!(value, Some(6_000_000_000));
+}
