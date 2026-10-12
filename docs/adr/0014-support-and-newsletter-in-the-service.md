@@ -13,6 +13,7 @@ The hosted service runs its own support inbox, site assistant and newsletter in 
 - The same loop deletes site assistant questions, raw support mail and feedback screenshots after 90 days, support conversations two years after their last message, and feedback reports two years after their last change, so the privacy policy's periods hold without anyone doing it by hand.
 - Feedback reports from the web app's feedback button live in the same module and are always on. They go to the operators, or to the organization's controllers on an instance without operators. Diagnostics take only the fields the Security page lists; a report with any other field is refused.
 - The admin area (support, site assistant questions, newsletter issues, feedback reports, one record per organization) answers 404 to everyone but the operators, so it does not show that it exists.
+- Onboarding emails go to a new organization's controllers when it stalls at one of its four first steps (first token entry, token sheet, bill, close). The service sends at most one per step, records it before sending, and stops after the first close or 30 days without activity, so they never become a series. The `onboarding-emails` job in the job runner (ADR 0002) checks every hour.
 
 ## Why
 

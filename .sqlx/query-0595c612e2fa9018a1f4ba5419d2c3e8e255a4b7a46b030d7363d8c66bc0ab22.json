@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO onboarding_emails (organization_id, step) VALUES ($1, $2)\n               ON CONFLICT DO NOTHING RETURNING true AS \"claimed!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "claimed!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "0595c612e2fa9018a1f4ba5419d2c3e8e255a4b7a46b030d7363d8c66bc0ab22"
+}

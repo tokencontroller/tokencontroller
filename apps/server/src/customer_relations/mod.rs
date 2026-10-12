@@ -22,6 +22,9 @@
 //! - The admin area (`/admin/...`) is for the operators (`TC_OPERATOR_EMAILS`):
 //!   support, the assistant's questions, the newsletter, feedback reports and
 //!   one customer record per organization.
+//! - Onboarding emails (`TC_ONBOARDING_EMAILS`) go to a new organization's
+//!   controllers when it stalls at one of its first steps. The job runner
+//!   sends them (`onboarding-emails`), not this loop.
 //!
 //! The background loop also deletes what is kept long enough (`retention`).
 
@@ -33,6 +36,7 @@ mod feedback;
 mod inbox;
 mod mail;
 mod newsletter;
+mod onboarding;
 mod retention;
 mod settings;
 mod support;
@@ -49,6 +53,10 @@ use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
 pub use admin::is_operator;
+pub use onboarding::{
+    JOB as ONBOARDING_JOB, JOB_EVERY as ONBOARDING_JOB_EVERY, run_job as run_onboarding_job,
+    send_due as send_onboarding_emails,
+};
 pub use settings::{Settings, SettingsError};
 pub use tools::{call_operator_tool, operator_tools};
 

@@ -21,6 +21,8 @@ pub enum SettingsError {
     Address(&'static str, String),
     #[error("TC_SITE_URL must start with https:// or http://, such as https://example.com")]
     SiteUrl,
+    #[error("TC_ONBOARDING_EMAILS must be `on` or `off`, not {0:?}")]
+    OnboardingEmails(String),
 }
 
 /// The customer relations settings.
@@ -44,6 +46,9 @@ pub struct Settings {
     /// `TC_SITE_URL`: the public website whose pages may use the site
     /// assistant, the contact form and the newsletter sign-up.
     pub site_url: Option<String>,
+    /// `TC_ONBOARDING_EMAILS`: `on` sends a new organization's controllers one
+    /// email for each first step it has not taken after a few days.
+    pub onboarding_emails: bool,
     /// Where the Claude API is; changed only by tests.
     pub anthropic_api_url: String,
     /// Where the Resend API is; changed only by tests.
@@ -118,6 +123,12 @@ impl Settings {
             return Err(SettingsError::SiteUrl);
         }
 
+        let onboarding_emails = match read("TC_ONBOARDING_EMAILS").as_deref() {
+            None | Some("off") => false,
+            Some("on") => true,
+            Some(other) => return Err(SettingsError::OnboardingEmails(other.to_owned())),
+        };
+
         Ok(Self {
             operator_emails,
             inbound_mail_secret,
@@ -126,6 +137,7 @@ impl Settings {
             resend_api_key,
             newsletter_from,
             site_url,
+            onboarding_emails,
             anthropic_api_url: ANTHROPIC_API_URL.to_owned(),
             resend_api_url: RESEND_API_URL.to_owned(),
             docs_text_url: DOCS_TEXT_URL.to_owned(),
@@ -151,6 +163,7 @@ impl Default for Settings {
             resend_api_key: None,
             newsletter_from: None,
             site_url: None,
+            onboarding_emails: false,
             anthropic_api_url: ANTHROPIC_API_URL.to_owned(),
             resend_api_url: RESEND_API_URL.to_owned(),
             docs_text_url: DOCS_TEXT_URL.to_owned(),
@@ -177,6 +190,7 @@ impl fmt::Debug for Settings {
             .field("resend_api_key", &hidden(&self.resend_api_key))
             .field("newsletter_from", &self.newsletter_from)
             .field("site_url", &self.site_url)
+            .field("onboarding_emails", &self.onboarding_emails)
             .finish_non_exhaustive()
     }
 }
@@ -212,6 +226,24 @@ mod tests {
         );
         assert!(settings.is_operator("OPS@example.com "));
         assert!(!settings.is_operator("c@example.com"));
+    }
+
+    #[test]
+    fn onboarding_emails_are_on_or_off() {
+        assert!(
+            settings(&[("TC_ONBOARDING_EMAILS", "on")])
+                .unwrap()
+                .onboarding_emails
+        );
+        assert!(
+            !settings(&[("TC_ONBOARDING_EMAILS", "off")])
+                .unwrap()
+                .onboarding_emails
+        );
+        assert_eq!(
+            settings(&[("TC_ONBOARDING_EMAILS", "yes")]),
+            Err(SettingsError::OnboardingEmails("yes".to_owned()))
+        );
     }
 
     #[test]

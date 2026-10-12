@@ -131,9 +131,9 @@ pub async fn request_now(db: &PgPool, job: &str) -> Result<(), sqlx::Error> {
     Ok(())
 }
 
-/// The jobs this instance runs, by the names status.tokencontroller.com
-/// shows: `ticket-sync`, and `price-tables` and `exchange-rates` unless
-/// `TC_PRICES_REFRESH` is `off`.
+/// The jobs this instance runs, by name: `ticket-sync`, `price-tables` and `exchange-rates` unless
+/// `TC_PRICES_REFRESH` is `off`, and `onboarding-emails` when
+/// `TC_ONBOARDING_EMAILS` is `on`.
 #[must_use]
 pub fn standard(config: &Config) -> Vec<Job> {
     let mut jobs = vec![Job::new(
@@ -147,6 +147,13 @@ pub fn standard(config: &Config) -> Vec<Job> {
             crate::bills::ecb::JOB,
             crate::bills::ecb::JOB_EVERY,
             crate::bills::ecb::run_job,
+        ));
+    }
+    if config.customer_relations.onboarding_emails {
+        jobs.push(Job::new(
+            crate::customer_relations::ONBOARDING_JOB,
+            crate::customer_relations::ONBOARDING_JOB_EVERY,
+            crate::customer_relations::run_onboarding_job,
         ));
     }
     jobs
