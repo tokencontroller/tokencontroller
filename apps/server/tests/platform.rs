@@ -1227,7 +1227,7 @@ async fn projects_repositories_clients_and_tickets(pool: PgPool) {
 }
 
 #[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
-async fn the_status_endpoint_shows_job_heartbeats(pool: PgPool) {
+async fn the_status_endpoint_shows_each_part(pool: PgPool) {
     let app = app(&pool);
     let fresh = send(&app, Method::GET, "/api/v1/status", Auth::None, None)
         .await
@@ -1250,29 +1250,59 @@ async fn the_status_endpoint_shows_job_heartbeats(pool: PgPool) {
             "sign-in-email"
         ]
     );
+    assert_eq!(fresh.json["components"][0]["state"], "operational");
     assert_eq!(fresh.json["components"][1]["state"], "not_running");
+    // Without TC_SMTP_URL no sign-in mail goes out.
+    assert_eq!(fresh.json["components"][4]["state"], "not_running");
 
-    let hour = std::time::Duration::from_hours(1);
-    tokencontroller_server::status::record_job_run(&pool, "bill-pulls", hour, Ok(()))
+    let mut with_mail = config(false);
+    with_mail.smtp_url = Some("smtp://localhost:2525".to_owned());
+    let mail_app = router(AppState::new(
+        pool.clone(),
+        with_mail,
+        Arc::new(NoExtension),
+    ));
+    let mail_state = async |app: &Router| {
+        let answer = send(app, Method::GET, "/api/v1/status", Auth::None, None)
+            .await
+            .unwrap();
+        (
+            answer.json["components"][4]["state"].clone(),
+            answer.json["status"].clone(),
+        )
+    };
+    assert_eq!(
+        mail_state(&mail_app).await,
+        (json!("operational"), json!("operational"))
+    );
+    let deliver = async |kind: &str, sent: bool| {
+        sqlx::query("INSERT INTO mail_deliveries (kind, sent) VALUES ($1, $2)")
+            .bind(kind)
+            .bind(sent)
+            .execute(&pool)
+            .await
+            .unwrap();
+    };
+    deliver("sign_in", true).await;
+    deliver("invite", true).await;
+    deliver("sign_in", false).await;
+    // Mail of other kinds does not count.
+    deliver("budget_report", false).await;
+    assert_eq!(
+        mail_state(&mail_app).await,
+        (json!("degraded"), json!("degraded"))
+    );
+    deliver("no_account", false).await;
+    assert_eq!(mail_state(&mail_app).await, (json!("down"), json!("down")));
+    // Mail older than 15 minutes no longer counts.
+    sqlx::query("UPDATE mail_deliveries SET created_at = now() - interval '16 minutes'")
+        .execute(&pool)
         .await
         .unwrap();
-    tokencontroller_server::status::record_job_run(
-        &pool,
-        "ticket-sync",
-        hour,
-        Err("Jira answered 401"),
-    )
-    .await
-    .unwrap();
-    let after = send(&app, Method::GET, "/api/v1/status", Auth::None, None)
-        .await
-        .unwrap();
-    assert_eq!(after.json["components"][1]["state"], "operational");
-    assert!(after.json["components"][1]["last_success_at"].is_string());
-    assert_eq!(after.json["components"][2]["state"], "degraded");
-    assert_eq!(after.json["status"], "degraded");
-    // The public answer carries no error text.
-    assert!(!after.text.contains("Jira answered"));
+    assert_eq!(
+        mail_state(&mail_app).await,
+        (json!("operational"), json!("operational"))
+    );
 }
 
 #[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]

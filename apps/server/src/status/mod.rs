@@ -2,12 +2,13 @@
 //! check and status.tokencontroller.com, and `/api/v1/status`, the state of
 //! each part status.tokencontroller.com shows.
 //!
-//! Background jobs report every run with [`record_job_run`]; the status
-//! endpoint turns those heartbeats into component states. It shows states
-//! and times only, never customer data, because it is public.
+//! The status endpoint turns signals into component states: sign-in mail
+//! from `mail_deliveries`, and background jobs from the job runner's
+//! heartbeats (the jobs area, ADR 0002) through [`job_state`]. It shows
+//! states and times only, never customer data, because it is public.
 //!
 //! Owner: the service platform. The status signals (token entries arriving,
-//! attribution rate, reconciliation residual, job heartbeats) go here too.
+//! attribution rate, reconciliation residual) go here too.
 
 use std::time::Duration;
 
@@ -155,33 +156,12 @@ async fn status(State(state): State<AppState>) -> (StatusCode, Json<ServiceStatu
             }),
         );
     }
-    let now = OffsetDateTime::now_utc();
     let mut components = vec![Component {
         id: "service",
         state: PartState::Operational,
         last_success_at: None,
     }];
-    let heartbeats = sqlx::query!(
-        "SELECT job, last_success_at, last_failure_at, expected_every_seconds FROM job_heartbeats"
-    )
-    .fetch_all(&state.db)
-    .await
-    .unwrap_or_default();
-    for job in JOBS {
-        let beat = heartbeats.iter().find(|beat| beat.job == job);
-        components.push(Component {
-            id: job,
-            state: beat.map_or(PartState::NotRunning, |beat| {
-                job_state(
-                    now,
-                    beat.last_success_at,
-                    beat.last_failure_at,
-                    beat.expected_every_seconds,
-                )
-            }),
-            last_success_at: beat.and_then(|beat| beat.last_success_at),
-        });
-    }
+    components.extend(job_components());
     let mail = sqlx::query!(
         r#"SELECT count(*) AS "total!", count(*) FILTER (WHERE NOT sent) AS "failed!"
            FROM mail_deliveries
@@ -215,25 +195,43 @@ async fn status(State(state): State<AppState>) -> (StatusCode, Json<ServiceStatu
     )
 }
 
-/// A job is late when its last success is older than twice its rhythm
-/// plus five minutes, and degraded when its last run failed.
-fn job_state(
+/// The background jobs, until the job runner runs them here: each shows
+/// as not running. Once it does, each component takes [`job_state`] of the
+/// job's heartbeat.
+fn job_components() -> impl Iterator<Item = Component> {
+    JOBS.into_iter().map(|id| Component {
+        id,
+        state: PartState::NotRunning,
+        last_success_at: None,
+    })
+}
+
+/// The state of a background job from its heartbeat: `every` is how often
+/// it should succeed. It is degraded when its last run failed, or when its
+/// last success is older than twice `every` plus five minutes, and not
+/// running before its first run ends.
+#[must_use]
+pub fn job_state(
     now: OffsetDateTime,
-    last_success: Option<OffsetDateTime>,
-    last_failure: Option<OffsetDateTime>,
-    every_seconds: i32,
+    last_succeeded_at: Option<OffsetDateTime>,
+    failures_in_a_row: i32,
+    every: Duration,
 ) -> PartState {
-    let Some(last_success) = last_success else {
+    if failures_in_a_row > 0 {
         return PartState::Degraded;
+    }
+    let Some(last_success) = last_succeeded_at else {
+        return PartState::NotRunning;
     };
-    let allowed = i64::from(every_seconds)
+    let allowed = time::Duration::try_from(every)
+        .unwrap_or(time::Duration::MAX)
         .saturating_mul(2)
-        .saturating_add(300);
+        .saturating_add(time::Duration::minutes(5));
+    // A deadline past the last date the calendar holds is never late.
     let late = last_success
-        .checked_add(time::Duration::seconds(allowed))
-        .is_none_or(|deadline| now > deadline);
-    let failed_since = last_failure.is_some_and(|failure| failure > last_success);
-    if late || failed_since {
+        .checked_add(allowed)
+        .is_some_and(|deadline| now > deadline);
+    if late {
         PartState::Degraded
     } else {
         PartState::Operational
@@ -252,44 +250,6 @@ fn mail_state(total: i64, failed: i64) -> PartState {
     }
 }
 
-/// Records one run of a background job, such as `bill-pulls`, for the
-/// status page. `every` is how often the job should succeed; a job whose
-/// last success is older than twice that shows as degraded. Call it after
-/// every run, with the error in plain words (no secrets) if it failed.
-///
-/// # Errors
-///
-/// Fails if the job name is not lower-case words with dashes, `every` is
-/// under a second or over 68 years, or a query fails.
-pub async fn record_job_run(
-    db: &PgPool,
-    job: &str,
-    every: Duration,
-    outcome: Result<(), &str>,
-) -> Result<(), sqlx::Error> {
-    let every_seconds = i32::try_from(every.as_secs()).unwrap_or(i32::MAX).max(1);
-    let (succeeded, error) = match outcome {
-        Ok(()) => (true, None),
-        Err(error) => (false, Some(error.chars().take(500).collect::<String>())),
-    };
-    sqlx::query!(
-        r#"INSERT INTO job_heartbeats (job, last_success_at, last_failure_at, last_error, expected_every_seconds)
-           VALUES ($1, CASE WHEN $2 THEN now() END, CASE WHEN $2 THEN NULL ELSE now() END, $3, $4)
-           ON CONFLICT (job) DO UPDATE SET
-             last_success_at = CASE WHEN $2 THEN now() ELSE job_heartbeats.last_success_at END,
-             last_failure_at = CASE WHEN $2 THEN job_heartbeats.last_failure_at ELSE now() END,
-             last_error = CASE WHEN $2 THEN job_heartbeats.last_error ELSE $3 END,
-             expected_every_seconds = $4"#,
-        job,
-        succeeded,
-        error,
-        every_seconds
-    )
-    .execute(db)
-    .await?;
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -298,60 +258,46 @@ mod tests {
     #[test]
     fn a_job_on_time_is_operational() {
         let now = OffsetDateTime::now_utc();
-        let hour = 3_600;
+        let hour = Duration::from_hours(1);
+        let ago = |span: Span| now.checked_sub(span).unwrap();
         assert_eq!(
-            job_state(
-                now,
-                Some(now.checked_sub(Span::minutes(30)).unwrap()),
-                None,
-                hour
-            ),
+            job_state(now, Some(ago(Span::minutes(30))), 0, hour),
             PartState::Operational
         );
         // Twice the rhythm plus five minutes is still on time.
         assert_eq!(
-            job_state(
-                now,
-                Some(now.checked_sub(Span::seconds(7_500)).unwrap()),
-                None,
-                hour
-            ),
+            job_state(now, Some(ago(Span::seconds(7_500))), 0, hour),
             PartState::Operational
         );
         assert_eq!(
-            job_state(
-                now,
-                Some(now.checked_sub(Span::seconds(7_501)).unwrap()),
-                None,
-                hour
-            ),
+            job_state(now, Some(ago(Span::seconds(7_501))), 0, hour),
             PartState::Degraded
         );
     }
 
     #[test]
-    fn a_failed_last_run_or_no_success_is_degraded() {
+    fn a_failed_last_run_is_degraded_and_no_run_yet_is_not_running() {
         let now = OffsetDateTime::now_utc();
-        let success = now.checked_sub(Span::minutes(10)).unwrap();
+        let hour = Duration::from_hours(1);
+        let success = now.checked_sub(Span::minutes(10));
+        assert_eq!(job_state(now, success, 1, hour), PartState::Degraded);
+        assert_eq!(job_state(now, None, 2, hour), PartState::Degraded);
+        assert_eq!(job_state(now, None, 0, hour), PartState::NotRunning);
+        // A rhythm too long for a date stays operational, never panics.
         assert_eq!(
-            job_state(
-                now,
-                Some(success),
-                Some(now.checked_sub(Span::minutes(5)).unwrap()),
-                3_600
-            ),
-            PartState::Degraded
-        );
-        assert_eq!(
-            job_state(
-                now,
-                Some(success),
-                Some(now.checked_sub(Span::minutes(20)).unwrap()),
-                3_600
-            ),
+            job_state(now, success, 0, Duration::MAX),
             PartState::Operational
         );
-        assert_eq!(job_state(now, None, Some(now), 3_600), PartState::Degraded);
+    }
+
+    #[test]
+    fn jobs_show_as_not_running_until_the_runner_runs_them() {
+        let jobs: Vec<Component> = job_components().collect();
+        assert_eq!(
+            jobs.iter().map(|job| job.id).collect::<Vec<_>>(),
+            JOBS.to_vec()
+        );
+        assert!(jobs.iter().all(|job| job.state == PartState::NotRunning));
     }
 
     #[test]
