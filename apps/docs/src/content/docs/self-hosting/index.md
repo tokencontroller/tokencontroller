@@ -3,7 +3,7 @@ title: "Self-hosting"
 description: "What a self-hosted Token Controller runs, and how to start."
 ---
 
-Self-hosted Token Controller is the same Docker image as the hosted Team plan, with every Team plan feature. You need one container and one Postgres database.
+Self-hosted Token Controller is the same product as the hosted Team plan, from the same open code, with every Team plan feature. The hosted service adds our billing, support and feedback. You need one container and one Postgres database.
 
 ## What you run {#stack}
 

@@ -21,32 +21,6 @@ The service is configured with environment variables.
 
 Without a mail server, a person with access to the container can still sign someone in: `tokencontroller sign-in-link EMAIL` prints a sign-in link for that member, valid once and for 15 minutes.
 
-## Support and newsletter settings {#customer-relations}
-
-The hosted service uses these to run its own support inbox, site assistant, newsletter and onboarding emails. Each part is off until its settings are set, and a self-hosted instance leaves them all unset.
-
-| Variable | Meaning |
-| --- | --- |
-| `TC_OPERATOR_EMAILS` | Comma-separated addresses of the people who run the instance. Signed in with one of them, a member sees the admin area: support conversations, site assistant questions, the newsletter, feedback reports and a record of each organization. They get a notice with a link when a support conversation or a feedback report needs a person. Without it, each organization's controllers read its feedback reports. |
-| `TC_INBOUND_MAIL_SECRET` | The secret incoming support mail is signed with. Turns on the support inbox. Needs `TC_SUPPORT_FROM`. |
-| `TC_SUPPORT_FROM` | The sender of support answers, such as `Support <support@example.com>`. Turns on support inside the app; the answer goes to the member's address. |
-| `TC_ANTHROPIC_API_KEY` | A Claude API key. Support answers and the site assistant answer from these docs with it. Without it, every support message goes to the operators. |
-| `TC_SITE_URL` | The public website, such as `https://example.com`. Its pages, also under `www.`, may use the site assistant, the contact form and the newsletter sign-up. |
-| `TC_RESEND_API_KEY` | A Resend API key. Turns on the newsletter. Needs `TC_NEWSLETTER_FROM`. |
-| `TC_NEWSLETTER_FROM` | The sender of the newsletter, such as `News <news@news.example.com>`. |
-| `TC_ONBOARDING_EMAILS` | Set to `on` to email a new organization's controllers when it has not taken its next first step three days after the last one: first token entry, first token sheet, first bill, first close. One email per step, none after the first close or 30 days without activity. Needs `TC_SMTP_URL`. |
-
-The service deletes site assistant questions, the raw copy of support mail and feedback screenshots after 90 days, a support conversation two years after its last message, and a feedback report two years after its last change. A message's text stays with its conversation until then.
-
-## Billing settings {#billing}
-
-The hosted service bills the Team plan through Stripe with these two. Billing is off unless both are set, and a self-hosted instance leaves them unset.
-
-| Variable | Meaning |
-| --- | --- |
-| `TC_STRIPE_SECRET_KEY` | The Stripe API key the service calls Stripe with. |
-| `TC_STRIPE_WEBHOOK_SECRET` | The signing secret of the Stripe webhook endpoint, `/api/v1/billing/stripe-webhook`. |
-
 ## Enterprise plan settings {#enterprise}
 
 These turn on the [Enterprise plan](/self-hosting/enterprise) features in the Enterprise image. The open-source image ignores them.

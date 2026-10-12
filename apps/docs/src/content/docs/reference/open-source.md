@@ -9,7 +9,7 @@ next:
   label: "Overview"
 ---
 
-Token Controller is open source. The service, the local tools and these docs live in one public GitHub repository. The Enterprise plan features are the one part that is not open source; see [Enterprise plan instances](/self-hosting/enterprise).
+Token Controller is open source. The service, the local tools and these docs live in one public GitHub repository. Enterprise features and our own billing and support tools are not open source; see [Enterprise plan instances](/self-hosting/enterprise).
 
 ## Licenses {#licenses}
 
@@ -18,6 +18,7 @@ Token Controller is open source. The service, the local tools and these docs liv
 | The service | AGPL-3.0. If you run a changed version for others, you share your changes. |
 | CLI, Claude Code mod, GitHub Action, SDK | MIT. Use them in anything, including closed tools. |
 | Enterprise plan features | Not open source. Licensed with the Enterprise plan. |
+| Our billing and support tools | Not open source. They run only on the hosted service. |
 
 ## Issues and pull requests {#contributing}
 

@@ -1,5 +1,7 @@
 # Support inbox, site assistant and newsletter live in the service, off by default
 
+Superseded by ADR 0020: customer relations and billing moved to the private repo, and this repo no longer has the `customer_relations` module.
+
 The hosted service runs its own support inbox, site assistant and newsletter in the `customer_relations` module, instead of outside tools. Each part is off until its settings are set (docs page Self-hosting > Configuration), so a self-hosted instance runs none of it and still needs only Postgres and SMTP (ADR 0002).
 
 ## Rules that follow

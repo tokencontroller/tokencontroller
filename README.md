@@ -56,4 +56,4 @@ The service has one module folder per area under `apps/server/src/`, so work on 
 
 ## Open core
 
-Everything here is open source. The Enterprise plan features are kept in a private repo that builds on this one; this repo never depends on it. What that means for customers is on the docs pages [Enterprise plan instances](https://docs.tokencontroller.com/self-hosting/enterprise) and [Open source and licenses](https://docs.tokencontroller.com/reference/open-source).
+Everything here is open source. The Enterprise plan features and the hosted service's own billing and support tools are kept in a private repo that builds on this one; this repo never depends on it (ADR 0020). What that means for customers is on the docs pages [Enterprise plan instances](https://docs.tokencontroller.com/self-hosting/enterprise) and [Open source and licenses](https://docs.tokencontroller.com/reference/open-source).

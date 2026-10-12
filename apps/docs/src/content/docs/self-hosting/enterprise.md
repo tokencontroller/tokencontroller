@@ -15,4 +15,4 @@ A self-hosted instance with a support contract is an Enterprise plan instance. Y
 
 ## What is not open source {#features}
 
-The Enterprise plan features are the one part of Token Controller that is not open source. They sit on top of the open-source service, and nothing in the open-source version depends on them. If an Enterprise plan ends, your data stays: people sign in by magic link, and every report and export keeps working. See [Open source and licenses](/reference/open-source).
+Enterprise features and our own billing and support tools are not open source. The Enterprise plan features sit on top of the open-source service, and nothing in the open-source version depends on them. If an Enterprise plan ends, your data stays: people sign in by magic link, and every report and export keeps working. See [Open source and licenses](/reference/open-source).
