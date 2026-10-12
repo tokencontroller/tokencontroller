@@ -10,6 +10,7 @@ pub mod bills;
 pub mod decimal;
 pub mod http;
 pub mod prices;
+pub mod secrets;
 pub mod tickets;
 
 use utoipa_axum::router::OpenApiRouter;
