@@ -118,6 +118,12 @@ impl<'a> App<'a> {
     /// Fetches the context from the service when it is older than ten
     /// minutes, or always with `force`. Without a connection, or when the
     /// service cannot be reached and `force` is off, the cached one stays.
+    /// The next command reads the context again: after a submit, the
+    /// service's word on late token sheets has changed.
+    pub fn context_is_stale(&self) -> Result<()> {
+        self.store.set_meta("context_fetched_ms", "0")
+    }
+
     pub fn refresh_context(&mut self, force: bool) -> Result<()> {
         let Some(client) = self.client() else {
             self.context = self.local_context()?;
