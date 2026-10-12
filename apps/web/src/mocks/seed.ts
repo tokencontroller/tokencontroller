@@ -7,7 +7,9 @@
 
 import type {
   ApiToken,
-  BillProvider,
+  BillConnectionView,
+  BillCostSource,
+  BillSource,
   CadenceView,
   Interval,
   Organization,
@@ -49,27 +51,41 @@ export interface EntryRecord {
   reject_reason: string | null;
   placed_by: string;
   candidates: string[];
-  splits: { share: number; tags: Tags }[];
+  /** `unknown_ticket`: a ticket key that matched a pattern but that the ticket sync did not find. */
+  splits: { share: number; tags: Tags; unknown_ticket?: string | null }[];
   late: boolean;
   /** Which bill this entry's cost appears on. */
   provider: string;
 }
 
-export interface BillRecord {
-  id: string;
-  provider: BillProvider;
-  label: string;
-  period: string;
+/** One figure a provider gave for a bill, in nano-units of its currency. */
+export interface BillRevisionRecord {
+  revision: number;
+  currency: string;
   gross: number;
   discount: number;
   credit: number;
   net: number;
-  source: "api" | "csv" | "manual";
-  revision: number;
-  received_at: string;
-  revisions: { revision: number; net: number; received_at: string }[];
-  /** Whether the provider says the figure is final. */
-  final: boolean;
+  /** To the reporting currency in nano-units (0.9214 is 921_400_000); null in the reporting currency. */
+  exchange_rate: number | null;
+  exchange_rate_given: boolean;
+  source: BillSource;
+  recorded_at: string;
+  /** What a cloud's export was summed from, as the service keeps it. */
+  lines?: Record<string, string | null>[];
+  /** False while a pulled bill can still change; the close waits for it. Left out means final. */
+  final?: boolean;
+}
+
+/** A provider's bill for one period and cost source, with every revision. */
+export interface BillRecord {
+  id: string;
+  period: string;
+  /** Who charged, as token entries name it, such as `anthropic`. */
+  provider: string;
+  cost_source: BillCostSource;
+  /** Oldest first; the last is the latest. */
+  revisions: BillRevisionRecord[];
 }
 
 /** A token budget as the service stores it, the amount in nano-units of the reporting currency. */
@@ -124,13 +140,16 @@ export interface SavedReportRecord {
 export interface AdjustmentRecord {
   id: string;
   period: string;
-  rung: string;
-  value: string;
+  /** Plus or minus, in nano-units of the reporting currency. */
   amount: number;
+  /** The cost object and any other tags; none puts it on the organization. */
+  tags: Tags;
   reason: string;
-  posted_by: string;
+  /** Posted on its own for a token sheet that came in after the close. */
+  late: boolean;
+  /** The person id; null when posted for a late token sheet. */
+  posted_by: string | null;
   posted_at: string;
-  late_sheet: boolean;
 }
 
 export interface PeriodRecord {
@@ -139,6 +158,21 @@ export interface PeriodRecord {
   closed_at: string | null;
   closed_by: string | null;
   tag_map: { cost_center: string; ladder: string[] } | null;
+  /** A closed period keeps the tag map version, approval and the bill revisions it closed with. */
+  tag_map_version?: number;
+  approval?: boolean;
+  bills?: { bill: string; revision: number }[];
+}
+
+/** A link that shows a closed period's cost sheet without signing in. */
+export interface CostSheetLinkRecord {
+  id: string;
+  period: string;
+  secret: string;
+  /** The person id. */
+  created_by: string;
+  created_at: string;
+  revoked_at: string | null;
 }
 
 export interface TicketRecord extends Ticket {
@@ -165,9 +199,10 @@ export interface Db {
   cadences: CadenceView[];
   entries: EntryRecord[];
   bills: BillRecord[];
-  connections: { id: string; provider: "anthropic_enterprise" | "anthropic_console" | "openai"; status: "ok" | "failing"; last_pull_at: string | null; message: string | null }[];
+  connections: BillConnectionView[];
   periods: PeriodRecord[];
   adjustments: AdjustmentRecord[];
+  links: CostSheetLinkRecord[];
   budgets: BudgetRecord[];
   reports: SavedReportRecord[];
   rules: OrganizationRules;
@@ -312,7 +347,7 @@ const workers: Work[] = [
   { person: "lena", harness: "Gemini CLI", model: "gemini-3-pro", provider: "google", work: [["CP-15", 3], ["CP-4", 2], ["INT-8", 3], ["intranet", 1], ["", 1]], sessionsPerDay: 1.0 },
   { person: "lena", harness: "Claude Code", model: "claude-sonnet-5", provider: "anthropic", work: [["CP-15", 2], ["INT-8", 1]], sessionsPerDay: 0.6 },
   { person: "sam", harness: "Codex", model: "gpt-5-codex", provider: "openai", work: [["CP-12", 3], ["CP-18", 3], ["CP-9", 2], ["claims-portal", 1], ["", 1]], sessionsPerDay: 1.4 },
-  { person: "sam", harness: "Copilot CLI", model: "gpt-5", provider: "copilot", work: [["CP-18", 2], ["CP-20", 1], ["support", 1], ["", 1]], sessionsPerDay: 0.4 },
+  { person: "sam", harness: "Copilot CLI", model: "gpt-5", provider: "github", work: [["CP-18", 2], ["CP-20", 1], ["support", 1], ["", 1]], sessionsPerDay: 0.4 },
   { person: "priya", harness: "Claude Code", model: "claude-opus-5", provider: "anthropic", work: [["KD-200", 2], ["INT-3", 2], ["", 1]], sessionsPerDay: 0.4 },
 ];
 
@@ -398,9 +433,10 @@ function tokensFor(rand: () => number, cents: number): TokenCounts {
   };
 }
 
+/** What placed a split, as the service's review list shows it (the default rules' names). */
 function placedBy(target: string, harness: string): string {
-  if (!target) return "no rule matched";
-  if (projectOfTicket.has(target)) return harness === "Cursor" || harness === "Gemini CLI" ? "rule: ticket key in prompts" : "rule: ticket key in branch";
+  if (!target) return "no ticket";
+  if (projectOfTicket.has(target)) return harness === "Cursor" || harness === "Gemini CLI" ? "rule: ticket key in prompts or session title" : "rule: ticket key in branch";
   return "rule: repository";
 }
 
@@ -514,13 +550,19 @@ export function createDb(): Db {
     rejected.reject_reason = "This was the upload form itself. Please move it to CP-12.";
   }
 
+  // Mara's branch named KD-299, which the ticket sync never found: her review
+  // list shows the token entry as unknown ticket (docs: Ticket keys).
+  const unsynced = entries.find((e) => e.agent_manager === MARA.id && e.period === "2026-10" && e.status === "submitted" && Object.keys(e.splits[0]?.tags ?? {}).every((name) => ["person", "team", "department"].includes(name)));
+  const unsyncedSplit = unsynced?.splits[0];
+  if (unsyncedSplit) unsyncedSplit.unknown_ticket = "KD-299";
+
   // Mara's drafts for today, as the Review and submit docs page shows them.
   const today: [string, number, string, string, string[]][] = [
     ["09:12", 4187, "KD-214", "rule: ticket key in branch", []],
     ["11:46", 1210, "KD-214", "rule: ticket key in branch", []],
     ["13:05", 8830, "KD-231", "rule: ticket key in pull request title", []],
     ["15:20", 975, "storefront", "rule: repository", []],
-    ["16:41", 6038, "", "no ticket, 2 candidates", ["KD-231", "KD-240"]],
+    ["16:41", 6038, "", "no ticket", ["KD-231", "KD-240"]],
   ];
   const todaySummaries = ["Fixed checkout redirect loop", "Added a test for the redirect", "Saved address list at checkout", "Read up on the new payment API", "Address lookup edge cases"];
   today.forEach(([time, cents, target, by, candidates], index) => {
@@ -575,15 +617,22 @@ export function createDb(): Db {
     provider: "anthropic",
   });
 
-  // Bills: token entries plus a small residual, per provider.
-  const providers: { key: string; provider: BillProvider; label: string; source: "api" | "csv"; residual: number }[] = [
-    { key: "anthropic", provider: "anthropic_console", label: "Anthropic", source: "api", residual: 0.031 },
-    { key: "openai", provider: "openai", label: "OpenAI", source: "api", residual: 0.024 },
-    { key: "google", provider: "other", label: "Google Gemini", source: "csv", residual: 0.05 },
-    { key: "cursor", provider: "other", label: "Cursor", source: "csv", residual: 0.0 },
-    { key: "copilot", provider: "other", label: "GitHub Copilot", source: "csv", residual: 0.04 },
+  // Jonas's token sheet for a week of August came in after August closed:
+  // its entry stays locked and reaches August as an adjustment, marked late.
+  const lateEntry = [...entries].reverse().find((e) => e.period === "2026-08" && e.agent_manager === who("jonas").id && !e.automatic && e.list !== null);
+  if (lateEntry) lateEntry.late = true;
+
+  // Bills: token entries plus a small residual, per provider. Discount and
+  // credit are zero unless a provider restated the bill.
+  const providers: { key: string; cost_source: BillCostSource; source: BillSource; residual: number }[] = [
+    { key: "anthropic", cost_source: "usage_at_api_rates", source: "pulled", residual: 0.031 },
+    { key: "openai", cost_source: "api_key", source: "pulled", residual: 0.024 },
+    { key: "google", cost_source: "api_key", source: "csv", residual: 0.05 },
+    { key: "cursor", cost_source: "reseller", source: "csv", residual: 0.0 },
+    { key: "github", cost_source: "reseller", source: "csv", residual: 0.04 },
   ];
   const bills: BillRecord[] = [];
+  let billNumber = 0;
   for (const period of ["2026-07", "2026-08", "2026-09"]) {
     for (const p of providers) {
       const covered = entries
@@ -592,31 +641,32 @@ export function createDb(): Db {
       // Unknown models are billed too; Google's bill covers them.
       const net = Math.round((covered * (1 + p.residual)) / 10_000_000) * 10_000_000 + (p.key === "google" ? 1_850_000_000 : 0);
       const [y = 2026, m = 1] = period.split("-").map(Number);
-      const received = new Date(Date.UTC(y, m, p.source === "api" ? 3 : 6, 6)).toISOString();
+      const recorded = new Date(Date.UTC(y, m, p.source === "pulled" ? 3 : 6, 6)).toISOString();
       bills.push({
-        id: `bill_${period}_${p.key}`,
-        provider: p.provider,
-        label: p.label,
+        id: uuid(5, ++billNumber),
         period,
-        gross: net,
-        discount: 0,
-        credit: 0,
-        net,
-        source: p.source,
-        revision: 1,
-        received_at: received,
-        revisions: [],
-        final: true,
+        provider: p.key,
+        cost_source: p.cost_source,
+        revisions: [{ revision: 1, currency: CURRENCY, gross: net, discount: 0, credit: 0, net, exchange_rate: null, exchange_rate_given: false, source: p.source, recorded_at: recorded }],
       });
     }
   }
-  // Anthropic restated September once.
-  const restated = bills.find((b) => b.id === "bill_2026-09_anthropic");
-  if (restated) {
-    restated.revisions = [{ revision: 1, net: restated.net - 4_120_000_000, received_at: "2026-10-03T06:00:00Z" }];
-    restated.revision = 2;
-    restated.received_at = "2026-10-09T06:00:00Z";
+  const billOf = (period: string, provider: string) => bills.find((b) => b.period === period && b.provider === provider);
+  // Anthropic restated September once, before the close.
+  const september = billOf("2026-09", "anthropic")?.revisions;
+  const first = september?.[0];
+  if (september && first) {
+    september[0] = { ...first, gross: first.gross - 4_120_000_000, net: first.net - 4_120_000_000, recorded_at: "2026-10-03T06:00:00Z" };
+    september.push({ ...first, revision: 2, recorded_at: "2026-10-09T06:00:00Z" });
   }
+  // GitHub credited one of two pen test runs after August closed. August
+  // keeps the figure it closed with; the controller posted an adjustment.
+  const august = billOf("2026-08", "github")?.revisions;
+  const closedWith = august?.[0];
+  if (august && closedWith) {
+    august.push({ ...closedWith, revision: 2, credit: 18_400_000_000, net: closedWith.net - 18_400_000_000, recorded_at: "2026-09-14T06:00:00Z" });
+  }
+  const closedBills = (period: string) => bills.filter((b) => b.period === period).map((b) => ({ bill: b.id, revision: 1 }));
 
   // Token budgets, as people managers set them: some for every month, one
   // for a single period, and two all-time ones on tickets, one of them
@@ -699,16 +749,24 @@ export function createDb(): Db {
     ],
     entries,
     bills,
-    connections: [{ id: "bc_1", provider: "anthropic_console", status: "ok", last_pull_at: "2026-10-12T06:00:00Z", message: null }, { id: "bc_2", provider: "openai", status: "ok", last_pull_at: "2026-10-12T06:00:00Z", message: null }],
+    // Anthropic's Enterprise Analytics API and OpenAI's Costs API, pulled this morning.
+    connections: [
+      { id: uuid(7, 1), provider: "anthropic_enterprise", key_hint: "…r4Qe", last_pull_at: "2026-10-12T06:00:00Z", status: "ok", message: null },
+      { id: uuid(7, 2), provider: "openai", key_hint: "…9fKw", last_pull_at: "2026-10-12T06:00:00Z", status: "ok", message: null },
+    ],
     periods: [
-      { id: "2026-07", status: "closed", closed_at: "2026-08-06T14:10:00Z", closed_by: nadia, tag_map: { cost_center: "person", ladder: ["ticket", "project"] } },
-      { id: "2026-08", status: "closed", closed_at: "2026-09-07T09:42:00Z", closed_by: nadia, tag_map: { cost_center: "person", ladder: ["ticket", "project"] } },
+      { id: "2026-07", status: "closed", closed_at: "2026-08-06T14:10:00Z", closed_by: nadia, tag_map: { cost_center: "person", ladder: ["ticket", "project"] }, tag_map_version: 1, approval: true, bills: closedBills("2026-07") },
+      { id: "2026-08", status: "closed", closed_at: "2026-09-07T09:42:00Z", closed_by: nadia, tag_map: { cost_center: "person", ladder: ["ticket", "project"] }, tag_map_version: 1, approval: true, bills: closedBills("2026-08") },
       { id: "2026-09", status: "open", closed_at: null, closed_by: null, tag_map: null },
       { id: "2026-10", status: "open", closed_at: null, closed_by: null, tag_map: null },
     ],
     adjustments: [
-      { id: "adj_1", period: "2026-08", rung: "project", value: "claims-portal", amount: -18_400_000_000, reason: "Pen test run twice by mistake; the provider credited one run.", posted_by: nadia, posted_at: "2026-09-15T10:20:00Z", late_sheet: false },
+      ...(lateEntry?.list
+        ? [{ id: uuid(6, 1), period: "2026-08", amount: lateEntry.list, tags: lateEntry.splits[0]?.tags ?? {}, reason: "Late token sheet, submitted after 2026-08 closed, on 2026-09-09", late: true, posted_by: null, posted_at: "2026-09-09T08:00:00Z" }]
+        : []),
+      { id: uuid(6, 2), period: "2026-08", amount: -18_400_000_000, tags: { project: "claims-portal", client: "globex" }, reason: "Pen test run twice by mistake; the provider credited one run.", late: false, posted_by: nadia, posted_at: "2026-09-15T10:20:00Z" },
     ],
+    links: [],
     budgets,
     reports: [
       { id: "5e000000-0000-4000-8000-000000000001", name: "Cost per team for Acme", filter: { client: "acme" }, by: "team", created_by: kai, created_at: "2026-07-20T13:10:00Z" },

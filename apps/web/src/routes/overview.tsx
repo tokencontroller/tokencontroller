@@ -1,14 +1,14 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
-import type { CostKind, CostReport, Filter } from "@/api/contract";
+import type { CostKind, CostReport, Filter, Reconciliation } from "@/api/contract";
 import { api } from "@/api/endpoints";
 import { FilterTags } from "@/routes/budgets";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonClass } from "@/components/ui/button";
 import { Kpi, KpiRow, Loading, MoneyText, Note, PageHeader, RowBar, Section, ShareBar } from "@/components/ui/display";
 import { addMonths, describeFilter, filterToText, formatPeriod } from "@/lib/format";
-import { formatMoney, formatShare, fromDecimal, nanosOf, shareOf } from "@/lib/money";
+import { formatMoney, formatShare, fromDecimal, nanosOf, shareOf, sum } from "@/lib/money";
 import { refreshAll, useBilling, useFirstOpenPeriod, useMe, usePeriods, usePersonName } from "@/lib/queries";
 import { Field, FormError, Input } from "@/components/ui/form";
 import { forgetSignUp, readSignUp, rememberSignUp, type SignUpChoices } from "@/lib/remember";
@@ -66,8 +66,9 @@ function MyCost() {
   const budgets = useQuery({ queryKey: ["token-budget-report", period], queryFn: () => api.tokenBudgetReport(period) });
   const myBudget = budgets.data?.rows.find((r) => filterToText(r.token_budget.filter) === `person:${me.person.email}`);
   const budgetMoney = myBudget ? { amount: fromDecimal(myBudget.amount, myBudget.token_budget.currency), actual: fromDecimal(myBudget.actual, myBudget.token_budget.currency) } : null;
-  const drafts = sheet.data?.entries.filter((e) => e.status === "draft").length ?? 0;
-  const rejected = sheet.data?.entries.filter((e) => e.status === "rejected").length ?? 0;
+  const drafts = sheet.data?.token_entries.filter((e) => e.status === "draft").length ?? 0;
+  const rejected = sheet.data?.token_entries.filter((e) => e.status === "rejected").length ?? 0;
+  const onTickets = sheet.data?.share_on_tickets ?? null;
   return (
     <>
       {sheet.data?.late ? (
@@ -85,7 +86,7 @@ function MyCost() {
         <div className="mb-8 flex flex-col gap-3 rounded-lg border border-line bg-sheet p-4 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-sm">
             {drafts} draft token {drafts === 1 ? "entry" : "entries"}
-            {sheet.data ? ` · ${formatMoney(sheet.data.total)} · ${formatShare(sheet.data.on_tickets)} on tickets` : ""}
+            {sheet.data ? ` · ${formatMoney(fromDecimal(sheet.data.list_value, sheet.data.currency))}${onTickets === null ? "" : ` · ${formatShare(onTickets)} on tickets`}` : ""}
           </p>
           <Link to="/review" className={buttonClass("primary")}>
             Review and submit
@@ -126,10 +127,10 @@ function PeopleManagerView() {
   const me = useMe();
   const period = thisPeriod();
   const toApprove = useFirstOpenPeriod() ?? period;
-  const waiting = useQuery({ queryKey: ["token-entries", toApprove, "submitted", "", ""], queryFn: () => api.tokenEntries({ period: toApprove, status: "submitted" }) });
+  const waiting = useQuery({ queryKey: ["approval", toApprove, ""], queryFn: () => api.approvalQueue(toApprove) });
   const budgets = useQuery({ queryKey: ["token-budget-report", period], queryFn: () => api.tokenBudgetReport(period) });
-  const current = useQuery({ queryKey: ["token-entries", period, "", "", ""], queryFn: () => api.tokenEntries({ period }) });
-  const orphans = current.data?.filter((e) => e.agent_manager === null) ?? [];
+  const current = useQuery({ queryKey: ["token-entries", period, "all"], queryFn: () => api.tokenEntries({ period, limit: 5000 }) });
+  const orphans = current.data?.token_entries.filter((e) => (e.agent_manager ?? null) === null) ?? [];
   const overruns = budgets.data?.rows.filter((r) => r.outcome === "overrun") ?? [];
   const filters = me.person.role === "controller" ? [] : me.person.filters;
   return (
@@ -157,23 +158,31 @@ function PeopleManagerView() {
   );
 }
 
+/** The share of a period's bills that token entries explain. */
+function attribution(recon: Reconciliation): string {
+  const c = recon.reporting_currency;
+  const explained = fromDecimal(recon.totals.token_entries, c);
+  const gross = sum([explained, fromDecimal(recon.totals.residual, c)], c);
+  return nanosOf(gross) > 0n ? formatShare(shareOf(explained, gross)) : "–";
+}
+
 function ControllerView() {
   const periods = usePeriods();
   const period = thisPeriod();
   const last = addMonths(period, -1);
   const recon = useQuery({ queryKey: ["reconciliation", last], queryFn: () => api.reconciliation(last) });
   const kinds = useCostKinds(period, {});
-  const lastPeriod = periods.data?.find((p) => p.id === last);
+  const lastPeriod = periods.data?.find((p) => p.period === last);
   return (
     <>
       <KpiRow>
         <Kpi label={`Token entries, ${formatPeriod(period)}`} value={kinds ? formatMoney(kinds.total) : "…"} note="so far" />
-        <Kpi label={`Attribution, ${formatPeriod(last)}`} value={recon.data ? formatShare(recon.data.attribution) : "…"} note="share of the bills token entries explain" tone="posted" />
-        <Kpi label={`Residual, ${formatPeriod(last)}`} value={recon.data ? formatMoney(recon.data.total.residual) : "…"} note="always shown" />
+        <Kpi label={`Attribution, ${formatPeriod(last)}`} value={recon.data ? attribution(recon.data) : "…"} note="share of the bills token entries explain" tone="posted" />
+        <Kpi label={`Residual, ${formatPeriod(last)}`} value={recon.data ? formatMoney(fromDecimal(recon.data.totals.residual, recon.data.reporting_currency)) : "…"} note="always shown" />
         <Kpi
           label={`Close, ${formatPeriod(last)}`}
-          value={lastPeriod?.status === "closed" ? <Badge tone="posted">closed</Badge> : <Badge>open</Badge>}
-          note={lastPeriod?.status === "closed" ? <Link to="/close/$period" params={{ period: last }} className="text-accent hover:underline">Cost sheet</Link> : <Link to="/close" className="text-accent hover:underline">Run the close</Link>}
+          value={lastPeriod?.closed ? <Badge tone="posted">closed</Badge> : <Badge>open</Badge>}
+          note={lastPeriod?.closed ? <Link to="/close/$period" params={{ period: last }} className="text-accent hover:underline">Cost sheet</Link> : <Link to="/close" className="text-accent hover:underline">Run the close</Link>}
         />
       </KpiRow>
       {kinds ? (

@@ -1,9 +1,9 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { getRouteApi } from "@tanstack/react-router";
 import { useMemo, useState, type ReactNode } from "react";
-import type { TokenEntry } from "@/api/contract";
+import type { EntryView } from "@/api/contract";
 import { api } from "@/api/endpoints";
-import { EntryDialog, entryValue } from "@/components/entry-dialog";
+import { EntryDialog, entryValue, listTotal, valueLabel } from "@/components/entry-dialog";
 import { PeriodSelect } from "@/components/period-select";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -14,15 +14,14 @@ import { DataTable, type Column } from "@/components/ui/table";
 import { Tag, TagRow } from "@/components/ui/tag";
 import { notify } from "@/components/ui/toast";
 import { describeFilter, filterFromText, filterToText, formatDay } from "@/lib/format";
-import { formatMoney, sum, toDecimal } from "@/lib/money";
-import { refreshAll, useFirstOpenPeriod, useMe, usePersonName } from "@/lib/queries";
+import { formatMoney, toDecimal } from "@/lib/money";
+import { refreshAll, useFirstOpenPeriod, useMe } from "@/lib/queries";
 import { thisPeriod } from "@/lib/today";
 
 const approvalRoute = getRouteApi("/app/approval");
 
 export function ApprovalPage(): ReactNode {
   const me = useMe();
-  const name = usePersonName();
   const navigate = approvalRoute.useNavigate();
   const search = approvalRoute.useSearch();
   const firstOpen = useFirstOpenPeriod();
@@ -32,18 +31,21 @@ export function ApprovalPage(): ReactNode {
   const [extra, setExtra] = useState("");
   const filter = { ...filterFromText(scope), ...filterFromText(extra) };
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [open, setOpen] = useState<TokenEntry | null>(null);
+  const [open, setOpen] = useState<EntryView | null>(null);
   const entries = useQuery({
-    queryKey: ["token-entries", period, "submitted", "", filterToText(filter)],
-    queryFn: () => api.tokenEntries({ period, status: "submitted", filter }),
+    queryKey: ["approval", period, filterToText(filter)],
+    queryFn: () => api.approvalQueue(period, filter),
   });
   const rows = useMemo(() => entries.data ?? [], [entries.data]);
   const approve = useMutation({
-    mutationFn: (ids: string[]) => api.approve(ids),
+    mutationFn: (ids: string[]) => api.approve({ token_entry_ids: ids }),
     onSuccess: async (r) => {
       setSelected(new Set());
       await refreshAll();
-      notify(`${r.approved} token ${r.approved === 1 ? "entry" : "entries"} approved`);
+      notify(
+        `${String(r.approved)} token ${r.approved === 1 ? "entry" : "entries"} approved`,
+        r.skipped ? `${String(r.skipped)} skipped: no longer submitted, or not within your filters.` : undefined,
+      );
     },
   });
   const allSelected = rows.length > 0 && rows.every((r) => selected.has(r.id));
@@ -54,14 +56,14 @@ export function ApprovalPage(): ReactNode {
     setSelected(next);
   };
   const approval = me.organization.approval;
-  const columns: Column<TokenEntry>[] = [
+  const columns: Column<EntryView>[] = [
     ...(approval
       ? [
           {
             key: "select",
             header: "",
             className: "w-8",
-            cell: (e: TokenEntry) => (
+            cell: (e: EntryView) => (
               <span onClick={(ev) => ev.stopPropagation()}>
                 <Checkbox label={`Select ${e.summary}`} checked={selected.has(e.id)} onCheckedChange={(on) => toggle(e.id, on)} />
               </span>
@@ -70,8 +72,8 @@ export function ApprovalPage(): ReactNode {
         ]
       : []),
     { key: "when", header: "When", className: "whitespace-nowrap", cell: (e) => <span className="num !text-left">{formatDay(e.started_at)}</span>, csv: (e) => e.started_at },
-    { key: "person", header: "Agent manager", className: "whitespace-nowrap", cell: (e) => (e.agent_manager ? name(e.agent_manager) : <Badge tone="exception">nobody</Badge>), csv: (e) => e.agent_manager ?? "" },
-    { key: "agent", header: "Agent", wide: true, cell: (e) => <span>{e.agent_harness}{e.automatic ? <span className="text-muted"> · automatic</span> : null}</span>, csv: (e) => e.agent_harness },
+    { key: "person", header: "Agent manager", className: "whitespace-nowrap", cell: (e) => (e.agent_manager ?? <Badge tone="exception">nobody</Badge>), csv: (e) => e.agent_manager ?? "" },
+    { key: "agent", header: "Agent", wide: true, cell: (e) => <span>{e.agent_harness}{e.agent_name ? <span className="text-muted"> · {e.agent_name}</span> : null}{e.automatic ? <span className="text-muted"> · automatic</span> : null}</span>, csv: (e) => e.agent_harness },
     {
       key: "summary",
       header: "Summary",
@@ -80,16 +82,26 @@ export function ApprovalPage(): ReactNode {
         <span className="block">
           <span className="line-clamp-2 text-ink-soft">{e.summary}</span>
           <span className="mt-1.5 hidden sm:block">
+            {e.splits.length > 1 ? <span className="mb-1 block text-xs text-muted">{e.splits.length} splits</span> : null}
             <TagRow tags={e.splits[0]?.tags ?? {}} />
           </span>
         </span>
       ),
       csv: (e) => e.summary,
     },
-    { key: "tags", header: "Tags", csvOnly: true, cell: () => null, csv: (e) => Object.entries(e.splits[0]?.tags ?? {}).map(([k, v]) => `${k}: ${v}`).join(" · ") },
-    { key: "cost", header: "Cost", align: "right", cell: (e) => <MoneyText value={entryValue(e)} label={e.value_label} />, csv: (e) => { const v = entryValue(e); return v ? toDecimal(v) : ""; } },
+    { key: "tags", header: "Tags", csvOnly: true, cell: () => null, csv: (e) => e.splits.map((s) => Object.entries(s.tags).filter(([k]) => k !== "person").map(([k, v]) => `${k}: ${v}`).join(" · ")).join(" | ") },
+    {
+      key: "cost",
+      header: "List value",
+      align: "right",
+      cell: (e) => <MoneyText value={entryValue(e)} label={valueLabel(e)} />,
+      csv: (e) => {
+        const v = entryValue(e);
+        return v ? toDecimal(v) : "unknown model";
+      },
+    },
   ];
-  const total = sum(rows.map(entryValue).filter((v) => v !== null), me.organization.reporting_currency);
+  const total = listTotal(rows, me.organization.reporting_currency);
   return (
     <>
       <PageHeader
@@ -103,9 +115,11 @@ export function ApprovalPage(): ReactNode {
           ) : undefined
         }
       />
-      {assigned.length ? (
+      {me.person.role === "controller" ? (
+        <Note>As controller you can approve any token entry.</Note>
+      ) : assigned.length ? (
         <p className="mb-4 flex flex-wrap items-center gap-1.5 text-[13px] text-muted">
-          You approve for
+          You approve within
           {assigned.map((f) => (
             <span key={filterToText(f)} className="flex gap-1">
               {Object.entries(f).map(([k, v]) => (
@@ -113,11 +127,11 @@ export function ApprovalPage(): ReactNode {
               ))}
             </span>
           ))}
-          and your own token entries.
+          except your own token entries.
         </p>
-      ) : me.person.role === "controller" ? (
-        <Note>As controller you can approve any token entry.</Note>
-      ) : null}
+      ) : (
+        <Note tone="exception">No filters are assigned to you yet. A controller assigns them under People.</Note>
+      )}
       <div className="mb-4 grid gap-2 sm:flex sm:flex-wrap sm:items-end">
         <PeriodSelect value={period} onChange={(p) => void navigate({ search: { period: p } })} />
         {assigned.length > 1 ? (
@@ -148,8 +162,9 @@ export function ApprovalPage(): ReactNode {
             csvName={`approval-${period}.csv`}
             caption="Submitted token entries"
             empty="Nothing waits for approval here."
-            totals={{ label: `${rows.length} waiting`, values: { cost: formatMoney(total) }, csv: { cost: toDecimal(total) } }}
+            totals={{ label: `${String(rows.length)} waiting`, values: { cost: formatMoney(total) }, csv: { cost: toDecimal(total) } }}
           />
+          {approve.error ? <ErrorBox error={approve.error} /> : null}
         </>
       )}
       <EntryDialog entry={open} onClose={() => setOpen(null)} />

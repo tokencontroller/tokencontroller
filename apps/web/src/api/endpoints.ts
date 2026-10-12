@@ -1,21 +1,18 @@
-import { call, download, ok, typed } from "./client";
+import { download, ok, typed } from "./client";
 import type {
   AcceptInput,
-  Adjustment,
+  AdjustmentInput,
   ApiTokenKind,
-  Bill,
-  BillConnection,
+  ApproveInput,
+  BillCsvQuery,
+  BillInput,
   CadenceInput,
-  CloseCheck,
-  CostSheet,
-  CsvPreview,
   FeedbackStatus,
   Filter,
   Interval,
   IssueText,
   MemberChange,
-  NewAdjustment,
-  NewBill,
+  NewBillConnection,
   NewMember,
   NewProject,
   NewReport,
@@ -23,30 +20,26 @@ import type {
   NewTokenEntry,
   OrganizationChange,
   OrganizationRulesChange,
-  Period,
   PeriodId,
   ProjectChange,
-  Reconciliation,
   ReportChange,
   Rule,
   SaveInput,
-  SubmitResult,
+  ShareInput,
   TagMapChange,
   Tags,
   NewTicketSystem,
   TicketMapping,
   TokenBudgetInput,
-  TokenEntry,
   TokenEntryStatus,
-  TokenSheet,
 } from "./contract";
 import { filterToText } from "@/lib/format";
 
 // Every call the web app makes, one function each. `typed` calls follow the
 // service's OpenAPI document; `call` paths are relative to /api/v1.
 
-const enc = encodeURIComponent;
 const path = <T extends string>(id: T) => ({ params: { path: { id } } });
+const periodPath = (period: PeriodId) => ({ params: { path: { period } } });
 /** A CSV file goes as it is. */
 const csvBody = { bodySerializer: (csv: string) => csv, headers: { "content-type": "text/csv" } };
 
@@ -83,7 +76,9 @@ function controls(query: ReportControls) {
  * send as a CSV file (`format=csv`). Without that parameter it answers JSON.
  */
 async function json<T>(request: Promise<{ data?: T; error?: unknown; response: Response }>): Promise<Exclude<T, string>> {
-  return (await ok(request)) as Exclude<T, string>;
+  const data = await ok(request);
+  if (typeof data === "string") throw new Error("The service sent a file where a list was expected.");
+  return data as Exclude<T, string>;
 }
 
 /** A tag filter as the `filter` parameter, such as `client:acme,team:web`; none for the whole organization. */
@@ -145,46 +140,84 @@ export const api = {
   createTicket: (body: NewTicket) => ok(typed.POST("/api/v1/tickets", { body })),
 
   // Token entries, review and approval
-  tokenEntries: (query: { period: PeriodId; status?: TokenEntryStatus | ""; filter?: Filter; person?: string }) =>
-    call<TokenEntry[]>("GET", "/token-entries", {
-      query: { period: query.period, status: query.status, person: query.person, filter: filterToText(query.filter ?? {}) },
-    }),
+  /** The token entries table: submitted, approved and locked unless `status` names others. Never drafts. */
+  tokenEntries: (query: { period?: PeriodId; filter?: Filter; status?: TokenEntryStatus[]; limit?: number; offset?: number }) =>
+    json(
+      typed.GET("/api/v1/reports/token-entries", {
+        params: {
+          query: {
+            ...(query.period ? { period: query.period } : {}),
+            ...filterQuery(query.filter),
+            ...(query.status?.length ? { status: query.status.join(",") } : {}),
+            ...(query.limit === undefined ? {} : { limit: query.limit }),
+            ...(query.offset === undefined ? {} : { offset: query.offset }),
+          },
+        },
+      }),
+    ),
   addTokenEntry: (body: NewTokenEntry) => ok(typed.POST("/api/v1/token-entries", { body })),
   /** Reads a CSV file and shows the problem in each row; saves nothing. */
   previewImport: (csv: string) => ok(typed.POST("/api/v1/token-entries/csv/preview", { ...csvBody, body: csv })),
   /** Saves every row as a draft, or nothing when a row cannot be read. */
   importEntries: (csv: string) => ok(typed.POST("/api/v1/token-entries/csv", { ...csvBody, body: csv })),
-  setTags: (id: string, tags: Tags) => call<TokenEntry>("PATCH", `/token-entries/${enc(id)}/tags`, { body: { tags } }),
-  setSplits: (id: string, splits: { share: number; tags: Tags }[]) =>
-    call<TokenEntry>("PUT", `/token-entries/${enc(id)}/splits`, { body: { splits } }),
-  approve: (ids: string[]) => call<{ approved: number }>("POST", "/token-entries/approve", { body: { ids } }),
-  reject: (id: string, reason: string) => call<TokenEntry>("POST", `/token-entries/${enc(id)}/reject`, { body: { reason } }),
-  tokenSheet: () => call<TokenSheet>("GET", "/token-sheets/current"),
-  submit: () => call<SubmitResult>("POST", "/token-sheets/submit"),
-  askToSubmit: (period: PeriodId) => call<{ reminded: number }>("POST", "/token-sheets/remind", { body: { period } }),
+  /** Sets every tag of one of your own token entries by hand; it becomes one split again. */
+  setTags: (id: string, tags: Tags) => ok(typed.PATCH("/api/v1/token-entries/{id}/tags", { ...path(id), body: { tags } })),
+  /** Splits one of your own token entries by hand: 2 to 20 whole percents adding up to 100. */
+  setSplits: (id: string, splits: ShareInput[]) => ok(typed.PUT("/api/v1/token-entries/{id}/splits", { ...path(id), body: { splits } })),
+  /** Submitted token entries the caller may approve, within their filters. */
+  approvalQueue: (period: PeriodId, filter: Filter = {}) =>
+    json(typed.GET("/api/v1/token-entries/approval", { params: { query: { period, ...filterQuery(filter) } } })),
+  approve: (body: ApproveInput) => ok(typed.POST("/api/v1/token-entries/approve", { body })),
+  reject: (id: string, reason: string) => ok(typed.POST("/api/v1/token-entries/{id}/reject", { ...path(id), body: { reason } })),
+  tokenSheet: () => json(typed.GET("/api/v1/token-sheets/current")),
+  /** Submits your drafts here. With none it says there was nothing to report. */
+  submit: () => ok(typed.POST("/api/v1/token-sheets/submit", { body: {} })),
+  /** A controller asks everyone to submit their token sheets for a month before the close. */
+  askToSubmit: (period: PeriodId) => ok(typed.POST("/api/v1/token-sheets/remind", { body: { period } })),
 
-  // Bills and reconciliation
-  bills: (period: PeriodId) => call<Bill[]>("GET", "/bills", { query: { period } }),
-  addBill: (body: NewBill) => call<Bill>("POST", "/bills", { body }),
-  previewBillCsv: (csv: string) => call<CsvPreview<NewBill>>("POST", "/bills/import/preview", { body: csv, contentType: "text/csv" }),
-  importBillCsv: (csv: string) => call<Bill[]>("POST", "/bills/import", { body: csv, contentType: "text/csv" }),
-  billConnections: () => call<BillConnection[]>("GET", "/bill-connections"),
-  connectBill: (provider: BillConnection["provider"], key: string) =>
-    call<BillConnection>("POST", "/bill-connections", { body: { provider, key } }),
-  pullBills: (id: string) => call<BillConnection>("POST", `/bill-connections/${enc(id)}/pull`),
-  reconciliation: (period: PeriodId) => call<Reconciliation>("GET", "/reconciliation", { query: { period } }),
+  // Bills, bill connections and reconciliation (controllers)
+  bills: (period: PeriodId) => json(typed.GET("/api/v1/bills", { params: { query: { period } } })),
+  /** Every revision of one bill, oldest first. */
+  billRevisions: (id: string) => json(typed.GET("/api/v1/bills/{id}", path(id))),
+  /** `changed` is false when the same figures were already stored. */
+  addBill: async (body: BillInput) => {
+    const request = typed.POST("/api/v1/bills", { body });
+    const bill = await ok(request);
+    return { bill, changed: (await request).response.status === 201 };
+  },
+  /** What a CSV file holds, or its first problem; saves nothing. A cloud's own export needs the period it is the bill for. */
+  previewBillCsv: (csv: string, query: BillCsvQuery = {}) =>
+    ok(typed.POST("/api/v1/bills/csv/preview", { ...csvBody, body: csv, params: { query } })),
+  importBillCsv: (csv: string, query: BillCsvQuery = {}) => ok(typed.POST("/api/v1/bills/csv", { ...csvBody, body: csv, params: { query } })),
+  billConnections: () => ok(typed.GET("/api/v1/bill-connections")),
+  connectBill: (body: NewBillConnection) => ok(typed.POST("/api/v1/bill-connections", { body })),
+  /** The bills stay; they stop updating. */
+  disconnectBill: (id: string) => ok(typed.DELETE("/api/v1/bill-connections/{id}", path(id))),
+  /** The pull starts within a minute. */
+  pullBills: (id: string) => ok(typed.POST("/api/v1/bill-connections/{id}/pull", path(id))),
+  reconciliation: (period: PeriodId) => json(typed.GET("/api/v1/reconciliation", { params: { query: { period } } })),
 
-  // Periods, the close, the cost sheet and adjustments
-  periods: () => call<Period[]>("GET", "/periods"),
-  closeCheck: (period: PeriodId) => call<CloseCheck>("GET", `/periods/${enc(period)}/close-check`),
-  close: (period: PeriodId) => call<Period>("POST", `/periods/${enc(period)}/close`),
-  costSheet: (period: PeriodId) => call<CostSheet>("GET", `/periods/${enc(period)}/cost-sheet`),
+  // Periods, the close, the cost sheet, links for finance and adjustments
+  /** People managers and controllers; newest first. */
+  periods: () => json(typed.GET("/api/v1/periods")),
+  period: (period: PeriodId) => ok(typed.GET("/api/v1/periods/{period}", periodPath(period))),
+  /** Closes the period and answers with its cost sheet. */
+  close: (period: PeriodId) => ok(typed.POST("/api/v1/periods/{period}/close", periodPath(period))),
+  lateSheets: (period: PeriodId) => json(typed.GET("/api/v1/token-sheets/late", { params: { query: { period } } })),
+  costSheet: (period: PeriodId) => json(typed.GET("/api/v1/periods/{period}/cost-sheet", periodPath(period))),
+  /** The cost sheet as the service writes it in CSV, with extra tag columns. */
   costSheetCsv: (period: PeriodId, columns: string[]) =>
-    download(`/periods/${enc(period)}/cost-sheet.csv`, { columns: columns.join(",") }),
-  shareCostSheet: (period: PeriodId) => call<{ url: string }>("POST", `/periods/${enc(period)}/cost-sheet/link`),
-  sharedCostSheet: (token: string) => call<CostSheet & { organization: string }>("GET", `/shared/cost-sheets/${enc(token)}`),
-  postAdjustment: (period: PeriodId, body: NewAdjustment) =>
-    call<Adjustment>("POST", `/periods/${enc(period)}/adjustments`, { body }),
+    ok(typed.GET("/api/v1/periods/{period}/cost-sheet", { params: { path: { period }, query: { format: "csv", ...(columns.length ? { columns: columns.join(",") } : {}) } }, parseAs: "blob" })),
+  costSheetLinks: (period: PeriodId) => json(typed.GET("/api/v1/periods/{period}/cost-sheet/links", periodPath(period))),
+  /** The link's address is in the answer only this once. */
+  makeCostSheetLink: (period: PeriodId) => ok(typed.POST("/api/v1/periods/{period}/cost-sheet/links", periodPath(period))),
+  revokeCostSheetLink: (id: string) => ok(typed.DELETE("/api/v1/cost-sheet-links/{id}", path(id))),
+  /** The cost sheet behind a link, with the organization's name, without signing in. */
+  sharedCostSheet: (secret: string) => json(typed.GET("/api/v1/shared/cost-sheets/{secret}", { params: { path: { secret } } })),
+  sharedCostSheetCsv: (secret: string) =>
+    ok(typed.GET("/api/v1/shared/cost-sheets/{secret}", { params: { path: { secret }, query: { format: "csv" } }, parseAs: "blob" })),
+  /** Answers with the cost sheet, the adjustment on it. */
+  postAdjustment: (period: PeriodId, body: AdjustmentInput) => ok(typed.POST("/api/v1/periods/{period}/adjustments", { ...periodPath(period), body })),
 
   // Token budgets and token forecasts. Token budgets are not per period:
   // `applies` says when, and the report compares them for one period.
@@ -200,7 +233,7 @@ export const api = {
 
   // Reports. Every report takes the same controls: period, status (approved
   // only, with approval on), another currency, and the share view.
-  savedReports: () => ok(typed.GET("/api/v1/reports/saved")),
+  savedReports: () => json(typed.GET("/api/v1/reports/saved")),
   saveReport: (body: SaveInput) => ok(typed.POST("/api/v1/reports/saved", { body })),
   removeReport: (id: string) => ok(typed.DELETE("/api/v1/reports/saved/{id}", path(id))),
   savedReport: (id: string, query: ReportControls) => json(typed.GET("/api/v1/reports/saved/{id}", { params: { path: { id }, query: controls(query) } })),
