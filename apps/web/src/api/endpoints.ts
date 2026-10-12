@@ -63,6 +63,8 @@ export const api = {
   signUp: (email: string, organization_name: string, name: string) =>
     ok(typed.POST("/api/v1/sign-up", { body: { email, organization_name, ...(name ? { name } : {}) } })),
   signOut: () => ok(typed.POST("/api/v1/sign-out")),
+  /** Ways to sign in besides the magic link; empty on the open edition. */
+  signInProviders: () => ok(typed.GET("/api/v1/sign-in/providers")),
   invite: (code: string) => ok(typed.GET("/api/v1/invites/{code}", { params: { path: { code } } })),
   health: () => ok(typed.GET("/api/v1/health")),
 

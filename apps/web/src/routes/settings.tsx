@@ -4,6 +4,7 @@ import { useState, type ReactNode } from "react";
 import type { ApiToken, ApiTokenKind, CostSource, TicketSystem } from "@/api/contract";
 import { api } from "@/api/endpoints";
 import { CadenceSelect, describeCadence, type CadenceChoice } from "@/components/cadence-select";
+import { EnterpriseSettings } from "@/components/enterprise-settings";
 import { currencies } from "@/routes/sign-in";
 import { saveCadence, useCadences } from "@/routes/projects";
 import { Badge } from "@/components/ui/badge";
@@ -440,6 +441,7 @@ export function SettingsPage(): ReactNode {
           <OrganizationSettings />
         </Section>
       ) : null}
+      {controller ? <EnterpriseSettings /> : null}
       {controller ? (
         <Section title="Ticket systems" lead="Jira Cloud, Azure DevOps and GitHub Issues. Tickets sync every 15 minutes, or when you ask.">
           <TicketSystems />
