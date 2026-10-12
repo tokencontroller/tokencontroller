@@ -165,6 +165,7 @@ mod tests {
             prices_refresh: true,
             customer_relations: crate::customer_relations::Settings::default(),
             stripe: None,
+            embeddings: None,
         }
     }
 

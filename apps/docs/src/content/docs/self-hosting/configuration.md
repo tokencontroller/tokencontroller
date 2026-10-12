@@ -14,7 +14,10 @@ The service is configured with environment variables.
 | `TC_SECRET_KEY` | A long random string for signing sessions and tokens. Required. |
 | `TC_SMTP_URL` | The mail server for magic links and reminders, such as `smtps://user:password@smtp.example.com:465`. Required for magic links. |
 | `TC_SMTP_FROM` | The sender of that mail, such as `Token Controller <tc@example.com>`. Without it, mail comes from `noreply@` and the host of `TC_PUBLIC_URL`. |
-| `TC_PRICES_REFRESH` | Set to `off` to stop the daily price table refresh, for instances without internet access. |
+| `TC_PRICES_REFRESH` | Set to `off` to stop the daily price table and exchange rate refresh, for instances without internet access. Bills in another currency then need their exchange rate. |
+| `TC_EMBEDDINGS_URL` | An OpenAI-compatible embeddings API for [token forecasts](/account/token-budgets#forecasts), such as `https://api.openai.com/v1` or a model server of your own. Without it, the instance does without forecasts. Needs `TC_EMBEDDINGS_MODEL`. |
+| `TC_EMBEDDINGS_MODEL` | The embeddings model, such as `text-embedding-3-small`. |
+| `TC_EMBEDDINGS_KEY` | The API key for `TC_EMBEDDINGS_URL`, if it needs one. |
 
 Without a mail server, a person with access to the container can still sign someone in: `tokencontroller sign-in-link EMAIL` prints a sign-in link for that member, valid once and for 15 minutes.
 

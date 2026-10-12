@@ -932,6 +932,7 @@ mod tests {
             prices_refresh: true,
             customer_relations: crate::customer_relations::Settings::default(),
             stripe: None,
+            embeddings: None,
         };
         let url = link_url(&config, "tc_link_abc");
         assert_eq!(

@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO summary_embeddings (token_entry_id, organization_id, model, millionths)\n                   VALUES ($1, $2, $3, $4)\n                   ON CONFLICT (token_entry_id) DO UPDATE\n                       SET model = EXCLUDED.model, millionths = EXCLUDED.millionths, created_at = now()",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Int4Array"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "b5cbceb3da74c93dd0af12c7fe6c0e70858486dee02ee2f30bfcfbe798921635"
+}

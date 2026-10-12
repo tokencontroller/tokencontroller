@@ -1,0 +1,77 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT closed_at, closed_by, approval, tag_map_version, price_table_version_id\n           FROM closed_periods WHERE organization_id = $1 AND period = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "closed_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "closed_periods",
+            "name": "closed_at"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "closed_by",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "closed_periods",
+            "name": "closed_by"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "approval",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "closed_periods",
+            "name": "approval"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "tag_map_version",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "closed_periods",
+            "name": "tag_map_version"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "price_table_version_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "closed_periods",
+            "name": "price_table_version_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Date"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "1b2d7a439d839a5c8fa44ffec42e23c6f1e1dec6fb69ad0ffc758600a301d3e4"
+}

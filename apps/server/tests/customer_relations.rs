@@ -36,6 +36,7 @@ fn config(settings: Settings, smtp_url: Option<String>) -> Config {
         prices_refresh: false,
         customer_relations: settings,
         stripe: None,
+        embeddings: None,
     }
 }
 

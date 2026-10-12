@@ -43,6 +43,7 @@ utoipa = { version = "6.0.0", features = ["time", "uuid"] }
 utoipa-axum = "0.3.0"
 uuid = { version = "1.28.0", features = ["v4", "serde"] }
 wiremock = "0.6.5"
+zip = { version = "9.0.2", default-features = false, features = ["deflate-flate2-zlib-rs", "time"] }
 
 # The strict harness (ADR 0003). Owned by the maintainer: changing this block
 # needs the harness-change label. Tests may use unwrap and friends through

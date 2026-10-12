@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE token_budgets SET removed_at = now() WHERE id = $1 AND organization_id = $2 AND removed_at IS NULL",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "242dccc640062ee2c02107541560b2ae07cf6bf91139b388893ac828eaf1e507"
+}

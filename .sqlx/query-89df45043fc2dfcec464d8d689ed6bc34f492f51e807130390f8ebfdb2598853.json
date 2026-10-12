@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT coalesce(jsonb_agg(to_jsonb(e) || jsonb_build_object(\n               'splits', coalesce((\n                   SELECT jsonb_agg(to_jsonb(s) || jsonb_build_object('tags', coalesce((\n                       SELECT jsonb_object_agg(t.name, t.value) FROM split_tags t WHERE t.split_id = s.id\n                   ), '{}'::jsonb)) ORDER BY s.position, s.id)\n                   FROM splits s WHERE s.token_entry_id = e.id\n               ), '[]'::jsonb),\n               'messages', coalesce((\n                   SELECT jsonb_agg(to_jsonb(m) ORDER BY m.occurred_at, m.message_id)\n                   FROM messages m WHERE m.token_entry_id = e.id\n               ), '[]'::jsonb),\n               'decisions', coalesce((\n                   SELECT jsonb_agg(to_jsonb(d) ORDER BY d.decided_at)\n                   FROM token_entry_decisions d WHERE d.token_entry_id = e.id\n               ), '[]'::jsonb)\n           ) ORDER BY e.started_at, e.id), '[]'::jsonb) AS \"rows!\"\n           FROM token_entries e WHERE e.organization_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "rows!",
+        "type_info": "Jsonb",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "89df45043fc2dfcec464d8d689ed6bc34f492f51e807130390f8ebfdb2598853"
+}

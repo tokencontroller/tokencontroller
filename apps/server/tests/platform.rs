@@ -35,6 +35,7 @@ fn config(stripe: bool) -> Config {
             secret_key: "sk_test_unused".to_owned(),
             webhook_secret: WEBHOOK_SECRET.to_owned(),
         }),
+        embeddings: None,
     }
 }
 

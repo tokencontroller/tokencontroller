@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE token_entries SET status = 'locked'\n           WHERE id = ANY($1) AND organization_id = $2 AND status = ANY($3)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "UuidArray",
+        "Uuid",
+        "TextArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "189f8cfb70f6e615faa16606feea6746923a588ac1eeb92efb7d2ac3e2cc6f12"
+}

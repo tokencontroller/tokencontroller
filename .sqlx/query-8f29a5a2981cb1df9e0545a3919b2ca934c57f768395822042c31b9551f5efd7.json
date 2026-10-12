@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT per_euro_nanos FROM exchange_rates\n           WHERE currency = $1 AND day <= $2 AND day >= $3\n           ORDER BY day DESC LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "per_euro_nanos",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "exchange_rates",
+            "name": "per_euro_nanos"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Date",
+        "Date"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "8f29a5a2981cb1df9e0545a3919b2ca934c57f768395822042c31b9551f5efd7"
+}

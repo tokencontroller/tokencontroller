@@ -1,0 +1,65 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT f.currency, f.proposed_nanos, f.matches, t.key\n           FROM token_forecasts f JOIN tickets t ON t.id = f.ticket_id\n           WHERE f.id = $1 AND f.organization_id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "currency",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "token_forecasts",
+            "name": "currency"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "proposed_nanos",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "token_forecasts",
+            "name": "proposed_nanos"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "matches",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "token_forecasts",
+            "name": "matches"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "key",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tickets",
+            "name": "key"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "1a0da5448c00bf48c4e3d02b1fed3a1eb87efc9a270f3ac8553f3e9ee9f32e43"
+}

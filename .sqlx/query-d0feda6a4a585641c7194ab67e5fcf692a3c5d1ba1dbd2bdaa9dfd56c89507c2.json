@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO closed_periods\n               (organization_id, period, closed_at, closed_by, reporting_currency, approval,\n                tag_map_version, price_table_version_id)\n           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Date",
+        "Timestamptz",
+        "Uuid",
+        "Text",
+        "Bool",
+        "Int4",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d0feda6a4a585641c7194ab67e5fcf692a3c5d1ba1dbd2bdaa9dfd56c89507c2"
+}

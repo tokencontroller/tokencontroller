@@ -1,0 +1,53 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT from_currency, to_currency, exchange_rate_nanos FROM closed_period_rates\n           WHERE organization_id = $1 AND period = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "from_currency",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "closed_period_rates",
+            "name": "from_currency"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "to_currency",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "closed_period_rates",
+            "name": "to_currency"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "exchange_rate_nanos",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "closed_period_rates",
+            "name": "exchange_rate_nanos"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Date"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "5dabca233281fc54b98bf48191c7e7f37936063f99622c64745af5a59f287f5d"
+}
