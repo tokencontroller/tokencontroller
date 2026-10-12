@@ -1,6 +1,8 @@
 // The values the Token Controller mod keeps for a session. What tc says is
 // mirrored here so the band and the pane draw without calling tc.
 
+export type AskedToSubmit = { period: string; askedBy: string | null }
+
 export type Sheet = {
   isConnected: boolean
   organization: string | null
@@ -8,6 +10,7 @@ export type Sheet = {
   today: number
   shareOnTickets: number | null
   isLate: boolean
+  askedToSubmit: AskedToSubmit | null
 }
 
 export type Split = { share: number | null; tags: Record<string, string> }

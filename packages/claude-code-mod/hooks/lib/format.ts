@@ -28,9 +28,45 @@ export function headline(sheet: Sheet, ticket: string | null): string {
   return parts.join(' · ')
 }
 
-/** The docs promise a note when the token sheet is late, and only then. */
+const MONTHS = [
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
+]
+
+/** `September 2026` for `2026-09`; anything else as tc sent it. */
+export function monthName(period: string): string {
+  const match = /^(\d{4})-(\d{2})$/.exec(period)
+  const month = match === null ? undefined : MONTHS[Number(match[2]) - 1]
+  return match === null || month === undefined ? period : `${month} ${match[1]}`
+}
+
+/**
+ * The token sheet's note: late, and the controller's request to submit
+ * before the close, such as `Nadia Berger asks you to submit for September 2026`.
+ */
 export function sheetNote(sheet: Sheet): string | null {
-  return sheet.isLate ? 'token sheet late' : null
+  const notes: string[] = []
+  if (sheet.isLate) notes.push('token sheet late')
+  const asked = sheet.askedToSubmit
+  if (asked !== null) {
+    const month = monthName(asked.period)
+    notes.push(
+      asked.askedBy === null
+        ? `asked to submit for ${month}`
+        : `${asked.askedBy} asks you to submit for ${month}`,
+    )
+  }
+  return notes.length === 0 ? null : notes.join(' · ')
 }
 
 function tickets(row: ReviewRow): string[] {

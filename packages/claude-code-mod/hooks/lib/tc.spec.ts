@@ -21,6 +21,11 @@ const STATUS = {
   rules: 3,
   today: { list_value: '12.40', currency: 'EUR', share_on_tickets_percent: 80 },
   token_sheet: { period_start: '2026-10-05', period_end: '2026-10-11', late: true },
+  asked_to_submit: {
+    period: '2026-09',
+    asked_by: 'Nadia Berger',
+    asked_at: '2026-10-01T08:00:00Z',
+  },
 }
 
 const ENTRY = {
@@ -49,6 +54,7 @@ test('reads tc status', () => {
     today: 12.4,
     shareOnTickets: 0.8,
     isLate: true,
+    askedToSubmit: { period: '2026-09', askedBy: 'Nadia Berger' },
   })
 })
 
@@ -60,8 +66,10 @@ test('an unconnected or unreadable status reads as local with nothing known', ()
     today: 0,
     shareOnTickets: null,
     isLate: false,
+    askedToSubmit: null,
   })
   assert.deepEqual(readSheet(undefined), readSheet({}))
+  assert.equal(readSheet({ asked_to_submit: { asked_by: 'Nadia' } }).askedToSubmit, null)
 })
 
 test('reads the review list', () => {

@@ -4,6 +4,7 @@ import {
   bar,
   headline,
   money,
+  monthName,
   placedByLine,
   placeLine,
   reportTable,
@@ -22,6 +23,7 @@ const SHEET: Sheet = {
   today: 41.87,
   shareOnTickets: 0.91,
   isLate: false,
+  askedToSubmit: null,
 }
 
 const ROW: ReviewRow = {
@@ -50,9 +52,25 @@ test('money shows cents below 100 and on request', () => {
   assert.equal(money(12, 'CHF'), '12.00 CHF')
 })
 
-test('the token sheet note shows only when it is late', () => {
-  assert.equal(sheetNote({ ...SHEET, isLate: true }), 'token sheet late')
+test('the token sheet note: late, and the controller’s request to submit', () => {
   assert.equal(sheetNote(SHEET), null)
+  assert.equal(sheetNote({ ...SHEET, isLate: true }), 'token sheet late')
+  const asked = { period: '2026-09', askedBy: 'Nadia Berger' }
+  assert.equal(
+    sheetNote({ ...SHEET, askedToSubmit: asked }),
+    'Nadia Berger asks you to submit for September 2026',
+  )
+  assert.equal(
+    sheetNote({ ...SHEET, isLate: true, askedToSubmit: { ...asked, askedBy: null } }),
+    'token sheet late · asked to submit for September 2026',
+  )
+})
+
+test('months read as words', () => {
+  assert.equal(monthName('2026-09'), 'September 2026')
+  assert.equal(monthName('2026-12'), 'December 2026')
+  assert.equal(monthName('2026-13'), '2026-13')
+  assert.equal(monthName('Q3'), 'Q3')
 })
 
 test('the session ticket comes from its review row, split or not', () => {

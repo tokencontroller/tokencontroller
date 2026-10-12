@@ -62,7 +62,7 @@ const SUBMITTED = {
 type Run = { argv: readonly string[]; stdin: string | undefined }
 
 /** The machine beneath the mod: a tc that answers from memory, and the session. */
-function world(on: On, options: { isTcInstalled?: boolean } = {}) {
+function world(on: On, options: { isTcInstalled?: boolean; status?: object } = {}) {
   const machine = { isTcInstalled: options.isTcInstalled ?? true }
   const clock = mock.clock(on, { now: NOW })
   mock.store(on)
@@ -83,7 +83,7 @@ function world(on: On, options: { isTcInstalled?: boolean } = {}) {
     })
     switch (args.join(' ')) {
       case 'status --json':
-        return done(JSON.stringify(STATUS))
+        return done(JSON.stringify(options.status ?? STATUS))
       case 'review --json':
         return done(JSON.stringify(REVIEW))
       case 'report --by ticket --json':
@@ -313,6 +313,42 @@ test('the model can ask for a report', async ($, on) => {
   expect(String((answer as { result?: unknown }).result)).toMatch(
     /\| KD-214 \| \$120\.50 \| 60% \|/,
   )
+})
+
+test('the band passes on the controller’s request to submit, on a row of its own', async ($, on) => {
+  world(on, {
+    status: {
+      ...STATUS,
+      asked_to_submit: { period: '2026-09', asked_by: 'Nadia Berger', asked_at: null },
+    },
+  })
+  await start($)
+  const band = await $.ui.mount({
+    plugin: 'token-controller',
+    surface: 'terminal',
+    component: 'AbovePrompt',
+    props: { hasSurvey: false, isWorking: false, maxRows: 4, bodyColumns: 100 } as never,
+  })
+
+  expect(
+    await band.find({
+      type: 'Text',
+      text: 'Nadia Berger asks you to submit for September 2026',
+    }),
+  ).toBeDefined()
+
+  const oneRow = await $.ui.mount({
+    plugin: 'token-controller',
+    surface: 'terminal',
+    component: 'AbovePrompt',
+    props: { hasSurvey: false, isWorking: false, maxRows: 1, bodyColumns: 100 } as never,
+  })
+  expect(
+    await oneRow.find({
+      type: 'Text',
+      text: '· Nadia Berger asks you to submit for September 2026',
+    }),
+  ).toBeDefined()
 })
 
 describe('drawing', () => {

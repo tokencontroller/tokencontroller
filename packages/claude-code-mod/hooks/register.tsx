@@ -328,16 +328,31 @@ export const register: Register = on => {
     if (current === null && trouble === null) return next(e)
     const { Box, Text, Button } = $.ui.resolve(e)
     const note = current === null ? null : sheetNote(current)
-    return (
+    // A note gets its own row when the band may take two, so the headline never wraps.
+    const isNoteBelow = note !== null && e.props.maxRows >= 2
+    const top = (
       <Box flexDirection="row" gap={1}>
-        {current !== null && <Text>{headline(current, sessionTicketNow)}</Text>}
-        {note !== null && <Text color="warning">· {note}</Text>}
+        {current !== null && <Text wrap="truncate-end">{headline(current, sessionTicketNow)}</Text>}
+        {note !== null && !isNoteBelow && (
+          <Text color="warning" wrap="truncate-end">
+            · {note}
+          </Text>
+        )}
         {trouble !== null && (
           <Text color="warning" wrap="truncate-end">
             {trouble}
           </Text>
         )}
         <Button key="open" plain dimColor label="details" onPress={() => void openPane($)} />
+      </Box>
+    )
+    if (!isNoteBelow) return top
+    return (
+      <Box flexDirection="column">
+        {top}
+        <Text color="warning" wrap="truncate-end">
+          {note}
+        </Text>
       </Box>
     )
   })
@@ -494,7 +509,7 @@ export const register: Register = on => {
             <Input
               key="add-rule"
               label="Add a rule"
-              placeholder="branch ^review/ -> purpose=code-review"
+              placeholder="branch starts-with review/ purpose=code-review"
               submitLabel="Add"
               onSubmit={async (text: string) => {
                 if (text.trim() === '') return
