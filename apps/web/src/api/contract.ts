@@ -112,6 +112,7 @@ export type ConversationView = Schemas["ConversationView"];
 export type SupportMessage = Schemas["MessageView"];
 export type CustomerSummary = Schemas["CustomerSummary"];
 export type CustomerRecord = Schemas["CustomerRecord"];
+export type CustomerJourney = Schemas["Journey"];
 export type CustomerMember = Schemas["CustomerMember"];
 export type CustomerNote = Schemas["Note"];
 export type NewsletterView = Schemas["NewsletterView"];
