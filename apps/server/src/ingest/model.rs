@@ -1,45 +1,25 @@
 //! The shapes every door produces before anything is stored: one model call
-//! as a [`Message`] (ADR 0006), with its [`TokenCounts`].
+//! as a [`TelemetryMessage`] (ADR 0006), with its [`TokenCounts`].
 
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 use tokencontroller_core::Money;
 use utoipa::ToSchema;
 
-/// Token counts by kind, as the token entry schema names them.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
-#[serde(deny_unknown_fields)]
-pub struct TokenCounts {
-    #[serde(default)]
+pub use tokencontroller_core::TokenCounts;
+
+/// Token counts by kind, as the OpenAPI document shows [`TokenCounts`].
+#[derive(Debug, Clone, Copy, Default, ToSchema)]
+#[schema(as = TokenCounts)]
+pub struct TokenCountsSchema {
+    #[schema(default = 0)]
     pub input: u64,
-    #[serde(default)]
+    #[schema(default = 0)]
     pub output: u64,
-    #[serde(default)]
+    #[schema(default = 0)]
     pub cache_write: u64,
-    #[serde(default)]
+    #[schema(default = 0)]
     pub cache_read: u64,
-}
-
-impl TokenCounts {
-    /// All four kinds added up, or `None` if the sum does not fit.
-    #[must_use]
-    pub fn total(self) -> Option<u64> {
-        self.input
-            .checked_add(self.output)?
-            .checked_add(self.cache_write)?
-            .checked_add(self.cache_read)
-    }
-
-    /// Both counts added kind by kind, or `None` if a sum does not fit.
-    #[must_use]
-    pub fn checked_add(self, other: Self) -> Option<Self> {
-        Some(Self {
-            input: self.input.checked_add(other.input)?,
-            output: self.output.checked_add(other.output)?,
-            cache_write: self.cache_write.checked_add(other.cache_write)?,
-            cache_read: self.cache_read.checked_add(other.cache_read)?,
-        })
-    }
 }
 
 /// The agent harnesses telemetry arrives from. Token entries from the

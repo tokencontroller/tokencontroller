@@ -63,6 +63,7 @@ pub struct NewTokenEntry {
     #[schema(value_type = String, format = DateTime)]
     pub ended_at: OffsetDateTime,
     /// Counts by kind.
+    #[schema(value_type = super::model::TokenCountsSchema)]
     pub tokens: TokenCounts,
     /// The agent's own cost figure in US dollars. Without it the list value
     /// is computed from the model and the price table.
@@ -157,6 +158,7 @@ pub struct NewMessage {
     #[serde(with = "time::serde::rfc3339", alias = "occurred_at")]
     #[schema(value_type = String, format = DateTime)]
     pub at: OffsetDateTime,
+    #[schema(value_type = super::model::TokenCountsSchema)]
     pub tokens: TokenCounts,
     /// The agent's own cost figure for this call, in US dollars.
     #[serde(default)]
