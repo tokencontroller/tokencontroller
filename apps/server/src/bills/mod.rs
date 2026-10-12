@@ -362,7 +362,15 @@ async fn rate_for(
     Ok((rate, false))
 }
 
-fn check(bill: &NewBill) -> Result<(), BillError> {
+/// Checks a bill as [`record_bill`] does, without the database, so a file
+/// of bills can be checked whole before any is stored.
+///
+/// # Errors
+///
+/// [`BillError`] for figures in several currencies, a negative discount or
+/// credit, a provider that is not a plain name, or figures that do not add
+/// up.
+pub(crate) fn check(bill: &NewBill) -> Result<(), BillError> {
     let currency = bill.net.currency();
     if [bill.gross, bill.discount, bill.credit]
         .iter()

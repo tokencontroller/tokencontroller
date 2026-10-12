@@ -248,10 +248,11 @@ fn read_bill(
         )
     })?;
 
-    let amount = |column: &Column, empty_is_zero: bool| {
+    // A reduction (discount or credit) may be empty, and is never below zero.
+    let amount = |column: &Column, reduction: bool| {
         let text = value(column);
         if text.is_empty() {
-            return if empty_is_zero {
+            return if reduction {
                 Ok(Money::zero(currency))
             } else {
                 Err(problem(
@@ -260,12 +261,20 @@ fn read_bill(
                 ))
             };
         }
-        read_amount(text, currency, decimal_comma).map_err(|_| {
-            problem(
+        match read_amount(text, currency, decimal_comma) {
+            Ok(money) if reduction && money.nanos().is_negative() => Err(problem(
+                column,
+                format!(
+                    "{text:?} is below zero. Discount and credit are positive amounts taken \
+                     off gross; write it without the minus sign."
+                ),
+            )),
+            Ok(money) => Ok(money),
+            Err(_) => Err(problem(
                 column,
                 format!("{text:?} is not an amount. Write a plain number such as 1234.56."),
-            )
-        })
+            )),
+        }
     };
     let figures = BillFigures {
         gross: amount(&columns.gross, false)?,
@@ -558,6 +567,16 @@ mod tests {
             row("2026-09,credit card,10,0,0,10,USD"),
             "Row 2, column cost_source: \"credit card\" is not a cost source. Use \
              usage_at_api_rates, api_key, cloud_marketplace or reseller."
+        );
+        assert_eq!(
+            row("2026-09,api_key,10,-5,0,15,USD"),
+            "Row 2, column discount: \"-5\" is below zero. Discount and credit are positive \
+             amounts taken off gross; write it without the minus sign."
+        );
+        assert_eq!(
+            row("2026-09,api_key,10,0,-1,11,USD"),
+            "Row 2, column credit: \"-1\" is below zero. Discount and credit are positive \
+             amounts taken off gross; write it without the minus sign."
         );
         assert_eq!(
             row("2026-09,seat,10,0,0,10,USD"),

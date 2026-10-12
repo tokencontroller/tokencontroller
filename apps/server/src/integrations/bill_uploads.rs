@@ -11,13 +11,14 @@ use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
+use uuid::Uuid;
 
 use super::bill_connections::{bill_cost_source, new_bill};
 use super::bills::csv::{self, Cloud, CsvBillError};
 use super::bills::{Period, PulledBill};
 use crate::AppState;
 use crate::bills::amount::format_amount;
-use crate::bills::{BillSource, BillView, CostSource, record_bill};
+use crate::bills::{BillSource, BillView, CostSource, NewBill, record_bill};
 use crate::error::{ApiError, ErrorBody};
 use crate::organizations::Role;
 use crate::sign_in::{Caller, CredentialKind};
@@ -115,6 +116,25 @@ fn read(query: &BillCsvQuery, body: &Bytes) -> Result<Vec<PulledBill>, CsvBillEr
     }
 }
 
+/// Every bill of the file as the bills area takes it, each checked as
+/// `record_bill` will check it, so a file is stored whole or not at all.
+fn checked(pulled: &[PulledBill], person_id: Uuid) -> Result<Vec<NewBill>, String> {
+    pulled
+        .iter()
+        .map(|bill| {
+            let new = new_bill(bill, BillSource::Csv, Some(person_id))?;
+            crate::bills::check(&new).map_err(|error| {
+                format!(
+                    "The {} bill for {}: {error}.",
+                    bill.provider_name(),
+                    bill.period()
+                )
+            })?;
+            Ok(new)
+        })
+        .collect()
+}
+
 fn shown(bill: &PulledBill) -> Option<BillCsvBill> {
     Some(BillCsvBill {
         period: bill.period(),
@@ -156,7 +176,15 @@ async fn preview_bill_csv(
     body: Bytes,
 ) -> Result<Json<BillCsvPreview>, ApiError> {
     allowed(&caller)?;
-    Ok(Json(match read(&query, &body) {
+    let read = read(&query, &body).and_then(|bills| match checked(&bills, caller.person_id) {
+        Ok(_) => Ok(bills),
+        Err(message) => Err(CsvBillError {
+            row: None,
+            column: None,
+            message,
+        }),
+    });
+    Ok(Json(match read {
         Ok(bills) => BillCsvPreview {
             bills: bills.iter().filter_map(shown).collect(),
             problem: None,
@@ -172,9 +200,10 @@ async fn preview_bill_csv(
     }))
 }
 
-/// Upload a CSV bill file. Each bill is stored as a new revision when its
-/// figures differ from the latest one. A file with a problem saves nothing.
-/// Controllers only.
+/// Upload a CSV bill file. Every bill in it is checked before any is
+/// stored, so a file with a problem saves nothing. Each bill is stored as a
+/// new revision when its figures differ from the latest one. Controllers
+/// only.
 #[utoipa::path(
     post,
     path = "/bills/csv",
@@ -196,10 +225,7 @@ async fn upload_bill_csv(
     allowed(&caller)?;
     let pulled = read(&query, &body)
         .map_err(|error| ApiError::BadRequest(format!("{error} Nothing was saved.")))?;
-    let bills = pulled
-        .iter()
-        .map(|bill| new_bill(bill, BillSource::Csv, Some(caller.person_id)))
-        .collect::<Result<Vec<_>, _>>()
+    let bills = checked(&pulled, caller.person_id)
         .map_err(|error| ApiError::BadRequest(format!("{error} Nothing was saved.")))?;
     let mut stored = Vec::with_capacity(bills.len());
     let mut changed = 0_usize;
