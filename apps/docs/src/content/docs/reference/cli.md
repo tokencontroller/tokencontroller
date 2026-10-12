@@ -32,7 +32,7 @@ tc rules move 2 1                                         # earlier rules win
 tc rules remove 1
 ```
 
-A rule is a signal, a test, a value and the tags it sets. The signals are `branch`, `directory`, `repository`, `pull-request`, `subagent` and `agent-harness`. The tests are `is`, `starts-with`, `ends-with`, `contains` and `matches`, a regular expression. Connected, your rules live in your organization, so the web app and the mod show the same list.
+A rule is a signal, a test, a value and the tags it sets. The signals are those on the [Rules](/attribute/rules#signals) page: `branch`, `directory`, `repository`, `pull-request` and `subagent`, plus `ticket`, the ticket placed so far, for rules that set other tags. The tests are `is`, `starts-with`, `contains`, `matches`, a regular expression, and `is-set`, which takes no value. Organization rules run before yours. Connected, your rules live in your organization, so the web app and the mod show the same list.
 
 ## Settings {#settings}
 

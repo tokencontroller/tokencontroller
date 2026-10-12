@@ -6,8 +6,9 @@ use std::time::Duration;
 
 use serde::Serialize;
 use serde::de::DeserializeOwned;
+use tokencontroller_core::Rule;
 
-use crate::context::{Context, Rule};
+use crate::context::Context;
 use crate::error::{Error, Result};
 
 /// A connection to a service.

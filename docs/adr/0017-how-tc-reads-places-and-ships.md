@@ -11,7 +11,8 @@ This fills in ADR 0010 where the CLI needed details.
 
 ## Placing
 
-- The order is the one on the Rules page. `tc` places with `apps/cli/src/placing.rs` while it moves to the rules engine in `crates/core` (ADR 0015), so the machine and the service place alike; the command line does not change with it.
+- The core places: `tc` hands each segment to the rules engine in `crates/core` (ADR 0015), so the machine and the service place alike. Rules travel in the core's own shape. Connected, the organization's rules, tag names and projects and the person's tags and rules come from `GET /api/v1/me/context`; with no service connected, the default rules and the person's own apply, and a pattern from `tc config ticket-key-pattern` finds ticket keys that belong to no project.
+- The classifier is the machine's own step. When the ticket came only from a mention in prompts or the session title, or nothing found one, the ticket it picks is placed like a named one and shows as placed by the classifier; when it answers `none` to a mention, placing runs again without the mentions.
 - Segments: a session splits exactly by message where the branch, the working directory or the subagent changes. Hand splits and equal splits divide by share with the largest-remainder method (ADR 0004).
 - List value on the machine is an estimate in USD, the price list's currency: the agent's reported cost where it has one, otherwise the tokens at a price snapshot taken from LiteLLM's list and built into the binary (`apps/cli/prices.json`). The service computes the list value that counts with its own price tables.
 

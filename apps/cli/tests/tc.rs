@@ -258,13 +258,24 @@ fn handle(stream: TcpStream, answer: &Answer, seen: &Mutex<Vec<Seen>>) -> TestRe
 
 fn context() -> Value {
     json!({
-        "organization": {"name": "Kestrel Digital", "currency": "EUR", "tag_names": ["team", "purpose", "client"]},
+        "organization": {
+            "name": "Kestrel Digital",
+            "currency": "EUR",
+            "tag_names": ["team", "purpose", "client"],
+            "rules": [
+                {"name": "ticket key in branch", "then": {"ticket_key_in": "branch"}},
+                {"name": "ticket key in pull request title", "then": {"ticket_key_in": "pull_request_title"}},
+                {"name": "ticket key in prompts or session title", "then": {"ticket_key_in": "prompts_or_session_title"}},
+                {"name": "repository", "then": "repository_project"},
+                {"name": "ops work", "when": [{"signal": "repository", "test": {"is": "kestrel/ops"}}], "then": {"set_tags": {"purpose": "operations"}}}
+            ]
+        },
         "person": {"email": "m.ortner@kestrel.example", "tags": {"team": "web"}},
         "projects": [
             {"name": "storefront", "ticket_key_pattern": "^KD-\\d+", "repositories": ["kestrel/storefront"], "tags": {"client": "acme"}},
             {"name": "ops", "ticket_key_pattern": "^OPS-\\d+", "repositories": ["kestrel/ops"]}
         ],
-        "rules": [{"scope": "organization", "when": {"signal": "agent_harness", "test": "is", "value": "codex"}, "set": {"purpose": "operations"}}],
+        "rules": [],
         "cadence": {"period_start": "2026-10-05", "period_end": "2026-10-11", "due_at": "2026-10-13T09:00:00Z"},
         "rejected": []
     })
@@ -437,7 +448,11 @@ fn rules_are_added_listed_and_removed_on_the_machine() {
         rules["rules"][0]["text"],
         "directory contains ops → purpose=operations"
     );
-    assert_eq!(rules["rules"][1]["when"]["test"], "matches");
+    assert_eq!(rules["rules"][1]["when"][0]["test"]["matches"], "^review/");
+    assert_eq!(
+        rules["organization"][0]["text"], "ticket key in branch",
+        "{rules}"
+    );
 
     let review = machine.json(&["review", "--json"]).unwrap();
     assert_eq!(
@@ -449,7 +464,10 @@ fn rules_are_added_listed_and_removed_on_the_machine() {
     machine.tc(&["rules", "remove", "2"]).unwrap();
     let rules = machine.json(&["rules", "--json"]).unwrap();
     assert_eq!(rules["rules"].as_array().map(Vec::len), Some(1));
-    assert_eq!(rules["rules"][0]["set"]["purpose"], "code-review");
+    assert_eq!(
+        rules["rules"][0]["then"]["set_tags"]["purpose"],
+        "code-review"
+    );
 
     let wrong = machine
         .run(&["rules", "add", "weather", "is", "sunny", "x=y"], &[], "")
@@ -669,6 +687,8 @@ fn connect_signs_in_on_the_web_and_keeps_the_token() {
     let status = machine.json(&["status", "--json"]).unwrap();
     assert_eq!(status["connected"], true);
     assert_eq!(status["organization"], "Kestrel Digital");
+    // The organization's own rule, not the built-in ones.
+    assert_eq!(status["rules"], 1);
     assert_eq!(status["token_sheet"]["period_start"], "2026-10-05");
     assert_eq!(status["token_sheet"]["late"], false);
 }
