@@ -13,7 +13,7 @@ use axum::response::{IntoResponse, Response};
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use time::OffsetDateTime;
-use tokencontroller_core::{Currency, Money, MoneyError, TagName, group_by, shares};
+use tokencontroller_core::{Currency, ExchangeRate, Money, MoneyError, TagName, group_by, shares};
 use utoipa::{IntoParams, ToSchema};
 
 use super::READERS;
@@ -345,16 +345,8 @@ pub async fn run(db: &PgPool, caller: &Caller, spec: Spec) -> Result<Report, Api
     let (rows, total) = compute(&account, &grouping, &filter, &scope)
         .map_err(|error| ApiError::Internal(error.into()))?;
 
-    let target = match currency.as_deref() {
-        Some(code) => {
-            Currency::new(code.trim()).map_err(|error| ApiError::BadRequest(error.to_string()))?
-        }
-        None => account.currency,
-    };
-    let day = period.last_day().min(OffsetDateTime::now_utc().date());
-    let rate = rates::between(db, account.currency, target, day)
-        .await?
-        .map_err(|error| ApiError::Conflict(error.to_string()))?;
+    let rate = shown_in(db, account.currency, currency.as_deref(), period).await?;
+    let target = rate.to();
     let convert = |amount: Money| {
         rate.convert(amount)
             .map_err(|error| ApiError::Internal(error.into()))
@@ -382,8 +374,7 @@ pub async fn run(db: &PgPool, caller: &Caller, spec: Spec) -> Result<Report, Api
         status,
         view,
         currency: target,
-        exchange_rate: (target != account.currency)
-            .then(|| crate::bills::amount::rate_number(rate).to_string()),
+        exchange_rate: rate_shown(rate),
         label: if view == View::Share {
             "share of the period"
         } else {
@@ -404,6 +395,39 @@ pub async fn run(db: &PgPool, caller: &Caller, spec: Spec) -> Result<Report, Api
             .collect(),
         total: format_amount(total),
     })
+}
+
+/// The rate a report of `period` is shown at: from the reporting currency
+/// into `currency`, at the rate of the period's last day (today for a
+/// running period). No currency asked for: the reporting currency itself.
+///
+/// # Errors
+///
+/// [`ApiError::BadRequest`] for a currency that cannot be read,
+/// [`ApiError::Conflict`] when the rate is missing, or a database error.
+pub async fn shown_in(
+    db: &PgPool,
+    reporting: Currency,
+    currency: Option<&str>,
+    period: Period,
+) -> Result<ExchangeRate, ApiError> {
+    let target = match currency.map(str::trim).filter(|code| !code.is_empty()) {
+        Some(code) => {
+            Currency::new(code).map_err(|error| ApiError::BadRequest(error.to_string()))?
+        }
+        None => reporting,
+    };
+    let day = period.last_day().min(OffsetDateTime::now_utc().date());
+    rates::between(db, reporting, target, day)
+        .await?
+        .map_err(|error| ApiError::Conflict(error.to_string()))
+}
+
+/// The exchange rate a report shows, when it is in another currency than
+/// the reporting currency.
+#[must_use]
+pub fn rate_shown(rate: ExchangeRate) -> Option<String> {
+    (rate.from() != rate.to()).then(|| crate::bills::amount::rate_number(rate).to_string())
 }
 
 /// Each usage line's share of the period in basis points (the core's

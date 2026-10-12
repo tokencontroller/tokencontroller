@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT r.id, r.name, r.filter, r.group_by, p.name AS \"created_by?\", r.created_at\n           FROM saved_reports r LEFT JOIN people p ON p.id = r.created_by\n           WHERE r.organization_id = $1\n           ORDER BY lower(r.name), r.created_at",
+  "query": "SELECT r.id, r.name, r.filter, r.group_by, p.name AS \"created_by?\",\n                  r.created_by AS created_by_id, r.created_at\n           FROM saved_reports r LEFT JOIN people p ON p.id = r.created_by\n           WHERE r.organization_id = $1\n           ORDER BY lower(r.name), r.created_at",
   "describe": {
     "columns": [
       {
@@ -60,6 +60,17 @@
       },
       {
         "ordinal": 5,
+        "name": "created_by_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "saved_reports",
+            "name": "created_by"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
         "name": "created_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -81,8 +92,9 @@
       false,
       false,
       false,
+      false,
       false
     ]
   },
-  "hash": "7aa6f2a53e9217afc0369288fcd95bbd8afcee2a1c5d466baf20ee3c137bd1c6"
+  "hash": "ac3e82130826eda502736d6906fd870963805ff1dd718599b0dabaf0fe596aa0"
 }
