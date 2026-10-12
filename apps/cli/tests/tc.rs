@@ -594,7 +594,8 @@ fn the_github_action_reports_automatic_entries_with_its_tags_and_signals() {
         _ => (404, json!({"error": "no such route"})),
     }))
     .unwrap();
-    let signals = json!({"repository": "kestrel/ops", "pull_request": 12, "pull_request_title": "KD-300: tidy the cart"}).to_string();
+    // Spelled as the Action spells it.
+    let signals = json!({"repository": "github.com/kestrel/ops", "pull_request": 12, "pull_request_title": "KD-300: tidy the cart"}).to_string();
     let env = [
         ("TC_URL", service.url.as_str()),
         ("TC_TOKEN", "tc_svc_ci"),
@@ -617,7 +618,9 @@ fn the_github_action_reports_automatic_entries_with_its_tags_and_signals() {
         .find(|seen| seen.body["agent_harness"] == "codex")
         .unwrap();
     assert_eq!(codex.body["tags"]["purpose"], "code-review");
-    assert_eq!(codex.body["signals"]["pull_request"], "12");
+    // The service takes the pull request as a number.
+    assert_eq!(codex.body["signals"]["pull_request"], 12);
+    assert_eq!(codex.body["signals"]["repository"], "kestrel/ops");
     assert_eq!(
         codex.body["signals"]["ticket_keys"],
         json!(["OPS-7", "KD-300"])
