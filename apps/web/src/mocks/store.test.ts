@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { createDb } from "./seed";
+import { createDb, MARA } from "./seed";
 import { allocate, closeCheck, costSheet, reconciliation, tokenSheet } from "./store";
 
 // The mocks stand in for the service until its API lands, so they must keep
@@ -13,7 +13,7 @@ describe("example organization", () => {
 
   test("Mara's token sheet matches the Review and submit docs page", () => {
     const db = createDb();
-    const mara = db.people.find((p) => p.id === "mara");
+    const mara = db.people.find((p) => p.id === MARA.id);
     if (!mara) throw new Error("no Mara in the seed");
     const sheet = tokenSheet(db, mara);
     const drafts = sheet.entries.filter((e) => e.status === "draft");

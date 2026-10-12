@@ -5,7 +5,7 @@ import { openFromMenu, signIn } from "./helpers";
 // Docs: Exports. Every table downloads as CSV, holding exactly what it shows.
 test("a controller downloads token entries and the cost sheet as CSV", async ({ page, isMobile }) => {
   test.skip(isMobile, "Downloads are the same on a phone; once is enough.");
-  await signIn(page, "dana");
+  await signIn(page, "nadia");
 
   await openFromMenu(page, "Token entries");
   await page.getByLabel("Tag filter").fill("client:acme");

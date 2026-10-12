@@ -1,25 +1,26 @@
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import type { Tags, TokenEntry } from "@/api/contract";
 import { api } from "@/api/endpoints";
 import { formatDateTime, formatTokens, tagList } from "@/lib/format";
-import { refreshAll, useMe, usePersonName } from "@/lib/queries";
+import { refreshAll, useMe, usePersonName, useProjects, useTagNames, useTickets } from "@/lib/queries";
 import { hasRole } from "@/lib/roles";
 import { Badge, CostKindBadge, StatusBadge, valueLabelText } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Dialog } from "./ui/dialog";
 import { MoneyText, Note } from "./ui/display";
 import { Field, FormError, Input, Select, Textarea } from "./ui/form";
-import { Tag } from "./ui/tag";
+import { Tag, TagValueList } from "./ui/tag";
 import { notify } from "./ui/toast";
 
 const builtIn = ["person", "ticket", "project"];
 
 /** Picks a ticket, a project and any other tag on the organization's list. */
 export function TagEditor({ tags, onChange }: { tags: Tags; onChange: (tags: Tags) => void }) {
-  const names = useQuery({ queryKey: ["tag-names"], queryFn: api.tagNames });
-  const projects = useQuery({ queryKey: ["projects"], queryFn: api.projects });
-  const tickets = useQuery({ queryKey: ["tickets"], queryFn: () => api.tickets() });
+  const names = useTagNames();
+  const projects = useProjects();
+  const tickets = useTickets();
   const set = (name: string, value: string) => {
     const next = Object.fromEntries(Object.entries(tags).filter(([k]) => k !== name && !(name === "ticket" && value && k === "project")));
     if (value) next[name] = value;
@@ -42,7 +43,7 @@ export function TagEditor({ tags, onChange }: { tags: Tags; onChange: (tags: Tag
         <Select aria-label="Project" value={tags.project ?? ""} onChange={(e) => set("project", e.target.value)} disabled={Boolean(tags.ticket)}>
           <option value="">No project</option>
           {(projects.data ?? []).map((p) => (
-            <option key={p.key} value={p.key}>
+            <option key={p.id} value={p.name}>
               {p.name}
             </option>
           ))}
@@ -51,11 +52,7 @@ export function TagEditor({ tags, onChange }: { tags: Tags; onChange: (tags: Tag
       {others.map((name) => (
         <Field key={name.name} label={name.name}>
           <Input aria-label={name.name} list={`values-${name.name}`} value={tags[name.name] ?? ""} onChange={(e) => set(name.name, e.target.value.trim())} placeholder="none" />
-          <datalist id={`values-${name.name}`}>
-            {name.values.map((v) => (
-              <option key={v.value} value={v.value} />
-            ))}
-          </datalist>
+          <TagValueList id={`values-${name.name}`} name={name.name} />
         </Field>
       ))}
     </div>
@@ -63,7 +60,7 @@ export function TagEditor({ tags, onChange }: { tags: Tags; onChange: (tags: Tag
 }
 
 function SplitEditor({ entry, onDone }: { entry: TokenEntry; onDone: () => void }) {
-  const tickets = useQuery({ queryKey: ["tickets"], queryFn: () => api.tickets() });
+  const tickets = useTickets();
   const first = entry.splits[0]?.tags.ticket ?? "";
   const [rows, setRows] = useState<{ ticket: string; percent: string }[]>(
     entry.splits.length > 1
@@ -170,14 +167,6 @@ export function EntryDialog({ entry, onClose }: { entry: TokenEntry | null; onCl
       close();
     },
   });
-  const takeOver = useMutation({
-    mutationFn: () => api.takeOver(entry?.id ?? ""),
-    onSuccess: async () => {
-      await refreshAll();
-      notify("You are its agent manager now");
-      close();
-    },
-  });
   if (!entry) return null;
   const mine = entry.agent_manager === me.person.id;
   const editable = entry.status !== "locked" && (mine || hasRole(me.person, "people_manager"));
@@ -240,8 +229,11 @@ export function EntryDialog({ entry, onClose }: { entry: TokenEntry | null; onCl
             </Row>
           </dl>
           <div className="mt-5 flex flex-wrap justify-end gap-2">
-            {entry.agent_manager === null && hasRole(me.person, "people_manager") ? (
-              <Button onClick={() => takeOver.mutate()}>Take it over</Button>
+            {entry.agent_manager === null && hasRole(me.person, "controller") ? (
+              // Its service token belongs to nobody: hand the token over (docs: Roles).
+              <Link to="/settings" hash="api-tokens" className="inline-flex h-9 items-center rounded-md px-3 text-sm text-accent hover:underline">
+                Hand over its service token
+              </Link>
             ) : null}
             {canReview ? (
               <>

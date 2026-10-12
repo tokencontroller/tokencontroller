@@ -12,11 +12,11 @@ import { Empty, ErrorBox, Loading, MoneyText, Note, PageHeader, RowBar, Section 
 import { Field, FormError, Input, Select } from "@/components/ui/form";
 import { Menu } from "@/components/ui/menu";
 import { DataTable, type Column } from "@/components/ui/table";
-import { Tag } from "@/components/ui/tag";
+import { Tag, TagValueList } from "@/components/ui/tag";
 import { notify } from "@/components/ui/toast";
 import { describeFilter, filterToText, formatPeriod } from "@/lib/format";
 import { formatMoney, formatShare, money, nanosOf, parseAmount, shareOf, toDecimal } from "@/lib/money";
-import { refreshAll, useMe, usePersonName } from "@/lib/queries";
+import { refreshAll, useMe, usePersonName, useTagNames, useTickets } from "@/lib/queries";
 import { hasRole } from "@/lib/roles";
 import { thisPeriod } from "@/lib/today";
 
@@ -37,11 +37,10 @@ export function FilterTags({ filter }: { filter: Filter }) {
 /** Builds a tag filter. A people manager starts from one of their assigned filters. */
 export function FilterBuilder({ value, onChange }: { value: Filter; onChange: (filter: Filter) => void }) {
   const me = useMe();
-  const names = useQuery({ queryKey: ["tag-names"], queryFn: api.tagNames });
+  const names = useTagNames();
   const [name, setName] = useState("team");
   const [tagValue, setTagValue] = useState("");
   const base = me.person.role === "people_manager" ? me.person.filters : [];
-  const valuesOf = names.data?.find((n) => n.name === name)?.values ?? [];
   const add = () => {
     if (!tagValue.trim()) return;
     onChange({ ...value, [name]: tagValue.trim() });
@@ -79,11 +78,7 @@ export function FilterBuilder({ value, onChange }: { value: Filter; onChange: (f
         </Field>
         <Field label="Value" className="min-w-36 flex-1">
           <Input aria-label="Tag value" list="filter-values" value={tagValue} onChange={(e) => setTagValue(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); add(); } }} />
-          <datalist id="filter-values">
-            {valuesOf.map((v) => (
-              <option key={v.value} value={v.value} />
-            ))}
-          </datalist>
+          <TagValueList id="filter-values" name={name} />
         </Field>
         <Button onClick={add}>Add tag</Button>
       </div>
@@ -135,11 +130,10 @@ function NewBudget({ open, onClose, period, initial }: { open: boolean; onClose:
 
 function Forecast({ period, onAccept }: { period: string; onAccept: (ticket: string, amount: string) => void }) {
   const me = useMe();
-  const tickets = useQuery({ queryKey: ["tickets"], queryFn: () => api.tickets() });
+  const tickets = useTickets();
   const [ticket, setTicket] = useState("");
   const forecast = useQuery({ queryKey: ["forecast", ticket], queryFn: () => api.forecast(ticket), enabled: Boolean(ticket), retry: false });
   const [dropped, setDropped] = useState<Set<string>>(new Set());
-  if (!me.organization.forecasts) return <p className="text-sm text-muted">Token forecasts are switched off for this organization.</p>;
   const picked = forecast.data?.matches.filter((m) => !dropped.has(m.ticket)) ?? [];
   const costs = picked.map((m) => nanosOf(m.cost)).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
   const mid = Math.floor(costs.length / 2);

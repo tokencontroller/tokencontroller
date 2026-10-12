@@ -1,14 +1,17 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { getRouteApi, Link, useNavigate } from "@tanstack/react-router";
-import { useEffect, useRef, useState, type SubmitEvent, type ReactNode } from "react";
+import { useState, type ReactNode, type SubmitEvent } from "react";
 import type { CostSource } from "@/api/contract";
-import { call } from "@/api/client";
+import { API_PREFIX, call } from "@/api/client";
 import { api } from "@/api/endpoints";
 import { Button } from "@/components/ui/button";
+import { ErrorBox, Loading } from "@/components/ui/display";
 import { Field, FormError, Input, Select } from "@/components/ui/form";
+import { costSourceOrder, costSourceText } from "@/lib/cost-source";
+import { rememberSignUp, type SignUpChoices } from "@/lib/remember";
 
 const signInRoute = getRouteApi("/sign-in");
-const signInVerifyRoute = getRouteApi("/sign-in/verify");
+const inviteRoute = getRouteApi("/i/$code");
 
 function Frame({ title, lead, children }: { title: string; lead?: ReactNode; children: ReactNode }) {
   return (
@@ -28,47 +31,53 @@ function Frame({ title, lead, children }: { title: string; lead?: ReactNode; chi
   );
 }
 
-/** Only a path on this site, so a link can never send someone elsewhere. */
-export function safeNext(next: string | undefined): string {
-  return next?.startsWith("/") && !next.startsWith("//") ? next : "/";
-}
-
-/** In mock mode there is no inbox, so the page offers the link it would have sent. */
+/**
+ * In mock mode there is no inbox, so the page offers the link it would have
+ * sent. Like the service's link page, its button signs the browser in and
+ * opens the start page.
+ */
 function MockLink() {
   const { data } = useQuery({
     queryKey: ["mock-link"],
-    queryFn: () => call<{ token: string; email: string; next?: string } | null>("GET", "/__mock/last-link"),
+    queryFn: () => call<{ token: string; email: string } | null>("GET", "/__mock/last-link"),
     enabled: Boolean(import.meta.env.VITE_API_MOCK),
   });
   if (!import.meta.env.VITE_API_MOCK || !data) return null;
+  const open = async () => {
+    // The service answers with a redirect to the start page; the browser goes there itself.
+    await fetch(`${API_PREFIX}/sign-in/link`, { method: "POST", body: new URLSearchParams({ token: data.token }), redirect: "manual", credentials: "include" });
+    window.location.assign("/");
+  };
   return (
     <div className="mt-4 rounded-md border border-dashed border-line-strong p-3 text-xs text-muted">
       Example data: no email is sent.{" "}
-      <Link to="/sign-in/verify" search={{ token: data.token, ...(data.next ? { next: data.next } : {}) }} className="font-medium text-accent underline">
+      <button type="button" onClick={() => void open()} className="font-medium text-accent underline">
         Open the sign-in link
-      </Link>
+      </button>
     </div>
   );
 }
 
+function CheckYourEmail({ email }: { email: string }) {
+  return (
+    <Frame title="Check your email" lead={<>We sent a sign-in link to <b className="text-ink">{email}</b>. It works once, for 15 minutes.</>}>
+      <Link to="/sign-in" className="text-sm text-accent hover:underline">
+        Use another email
+      </Link>
+      <MockLink />
+    </Frame>
+  );
+}
+
 export function SignInPage(): ReactNode {
-  const { sent, next } = signInRoute.useSearch();
+  const { sent } = signInRoute.useSearch();
   const navigate = useNavigate();
   const [email, setEmail] = useState("");
   const signIn = useMutation({
-    mutationFn: () => api.signIn(email, next),
-    onSuccess: () => navigate({ to: "/sign-in", search: { sent: email, ...(next ? { next } : {}) } }),
+    mutationFn: () => api.signIn(email),
+    onSuccess: () => navigate({ to: "/sign-in", search: { sent: email } }),
   });
-  if (sent) {
-    return (
-      <Frame title="Check your email" lead={<>We sent a sign-in link to <b className="text-ink">{sent}</b>. It works once, for 15 minutes.</>}>
-        <Link to="/sign-in" className="text-sm text-accent hover:underline">
-          Use another email
-        </Link>
-        <MockLink />
-      </Frame>
-    );
-  }
+  if (sent) return <CheckYourEmail email={sent} />;
   const submit = (event: SubmitEvent) => {
     event.preventDefault();
     signIn.mutate();
@@ -94,55 +103,56 @@ export function SignInPage(): ReactNode {
   );
 }
 
-export function VerifyPage(): ReactNode {
-  const { token, next } = signInVerifyRoute.useSearch();
+/** The link in an invite mail: the organization and the address it was sent to. */
+export function InvitePage(): ReactNode {
+  const { code } = inviteRoute.useParams();
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
-  const started = useRef(false);
-  const verify = useMutation({
-    mutationFn: () => api.verify(token),
-    onSuccess: async (me) => {
-      queryClient.clear();
-      queryClient.setQueryData(["me"], me);
-      await navigate({ href: safeNext(next) });
-    },
+  const invite = useQuery({ queryKey: ["invite", code], queryFn: () => api.invite(code), retry: false });
+  const signIn = useMutation({
+    mutationFn: (email: string) => api.signIn(email),
+    onSuccess: (_, email) => navigate({ to: "/sign-in", search: { sent: email } }),
   });
-  useEffect(() => {
-    if (started.current) return;
-    started.current = true;
-    verify.mutate();
-  }, [verify]);
+  if (invite.isPending) {
+    return (
+      <Frame title="Your invite">
+        <Loading />
+      </Frame>
+    );
+  }
+  if (invite.isError) {
+    return (
+      <Frame title="This invite does not work">
+        <ErrorBox error={invite.error} />
+        <p className="mt-4 text-sm text-muted">Ask whoever invited you for a new link, or sign in if you joined already.</p>
+        <Link to="/sign-in" className="mt-3 inline-block text-sm text-accent hover:underline">
+          Sign in
+        </Link>
+      </Frame>
+    );
+  }
   return (
-    <Frame title={verify.isError ? "This link did not work" : "Signing you in"}>
-      {verify.isError ? (
-        <>
-          <FormError error={verify.error} />
-          <Link to="/sign-in" className="mt-4 inline-block text-sm text-accent hover:underline">
-            Get a new link
-          </Link>
-        </>
-      ) : (
-        <p className="text-sm text-muted">One moment.</p>
-      )}
+    <Frame title={`Join ${invite.data.organization_name}`} lead={<>You were invited as <b className="text-ink">{invite.data.email}</b>. We email you a sign-in link; no password.</>}>
+      <FormError error={signIn.error} />
+      <Button variant="primary" className="w-full" disabled={signIn.isPending} onClick={() => signIn.mutate(invite.data.email)}>
+        Email me a sign-in link
+      </Button>
     </Frame>
   );
 }
 
-const costSources: { value: CostSource; label: string }[] = [
-  { value: "console_api_key", label: "Console or API key: usage billed per token" },
-  { value: "enterprise_api_rates", label: "Enterprise plan with usage at API rates" },
-  { value: "seat_plan", label: "Seats: Claude Team, Max or Pro" },
-  { value: "cloud_marketplace", label: "Cloud marketplace: Bedrock, Vertex, Foundry" },
-  { value: "none", label: "None yet" },
-];
+const currencies = ["USD", "EUR", "GBP", "CHF"];
 
 export function SignUpPage(): ReactNode {
   const navigate = useNavigate();
-  const [form, setForm] = useState({ organization: "", name: "", email: "", manages: "people" as "agents" | "people", cost_source: "console_api_key" as CostSource, reporting_currency: "USD" });
-  const set = <K extends keyof typeof form>(key: K, value: (typeof form)[K]) => setForm((f) => ({ ...f, [key]: value }));
+  const [form, setForm] = useState({ organization: "", email: "" });
+  const [choices, setChoices] = useState<SignUpChoices>({ manages: "people", cost_source: "usage_at_api_rates", reporting_currency: "USD" });
   const signUp = useMutation({
-    mutationFn: () => api.signUp(form),
-    onSuccess: () => navigate({ to: "/sign-in", search: { sent: form.email } }),
+    mutationFn: () => api.signUp(form.email.trim(), form.organization.trim()),
+    onSuccess: async () => {
+      // The service takes the name and the email; the rest is set once signed in.
+      rememberSignUp(choices);
+      await navigate({ to: "/sign-in", search: { sent: form.email.trim() } });
+    },
   });
   return (
     <Frame title="Create your organization" lead="Solo is free forever for one person. No card needed.">
@@ -154,37 +164,26 @@ export function SignUpPage(): ReactNode {
         className="space-y-4"
       >
         <Field label="Organization">
-          <Input required value={form.organization} onChange={(e) => set("organization", e.target.value)} placeholder="Kestrel Digital" />
-        </Field>
-        <Field label="Your name">
-          <Input required autoComplete="name" value={form.name} onChange={(e) => set("name", e.target.value)} />
+          <Input required value={form.organization} onChange={(e) => setForm((f) => ({ ...f, organization: e.target.value }))} placeholder="Kestrel Digital" />
         </Field>
         <Field label="Work email">
-          <Input type="email" required autoComplete="email" value={form.email} onChange={(e) => set("email", e.target.value)} />
+          <Input type="email" required autoComplete="email" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} />
         </Field>
         <fieldset>
           <legend className="mb-1 text-[13px] font-medium text-ink-soft">Do you manage agents, or do you manage people?</legend>
           <div className="grid grid-cols-2 gap-2">
             {(["agents", "people"] as const).map((value) => (
-              <label key={value} className={`flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm ${form.manages === value ? "border-ink bg-sheet" : "border-line-strong"}`}>
-                <input type="radio" name="manages" value={value} checked={form.manages === value} onChange={() => set("manages", value)} className="accent-[var(--tc-ink)]" />
+              <label key={value} className={`flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm ${choices.manages === value ? "border-ink bg-sheet" : "border-line-strong"}`}>
+                <input type="radio" name="manages" value={value} checked={choices.manages === value} onChange={() => setChoices((c) => ({ ...c, manages: value }))} className="accent-[var(--tc-ink)]" />
                 I manage {value}
               </label>
             ))}
           </div>
         </fieldset>
-        <Field label="Cost source" hint="How your provider charges you. It decides what the close checks against.">
-          <Select value={form.cost_source} onChange={(e) => set("cost_source", e.target.value as CostSource)}>
-            {costSources.map((c) => (
-              <option key={c.value} value={c.value}>
-                {c.label}
-              </option>
-            ))}
-          </Select>
-        </Field>
+        <CostSourceField value={choices.cost_source} onChange={(cost_source) => setChoices((c) => ({ ...c, cost_source }))} />
         <Field label="Reporting currency" hint="The one currency your organization computes in.">
-          <Select value={form.reporting_currency} onChange={(e) => set("reporting_currency", e.target.value)}>
-            {["USD", "EUR", "GBP", "CHF"].map((c) => (
+          <Select value={choices.reporting_currency} onChange={(e) => setChoices((c) => ({ ...c, reporting_currency: e.target.value }))}>
+            {currencies.map((c) => (
               <option key={c}>{c}</option>
             ))}
           </Select>
@@ -204,4 +203,20 @@ export function SignUpPage(): ReactNode {
   );
 }
 
-export { costSources };
+/** How the provider charges: it decides what the close reconciles against. */
+export function CostSourceField({ value, onChange, disabled }: { value: CostSource | null; onChange: (value: CostSource | null) => void; disabled?: boolean }) {
+  return (
+    <Field label="Cost source" hint="How your provider charges you. It decides what the close checks against.">
+      <Select disabled={disabled} value={value ?? ""} onChange={(e) => onChange((e.target.value || null) as CostSource | null)}>
+        {costSourceOrder.map((source) => (
+          <option key={source} value={source}>
+            {costSourceText[source].name}
+          </option>
+        ))}
+        <option value="">None yet</option>
+      </Select>
+    </Field>
+  );
+}
+
+export { currencies };

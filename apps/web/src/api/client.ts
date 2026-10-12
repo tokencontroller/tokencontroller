@@ -3,9 +3,9 @@ import type { components, paths } from "./generated";
 
 // One client for the whole app. Endpoints in the service's OpenAPI document
 // are called through `typed`, whose types are generated from it in CI, so a
-// drift fails the build (ADR 0009). Endpoints the document does not list yet
-// go through `call` with the hand-written types in `contract.ts`; each moves
-// to `typed` once the service publishes it.
+// drift fails the build (ADR 0009). Endpoints the document does not list yet,
+// or lists with a fault, go through `call` with the types in `contract.ts`;
+// each moves to `typed` once the service publishes it.
 
 export const API_PREFIX = "/api/v1";
 
@@ -83,8 +83,12 @@ export async function download(path: string, query?: Query): Promise<Blob> {
   return response.blob();
 }
 
-/** The one call already in the OpenAPI document. */
-export async function health() {
-  const { data, error } = await typed.GET("/api/v1/health");
-  return data ?? error;
+/** The data of a `typed` call, or an ApiError with the service's own message. */
+export async function ok<T>(request: Promise<{ data?: T; error?: unknown; response: Response }>): Promise<T> {
+  const { data, error, response } = await request;
+  if (!response.ok) {
+    const body = (error ?? {}) as Partial<ErrorBody>;
+    throw new ApiError(response.status, body.error ?? "error", body.message ?? (response.statusText || "The service did not answer."));
+  }
+  return data as T;
 }

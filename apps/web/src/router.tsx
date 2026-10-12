@@ -3,11 +3,11 @@ import { ApiError } from "@/api/client";
 import { AppShell } from "@/components/app-shell";
 import { ErrorBox } from "@/components/ui/display";
 import { meQuery, queryClient } from "@/lib/queries";
+import { rememberNext, takeNext } from "@/lib/remember";
 import { hasRole } from "@/lib/roles";
 import type { Role } from "@/api/contract";
 import { ApprovalPage } from "@/routes/approval";
 import { BillsPage } from "@/routes/bills";
-import { ConnectComputerPage } from "@/routes/cli";
 import { ClosePage } from "@/routes/close";
 import { CostSheetPage, SharedCostSheetPage } from "@/routes/cost-sheet";
 import { BudgetsPage } from "@/routes/budgets";
@@ -18,7 +18,8 @@ import { ReportsPage } from "@/routes/reports";
 import { ReviewPage } from "@/routes/review";
 import { RulesPage } from "@/routes/rules";
 import { SettingsPage } from "@/routes/settings";
-import { SignInPage, SignUpPage, VerifyPage } from "@/routes/sign-in";
+import { InvitePage, SignInPage, SignUpPage } from "@/routes/sign-in";
+import { BillingPage } from "@/routes/billing";
 import { TagsPage } from "@/routes/tags";
 import { TokenEntriesPage } from "@/routes/token-entries";
 import { NotFoundPage } from "@/routes/not-found";
@@ -28,24 +29,14 @@ const rootRoute = createRootRoute({ component: Outlet, notFoundComponent: NotFou
 const signInRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/sign-in",
-  validateSearch: (search: Record<string, unknown>): { sent?: string; next?: string } => ({
-    ...(typeof search.sent === "string" ? { sent: search.sent } : {}),
-    ...(typeof search.next === "string" ? { next: search.next } : {}),
-  }),
+  validateSearch: (search: Record<string, unknown>): { sent?: string } => (typeof search.sent === "string" ? { sent: search.sent } : {}),
   component: SignInPage,
 });
 
-const verifyRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/sign-in/verify",
-  validateSearch: (search: Record<string, unknown>): { token: string; next?: string } => ({
-    token: typeof search.token === "string" ? search.token : "",
-    ...(typeof search.next === "string" ? { next: search.next } : {}),
-  }),
-  component: VerifyPage,
-});
-
 const signUpRoute = createRoute({ getParentRoute: () => rootRoute, path: "/signup", component: SignUpPage });
+
+// The link in an invite mail: who invited whom, then a sign-in link.
+const inviteRoute = createRoute({ getParentRoute: () => rootRoute, path: "/i/$code", component: InvitePage });
 
 // The cost sheet link a controller hands to finance: no sign-in.
 const sharedCostSheetRoute = createRoute({ getParentRoute: () => rootRoute, path: "/shared/cost-sheet/$token", component: SharedCostSheetPage });
@@ -59,13 +50,17 @@ const appRoute = createRoute({
       await queryClient.query({ ...meQuery, staleTime: "static" });
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) {
-        // Back to the page they asked for once signed in, such as /cli/WDJB-MJHT.
-        const next = location.pathname === "/" ? {} : { next: location.href };
+        // Back to the page they asked for once signed in, such as /close/2026-09.
+        rememberNext(location.href);
         // eslint-disable-next-line @typescript-eslint/only-throw-error -- the router's way to redirect
-        throw redirect({ to: "/sign-in", search: next });
+        throw redirect({ to: "/sign-in" });
       }
       throw error;
     }
+    // The magic link lands on the start page; go on to the page asked for.
+    const next = location.pathname === "/" ? takeNext() : null;
+    // eslint-disable-next-line @typescript-eslint/only-throw-error -- the router's way to redirect
+    if (next && next !== "/") throw redirect({ href: next });
   },
   component: () => (
     <AppShell>
@@ -115,18 +110,24 @@ const costSheetRoute = createRoute({
 const budgetsRoute = page("/budgets", BudgetsPage, "people_manager");
 const reportsRoute = page("/reports", ReportsPage);
 const projectsRoute = page("/projects", ProjectsPage, "people_manager");
-const projectRoute = createRoute({ getParentRoute: () => appRoute, path: "/projects/$key", beforeLoad: requireRole("people_manager"), component: ProjectPage });
+const projectRoute = createRoute({ getParentRoute: () => appRoute, path: "/projects/$name", beforeLoad: requireRole("people_manager"), validateSearch: periodSearch, component: ProjectPage });
 const tagsRoute = page("/tags", TagsPage, "controller");
 const rulesRoute = page("/rules", RulesPage);
 const peopleRoute = page("/people", PeoplePage, "people_manager");
 const settingsRoute = page("/settings", SettingsPage);
-// `tc connect` sends people here to connect a computer (a device sign-in).
-const cliRoute = createRoute({ getParentRoute: () => appRoute, path: "/cli/$code", component: ConnectComputerPage });
+// Stripe Checkout and the customer portal come back here (`?checkout=success`).
+const billingRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: "/billing",
+  beforeLoad: requireRole("controller"),
+  validateSearch: (search: Record<string, unknown>): { checkout?: string } => (typeof search.checkout === "string" ? { checkout: search.checkout } : {}),
+  component: BillingPage,
+});
 
 const routeTree = rootRoute.addChildren([
   signInRoute,
-  verifyRoute,
   signUpRoute,
+  inviteRoute,
   sharedCostSheetRoute,
   appRoute.addChildren([
     overviewRoute,
@@ -144,7 +145,7 @@ const routeTree = rootRoute.addChildren([
     rulesRoute,
     peopleRoute,
     settingsRoute,
-    cliRoute,
+    billingRoute,
   ]),
 ]);
 

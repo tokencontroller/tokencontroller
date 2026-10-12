@@ -6,7 +6,7 @@ import type { Role } from "@/api/contract";
 import { api } from "@/api/endpoints";
 import { useMe } from "@/lib/queries";
 import { hasRole, roleLabel } from "@/lib/roles";
-import { initials } from "@/lib/format";
+import { displayName, initials } from "@/lib/format";
 
 interface NavItem {
   to: string;
@@ -108,10 +108,10 @@ function Account() {
   return (
     <div className="flex items-center gap-2.5 border-t border-line pt-4">
       <span aria-hidden="true" className="flex size-8 shrink-0 items-center justify-center rounded-full bg-sand text-xs font-semibold text-ink-soft">
-        {initials(me.person.name)}
+        {initials(displayName(me.person))}
       </span>
       <div className="min-w-0 flex-1">
-        <div className="truncate text-sm font-medium">{me.person.name}</div>
+        <div className="truncate text-sm font-medium">{displayName(me.person)}</div>
         <div className="truncate text-xs text-muted">{roleLabel[me.person.role]}</div>
       </div>
       <button type="button" onClick={() => void signOut()} className="rounded-md px-2 py-1 text-xs text-muted hover:bg-sand hover:text-ink">

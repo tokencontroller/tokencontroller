@@ -1,6 +1,7 @@
 import { useMutation } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
 import { useState, type ReactNode } from "react";
-import type { Filter, Person, Role, Tags } from "@/api/contract";
+import type { Filter, Invited, Person, Role, Tags } from "@/api/contract";
 import { api } from "@/api/endpoints";
 import { FilterBuilder } from "@/routes/budgets";
 import { Badge } from "@/components/ui/badge";
@@ -12,8 +13,8 @@ import { Menu } from "@/components/ui/menu";
 import { DataTable, type Column } from "@/components/ui/table";
 import { Tag, TagRow } from "@/components/ui/tag";
 import { notify } from "@/components/ui/toast";
-import { describeFilter } from "@/lib/format";
-import { refreshAll, useMe, usePeople } from "@/lib/queries";
+import { describeFilter, displayName } from "@/lib/format";
+import { refreshAll, useBilling, useMe, usePeople } from "@/lib/queries";
 import { hasRole, roleLabel } from "@/lib/roles";
 
 const roles: Role[] = ["agent_manager", "people_manager", "controller"];
@@ -28,15 +29,15 @@ function tagsFromText(text: string): Tags {
   return tags;
 }
 
-function Invite({ open, onClose }: { open: boolean; onClose: () => void }) {
+function Invite({ open, onClose, onInvited }: { open: boolean; onClose: () => void; onInvited: (invited: Invited) => void }) {
   const [form, setForm] = useState({ name: "", email: "", role: "agent_manager" as Role, tags: "" });
   const invite = useMutation({
-    mutationFn: () => api.invite({ name: form.name, email: form.email, role: form.role, tags: tagsFromText(form.tags) }),
-    onSuccess: async () => {
+    mutationFn: () => api.addMember({ name: form.name, email: form.email, role: form.role, tags: tagsFromText(form.tags) }),
+    onSuccess: async (invited) => {
       await refreshAll();
-      notify("Invite sent", `${form.email} gets a sign-in link.`);
       setForm({ name: "", email: "", role: "agent_manager", tags: "" });
       onClose();
+      onInvited(invited);
     },
   });
   return (
@@ -74,13 +75,34 @@ function Invite({ open, onClose }: { open: boolean; onClose: () => void }) {
   );
 }
 
+/** The invite link, for when the mail does not arrive. */
+function InviteLink({ invited, onClose }: { invited: Invited; onClose: () => void }) {
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()} title="Invite sent" description={`${invited.member.email} gets an email with this link. You can also send it yourself.`}>
+      <code className="block break-all rounded-md bg-sand p-3 font-mono text-[13px]" data-testid="invite-url">
+        {invited.invite_url}
+      </code>
+      <div className="mt-4 flex justify-end gap-2">
+        <Button onClick={() => void navigator.clipboard.writeText(invited.invite_url).then(() => notify("Copied"))}>Copy</Button>
+        <Button variant="primary" onClick={onClose}>
+          Done
+        </Button>
+      </div>
+    </Dialog>
+  );
+}
+
 function Edit({ person, onClose }: { person: Person; onClose: () => void }) {
+  const [name, setName] = useState(person.name);
   const [role, setRole] = useState<Role>(person.role);
   const [tags, setTags] = useState(Object.entries(person.tags).map(([k, v]) => `${k}: ${v}`).join(", "));
   const [filters, setFilters] = useState<Filter[]>(person.filters);
   const [draft, setDraft] = useState<Filter>({});
   const save = useMutation({
-    mutationFn: () => api.updateMember(person.id, { role, tags: tagsFromText(tags), filters: role === "people_manager" ? filters : [] }),
+    mutationFn: async () => {
+      await api.updateMember(person.id, { name, role, tags: tagsFromText(tags) });
+      await api.setFilters(person.id, role === "people_manager" ? filters : []);
+    },
     onSuccess: async () => {
       await refreshAll();
       notify("Saved", "Only future token entries follow; last month's reports do not change.");
@@ -88,9 +110,12 @@ function Edit({ person, onClose }: { person: Person; onClose: () => void }) {
     },
   });
   return (
-    <Dialog open onOpenChange={(o) => !o && onClose()} title={person.name} description={person.email} wide>
+    <Dialog open onOpenChange={(o) => !o && onClose()} title={displayName(person)} description={person.email} wide>
       <form className="space-y-5" onSubmit={(e) => { e.preventDefault(); save.mutate(); }}>
         <div className="grid gap-3 sm:grid-cols-2">
+          <Field label="Name" className="sm:col-span-2">
+            <Input required value={name} onChange={(e) => setName(e.target.value)} />
+          </Field>
           <Field label="Role">
             <Select value={role} onChange={(e) => setRole(e.target.value as Role)}>
               {roles.map((r) => (
@@ -144,20 +169,29 @@ function Edit({ person, onClose }: { person: Person; onClose: () => void }) {
 export function PeoplePage(): ReactNode {
   const me = useMe();
   const people = usePeople();
+  const billing = useBilling();
   const [inviting, setInviting] = useState(false);
+  const [invited, setInvited] = useState<Invited | null>(null);
   const [editing, setEditing] = useState<Person | null>(null);
   const remove = useMutation({ mutationFn: api.removeMember, onSuccess: async () => { await refreshAll(); notify("Removed", "Their past token entries keep their agent manager."); } });
+  const resend = useMutation({ mutationFn: api.resendInvite, onSuccess: async (r) => { await refreshAll(); setInvited(r); } });
   const controller = hasRole(me.person, "controller");
-  const org = me.organization;
+  const solo = billing.data?.plan === "solo";
+  const full = billing.data ? billing.data.members >= billing.data.member_limit : false;
+  const actions = (p: Person) => [
+    { label: "Edit", onClick: () => setEditing(p) },
+    ...(p.status === "invited" ? [{ label: "Send the invite again", onClick: () => resend.mutate(p.id) }] : []),
+    { label: "Remove from organization", danger: true, onClick: () => remove.mutate(p.id) },
+  ];
   const columns: Column<Person>[] = [
-    { key: "name", header: "Name", cell: (p) => <span className="font-medium">{p.name}</span>, csv: (p) => p.name },
+    { key: "name", header: "Name", cell: (p) => <span className="font-medium">{displayName(p)}</span>, csv: (p) => p.name },
     { key: "email", header: "Email", wide: true, cell: (p) => <span className="text-ink-soft">{p.email}</span>, csv: (p) => p.email },
     { key: "role", header: "Role", cell: (p) => roleLabel[p.role], csv: (p) => roleLabel[p.role] },
     { key: "tags", header: "Tags", wide: true, cell: (p) => <TagRow tags={p.tags} />, csv: (p) => Object.entries(p.tags).map(([k, v]) => `${k}: ${v}`).join(" · ") },
     { key: "filters", header: "Assigned filters", wide: true, cell: (p) => (p.filters.length ? <span className="text-[13px]">{p.filters.map(describeFilter).join("; ")}</span> : ""), csv: (p) => p.filters.map(describeFilter).join("; ") },
     { key: "status", header: "", cell: (p) => (p.status === "invited" ? <Badge tone="accent">invited</Badge> : null), csv: (p) => p.status },
     ...(controller
-      ? [{ key: "menu", header: "", cell: (p: Person) => (p.id === me.person.id ? null : <span onClick={(e) => e.stopPropagation()}><Menu label={`Actions for ${p.name}`} items={[{ label: "Edit", onClick: () => setEditing(p) }, { label: "Remove from organization", danger: true, onClick: () => remove.mutate(p.id) }]} /></span>) }]
+      ? [{ key: "menu", header: "", cell: (p: Person) => (p.id === me.person.id ? null : <span onClick={(e) => e.stopPropagation()}><Menu label={`Actions for ${displayName(p)}`} items={actions(p)} /></span>) }]
       : []),
   ];
   return (
@@ -165,14 +199,29 @@ export function PeoplePage(): ReactNode {
       <PageHeader
         title="People"
         lead="Members, their role and their tags. Teams and departments are tags on people; there is no org chart."
-        actions={controller ? <Button variant="primary" onClick={() => setInviting(true)} disabled={org.plan === "solo"}>Invite a person</Button> : undefined}
+        actions={controller ? <Button variant="primary" onClick={() => setInviting(true)} disabled={solo || full}>Invite a person</Button> : undefined}
       />
-      {org.plan === "solo" ? <Note>Solo is for one person who holds every role. Choose the Team plan under Settings to invite people.</Note> : null}
-      {org.member_limit ? <p className="mb-4 text-[13px] text-muted">{org.members} of {org.member_limit} members on the {org.plan === "team" ? "Team plan" : org.plan === "solo" ? "Solo plan" : "plan"}.</p> : null}
+      {solo && controller ? (
+        <Note>
+          Solo is for one person who holds every role. To invite people,{" "}
+          <Link to="/billing" className="underline">
+            choose the Team plan
+          </Link>
+          .
+        </Note>
+      ) : null}
+      {billing.data && !solo ? (
+        <p className="mb-4 text-[13px] text-muted">
+          {billing.data.members} of {billing.data.member_limit} members on the Team plan.
+          {full ? " The Team plan stops here; more members need the Enterprise plan." : null}
+        </p>
+      ) : null}
+      <FormError error={remove.error ?? resend.error} />
       {people.isPending ? <Loading /> : people.isError ? <ErrorBox error={people.error} /> : (
-        <DataTable stack columns={columns} rows={people.data} rowKey={(p) => p.id} csvName="people.csv" caption="People" onRowClick={controller ? setEditing : undefined} />
+        <DataTable stack columns={columns} rows={people.data.filter((p) => p.status !== "removed")} rowKey={(p) => p.id} csvName="people.csv" caption="People" onRowClick={controller ? setEditing : undefined} />
       )}
-      <Invite open={inviting} onClose={() => setInviting(false)} />
+      <Invite open={inviting} onClose={() => setInviting(false)} onInvited={setInvited} />
+      {invited ? <InviteLink invited={invited} onClose={() => setInvited(null)} /> : null}
       {editing ? <Edit person={editing} onClose={() => setEditing(null)} /> : null}
     </>
   );

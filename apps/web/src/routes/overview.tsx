@@ -1,15 +1,17 @@
-import { useQuery } from "@tanstack/react-query";
-import type { ReactNode } from "react";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 import type { Filter, ReportResult } from "@/api/contract";
 import { api } from "@/api/endpoints";
 import { FilterTags } from "@/routes/budgets";
 import { Badge } from "@/components/ui/badge";
-import { buttonClass } from "@/components/ui/button";
+import { Button, buttonClass } from "@/components/ui/button";
 import { Kpi, KpiRow, Loading, MoneyText, Note, PageHeader, RowBar, Section, ShareBar } from "@/components/ui/display";
 import { addMonths, describeFilter, filterToText, formatPeriod } from "@/lib/format";
 import { formatMoney, formatShare, shareOf } from "@/lib/money";
-import { useFirstOpenPeriod, useMe, usePeriods, usePersonName } from "@/lib/queries";
+import { refreshAll, useBilling, useFirstOpenPeriod, useMe, usePeriods, usePersonName } from "@/lib/queries";
+import { Field, FormError, Input } from "@/components/ui/form";
+import { forgetSignUp, readSignUp, rememberSignUp, type SignUpChoices } from "@/lib/remember";
 import { hasRole } from "@/lib/roles";
 import { thisPeriod } from "@/lib/today";
 
@@ -18,6 +20,8 @@ function useCostKinds(period: string, filter: Filter) {
   const byTicket = useQuery({ queryKey: ["report", period, filterToText(filter), "ticket"], queryFn: () => api.cost({ period, filter, group_by: "ticket" }) });
   const byProject = useQuery({ queryKey: ["report", period, filterToText(filter), "project"], queryFn: () => api.cost({ period, filter, group_by: "project" }) });
   if (!byTicket.data || !byProject.data) return null;
+  // Nothing recorded yet: no kind has a share.
+  if (!byTicket.data.rows.length) return { direct: 0, project: 0, organization: 0, total: byProject.data.total, byProject: byProject.data };
   const noTicket = byTicket.data.rows.find((r) => r.value === null)?.share ?? 0;
   const noProject = byProject.data.rows.find((r) => r.value === null)?.share ?? 0;
   return { direct: 10000 - noTicket, project: noTicket - noProject, organization: noProject, total: byProject.data.total, byProject: byProject.data };
@@ -57,9 +61,10 @@ function MyCost() {
   const me = useMe();
   const period = thisPeriod();
   const sheet = useQuery({ queryKey: ["token-sheet"], queryFn: api.tokenSheet });
-  const kinds = useCostKinds(period, { person: me.person.id });
+  // The person tag holds the email.
+  const kinds = useCostKinds(period, { person: me.person.email });
   const budgets = useQuery({ queryKey: ["budgets", period], queryFn: () => api.budgets(period) });
-  const myBudget = budgets.data?.find((b) => filterToText(b.filter) === `person:${me.person.id}`);
+  const myBudget = budgets.data?.find((b) => filterToText(b.filter) === `person:${me.person.email}`);
   const drafts = sheet.data?.entries.filter((e) => e.status === "draft").length ?? 0;
   const rejected = sheet.data?.entries.filter((e) => e.status === "rejected").length ?? 0;
   return (
@@ -184,12 +189,101 @@ function ControllerView() {
   );
 }
 
+/** The service asks for no name at sign-up, so a founder adds theirs here. */
+function YourName() {
+  const me = useMe();
+  const [name, setName] = useState("");
+  const save = useMutation({ mutationFn: () => api.updateMember(me.person.id, { name: name.trim() }), onSuccess: refreshAll });
+  if (me.person.name.trim() || !hasRole(me.person, "controller")) return null;
+  return (
+    <form className="mb-6 flex max-w-md flex-col gap-2 sm:flex-row sm:items-end" onSubmit={(e) => { e.preventDefault(); save.mutate(); }}>
+      <Field label="Your name" hint="Shown to others on reports and token sheets." className="flex-1">
+        <Input required value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" />
+      </Field>
+      <Button type="submit" disabled={!name.trim() || save.isPending}>
+        Save
+      </Button>
+      <FormError error={save.error} />
+    </form>
+  );
+}
+
+const firstSteps: Record<SignUpChoices["manages"], { label: string; to?: "/bills" | "/people" | "/close" | "/review"; href?: string }[]> = {
+  people: [
+    { label: "Connect the bill", to: "/bills" },
+    { label: "Invite people", to: "/people" },
+    { label: "Close the first period", to: "/close" },
+  ],
+  agents: [
+    { label: "Install the Claude Code mod or the CLI", href: "https://docs.tokencontroller.com/collect/claude-code" },
+    { label: "Submit a first token sheet", to: "/review" },
+  ],
+};
+
+/**
+ * The first steps after sign-up. The service takes only the name and the
+ * email at sign-up, so the cost source and currency picked there are sent
+ * here, once, by the controller who created the organization.
+ */
+function FirstSteps() {
+  const me = useMe();
+  const [choices, setChoices] = useState(readSignUp);
+  const sent = useRef(false);
+  const apply = useMutation({
+    mutationFn: (c: SignUpChoices) => api.updateOrganization({ cost_source: c.cost_source, reporting_currency: c.reporting_currency }),
+    onSuccess: async (_, c) => {
+      const done = { ...c, applied: true };
+      rememberSignUp(done);
+      setChoices(done);
+      await refreshAll();
+    },
+  });
+  const controller = hasRole(me.person, "controller");
+  useEffect(() => {
+    if (!choices || choices.applied || !controller || sent.current) return;
+    sent.current = true;
+    apply.mutate(choices);
+  }, [choices, controller, apply]);
+  if (!choices) {
+    return controller && !me.organization.cost_source ? (
+      <Note>
+        Pick a cost source so the close knows what to check against.{" "}
+        <Link to="/settings" className="font-medium underline">
+          Settings
+        </Link>
+      </Note>
+    ) : null;
+  }
+  return (
+    <Section title="First steps" actions={<Button size="sm" variant="ghost" onClick={() => { forgetSignUp(); setChoices(null); }}>Hide</Button>}>
+      <ol className="grid gap-2 sm:grid-cols-3">
+        {firstSteps[choices.manages].map((step, i) => (
+          <li key={step.label}>
+            {step.to ? (
+              <Link to={step.to} className="flex h-full items-center gap-3 rounded-lg border border-line p-3 text-sm font-medium hover:bg-sand">
+                <span className="num text-muted">{i + 1}</span> {step.label}
+              </Link>
+            ) : (
+              <a href={step.href} target="_blank" rel="noreferrer" className="flex h-full items-center gap-3 rounded-lg border border-line p-3 text-sm font-medium hover:bg-sand">
+                <span className="num text-muted">{i + 1}</span> {step.label}
+              </a>
+            )}
+          </li>
+        ))}
+      </ol>
+    </Section>
+  );
+}
+
 export function OverviewPage(): ReactNode {
   const me = useMe();
+  const billing = useBilling();
   const isController = me.person.role === "controller";
   return (
     <>
-      <PageHeader title={`Hello, ${me.person.name.split(" ")[0] ?? ""}`} lead={`${me.organization.name} · ${formatPeriod(thisPeriod())}`} />
+      <PageHeader title={me.person.name.trim() ? `Hello, ${me.person.name.trim().split(" ")[0] ?? ""}` : "Hello"} lead={`${me.organization.name} · ${formatPeriod(thisPeriod())}`} />
+      <YourName />
+      <FirstSteps />
       {isController ? <ControllerView /> : null}
       {hasRole(me.person, "people_manager") ? <PeopleManagerView /> : null}
       {!isController ? (
@@ -197,10 +291,16 @@ export function OverviewPage(): ReactNode {
           <MyCost />
         </Section>
       ) : null}
-      {me.organization.plan === "solo" ? (
-        <p className="text-xs text-muted">Solo plan: one person holds every role. Invite people with the Team plan under Settings.</p>
+      {billing.data?.plan === "solo" ? (
+        <p className="text-xs text-muted">
+          Solo: one person holds every role.{" "}
+          {isController ? (
+            <Link to="/billing" className="underline">
+              Invite people with the Team plan.
+            </Link>
+          ) : null}
+        </p>
       ) : null}
     </>
   );
 }
-

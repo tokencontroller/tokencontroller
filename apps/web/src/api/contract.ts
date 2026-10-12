@@ -4,6 +4,8 @@
 // types move to `generated.ts` (see `client.ts`) and the matching entry here
 // is deleted, so the generated document is the only contract left.
 
+import type { components } from "./generated";
+
 /** An amount of money in whole nano-units (ADR 0004), with its currency. */
 export interface Money {
   /** Nano-units: one billionth of a unit. A JSON number or a decimal string. */
@@ -21,114 +23,89 @@ export type Tags = Record<string, string>;
 /** A set of tags. A token entry matches when it has every tag in it. */
 export type Filter = Tags;
 
-export type Role = "agent_manager" | "people_manager" | "controller";
+// Types the service already publishes come from the generated document.
+type Schemas = components["schemas"];
 
-export type Plan = "solo" | "team" | "enterprise" | "self_hosted";
+export type Role = Schemas["Role"];
 
-export type CostSource =
-  | "enterprise_api_rates"
-  | "console_api_key"
-  | "seat_plan"
-  | "cloud_marketplace"
-  | "none";
+/** How a provider charges the organization (docs: Account > Bills). */
+export type CostSource = Schemas["CostSource"];
 
-export type SeveralKeys = "most_named" | "equal_split" | "first_named";
+export type Organization = Schemas["Organization"];
 
-export interface Organization {
-  id: string;
-  name: string;
-  plan: Plan;
-  cost_source: CostSource;
-  reporting_currency: string;
-  approval: boolean;
-  /** Email domains that may sign in by magic link. Empty means any. */
-  sign_in_domains: string[];
-  /** Summary match on or off (Rules page). */
-  summary_match: boolean;
-  /** What to do when prompts name several tickets. */
-  several_keys: SeveralKeys;
-  /** Token forecasts on or off; a self-hosted instance may run without them. */
-  forecasts: boolean;
-  /** Whether this service runs the Team plan billing (hosted service only). */
-  billing: boolean;
-  /** Members now, against the plan's limit (150 on the Team plan, 1 on Solo). */
-  members: number;
-  member_limit: number | null;
-}
+/** A member as the API shows them. Their `person` tag value is their email. */
+export type Person = Schemas["MemberView"];
 
-export interface Person {
-  id: string;
-  name: string;
-  email: string;
-  role: Role;
-  /** Tags the person passes to their new token entries, such as `team: web`. */
-  tags: Tags;
-  /** The filters a people manager is assigned. Empty for other roles. */
-  filters: Filter[];
-  status: "active" | "invited" | "left";
-}
+export type Me = Schemas["Me"];
 
-export interface Me {
+/** Who is signed in, with the whole organization the pages read settings from. */
+export interface Account {
   person: Person;
   organization: Organization;
 }
 
-export interface SignUp {
-  organization: string;
-  name: string;
-  email: string;
-  /** The one question at sign-up. */
-  manages: "agents" | "people";
-  cost_source: CostSource;
-  reporting_currency: string;
+export type Billing = Schemas["Billing"];
+export type Plan = Schemas["Plan"];
+export type Interval = Schemas["Interval"];
+export type InviteView = Schemas["InviteView"];
+export type Invited = Schemas["Invited"];
+export type NewMember = Schemas["NewMember"];
+export type MemberChange = Schemas["MemberChange"];
+export type OrganizationChange = Schemas["OrganizationChange"];
+
+export type TagName = Schemas["TagName"];
+export type TagValue = Schemas["TagValue"];
+export type TagMap = Schemas["TagMap"];
+export type TagMapChange = Schemas["TagMapChange"];
+
+export type Project = Schemas["Project"];
+export type NewProject = Schemas["NewProject"];
+export type ProjectChange = Schemas["ProjectChange"];
+export type Ticket = Schemas["Ticket"];
+export type NewTicket = Schemas["NewTicket"];
+export type TicketSource = Schemas["TicketSource"];
+export type Client = Schemas["Client"];
+
+export type ApiToken = Schemas["ApiToken"];
+export type ApiTokenKind = Schemas["TokenKind"];
+export type CreatedApiToken = Schemas["CreatedApiToken"];
+
+/** What to do when prompts name several tickets (docs: Rules). */
+export type SeveralKeys = "most_named" | "equal_split" | "first_named";
+
+/** The organization's rule settings (docs: Rules). Not in the service yet. */
+export interface RuleSettings {
+  /** Summary match on or off. */
+  summary_match: boolean;
+  several_keys: SeveralKeys;
 }
 
-export interface TagName {
-  name: string;
-  built_in: boolean;
-  /** Distinct values in open periods, most used first. */
-  values: { value: string; entries: number }[];
+// Cadence, as the Close and reports work defines it (docs: Account > Cadence).
+export type CadenceKind = "weekly" | "every_two_weeks" | "monthly" | "custom";
+
+/** One stretch of a cadence, from `starts_on` up to and including `ends_on`. */
+export interface CadencePeriod {
+  starts_on: string;
+  ends_on: string;
 }
 
-export interface TagMap {
-  /** The tag name that fills the cost center. Default `person`. */
-  cost_center: string;
-  /** Rungs of the cost object, most specific first. The organization is always the last rung and not listed. */
-  ladder: string[];
-}
-
-export type CadenceEvery = "weekly" | "biweekly" | "monthly" | "custom";
-
-export interface Cadence {
-  every: CadenceEvery;
-  /** Days per cadence period when `every` is `custom`. */
-  days: number | null;
-}
-
-export interface Project {
+/** A cadence for the organization (`project` null) or one project, by project name. */
+export interface CadenceView {
   id: string;
-  /** The value of the `project` tag, such as `storefront`. */
-  key: string;
-  name: string;
-  /** Tags its token entries inherit, such as `client: acme`. */
-  tags: Tags;
-  ticket_key_pattern: string;
-  repositories: string[];
-  cadence: Cadence | null;
+  kind: CadenceKind;
+  every_days?: number | null;
+  project?: string | null;
+  starts_on: string;
+  set_at: string;
+  set_by: string;
+  current: CadencePeriod;
 }
 
-export type TicketSource = "jira" | "azure_devops" | "github_issues" | "manual";
-
-export interface Ticket {
-  key: string;
-  title: string | null;
-  description: string | null;
-  parent: string | null;
-  assignee: string | null;
-  project: string;
-  source: TicketSource;
-  /** Cost so far on the ticket and its children, in the reporting currency. */
-  cost: Money;
+export interface CadenceInput {
+  kind: CadenceKind;
+  every_days?: number | null;
+  project?: string | null;
+  starts_on?: string | null;
 }
 
 export type TokenEntryStatus = "draft" | "submitted" | "approved" | "rejected" | "locked";
@@ -202,7 +179,7 @@ export interface CsvPreview<Row> {
 
 export interface TokenSheet {
   person: string;
-  cadence: Cadence | null;
+  cadence: CadenceKind | null;
   /** The cadence period this sheet is for. */
   starts: string;
   ends: string;
@@ -335,7 +312,7 @@ export interface CostSheet {
   period: PeriodId;
   closed_at: string;
   closed_by: string;
-  tag_map: TagMap;
+  tag_map: TagMapChange;
   lines: CostSheetLine[];
   by_kind: Record<CostKind, Money>;
   adjustments: Adjustment[];
@@ -450,25 +427,6 @@ export interface NewRule {
   sets: Tags;
 }
 
-export type ApiTokenKind = "svc" | "read" | "org";
-
-export interface ApiToken {
-  id: string;
-  kind: ApiTokenKind;
-  name: string;
-  /** The first characters, such as `tc_svc_4f2a`. */
-  prefix: string;
-  owner: string | null;
-  created_at: string;
-  last_used_at: string | null;
-}
-
-export interface NewApiTokenResult {
-  token: ApiToken;
-  /** The full secret, shown once. */
-  secret: string;
-}
-
 export interface TicketSystem {
   id: string;
   kind: "jira" | "azure_devops" | "github_issues";
@@ -479,15 +437,3 @@ export interface TicketSystem {
   status: "ok" | "failing";
 }
 
-export interface CheckoutSession {
-  url: string;
-}
-
-/** A computer asking to connect with `tc connect`, found by the code the terminal shows. */
-export interface CliAuthorization {
-  user_code: string;
-  device: string;
-  organization: string;
-  status: "pending" | "confirmed" | "declined" | "expired";
-  expires_at: string;
-}

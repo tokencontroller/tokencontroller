@@ -4,9 +4,8 @@
 
 import { http, HttpResponse, type HttpResponseResolver } from "msw";
 import type {
-  CadenceEvery,
-  CliAuthorization,
-  CostSource,
+  ApiToken,
+  CadenceView,
   NewBill,
   NewTokenEntry,
   Person,
@@ -17,7 +16,7 @@ import type {
 } from "@/api/contract";
 import { parseCsv } from "@/lib/csv";
 import { filterFromText } from "@/lib/format";
-import { createDb, inheritTags, TODAY, type Db, type EntryRecord } from "./seed";
+import { createDb, TODAY, type Db, type EntryRecord } from "./seed";
 import {
   budgetVsActual,
   canSee,
@@ -110,28 +109,15 @@ function member(handler: (ctx: Ctx) => Response | Promise<Response>, roles?: Rol
 const PM: Role[] = ["people_manager"];
 const CONTROLLER: Role[] = ["controller"];
 
-function cliAuthorization(db: Db, me: Person, code: string, status: CliAuthorization["status"]): Response {
-  if (!/^[A-Z]{4}-[A-Z]{4}$/.test(code)) return error(404, "not_found", "No computer is waiting with this code. Run tc connect again.");
-  const device = `${(me.name.split(" ")[0] ?? "my").toLowerCase()}-laptop`;
-  return HttpResponse.json({ user_code: code, device, organization: db.organization.name, status, expires_at: `${TODAY}T23:59:00Z` } satisfies CliAuthorization);
-}
-
-function tagNameRows(db: Db) {
-  return db.tagNames.map((name) => {
-    const counts = new Map<string, number>();
-    for (const entry of db.entries) {
-      if (db.periods.find((p) => p.id === entry.period)?.status === "closed") continue;
-      for (const split of entry.splits) {
-        const value = split.tags[name];
-        if (value) counts.set(value, (counts.get(value) ?? 0) + 1);
-      }
-    }
-    return {
-      name,
-      built_in: ["person", "ticket", "project"].includes(name),
-      values: [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([value, entries]) => ({ value, entries })),
-    };
-  });
+/** The tags a token entry gets: its person (by email) and their tags, the ticket, its project and the project's tags. */
+function tagsFor(db: Db, personId: string | null, target: string, extra: Tags = {}): Tags {
+  const person = db.people.find((p) => p.id === personId);
+  const tags: Tags = person ? { person: person.email, ...person.tags } : {};
+  const ticket = db.tickets.find((t) => t.key === target);
+  const project = db.projects.find((p) => p.id === ticket?.project_id) ?? db.projects.find((p) => p.name === target);
+  if (ticket) tags.ticket = ticket.key;
+  if (project) Object.assign(tags, { project: project.name }, project.tags);
+  return { ...tags, ...extra };
 }
 
 function isClosed(db: Db, period: string): boolean {
@@ -143,11 +129,11 @@ function retag(db: Db, entry: EntryRecord, tags: Tags): Tags {
   const merged: Tags = { ...tags };
   const ticket = merged.ticket ? db.tickets.find((t) => t.key === merged.ticket) : undefined;
   if (ticket) {
-    const inherited = inheritTags(entry.agent_manager, ticket.key);
+    const inherited = tagsFor(db, entry.agent_manager, ticket.key);
     return { ...inherited, ...Object.fromEntries(Object.entries(merged).filter(([k]) => !["ticket", "project", "client"].includes(k))) };
   }
   if (merged.project && !merged.ticket) {
-    const project = db.projects.find((p) => p.key === merged.project);
+    const project = db.projects.find((p) => p.name === merged.project);
     if (project) Object.assign(merged, project.tags);
   }
   return Object.fromEntries(Object.entries(merged).filter(([, value]) => value));
@@ -206,7 +192,7 @@ function addEntry(db: Db, me: Person, body: NewTokenEntry): EntryRecord {
     reject_reason: null,
     placed_by: "by hand",
     candidates: [],
-    splits: [{ share: 10000, tags: inheritTags(me.id, ticket, extra) }],
+    splits: [{ share: 10000, tags: tagsFor(db, me.id, ticket, extra) }],
     late: false,
     provider: body.agent_harness === "Codex" ? "openai" : "anthropic",
   };
@@ -228,54 +214,96 @@ function billCsv(db: Db, text: string) {
   return { rows: bills, problems };
 }
 
+const now = () => `${TODAY}T12:00:00Z`;
+
+function organizationOf(db: Db, name: string, email: string): Db {
+  // A new organization on Solo: one person who holds every role, no data yet.
+  const founder: Person = {
+    id: "f0d0e000-0000-4000-8000-000000000001",
+    // The service asks for no name at sign-up.
+    name: "",
+    email,
+    role: "controller",
+    tags: {},
+    filters: [],
+    status: "invited",
+    invited_at: now(),
+    joined_at: null,
+  };
+  return {
+    ...db,
+    organization: { ...db.organization, id: "0e000000-0000-4000-8000-000000000002", name, slug: name.toLowerCase().replace(/[^a-z0-9]+/g, "-"), cost_source: null, approval: false, sign_in_domains: [], created_at: now() },
+    billing: { enabled: true, plan: "solo", status: null, interval: null, current_period_end: null, cancel_at_period_end: false },
+    people: [founder],
+    invites: [],
+    projects: [],
+    tickets: [],
+    cadences: [],
+    entries: [],
+    bills: [],
+    connections: [],
+    budgets: [],
+    reports: [],
+    adjustments: [],
+    tokens: [],
+    ticketSystems: [],
+    tagNames: ["person", "ticket", "project"],
+    rules: db.rules.filter((r) => r.built_in),
+    periods: [{ id: TODAY.slice(0, 7), status: "open", closed_at: null, closed_by: null, tag_map: null }],
+    pendingLink: { token: `link_${founder.id}`, email },
+    session: null,
+  };
+}
+
+function billing(db: Db) {
+  const members = db.people.filter((p) => p.status !== "removed").length;
+  const b = db.billing;
+  return { plan: b.plan, status: b.status, interval: b.interval, current_period_end: b.current_period_end, cancel_at_period_end: b.cancel_at_period_end, members, member_limit: b.plan === "team" ? 150 : 1 };
+}
+
+function tagValues(db: Db, name: string) {
+  const counts = new Map<string, number>();
+  const count = (tags: Tags) => {
+    const value = tags[name];
+    if (value) counts.set(value, (counts.get(value) ?? 0) + 1);
+  };
+  for (const entry of db.entries) for (const split of entry.splits) count(split.tags);
+  for (const record of [...db.people, ...db.projects, ...db.tickets]) count(record.tags);
+  return [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([value, records]) => ({ value, records }));
+}
+
+function ticketView(t: Db["tickets"][number]) {
+  return toTicket(t);
+}
+
 export const handlers = [
   // Sign-in, sign-up and the session
   http.post(`${API}/sign-in`, async ({ request }) => {
     const db = load();
-    const { email, next } = (await request.json()) as { email: string; next?: string };
-    const person = db.people.find((p) => p.email.toLowerCase() === email.trim().toLowerCase());
+    const { email } = (await request.json()) as { email: string };
+    const person = db.people.find((p) => p.email.toLowerCase() === email.trim().toLowerCase() && p.status !== "removed");
     // The service answers the same either way, so nobody can probe for members.
-    db.pendingLink = person ? { token: `link_${person.id}`, email: person.email, ...(next ? { next } : {}) } : null;
+    db.pendingLink = person ? { token: `link_${person.id}`, email: person.email } : null;
     save(db);
-    return new HttpResponse(null, { status: 204 });
+    return HttpResponse.json({ poll_token: null }, { status: 202 });
   }),
   http.post(`${API}/sign-up`, async ({ request }) => {
-    const body = (await request.json()) as { organization: string; name: string; email: string; manages: "agents" | "people"; cost_source: CostSource; reporting_currency: string };
-    const db = createDb();
-    // A new organization: one person who holds every role, no data yet.
-    const founder: Person = { id: "founder", name: body.name, email: body.email, role: "controller", tags: {}, filters: [], status: "active" };
-    Object.assign(db, {
-      organization: { ...db.organization, id: "org_new", name: body.organization, plan: "solo", cost_source: body.cost_source, reporting_currency: body.reporting_currency, approval: false, sign_in_domains: [], members: 1, member_limit: 1 },
-      people: [founder],
-      projects: [],
-      tickets: [],
-      entries: [],
-      bills: [],
-      connections: [],
-      budgets: [],
-      reports: [],
-      adjustments: [],
-      tokens: [],
-      ticketSystems: [],
-      tagNames: ["person", "ticket", "project"],
-      rules: db.rules.filter((r) => r.built_in),
-      periods: [{ id: TODAY.slice(0, 7), status: "open", closed_at: null, closed_by: null, tag_map: null }],
-      pendingLink: { token: "link_founder", email: body.email },
-      session: null,
-    } satisfies Partial<Db>);
-    save(db);
-    return new HttpResponse(null, { status: 204 });
+    const body = (await request.json()) as { email: string; organization_name: string };
+    if (!body.organization_name.trim()) return error(400, "bad_request", "Give the organization a name.");
+    save(organizationOf(createDb(), body.organization_name.trim(), body.email.trim()));
+    return HttpResponse.json({ poll_token: null }, { status: 202 });
   }),
-  http.post(`${API}/sign-in/verify`, async ({ request }) => {
+  // The button on the link page: signs the browser in, then 303 to the start page.
+  http.post(`${API}/sign-in/link`, async ({ request }) => {
     const db = load();
-    const { token } = (await request.json()) as { token: string };
+    const token = new URLSearchParams(await request.text()).get("token") ?? "";
     const person = db.people.find((p) => `link_${p.id}` === token);
-    if (!person) return error(400, "link_expired", "This sign-in link has expired. Ask for a new one.");
+    if (!person) return new HttpResponse("This sign-in link has expired. Ask for a new one.", { status: 410, headers: { "content-type": "text/html" } });
     db.session = person.id;
     db.pendingLink = null;
-    if (person.status === "invited") person.status = "active";
+    if (person.status === "invited") Object.assign(person, { status: "joined", joined_at: now() });
     save(db);
-    return HttpResponse.json({ person, organization: db.organization });
+    return new HttpResponse(null, { status: 303, headers: { location: "/" } });
   }),
   http.post(`${API}/sign-out`, () => {
     const db = load();
@@ -283,69 +311,131 @@ export const handlers = [
     save(db);
     return new HttpResponse(null, { status: 204 });
   }),
+  http.get(`${API}/invites/:code`, ({ params }) => {
+    const db = load();
+    const invite = db.invites.find((i) => i.code === params.code);
+    const person = db.people.find((p) => p.id === invite?.person && p.status === "invited");
+    if (!person) return error(404, "not_found", "This invite link does not work any more. Ask for a new one.");
+    return HttpResponse.json({ email: person.email, organization_name: db.organization.name });
+  }),
+  http.get(`${API}/health`, () => HttpResponse.json({ status: "ok", database: "ok", version: "1.0.0", edition: "open" })),
   // Connecting a computer: in the mocks every well-formed code is waiting.
-  http.get(`${API}/cli/authorizations/by-code/:code`, member(({ db, me, params }) => cliAuthorization(db, me, String(params.code), "pending"))),
-  http.post(`${API}/cli/authorizations/by-code/:code/confirm`, member(({ db, me, params }) => cliAuthorization(db, me, String(params.code), "confirmed"))),
-  http.post(`${API}/cli/authorizations/by-code/:code/decline`, member(({ db, me, params }) => cliAuthorization(db, me, String(params.code), "declined"))),
   http.get(`${API}/__mock/last-link`, () => HttpResponse.json(load().pendingLink)),
   http.post(`${API}/__mock/reset`, () => {
     resetMockDb();
     return new HttpResponse(null, { status: 204 });
   }),
-  http.get(`${API}/me`, member(({ db, me }) => HttpResponse.json({ person: me, organization: { ...db.organization, members: db.people.filter((p) => p.status !== "left").length } }))),
+  http.get(`${API}/me`, member(({ db, me }) => HttpResponse.json({ credential: "session", person: me, organization: { id: db.organization.id, name: db.organization.name, slug: db.organization.slug } }))),
 
-  // Organization settings
+  // The organization, its plan and settings
+  http.get(`${API}/organization`, member(({ db }) => HttpResponse.json(db.organization))),
   http.patch(`${API}/organization`, member(async ({ db, request }) => {
-    Object.assign(db.organization, (await request.json()) as object);
+    const change = (await request.json()) as Partial<Db["organization"]>;
+    // A missing field keeps its value; null clears it.
+    for (const [key, value] of Object.entries(change)) {
+      if (["name", "approval", "cost_source", "reporting_currency", "sign_in_domains"].includes(key)) Object.assign(db.organization, { [key]: value });
+    }
     return HttpResponse.json(db.organization);
   }, CONTROLLER)),
-  http.get(`${API}/organization/cadence`, member(({ db }) => HttpResponse.json(db.cadence))),
-  http.put(`${API}/organization/cadence`, member(async ({ db, request }) => {
-    db.cadence = (await request.json()) as { every: CadenceEvery; days: number | null } | null;
-    return HttpResponse.json(db.cadence);
+  http.get(`${API}/billing`, member(({ db }) => (db.billing.enabled ? HttpResponse.json(billing(db)) : error(404, "not_found", "Billing is off on this instance.")))),
+  http.post(`${API}/billing/checkout`, member(async ({ db, request }) => {
+    if (!db.billing.enabled) return error(404, "not_found", "Billing is off on this instance.");
+    if (db.billing.plan === "team") return error(409, "conflict", "This organization is on the Team plan already.");
+    const { country } = (await request.json()) as { interval: string; country: string };
+    if (!/^[A-Z]{2}$/.test(country)) return error(400, "bad_request", `"${country}" is not a country code; use two letters such as AT or US.`);
+    return HttpResponse.json({ url: "https://checkout.stripe.com/c/pay/mock" });
+  }, CONTROLLER)),
+  http.post(`${API}/billing/portal`, member(({ db }) => {
+    if (!db.billing.enabled) return error(404, "not_found", "Billing is off on this instance.");
+    if (db.billing.plan !== "team") return error(409, "conflict", "There is no subscription to manage yet.");
+    return HttpResponse.json({ url: "https://billing.stripe.com/p/session/mock" });
+  }, CONTROLLER)),
+  http.get(`${API}/rules/settings`, member(({ db }) => HttpResponse.json(db.ruleSettings))),
+  http.patch(`${API}/rules/settings`, member(async ({ db, request }) => {
+    Object.assign(db.ruleSettings, (await request.json()) as object);
+    return HttpResponse.json(db.ruleSettings);
+  }, CONTROLLER)),
+  http.get(`${API}/cadences`, member(({ db }) => HttpResponse.json(db.cadences))),
+  http.put(`${API}/cadences`, member(async ({ db, me, request }) => {
+    const body = (await request.json()) as { kind: CadenceView["kind"]; every_days?: number | null; project?: string | null };
+    if (body.kind === "custom" && !body.every_days) return error(400, "bad_request", "Give the number of days.");
+    const project = body.project ?? null;
+    const existing = db.cadences.find((c) => (c.project ?? null) === project);
+    const cadence: CadenceView = { id: existing?.id ?? `c0de0000-0000-4000-8000-${String(db.nextId++).padStart(12, "0")}`, kind: body.kind, every_days: body.every_days ?? null, project, starts_on: TODAY, set_at: now(), set_by: me.email, current: { starts_on: "2026-10-12", ends_on: "2026-10-18" } };
+    db.cadences = [...db.cadences.filter((c) => c !== existing), cadence];
+    return HttpResponse.json(cadence);
+  }, PM)),
+  http.delete(`${API}/cadences/:id`, member(({ db, params }) => {
+    db.cadences = db.cadences.filter((c) => c.id !== params.id);
+    return new HttpResponse(null, { status: 204 });
   }, PM)),
 
   // People
-  http.get(`${API}/members`, member(({ db }) => HttpResponse.json(db.people.filter((p) => p.status !== "left")))),
+  http.get(`${API}/members`, member(({ db }) => HttpResponse.json(db.people))),
   http.post(`${API}/members`, member(async ({ db, request }) => {
-    const body = (await request.json()) as { name: string; email: string; role: Role; tags: Tags };
-    if (db.organization.plan === "solo") return error(402, "plan_limit", "Solo is for one person. Choose the Team plan to invite people.");
-    if (db.organization.member_limit !== null && db.people.length >= db.organization.member_limit) return error(402, "plan_limit", "The Team plan stops at 150 members.");
-    if (db.people.some((p) => p.email.toLowerCase() === body.email.toLowerCase())) return error(409, "exists", "Someone with this email is already a member.");
-    const person: Person = { id: nextId(db, "p"), name: body.name, email: body.email, role: body.role, tags: body.tags, filters: [], status: "invited" };
+    const body = (await request.json()) as { email: string; name?: string; role?: Role; tags?: Tags };
+    const active = db.people.filter((p) => p.status !== "removed").length;
+    if (db.billing.enabled && db.billing.plan === "solo") return error(409, "conflict", "Solo is for one person. Choose the Team plan to invite people.");
+    if (active >= 150) return error(409, "conflict", "The Team plan stops at 150 members.");
+    if (db.people.some((p) => p.email.toLowerCase() === body.email.toLowerCase() && p.status !== "removed")) return error(409, "conflict", "Someone with this email is already a member.");
+    const person: Person = { id: `p0000000-0000-4000-8000-${String(db.nextId++).padStart(12, "0")}`, name: body.name?.trim() || (body.email.split("@")[0] ?? body.email), email: body.email, role: body.role ?? "agent_manager", tags: body.tags ?? {}, filters: [], status: "invited", invited_at: now(), joined_at: null };
     db.people.push(person);
-    return HttpResponse.json(person, { status: 201 });
+    const code = `${db.organization.slug}-${String(db.nextId++).slice(-4)}`;
+    db.invites.push({ code, person: person.id });
+    return HttpResponse.json({ member: person, invite_url: `${new URL(request.url).origin}/i/${code}` }, { status: 201 });
   }, CONTROLLER)),
   http.patch(`${API}/members/:id`, member(async ({ db, params, request }) => {
     const person = db.people.find((p) => p.id === params.id);
     if (!person) return error(404, "not_found", "No such member.");
-    Object.assign(person, (await request.json()) as Partial<Person>);
+    const change = (await request.json()) as { name?: string | null; role?: Role | null; tags?: Tags | null };
+    const controllers = db.people.filter((p) => p.role === "controller" && p.status !== "removed");
+    if (change.role && change.role !== "controller" && person.role === "controller" && controllers.length === 1) return error(409, "conflict", "The last controller cannot change role. Make someone else a controller first.");
+    if (change.name) person.name = change.name;
+    if (change.role) person.role = change.role;
+    if (change.tags !== undefined) person.tags = change.tags ?? {};
+    if (person.role !== "people_manager") person.filters = [];
     return HttpResponse.json(person);
+  }, CONTROLLER)),
+  http.put(`${API}/members/:id/filters`, member(async ({ db, params, request }) => {
+    const person = db.people.find((p) => p.id === params.id);
+    if (!person) return error(404, "not_found", "No such member.");
+    person.filters = (await request.json()) as Tags[];
+    return HttpResponse.json(person);
+  }, CONTROLLER)),
+  http.post(`${API}/members/:id/invite`, member(({ db, params, request }) => {
+    const person = db.people.find((p) => p.id === params.id);
+    if (!person) return error(404, "not_found", "No such member.");
+    if (person.status !== "invited") return error(409, "conflict", "They have joined already.");
+    const code = db.invites.find((i) => i.person === person.id)?.code ?? `${db.organization.slug}-${String(db.nextId++).slice(-4)}`;
+    return HttpResponse.json({ member: person, invite_url: `${new URL(request.url).origin}/i/${code}` });
   }, CONTROLLER)),
   http.delete(`${API}/members/:id`, member(({ db, params }) => {
     const person = db.people.find((p) => p.id === params.id);
-    if (person) person.status = "left";
+    if (!person) return error(404, "not_found", "No such member.");
+    if (person.role === "controller" && db.people.filter((p) => p.role === "controller" && p.status !== "removed").length === 1) return error(409, "conflict", "The last controller cannot be removed.");
+    person.status = "removed";
     return new HttpResponse(null, { status: 204 });
   }, CONTROLLER)),
 
   // Tags and the tag map
-  http.get(`${API}/tag-names`, member(({ db }) => HttpResponse.json(tagNameRows(db)))),
-  http.post(`${API}/tag-names`, member(async ({ db, request }) => {
+  http.get(`${API}/tags`, member(({ db }) => HttpResponse.json(db.tagNames.map((name) => ({ name, built_in: ["person", "ticket", "project"].includes(name) }))))),
+  http.post(`${API}/tags`, member(async ({ db, request }) => {
     const { name } = (await request.json()) as { name: string };
     const clean = name.trim().toLowerCase();
-    if (!/^[a-z][a-z0-9_-]*$/.test(clean)) return error(400, "invalid", "A tag name is lowercase letters, digits, - and _.");
-    if (db.tagNames.includes(clean)) return error(409, "exists", "This tag name is already on the list.");
+    if (!/^[a-z][a-z0-9_-]*$/.test(clean)) return error(400, "bad_request", "A tag name is lowercase letters, digits, - and _.");
+    if (db.tagNames.includes(clean)) return error(409, "conflict", "This tag name is already on the list.");
     db.tagNames.push(clean);
-    return HttpResponse.json(tagNameRows(db).find((t) => t.name === clean), { status: 201 });
+    return HttpResponse.json({ name: clean, built_in: false }, { status: 201 });
   }, CONTROLLER)),
-  http.delete(`${API}/tag-names/:name`, member(({ db, params }) => {
-    if (["person", "ticket", "project"].includes(params.name ?? "")) return error(400, "built_in", "Built-in tags cannot be removed.");
+  http.delete(`${API}/tags/:name`, member(({ db, params }) => {
+    if (["person", "ticket", "project"].includes(String(params.name))) return error(409, "conflict", "Built-in tags cannot be removed.");
     db.tagNames = db.tagNames.filter((n) => n !== params.name);
     return new HttpResponse(null, { status: 204 });
   }, CONTROLLER)),
-  http.post(`${API}/tag-names/:name/merge`, member(async ({ db, params, request }) => {
+  http.get(`${API}/tags/:name/values`, member(({ db, params }) => HttpResponse.json(tagValues(db, String(params.name))))),
+  http.post(`${API}/tags/:name/merge`, member(async ({ db, params, request }) => {
     const { from, into } = (await request.json()) as { from: string[]; into: string };
-    const name = params.name ?? "";
+    const name = String(params.name);
     for (const entry of db.entries) {
       if (isClosed(db, entry.period)) continue;
       for (const split of entry.splits) {
@@ -353,40 +443,65 @@ export const handlers = [
         if (value && from.includes(value)) split.tags[name] = into;
       }
     }
-    return HttpResponse.json(tagNameRows(db).find((t) => t.name === name));
+    return HttpResponse.json({ name, built_in: ["person", "ticket", "project"].includes(name) });
   }, CONTROLLER)),
   http.get(`${API}/tag-map`, member(({ db }) => HttpResponse.json(db.tagMap))),
   http.put(`${API}/tag-map`, member(async ({ db, request }) => {
-    db.tagMap = (await request.json()) as Db["tagMap"];
+    const change = (await request.json()) as { cost_center: string; ladder: string[] };
+    db.tagMap = { ...change, version: db.tagMap.version + 1, created_at: now() };
     return HttpResponse.json(db.tagMap);
   }, CONTROLLER)),
 
-  // Projects and tickets
-  http.get(`${API}/projects`, member(({ db }) => HttpResponse.json(db.projects))),
+  // Projects, clients and tickets
+  http.get(`${API}/projects`, member(({ db, url }) => HttpResponse.json(db.projects.filter((p) => !p.archived || url.searchParams.get("archived") === "true")))),
   http.post(`${API}/projects`, member(async ({ db, request }) => {
-    const body = (await request.json()) as Db["projects"][number];
-    if (db.projects.some((p) => p.key === body.key)) return error(409, "exists", "A project with this key exists.");
-    const project = { ...body, id: nextId(db, "p") };
+    const body = (await request.json()) as { name: string; ticket_key_pattern?: string | null; repositories?: string[]; tags?: Tags };
+    if (!/^[a-z0-9][a-z0-9-]*$/.test(body.name)) return error(400, "bad_request", "A project name is lowercase letters, digits and -, such as storefront.");
+    if (db.projects.some((p) => p.name === body.name)) return error(409, "conflict", "A project with this name exists.");
+    const project = { id: `0b000000-0000-4000-8000-${String(db.nextId++).padStart(12, "0")}`, name: body.name, ticket_key_pattern: body.ticket_key_pattern ?? null, repositories: body.repositories ?? [], tags: body.tags ?? {}, archived: false, created_at: now() };
     db.projects.push(project);
     return HttpResponse.json(project, { status: 201 });
-  }, CONTROLLER)),
-  http.patch(`${API}/projects/:key`, member(async ({ db, params, request }) => {
-    const project = db.projects.find((p) => p.key === params.key);
+  }, PM)),
+  http.patch(`${API}/projects/:id`, member(async ({ db, params, request }) => {
+    const project = db.projects.find((p) => p.id === params.id);
     if (!project) return error(404, "not_found", "No such project.");
-    Object.assign(project, (await request.json()) as object);
+    const change = (await request.json()) as { name?: string | null; ticket_key_pattern?: string | null; repositories?: string[] | null; tags?: Tags | null };
+    if (change.name) project.name = change.name;
+    if (change.ticket_key_pattern !== undefined) project.ticket_key_pattern = change.ticket_key_pattern;
+    if (change.repositories !== undefined) project.repositories = change.repositories ?? [];
+    if (change.tags !== undefined) project.tags = change.tags ?? {};
     return HttpResponse.json(project);
   }, PM)),
+  http.delete(`${API}/projects/:id`, member(({ db, params }) => {
+    const project = db.projects.find((p) => p.id === params.id);
+    if (!project) return error(404, "not_found", "No such project.");
+    Object.assign(project, { archived: true, repositories: [] });
+    return new HttpResponse(null, { status: 204 });
+  }, PM)),
+  http.get(`${API}/clients`, member(({ db }) => {
+    const clients = new Map<string, string[]>();
+    for (const p of db.projects) if (p.tags.client && !p.archived) clients.set(p.tags.client, [...(clients.get(p.tags.client) ?? []), p.name]);
+    return HttpResponse.json([...clients.entries()].map(([name, projects]) => ({ name, projects })));
+  })),
   http.get(`${API}/tickets`, member(({ db, url }) => {
-    const project = url.searchParams.get("project");
-    return HttpResponse.json(db.tickets.filter((t) => !project || t.project === project).map((t) => toTicket(db, t)));
+    const project = url.searchParams.get("project_id");
+    const parent = url.searchParams.get("parent_id");
+    const q = url.searchParams.get("q")?.toLowerCase();
+    return HttpResponse.json(
+      db.tickets
+        .filter((t) => (!project || t.project_id === project) && (!parent || t.parent_id === parent))
+        .filter((t) => !q || t.key.toLowerCase().includes(q) || (t.title ?? "").toLowerCase().includes(q))
+        .map(ticketView),
+    );
   })),
   http.post(`${API}/tickets`, member(async ({ db, request }) => {
-    const body = (await request.json()) as Db["tickets"][number];
-    if (db.tickets.some((t) => t.key === body.key)) return error(409, "exists", "A ticket with this key exists.");
-    const ticket = { ...body, source: "manual" as const, open: true };
+    const body = (await request.json()) as { key: string; title?: string | null; description?: string | null; parent_id?: string | null; assignee_id?: string | null; project_id?: string | null; tags?: Tags };
+    if (!body.key.trim()) return error(400, "bad_request", "Give the ticket a key.");
+    if (db.tickets.some((t) => t.key === body.key)) return error(409, "conflict", "A ticket with this key exists.");
+    const ticket = { id: `71c00000-0000-4000-8000-${String(db.nextId++).padStart(12, "0")}`, key: body.key.trim(), title: body.title ?? null, description: body.description ?? null, parent_id: body.parent_id ?? null, assignee_id: body.assignee_id ?? null, project_id: body.project_id ?? null, tags: body.tags ?? {}, source: "manual" as const, updated_at: now(), open: true };
     db.tickets.push(ticket);
-    return HttpResponse.json(toTicket(db, ticket), { status: 201 });
-  }, PM)),
+    return HttpResponse.json(ticketView(ticket), { status: 201 });
+  })),
 
   // Token entries
   http.get(`${API}/token-entries`, member(({ db, me, url }) => {
@@ -456,13 +571,6 @@ export const handlers = [
     if (!reason.trim()) return error(400, "invalid", "Give a reason.");
     entry.status = "rejected";
     entry.reject_reason = reason.trim();
-    return HttpResponse.json(toEntry(db, entry));
-  }, PM)),
-  http.post(`${API}/token-entries/:id/take-over`, member(({ db, me, params }) => {
-    const entry = db.entries.find((e) => e.id === params.id);
-    if (!entry) return error(404, "not_found", "No such token entry.");
-    entry.agent_manager = me.id;
-    for (const split of entry.splits) split.tags = { ...split.tags, person: me.id, ...me.tags };
     return HttpResponse.json(toEntry(db, entry));
   }, PM)),
   http.get(`${API}/token-sheets/current`, member(({ db, me }) => HttpResponse.json(tokenSheet(db, me)))),
@@ -585,7 +693,7 @@ export const handlers = [
     return new HttpResponse(null, { status: 204 });
   }, PM)),
   http.get(`${API}/forecasts/:ticket`, member(({ db, params }) => {
-    if (!db.organization.forecasts) return error(404, "off", "Token forecasts are switched off.");
+    if (!db.forecasts) return error(404, "off", "Token forecasts are switched off.");
     const result = forecast(db, params.ticket ?? "");
     return result ? HttpResponse.json(result) : error(404, "no_history", "No similar past work yet. Close a few periods first.");
   }, PM)),
@@ -632,26 +740,29 @@ export const handlers = [
   })),
 
   // Settings
-  http.get(`${API}/api-tokens`, member(({ db, me }) => HttpResponse.json(db.tokens.filter((t) => me.role === "controller" || t.owner === me.id || (me.role === "people_manager" && t.owner === null))))),
+  http.get(`${API}/api-tokens`, member(({ db, me }) => HttpResponse.json(db.tokens.filter((t) => me.role === "controller" || t.person_id === me.id)))),
   http.post(`${API}/api-tokens`, member(async ({ db, me, request }) => {
-    const { kind, name } = (await request.json()) as { kind: "svc" | "read" | "org"; name: string };
-    if (kind === "org" && me.role !== "controller") return error(403, "forbidden", "Only a controller creates the organization token.");
-    const secret = `tc_${kind}_${Math.random().toString(36).slice(2, 10)}${Math.random().toString(36).slice(2, 18)}`;
-    const token = { id: nextId(db, "tok"), kind, name, prefix: secret.slice(0, kind === "read" ? 12 : 11), owner: me.id, created_at: `${TODAY}T12:00:00Z`, last_used_at: null };
-    db.tokens.push(token);
-    return HttpResponse.json({ token, secret }, { status: 201 });
+    const { kind, name } = (await request.json()) as { kind: ApiToken["kind"]; name?: string };
+    if (kind === "organization" && me.role !== "controller") return error(403, "forbidden", "Only a controller creates the organization token.");
+    const prefix = ({ service: "tc_svc_", read: "tc_read_", organization: "tc_org_" } satisfies Record<ApiToken["kind"], string>)[kind];
+    const token = `${prefix}${Math.random().toString(36).slice(2, 10)}${Math.random().toString(36).slice(2, 18)}`;
+    const created: ApiToken = { id: `a0ce0000-0000-4000-8000-${String(db.nextId++).padStart(12, "0")}`, kind, name: name?.trim() ?? "", shown_prefix: token.slice(0, prefix.length + 4), person_id: me.id, needs_owner: false, created_at: now(), last_used_at: null };
+    db.tokens.push(created);
+    return HttpResponse.json({ ...created, token }, { status: 201 });
   })),
   http.delete(`${API}/api-tokens/:id`, member(({ db, params }) => {
     db.tokens = db.tokens.filter((t) => t.id !== params.id);
     return new HttpResponse(null, { status: 204 });
   })),
-  http.post(`${API}/api-tokens/:id/owner`, member(async ({ db, params, request }) => {
+  http.post(`${API}/api-tokens/:id/hand-over`, member(async ({ db, params, request }) => {
     const token = db.tokens.find((t) => t.id === params.id);
     if (!token) return error(404, "not_found", "No such token.");
-    const { person } = (await request.json()) as { person: string };
-    token.owner = person;
+    const { person_id } = (await request.json()) as { person_id: string };
+    if (token.kind !== "service") return error(400, "bad_request", "Only service tokens move to another person.");
+    if (!db.people.some((p) => p.id === person_id && p.status === "joined")) return error(400, "bad_request", "Hand it to someone who has joined.");
     // Only future token entries follow; past ones keep their agent manager.
-    return HttpResponse.json(token);
+    Object.assign(token, { person_id, needs_owner: false });
+    return new HttpResponse(null, { status: 204 });
   }, CONTROLLER)),
   http.get(`${API}/ticket-systems`, member(({ db }) => HttpResponse.json(db.ticketSystems))),
   http.post(`${API}/ticket-systems`, member(async ({ db, request }) => {
@@ -671,8 +782,6 @@ export const handlers = [
     const files = { "organization.json": db.organization, "people.json": db.people, "token_entries.json": db.entries, "bills.json": db.bills, "rules.json": db.rules, "tickets.json": db.tickets, "periods.json": db.periods, "tags.json": { names: db.tagNames, map: db.tagMap } };
     return new HttpResponse(JSON.stringify(files, null, 2), { headers: { "content-type": "application/json" } });
   }, CONTROLLER)),
-  http.post(`${API}/billing/checkout`, member(() => HttpResponse.json({ url: "https://checkout.stripe.com/c/pay/mock" }), CONTROLLER)),
-  http.post(`${API}/billing/portal`, member(() => HttpResponse.json({ url: "https://billing.stripe.com/p/session/mock" }), CONTROLLER)),
 ];
 
 /** Money helper for tests. */

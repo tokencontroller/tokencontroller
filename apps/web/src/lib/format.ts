@@ -67,6 +67,11 @@ export function describeFilter(filter: Tags): string {
   return parts.length ? parts.join(" and ") : "Whole organization";
 }
 
+/** A person's name, or their email until they have one (a new founder has none). */
+export function displayName(person: { name: string; email: string }): string {
+  return person.name.trim() || person.email;
+}
+
 export function initials(name: string): string {
   return name
     .split(/\s+/)

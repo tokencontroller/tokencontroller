@@ -2,6 +2,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { useState, type ReactNode } from "react";
 import type { SubmitResult, TokenEntry } from "@/api/contract";
 import { api } from "@/api/endpoints";
+import { cadenceKindText } from "@/components/cadence-select";
 import { EntryDialog, entryValue } from "@/components/entry-dialog";
 import { StatusBadge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -12,10 +13,10 @@ import { DataTable, type Column } from "@/components/ui/table";
 import { TagRow } from "@/components/ui/tag";
 import { formatDay, formatTime } from "@/lib/format";
 import { formatMoney, formatShare, toDecimal } from "@/lib/money";
-import { refreshAll } from "@/lib/queries";
+import { refreshAll, useTickets } from "@/lib/queries";
 
 function TicketPicker({ entry }: { entry: TokenEntry }) {
-  const tickets = useQuery({ queryKey: ["tickets"], queryFn: () => api.tickets() });
+  const tickets = useTickets();
   const tags = entry.splits[0]?.tags ?? {};
   const save = useMutation({
     mutationFn: (ticket: string) => {
@@ -87,7 +88,7 @@ export function ReviewPage(): ReactNode {
         <Kpi label="Draft token entries" value={drafts.length} />
         <Kpi label="Cost" value={formatMoney(data.total)} note="list-price estimate" />
         <Kpi label="On tickets" value={formatShare(data.on_tickets)} tone={data.on_tickets >= 9000 ? "posted" : undefined} />
-        <Kpi label="Cadence period" value={<span className="text-base">{formatDay(data.starts)} to {formatDay(data.ends)}</span>} note={data.cadence ? data.cadence.every : "no cadence"} />
+        <Kpi label="Cadence period" value={<span className="text-base">{formatDay(data.starts)} to {formatDay(data.ends)}</span>} note={data.cadence ? cadenceKindText[data.cadence].toLowerCase() : "no cadence"} />
       </KpiRow>
 
       {rejected.length ? (

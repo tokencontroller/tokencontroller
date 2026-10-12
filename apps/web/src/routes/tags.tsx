@@ -1,6 +1,6 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useState, type ReactNode } from "react";
-import type { TagMap as TagMapValue, TagName } from "@/api/contract";
+import type { TagMap as TagMapValue, TagMapChange, TagName, TagValue } from "@/api/contract";
 import { api } from "@/api/endpoints";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -10,9 +10,16 @@ import { ErrorBox, Loading, Note, PageHeader, Section } from "@/components/ui/di
 import { Field, FormError, Input, Select } from "@/components/ui/form";
 import { tagColor } from "@/components/ui/tag";
 import { notify } from "@/components/ui/toast";
-import { refreshAll, usePersonName } from "@/lib/queries";
+import { formatDate } from "@/lib/format";
+import { refreshAll, usePersonName, useTagNames, useTagValues } from "@/lib/queries";
 
-function Merge({ tag, onClose }: { tag: TagName | null; onClose: () => void }) {
+/** A tag name with the values it has, for the merge dialog. */
+interface Merging {
+  name: string;
+  values: TagValue[];
+}
+
+function Merge({ tag, onClose }: { tag: Merging | null; onClose: () => void }) {
   const [from, setFrom] = useState<string[]>([]);
   const [into, setInto] = useState("");
   const merge = useMutation({
@@ -32,7 +39,7 @@ function Merge({ tag, onClose }: { tag: TagName | null; onClose: () => void }) {
             <label className="flex items-center gap-2 text-sm">
               <Checkbox label={v.value} checked={from.includes(v.value)} onCheckedChange={(on) => setFrom(on ? [...from, v.value] : from.filter((x) => x !== v.value))} />
               <span className="font-medium">{v.value}</span>
-              <span className="text-muted">{v.entries} token entries</span>
+              <span className="text-muted">on {v.records} {v.records === 1 ? "record" : "records"}</span>
             </label>
           </li>
         ))}
@@ -64,7 +71,7 @@ function TagMap({ names }: { names: TagName[] }) {
 }
 
 function TagMapEditor({ names, saved }: { names: TagName[]; saved: TagMapValue }) {
-  const [draft, setDraft] = useState<TagMapValue>(saved);
+  const [draft, setDraft] = useState<TagMapChange>({ cost_center: saved.cost_center, ladder: saved.ladder });
   const save = useMutation({
     mutationFn: () => api.setTagMap(draft),
     onSuccess: async () => {
@@ -79,7 +86,7 @@ function TagMapEditor({ names, saved }: { names: TagName[]; saved: TagMapValue }
     setDraft({ ...draft, ladder });
   };
   const unused = names.filter((n) => !draft.ladder.includes(n.name) && n.name !== "person");
-  const changed = JSON.stringify(draft) !== JSON.stringify(saved);
+  const changed = draft.cost_center !== saved.cost_center || draft.ladder.join() !== saved.ladder.join();
   return (
     <div className="grid gap-6 lg:grid-cols-2">
       <div className="rounded-lg border border-line p-4">
@@ -121,19 +128,45 @@ function TagMapEditor({ names, saved }: { names: TagName[]; saved: TagMapValue }
       <div className="lg:col-span-2">
         {changed ? <Note tone="exception">Changing the tag map changes what reports mean from now on. Compare periods across a change with care.</Note> : null}
         <FormError error={save.error} />
-        <Button variant="primary" disabled={!changed || save.isPending} onClick={() => save.mutate()}>
-          Save tag map
-        </Button>
+        <div className="flex flex-wrap items-center gap-3">
+          <Button variant="primary" disabled={!changed || save.isPending} onClick={() => save.mutate()}>
+            Save tag map
+          </Button>
+          <span className="text-[13px] text-muted">
+            Version {saved.version}, saved {formatDate(saved.created_at)}
+          </span>
+        </div>
       </div>
     </div>
   );
 }
 
-export function TagsPage(): ReactNode {
+function TagNameRow({ tag, onMerge, onRemove }: { tag: TagName; onMerge: (tag: Merging) => void; onRemove: (name: string) => void }) {
   const personName = usePersonName();
-  const names = useQuery({ queryKey: ["tag-names"], queryFn: api.tagNames });
+  const values = useTagValues(tag.name).data ?? [];
+  const shown = values.slice(0, 6).map((v) => (tag.name === "person" ? personName(v.value) : v.value));
+  return (
+    <li className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center">
+      <div className="flex w-40 items-center gap-2">
+        <span aria-hidden="true" className="size-2.5 rounded-full" style={{ background: tagColor(tag.name) }} />
+        <span className="font-medium">{tag.name}</span>
+        {tag.built_in ? <Badge>built in</Badge> : null}
+      </div>
+      <div className="min-w-0 flex-1 truncate text-[13px] text-muted">
+        {values.length ? `${shown.join(", ")}${values.length > 6 ? ` and ${String(values.length - 6)} more` : ""}` : "no values yet"}
+      </div>
+      <div className="flex gap-1">
+        {values.length > 1 && tag.name !== "person" ? <Button size="sm" variant="ghost" onClick={() => onMerge({ name: tag.name, values })}>Merge values</Button> : null}
+        {!tag.built_in ? <Button size="sm" variant="ghost" onClick={() => onRemove(tag.name)}>Remove</Button> : null}
+      </div>
+    </li>
+  );
+}
+
+export function TagsPage(): ReactNode {
+  const names = useTagNames();
   const [newName, setNewName] = useState("");
-  const [merging, setMerging] = useState<TagName | null>(null);
+  const [merging, setMerging] = useState<Merging | null>(null);
   const add = useMutation({
     mutationFn: () => api.addTagName(newName),
     onSuccess: async () => {
@@ -151,20 +184,7 @@ export function TagsPage(): ReactNode {
       <Section title="Tag names">
         <ul className="mb-4 divide-y divide-line rounded-lg border border-line">
           {names.data.map((n) => (
-            <li key={n.name} className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center">
-              <div className="flex w-40 items-center gap-2">
-                <span aria-hidden="true" className="size-2.5 rounded-full" style={{ background: tagColor(n.name) }} />
-                <span className="font-medium">{n.name}</span>
-                {n.built_in ? <Badge>built in</Badge> : null}
-              </div>
-              <div className="min-w-0 flex-1 truncate text-[13px] text-muted">
-                {n.values.length ? `${n.values.slice(0, 6).map((v) => (n.name === "person" ? personName(v.value) : v.value)).join(", ")}${n.values.length > 6 ? ` and ${n.values.length - 6} more` : ""}` : "no values yet"}
-              </div>
-              <div className="flex gap-1">
-                {n.values.length > 1 && n.name !== "person" ? <Button size="sm" variant="ghost" onClick={() => setMerging(n)}>Merge values</Button> : null}
-                {!n.built_in ? <Button size="sm" variant="ghost" onClick={() => remove.mutate(n.name)}>Remove</Button> : null}
-              </div>
-            </li>
+            <TagNameRow key={n.name} tag={n} onMerge={setMerging} onRemove={(name) => remove.mutate(name)} />
           ))}
         </ul>
         <form className="flex max-w-md gap-2" onSubmit={(e) => { e.preventDefault(); add.mutate(); }}>
@@ -174,7 +194,7 @@ export function TagsPage(): ReactNode {
           </Button>
         </form>
         <div className="mt-2 max-w-md">
-          <FormError error={add.error} />
+          <FormError error={add.error ?? remove.error} />
         </div>
       </Section>
       <Section title="Tag map" lead="Which tags fill the cost center and the cost object. Each closed period keeps the map it was closed with.">
