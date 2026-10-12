@@ -52,7 +52,7 @@ The service has one module folder per area under `apps/server/src/`, so work on 
 - Migrations live in `apps/server/migrations/`, named `<UTC timestamp>_<module>_<what>.sql`. The service applies them when it starts. A migration that reached `main` is never edited.
 - Queries are checked against the database when the code compiles. After adding or changing a query, run `cargo sqlx prepare --workspace` and commit `.sqlx/`, so the image builds without a database.
 - After changing the API, run `cargo run -p tokencontroller-server -- openapi > apps/server/openapi.json` and commit it. The web app's client is generated from this file.
-- CI fails on any warning, a skipped test, a lint switched off in the code, fewer tests than before, or a changed harness file without the maintainer's label (ADR 0003, ADR 0013). A pull request merges itself when CI is green, unless it carries the `hold` label.
+- CI fails on any warning, a skipped test, a lint switched off in the code, fewer tests than before, a test that exists but did not run, a Rust package without `[lints] workspace = true`, a Cargo config file, SQL in the service that the compiler did not check, a mutant in changed `crates/core` code that no test catches, or a changed harness file without the maintainer's label (ADR 0003, ADR 0013). A pull request merges itself when CI is green, unless it carries the `hold` label.
 
 ## Open core
 
