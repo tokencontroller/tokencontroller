@@ -24,7 +24,7 @@ use time::OffsetDateTime;
 use utoipa::ToSchema;
 use utoipa_axum::router::OpenApiRouter;
 
-use crate::integrations::{prices, ticket_systems};
+use crate::integrations::{bill_connections, prices, reminders, ticket_systems};
 use crate::{AppState, Config};
 
 /// This area's routes, relative to `/api/v1`.
@@ -136,11 +136,19 @@ pub async fn request_now(db: &PgPool, job: &str) -> Result<(), sqlx::Error> {
 /// `TC_PRICES_REFRESH` is `off`.
 #[must_use]
 pub fn standard(config: &Config) -> Vec<Job> {
-    let mut jobs = vec![Job::new(
-        ticket_systems::JOB,
-        ticket_systems::JOB_EVERY,
-        ticket_systems::sync_due,
-    )];
+    let mut jobs = vec![
+        Job::new(
+            ticket_systems::JOB,
+            ticket_systems::JOB_EVERY,
+            ticket_systems::sync_due,
+        ),
+        Job::new(
+            bill_connections::JOB,
+            bill_connections::JOB_EVERY,
+            bill_connections::run_job,
+        ),
+        Job::new(reminders::JOB, reminders::JOB_EVERY, reminders::run_job),
+    ];
     if config.prices_refresh {
         jobs.push(Job::new(prices::JOB, prices::JOB_EVERY, prices::run_job));
         jobs.push(Job::new(

@@ -162,6 +162,7 @@ pub struct PulledBill {
     lines: Vec<BillLine>,
     is_final: bool,
     exchange_rate: Option<Decimal>,
+    provider_name: Option<String>,
 }
 
 impl PulledBill {
@@ -214,6 +215,7 @@ impl PulledBill {
             lines,
             is_final,
             exchange_rate: None,
+            provider_name: None,
         })
     }
 
@@ -240,9 +242,26 @@ impl PulledBill {
         self
     }
 
+    /// The same bill under a provider name that has no [`BillProvider`],
+    /// such as `cursor` on an uploaded bill.
+    #[must_use]
+    pub fn with_provider_name(mut self, name: String) -> Self {
+        self.provider_name = Some(name);
+        self
+    }
+
     #[must_use]
     pub fn provider(&self) -> BillProvider {
         self.origin.provider
+    }
+
+    /// The provider as bills store it: [`BillProvider::as_str`], or the
+    /// name an upload gave.
+    #[must_use]
+    pub fn provider_name(&self) -> &str {
+        self.provider_name
+            .as_deref()
+            .unwrap_or_else(|| self.origin.provider.as_str())
     }
 
     #[must_use]

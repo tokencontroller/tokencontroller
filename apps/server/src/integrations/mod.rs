@@ -6,6 +6,8 @@
 //! this folder, and its migrations in `migrations/` named
 //! `<timestamp>_integrations_<what>.sql`.
 
+pub mod bill_connections;
+pub mod bill_uploads;
 pub mod bills;
 pub mod decimal;
 pub mod http;
@@ -24,7 +26,10 @@ use crate::AppState;
 /// This area's routes, relative to `/api/v1`.
 #[must_use]
 pub fn routes() -> OpenApiRouter<AppState> {
-    OpenApiRouter::new().merge(ticket_systems::routes())
+    OpenApiRouter::new()
+        .merge(ticket_systems::routes())
+        .merge(bill_connections::routes())
+        .merge(bill_uploads::routes())
 }
 
 /// How a connection's last pull or sync went.
