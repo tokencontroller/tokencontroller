@@ -532,9 +532,10 @@ async fn a_new_price_table_prices_calls_whose_model_was_unknown(pool: PgPool) {
     use tokencontroller_server::integrations::prices::{self, ModelPrice};
 
     let (organization, person) = organization(&pool).await.unwrap();
-    let sent =
-        entry(&serde_json::json!({ "model": "claude-brand-new", "tokens": { "input": 2_000_000 } }))
-            .unwrap();
+    let sent = entry(
+        &serde_json::json!({ "model": "claude-brand-new", "tokens": { "input": 2_000_000 } }),
+    )
+    .unwrap();
     let mut tx = pool.begin().await.unwrap();
     let stored = store::store_token_entries(
         &mut tx,

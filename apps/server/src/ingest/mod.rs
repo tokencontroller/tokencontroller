@@ -8,12 +8,15 @@
 
 pub mod csv_import;
 pub mod entry;
+pub mod http;
 pub mod model;
 pub mod otlp;
 pub mod provider;
 pub mod store;
 
+use axum::extract::DefaultBodyLimit;
 use utoipa_axum::router::OpenApiRouter;
+use utoipa_axum::routes;
 
 use crate::AppState;
 
@@ -21,4 +24,11 @@ use crate::AppState;
 #[must_use]
 pub fn routes() -> OpenApiRouter<AppState> {
     OpenApiRouter::new()
+        .routes(routes!(http::create_token_entries))
+        .routes(routes!(http::preview_csv))
+        .routes(routes!(http::import_csv))
+        .routes(routes!(http::otlp_logs))
+        .routes(routes!(http::otlp_traces))
+        .routes(routes!(http::otlp_metrics))
+        .layer(DefaultBodyLimit::max(http::MAX_REQUEST_BYTES))
 }

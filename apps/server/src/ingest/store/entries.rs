@@ -39,34 +39,31 @@ pub async fn store_token_entries(
             })
         })
         .collect::<Result<Vec<_>, _>>()?;
-    let context = org_context(conn, organization_id).await?;
-    let batch = Batch {
+    store_checked(
+        conn,
         organization_id,
         agent_manager_id,
+        checked,
         door,
         pricing,
-        context: &context,
-    };
-    let mut stored = Vec::with_capacity(checked.len());
-    for (index, entry) in checked.into_iter().enumerate() {
-        stored.push(store_one(conn, &batch, entry, index).await?);
-    }
-    Ok(stored)
+    )
+    .await
 }
 
-/// Stores one token entry that already passed [`NewTokenEntry::check`].
+/// Stores token entries that already passed [`NewTokenEntry::check`], such
+/// as the rows of a CSV import, in order.
 ///
 /// # Errors
 ///
-/// As [`store_token_entries`].
+/// As [`store_token_entries`], without the schema check.
 pub async fn store_checked(
     conn: &mut PgConnection,
     organization_id: Uuid,
     agent_manager_id: Uuid,
-    entry: CheckedTokenEntry,
+    entries: Vec<CheckedTokenEntry>,
     door: Door,
     pricing: &Pricing,
-) -> Result<StoredEntry, StoreError> {
+) -> Result<Vec<StoredEntry>, StoreError> {
     let context = org_context(conn, organization_id).await?;
     let batch = Batch {
         organization_id,
@@ -75,7 +72,11 @@ pub async fn store_checked(
         pricing,
         context: &context,
     };
-    store_one(conn, &batch, entry, 0).await
+    let mut stored = Vec::with_capacity(entries.len());
+    for (index, entry) in entries.into_iter().enumerate() {
+        stored.push(store_one(conn, &batch, entry, index).await?);
+    }
+    Ok(stored)
 }
 
 /// The messages' own reported costs, or the token entry's reported cost
