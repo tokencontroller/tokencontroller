@@ -1,0 +1,71 @@
+{
+  "data": [
+    {
+      "starting_at": "2026-09-01T00:00:00Z",
+      "ending_at": "2026-09-02T00:00:00Z",
+      "results": [
+        {
+          "amount": "41280.000000",
+          "claude_tag_category": null,
+          "claude_tag_user_id": null,
+          "context_window": null,
+          "cost_type": null,
+          "currency": "USD",
+          "inference_geo": null,
+          "list_amount": "51600.000000",
+          "model": "claude-opus-4-6",
+          "product": "claude_code",
+          "rbac_group_id": null,
+          "requests": 18240,
+          "slack_channel_id": null,
+          "speed": null,
+          "token_type": null
+        },
+        {
+          "amount": "1200.000000",
+          "claude_tag_category": null,
+          "claude_tag_user_id": null,
+          "context_window": null,
+          "cost_type": null,
+          "currency": "USD",
+          "inference_geo": null,
+          "list_amount": "1500.000000",
+          "model": "claude-sonnet-4-5",
+          "product": "chat",
+          "rbac_group_id": null,
+          "requests": 932,
+          "slack_channel_id": null,
+          "speed": null,
+          "token_type": null
+        }
+      ]
+    },
+    {
+      "starting_at": "2026-09-02T00:00:00Z",
+      "ending_at": "2026-09-03T00:00:00Z",
+      "results": [
+        {
+          "amount": "800.400000",
+          "claude_tag_category": null,
+          "claude_tag_user_id": null,
+          "context_window": null,
+          "cost_type": null,
+          "currency": "USD",
+          "inference_geo": null,
+          "list_amount": "1000.500000",
+          "model": "claude-sonnet-4-5",
+          "product": "claude_code",
+          "rbac_group_id": null,
+          "requests": 611,
+          "slack_channel_id": null,
+          "speed": null,
+          "token_type": null
+        }
+      ]
+    }
+  ],
+  "data_refreshed_at": "2026-10-12T04:00:00Z",
+  "has_more": true,
+  "next_page": "page_eyJvZmZzZXQiOjJ9",
+  "organization_id": "org_013FP9SaFPBg7Kw7fetjn6cF"
+}
