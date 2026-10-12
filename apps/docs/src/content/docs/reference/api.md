@@ -24,6 +24,8 @@ Send a token in the `Authorization` header, such as `Authorization: Bearer tc_re
 | `POST /ingest/otlp/v1/logs`, `/v1/traces`, `/v1/metrics` | OpenTelemetry from agents, with the organization token. See [Telemetry](/collect/telemetry). |
 | `/ticket-systems` | Connect Jira Cloud, Azure DevOps or GitHub Issues, map their projects and sync now. See [Jira Cloud](/integrations/jira#connect). |
 | `POST /bills` | Send a bill for a period. See [Bill schema](/reference/bill). |
+| `POST /bills/csv/preview`, `POST /bills/csv` | Read a CSV bill file or a cloud's cost export (`?cloud=bedrock&period=2026-09`) and show what it holds, then upload it. See [CSV bills](/integrations/csv#upload). |
+| `/bill-connections` | Connect Anthropic Enterprise, Anthropic Console or OpenAI with an admin key, and pull now. See [Bills](/account/bills#sources). |
 | `GET /reports/…` | Read reports. See [Reporting API](/report/reporting-api). |
 | `GET /me/context` | What the CLI needs to place token entries like the service does: the organization's rules and tag names, your own rules and tags, and the projects with their ticket key patterns and repositories. `PUT /me/rules` replaces your own rules. |
 | `GET /status` | The state of each part of the service, without signing in. status.tokencontroller.com shows it. |

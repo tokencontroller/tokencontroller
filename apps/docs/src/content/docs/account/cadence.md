@@ -15,4 +15,4 @@ A people manager can set a cadence for a project or the whole organization: week
 
 ## Late {#late}
 
-A token sheet whose cadence period is over and that has not been submitted is late. The only consequence is a reminder to its agent manager, in the Claude Code mod and in the web app. Nobody is blocked and nothing is capped. Before the monthly close, the controller can ask everyone to submit, the way finance asks for timesheets before month end. A sheet that comes in after the close is posted to that month as an adjustment, marked late.
+A token sheet whose cadence period is over and that has not been submitted is late. The only consequence is a reminder to its agent manager: one email when it becomes late, and a note in the Claude Code mod and in the web app. Nobody is blocked and nothing is capped. Before the monthly close, the controller can ask everyone to submit, the way finance asks for timesheets before month end. A sheet that comes in after the close is posted to that month as an adjustment, marked late.

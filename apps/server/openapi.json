@@ -976,6 +976,144 @@
         }
       }
     },
+    "/api/v1/bill-connections": {
+      "get": {
+        "tags": [
+          "integrations"
+        ],
+        "summary": "The bill sources the organization connected. Controllers only.",
+        "operationId": "list_bill_connections",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/BillConnectionView"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "integrations"
+        ],
+        "summary": "Connect a bill source with an admin key. Controllers only. The first\npull starts right away and loads the current and the previous period.",
+        "operationId": "add_bill_connection",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewBillConnection"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BillConnectionView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The key is missing",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/bill-connections/{id}": {
+      "delete": {
+        "tags": [
+          "integrations"
+        ],
+        "summary": "Disconnect a bill source. Controllers only. Its bills stay, and stop\nupdating.",
+        "operationId": "remove_bill_connection",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The bill connection",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Disconnected"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/bill-connections/{id}/pull": {
+      "post": {
+        "tags": [
+          "integrations"
+        ],
+        "summary": "Pull a bill source's bills now instead of at its next daily pull.\nControllers only.",
+        "operationId": "pull_now",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The bill connection",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "The pull starts within a minute",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BillConnectionView"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/billing": {
       "get": {
         "tags": [
@@ -1236,6 +1374,140 @@
           },
           "403": {
             "description": "Only a controller can send bills",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/bills/csv": {
+      "post": {
+        "tags": [
+          "bills"
+        ],
+        "summary": "Upload a CSV bill file. Each bill is stored as a new revision when its\nfigures differ from the latest one. A file with a problem saves nothing.\nControllers only.",
+        "operationId": "upload_bill_csv",
+        "parameters": [
+          {
+            "name": "cloud",
+            "in": "query",
+            "description": "The cloud whose own cost export this is: `bedrock`, `vertex` or\n`foundry`. Left out, the file is in the bill schema's columns.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "example": "bedrock"
+          },
+          {
+            "name": "period",
+            "in": "query",
+            "description": "The period a cloud's export is the bill for, such as `2026-09`.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "example": "2026-09"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "text/csv": {
+              "schema": {
+                "type": "string"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BillCsvUploaded"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The file has a problem; nothing was saved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Only a controller can upload bills",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/bills/csv/preview": {
+      "post": {
+        "tags": [
+          "bills"
+        ],
+        "summary": "Read a CSV bill file and show the bills it holds, or the first problem\nin it with its row and column. Saves nothing. Controllers only.",
+        "operationId": "preview_bill_csv",
+        "parameters": [
+          {
+            "name": "cloud",
+            "in": "query",
+            "description": "The cloud whose own cost export this is: `bedrock`, `vertex` or\n`foundry`. Left out, the file is in the bill schema's columns.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "example": "bedrock"
+          },
+          {
+            "name": "period",
+            "in": "query",
+            "description": "The period a cloud's export is the bill for, such as `2026-09`.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "example": "2026-09"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "text/csv": {
+              "schema": {
+                "type": "string"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BillCsvPreview"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Only a controller can upload bills",
             "content": {
               "application/json": {
                 "schema": {
@@ -6321,6 +6593,15 @@
           "organization"
         ]
       },
+      "BillApi": {
+        "type": "string",
+        "description": "The provider API a bill connection pulls from.",
+        "enum": [
+          "anthropic_enterprise",
+          "anthropic_console",
+          "openai"
+        ]
+      },
       "BillBlock": {
         "type": "object",
         "description": "One bill's part of the cost sheet, in the reporting currency.",
@@ -6442,6 +6723,184 @@
           "unknown_model_count": {
             "type": "integer",
             "description": "Token entries on a model missing from the price table. Their cost is\nunknown, so it sits in residual, never as zero.",
+            "minimum": 0
+          }
+        }
+      },
+      "BillConnectionView": {
+        "type": "object",
+        "description": "A connected bill source, as the web app shows it. The key is never sent\nback.",
+        "required": [
+          "id",
+          "provider",
+          "key_hint",
+          "status"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "key_hint": {
+            "type": "string",
+            "description": "The key's last characters, to tell keys apart."
+          },
+          "last_pull_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "When the last pull succeeded."
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why the last pull failed."
+          },
+          "provider": {
+            "$ref": "#/components/schemas/BillApi"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ConnectionStatus"
+          }
+        }
+      },
+      "BillCsvBill": {
+        "type": "object",
+        "description": "One bill as the file holds it.",
+        "required": [
+          "period",
+          "provider",
+          "cost_source",
+          "currency",
+          "gross",
+          "discount",
+          "credit",
+          "net",
+          "lines"
+        ],
+        "properties": {
+          "cost_source": {
+            "$ref": "#/components/schemas/CostSource"
+          },
+          "credit": {
+            "type": "string",
+            "example": "0.00"
+          },
+          "currency": {
+            "type": "string",
+            "example": "USD"
+          },
+          "discount": {
+            "type": "string",
+            "example": "0.00"
+          },
+          "exchange_rate": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "example": "0.9214"
+          },
+          "gross": {
+            "type": "string",
+            "example": "1234.56"
+          },
+          "lines": {
+            "type": "integer",
+            "description": "How many lines a cloud's export was summed from.",
+            "minimum": 0
+          },
+          "net": {
+            "type": "string",
+            "example": "1234.56"
+          },
+          "period": {
+            "type": "string",
+            "example": "2026-09"
+          },
+          "provider": {
+            "type": "string"
+          }
+        }
+      },
+      "BillCsvPreview": {
+        "type": "object",
+        "description": "What a CSV file holds, before anything is saved.",
+        "required": [
+          "bills"
+        ],
+        "properties": {
+          "bills": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BillCsvBill"
+            },
+            "description": "The bills the file holds; empty when there is a problem."
+          },
+          "problem": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BillCsvProblem",
+                "description": "The first problem found. Nothing can be uploaded until it is fixed."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "BillCsvProblem": {
+        "type": "object",
+        "description": "What is wrong with the file, and where.",
+        "required": [
+          "message"
+        ],
+        "properties": {
+          "column": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The column as the file names it."
+          },
+          "message": {
+            "type": "string",
+            "description": "What is wrong, in plain words."
+          },
+          "row": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "The line in the file, counting the header as line 1.",
+            "minimum": 0
+          }
+        }
+      },
+      "BillCsvUploaded": {
+        "type": "object",
+        "description": "What an upload stored.",
+        "required": [
+          "bills",
+          "changed"
+        ],
+        "properties": {
+          "bills": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BillView"
+            },
+            "description": "The latest revision of each bill in the file."
+          },
+          "changed": {
+            "type": "integer",
+            "description": "How many of them got a new revision; the rest were already stored\nwith the same figures.",
             "minimum": 0
           }
         }
@@ -8422,6 +8881,23 @@
           },
           "name": {
             "type": "string"
+          }
+        }
+      },
+      "NewBillConnection": {
+        "type": "object",
+        "description": "A bill source to connect.",
+        "required": [
+          "provider",
+          "key"
+        ],
+        "properties": {
+          "key": {
+            "type": "string",
+            "description": "An admin key of the provider's organization: an Enterprise Analytics\nAPI key, a Console admin key or an `OpenAI` admin key."
+          },
+          "provider": {
+            "$ref": "#/components/schemas/BillApi"
           }
         }
       },

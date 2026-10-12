@@ -142,7 +142,7 @@ pub fn parse_bills(text: &str) -> Result<Vec<PulledBill>, CsvBillError> {
                 format!(
                     "This is a second bill for {}, {} in {}; row {first_row} already is one. \
                      Give each period's bill once per provider and cost source.",
-                    bill.provider(),
+                    bill.provider_name(),
                     cost_source_name(bill.cost_source()),
                     bill.period()
                 ),
@@ -238,16 +238,7 @@ fn read_bill(
         )
     })?;
 
-    let cost_source_text = value(&columns.cost_source);
-    let cost_source = read_cost_source(cost_source_text).ok_or_else(|| {
-        problem(
-            &columns.cost_source,
-            format!(
-                "{cost_source_text:?} is not a cost source. Use subscription, seat, \
-                 usage_at_api_rates, api_key, cloud_marketplace or reseller."
-            ),
-        )
-    })?;
+    let cost_source = cost_source_cell(row, &columns.cost_source, value(&columns.cost_source))?;
 
     let currency_text = value(&columns.currency);
     let currency = Currency::new(&currency_text.to_ascii_uppercase()).map_err(|_| {
@@ -283,20 +274,9 @@ fn read_bill(
         net: amount(&columns.net, false)?,
     };
 
-    let provider = match columns.provider.as_ref() {
-        Some(column) if !value(column).is_empty() => {
-            let text = value(column);
-            BillProvider::from_name(text).ok_or_else(|| {
-                problem(
-                    column,
-                    format!(
-                        "{text:?} is not a provider Token Controller knows. Use anthropic, \
-                         openai, google, aws_bedrock, gcp_vertex, azure_foundry or other."
-                    ),
-                )
-            })?
-        }
-        _ => BillProvider::Other,
+    let (provider, provider_name) = match columns.provider.as_ref() {
+        Some(column) if !value(column).is_empty() => provider_cell(row, column, value(column))?,
+        _ => (BillProvider::Other, None),
     };
 
     let exchange_rate = match columns.exchange_rate.as_ref() {
@@ -322,10 +302,19 @@ fn read_bill(
         provider,
         cost_source,
         source_api: SOURCE_API,
-        scope: format!("{provider}/{}", cost_source_name(cost_source)),
+        scope: format!(
+            "{}/{}",
+            provider_name
+                .as_deref()
+                .unwrap_or_else(|| provider.as_str()),
+            cost_source_name(cost_source)
+        ),
     };
-    let bill = PulledBill::new(origin, period, figures, Vec::new(), true)
+    let mut bill = PulledBill::new(origin, period, figures, Vec::new(), true)
         .map_err(|error| figures_problem(row, &columns.net, &error))?;
+    if let Some(name) = provider_name {
+        bill = bill.with_provider_name(name);
+    }
     Ok(match exchange_rate {
         Some(rate) => bill.with_exchange_rate(rate),
         None => bill,
@@ -349,6 +338,48 @@ fn figures_problem(row: u64, net: &Column, error: &BillError) -> CsvBillError {
     CsvBillError::at(row, Some(net), message)
 }
 
+/// The cost source in a row. Seats and subscriptions have no bill.
+fn cost_source_cell(row: u64, column: &Column, text: &str) -> Result<CostSource, CsvBillError> {
+    let cost_source = read_cost_source(text).ok_or_else(|| {
+        CsvBillError::at(
+            row,
+            Some(column),
+            format!(
+                "{text:?} is not a cost source. Use usage_at_api_rates, api_key, \
+                 cloud_marketplace or reseller."
+            ),
+        )
+    })?;
+    if matches!(cost_source, CostSource::Subscription | CostSource::Seat) {
+        return Err(CsvBillError::at(
+            row,
+            Some(column),
+            "Seats and subscriptions are flat fees and have no bill. Leave this row out; \
+             finance handles them as before.",
+        ));
+    }
+    Ok(cost_source)
+}
+
+/// The provider in a row, and its name when Token Controller has no
+/// [`BillProvider`] for it.
+fn provider_cell(
+    row: u64,
+    column: &Column,
+    text: &str,
+) -> Result<(BillProvider, Option<String>), CsvBillError> {
+    read_provider(text).ok_or_else(|| {
+        CsvBillError::at(
+            row,
+            Some(column),
+            format!(
+                "{text:?} is not a provider name. Use lower-case letters, digits and _, such \
+                 as anthropic, openai or cursor."
+            ),
+        )
+    })
+}
+
 /// Reads a cost source as the bill schema spells it, ignoring case, spaces
 /// and hyphens, so `API key` and `usage at API rates` work too.
 fn read_cost_source(text: &str) -> Option<CostSource> {
@@ -369,6 +400,30 @@ fn read_cost_source(text: &str) -> Option<CostSource> {
         "reseller" => Some(CostSource::Reseller),
         _ => None,
     }
+}
+
+/// Reads a provider: a name Token Controller knows, such as `Bedrock`, or
+/// any other name of up to 40 lower-case letters, digits and `_` once case,
+/// spaces and hyphens are set aside, such as `cursor`. The second value is
+/// that other name.
+fn read_provider(text: &str) -> Option<(BillProvider, Option<String>)> {
+    if let Some(known) = BillProvider::from_name(text) {
+        return Some((known, None));
+    }
+    let key: String = text
+        .trim()
+        .chars()
+        .map(|c| match c {
+            ' ' | '-' => '_',
+            other => other.to_ascii_lowercase(),
+        })
+        .collect();
+    let plain = !key.is_empty()
+        && key.len() <= 40
+        && key
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_');
+    plain.then_some((BillProvider::Other, Some(key)))
 }
 
 /// A cost source as the bill schema spells it.
@@ -502,7 +557,12 @@ mod tests {
         assert_eq!(
             row("2026-09,credit card,10,0,0,10,USD"),
             "Row 2, column cost_source: \"credit card\" is not a cost source. Use \
-             subscription, seat, usage_at_api_rates, api_key, cloud_marketplace or reseller."
+             usage_at_api_rates, api_key, cloud_marketplace or reseller."
+        );
+        assert_eq!(
+            row("2026-09,seat,10,0,0,10,USD"),
+            "Row 2, column cost_source: Seats and subscriptions are flat fees and have no \
+             bill. Leave this row out; finance handles them as before."
         );
         assert_eq!(
             row("2026-09,api_key,10,0,0,10,dollars"),
@@ -530,11 +590,11 @@ mod tests {
              above zero, such as 0.92, or leave it empty."
         );
         let with_provider = "period,cost_source,gross,discount,credit,net,currency,provider\n\
-                             2026-09,api_key,10,0,0,10,USD,Mistral\n";
+                             2026-09,api_key,10,0,0,10,USD,Mistral AI!\n";
         assert_eq!(
             error(with_provider),
-            "Row 2, column provider: \"Mistral\" is not a provider Token Controller knows. \
-             Use anthropic, openai, google, aws_bedrock, gcp_vertex, azure_foundry or other."
+            "Row 2, column provider: \"Mistral AI!\" is not a provider name. Use lower-case \
+             letters, digits and _, such as anthropic, openai or cursor."
         );
     }
 
@@ -562,6 +622,18 @@ mod tests {
             "Row 5: This is a second bill for openai, api_key in 2026-09; row 2 already is \
              one. Give each period's bill once per provider and cost source."
         );
+    }
+
+    #[test]
+    fn other_providers_keep_their_name() {
+        let text = "period,cost_source,gross,discount,credit,net,currency,provider\n\
+                    2026-09,reseller,10,0,0,10,USD,Cursor\n\
+                    2026-09,api_key,10,0,0,10,USD,Amazon Bedrock\n";
+        let bills = parse_bills(text).unwrap();
+        assert_eq!(bills[0].provider(), BillProvider::Other);
+        assert_eq!(bills[0].provider_name(), "cursor");
+        assert_eq!(bills[0].source_id(), "csv:cursor/reseller:2026-09");
+        assert_eq!(bills[1].provider_name(), "aws_bedrock");
     }
 
     #[test]
