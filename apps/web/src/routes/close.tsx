@@ -14,7 +14,7 @@ import { notify } from "@/components/ui/toast";
 import { providerName } from "@/lib/bills";
 import { formatDate, formatDateTime, formatDay, formatPeriod } from "@/lib/format";
 import { formatMoney, fromDecimal } from "@/lib/money";
-import { refreshAll, useMe, usePeriods } from "@/lib/queries";
+import { refreshAll, usePeriods } from "@/lib/queries";
 import { thisPeriod } from "@/lib/today";
 
 const closeRoute = getRouteApi("/app/close");
@@ -38,7 +38,6 @@ function Step({ n, title, done, children }: { n: number; title: string; done: bo
 }
 
 function CloseChecklist({ period }: { period: string }) {
-  const me = useMe();
   const navigate = useNavigate();
   const view = useQuery({ queryKey: ["period", period], queryFn: () => api.period(period) });
   const recon = useQuery({ queryKey: ["reconciliation", period], queryFn: () => api.reconciliation(period) });
@@ -63,7 +62,6 @@ function CloseChecklist({ period }: { period: string }) {
   const v = view.data;
   const r = recon.data;
   const open = v.open_items;
-  const currency = me.organization.reporting_currency;
   const lateSheets = late.data ?? [];
   const billsIn = !r.metered || (r.bills.length > 0 && open.providers_without_bill.length === 0 && open.bills_not_final.length === 0);
   const nothingOpen = lateSheets.length === 0 && open.unapproved === 0 && open.without_agent_manager === 0;
@@ -105,7 +103,7 @@ function CloseChecklist({ period }: { period: string }) {
         <Step n={2} title="Look at what is open" done={nothingOpen}>
           <ul className="space-y-1.5">
             <li>
-              Organization overhead: <MoneyText value={fromDecimal(open.organization_overhead, currency)} /> in {entries(open.organization_overhead_entries)}.{" "}
+              Organization overhead: <MoneyText value={fromDecimal(open.organization_overhead, open.currency)} /> in {entries(open.organization_overhead_entries)}.{" "}
               <Link to="/token-entries" search={{ period }} className="text-accent hover:underline">
                 Check for cost that belongs on a project
               </Link>

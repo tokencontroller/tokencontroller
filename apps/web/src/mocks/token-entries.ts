@@ -111,6 +111,8 @@ function views(db: Db, lines: Line[]): EntryView[] {
         list_value: line.list === null ? null : dec(line.list, currency),
         tags: line.tags,
         placed_by: entry.placed_by,
+        // Whole percents when split by hand; a whole token entry has none.
+        share_percent: entry.placed_by === "by hand" && entry.splits.length > 1 ? Math.round((entry.splits[line.index]?.share ?? 0) / 100) : null,
         unknown_ticket: entry.splits[line.index]?.unknown_ticket ?? null,
       })),
     };
@@ -453,7 +455,9 @@ export function tokenEntryHandlers({ API, member, fail, now }: { API: string; me
       const statuses = tableStatuses(url.searchParams.get("status"));
       if (typeof statuses === "string") return fail(400, "bad_request", statuses);
       const period = url.searchParams.get("period");
-      const lines = allLines(db, statuses, period).filter((line) => matches(line.tags, filter) && sees(me, line));
+      // Only one agent manager's token entries.
+      const person = url.searchParams.get("person");
+      const lines = allLines(db, statuses, period).filter((line) => matches(line.tags, filter) && sees(me, line) && (person === null || line.entry.agent_manager === person));
       const entries = views(db, lines);
       if (url.searchParams.get("format") === "csv") return csvFile(entriesCsv(entries), period ? `token-entries-${period}.csv` : "token-entries.csv");
       const limit = Math.min(5000, Math.max(1, Number(url.searchParams.get("limit") ?? "200") || 200));
