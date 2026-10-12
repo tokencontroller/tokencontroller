@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT reporting_currency, cost_source, approval FROM organizations WHERE id = $1",
+  "query": "SELECT reporting_currency, cost_source, approval,\n                  rules AS \"rules: JsonColumn<Vec<Rule>>\", several_keys\n           FROM organizations WHERE id = $1",
   "describe": {
     "columns": [
       {
@@ -35,6 +35,28 @@
             "name": "approval"
           }
         }
+      },
+      {
+        "ordinal": 3,
+        "name": "rules: JsonColumn<Vec<Rule>>",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "organizations",
+            "name": "rules"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "several_keys",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "organizations",
+            "name": "several_keys"
+          }
+        }
       }
     ],
     "parameters": {
@@ -45,8 +67,10 @@
     "nullable": [
       false,
       true,
+      false,
+      true,
       false
     ]
   },
-  "hash": "08664366de0c95ff3934e8b4223ab539f77ae034ecf9ce4837f8983878dd9d52"
+  "hash": "de3da6f15144474416b132c98bb0deed68c681a2641931b8575cc5999f02fc04"
 }

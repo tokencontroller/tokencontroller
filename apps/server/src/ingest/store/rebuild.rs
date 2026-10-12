@@ -7,9 +7,10 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use sqlx::PgConnection;
 use time::OffsetDateTime;
+use tokencontroller_core::rules::Action;
 use tokencontroller_core::{
-    CostKind, Currency, Money, PlacedBy, PlacementRequest, Signals, TagName, TagValue, Tags,
-    TokenCounts,
+    CostKind, Currency, Money, Organization, PlacedBy, PlacementRequest, Signals, TagName,
+    TagValue, Tags, TokenCounts,
 };
 use uuid::Uuid;
 
@@ -234,6 +235,7 @@ fn source(
     placed: &Tags,
     named: &Tags,
     configured: &Tags,
+    ruled: &[(TagName, TagValue)],
     placed_by: &PlacedBy,
 ) -> &'static str {
     if *name == TagName::person() {
@@ -252,9 +254,37 @@ fn source(
             PlacedBy::Configuration => "telemetry",
             PlacedBy::Named | PlacedBy::Nothing => "ticket",
         }
+    } else if ruled
+        .iter()
+        .any(|(rule_name, rule_value)| rule_name == name && rule_value == value)
+    {
+        "rule"
     } else {
         "inherited"
     }
+}
+
+/// The tags that rules setting tags gave a share: the organization's rules
+/// and the person's own that apply, with the share's ticket.
+fn set_by_rules(
+    organization: &Organization,
+    person: Option<&TagValue>,
+    signals: &Signals,
+    tags: &Tags,
+) -> Vec<(TagName, TagValue)> {
+    let ticket = tags.get(&TagName::ticket());
+    organization
+        .rules_for(person)
+        .filter(|rule| rule.applies(signals, ticket))
+        .filter_map(|rule| match &rule.then {
+            Action::SetTags(set) => Some(set),
+            Action::TicketKeyIn(_) | Action::RepositoryProject => None,
+        })
+        .flat_map(|set| {
+            set.iter()
+                .map(|(name, value)| (name.clone(), value.clone()))
+        })
+        .collect()
 }
 
 /// Divides values in proportion to `weights` by the largest remainder, so
@@ -353,6 +383,7 @@ async fn place_pieces(
                 };
                 continue;
             }
+            let ruled = set_by_rules(&organization, person, &piece.signals, &share.tags);
             let sources = share
                 .tags
                 .iter()
@@ -364,6 +395,7 @@ async fn place_pieces(
                             &share.tags,
                             &piece.named,
                             &configured,
+                            &ruled,
                             &share.placed_by,
                         ),
                     )

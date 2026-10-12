@@ -6,8 +6,10 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use sqlx::PgConnection;
+use sqlx::types::Json as JsonColumn;
 use tokencontroller_core::directory::{Person, Project, Ticket};
 use tokencontroller_core::pattern::TicketKeyPattern;
+use tokencontroller_core::rules::Rule;
 use tokencontroller_core::{
     CostSource, Currency, Organization, Signals, TagMap, TagName, TagValue, Tags,
 };
@@ -31,7 +33,9 @@ pub(super) async fn org_context(
     organization_id: Uuid,
 ) -> Result<OrgContext, StoreError> {
     let row = sqlx::query!(
-        "SELECT reporting_currency, cost_source, approval FROM organizations WHERE id = $1",
+        r#"SELECT reporting_currency, cost_source, approval,
+                  rules AS "rules: JsonColumn<Vec<Rule>>", several_keys
+           FROM organizations WHERE id = $1"#,
         organization_id
     )
     .fetch_one(&mut *conn)
@@ -45,6 +49,12 @@ pub(super) async fn org_context(
         .unwrap_or(CostSource::ApiKey);
     let mut organization = Organization::new(currency, cost_source);
     organization.approval = row.approval;
+    // No stored rules means the core's defaults (docs: Attribute > Rules).
+    if let Some(rules) = row.rules {
+        organization.rules = rules.0;
+    }
+    organization.several_keys =
+        serde_json::from_value(serde_json::Value::String(row.several_keys)).unwrap_or_default();
     // No ticket matcher runs while data comes in.
     organization.summary_match = false;
     organization.tag_names = sqlx::query_scalar!(
@@ -61,7 +71,8 @@ pub(super) async fn org_context(
 
     let mut people = BTreeMap::new();
     for person in sqlx::query!(
-        "SELECT id, email, tags FROM people WHERE organization_id = $1",
+        r#"SELECT id, email, tags, rules AS "rules: JsonColumn<Vec<Rule>>"
+           FROM people WHERE organization_id = $1"#,
         organization_id
     )
     .fetch_all(&mut *conn)
@@ -74,7 +85,7 @@ pub(super) async fn org_context(
             email.clone(),
             Person {
                 tags: tags_of(&person.tags),
-                rules: Vec::new(),
+                rules: person.rules.0,
             },
         );
         people.insert(person.id, email);
