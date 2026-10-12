@@ -7,7 +7,6 @@ import type {
   ApiToken,
   CadenceView,
   ExternalProject,
-  NewBill,
   NewTicketSystem,
   NewTokenEntry,
   StoredEntry,
@@ -21,22 +20,16 @@ import type {
   TicketSystem,
 } from "@/api/contract";
 import { parseCsv } from "@/lib/csv";
+import { closeHandlers } from "./close";
 import { enterpriseHandlers, mockEdition } from "./enterprise";
 import { customerRelationsHandlers } from "./customer-relations";
 import { reportsHandlers } from "./reports";
 import { tokenEntryHandlers } from "./token-entries";
 import { createDb, defaultRules, TODAY, type Db, type EntryRecord } from "./seed";
 import {
-  closeCheck,
   costKind,
-  costSheet,
-  costSheetCsv,
   cur,
-  m,
   NANOS,
-  reconciliation,
-  toAdjustment,
-  toBill,
   toTicket,
   viewer,
 } from "./store";
@@ -82,10 +75,6 @@ function error(status: number, code: string, message: string) {
 function nextId(db: Db, prefix: string): string {
   db.nextId += 1;
   return `${prefix}_${db.nextId}`;
-}
-
-function toNanos(money: { nanos: number | string } | null | undefined): number {
-  return money ? Number(money.nanos) : 0;
 }
 
 type Ctx = { db: Db; me: Person; url: URL; params: Record<string, string>; request: Request };
@@ -246,20 +235,6 @@ function addEntry(db: Db, me: Person, body: NewTokenEntry): StoredEntry {
   return { id: record.id, status: "draft", currency: cur(db), cost_kind: costKind(tags, db.tagMap.ladder), dropped_tags: dropped, list_value: (Number(record.list) / 1e9).toFixed(2), local_id: body.local_id ?? null };
 }
 
-function billCsv(db: Db, text: string) {
-  const [header = [], ...rows] = parseCsv(text);
-  const col = (name: string) => header.findIndex((h) => h.trim().toLowerCase() === name);
-  const problems: { row: number; message: string }[] = [];
-  const bills: NewBill[] = rows.map((cells, index) => {
-    const get = (name: string) => (col(name) === -1 ? "" : (cells[col(name)] ?? "").trim());
-    const amount = (name: string) => m(Math.round(Number(get(name) || "0") * 100) * 10_000_000, get("currency") || cur(db));
-    if (!/^\d{4}-\d{2}$/.test(get("period"))) problems.push({ row: index + 1, message: "period must look like 2026-09." });
-    if (!get("net")) problems.push({ row: index + 1, message: "net is missing." });
-    return { provider: "other", label: get("provider") || "Other", period: get("period"), gross: amount("gross"), discount: amount("discount"), credit: amount("credit"), net: amount("net") };
-  });
-  return { rows: bills, problems };
-}
-
 const now = () => `${TODAY}T12:00:00Z`;
 
 function organizationOf(db: Db, name: string, email: string, founderName: string): Db {
@@ -292,6 +267,7 @@ function organizationOf(db: Db, name: string, email: string, founderName: string
     forecasts: { ...db.forecasts, made: [] },
     reports: [],
     adjustments: [],
+    links: [],
     tokens: [],
     ticketSystems: [],
     tagNames: ["person", "ticket", "project"],
@@ -576,88 +552,6 @@ export const handlers = [
     return HttpResponse.json({ token_entries: read.rows.map((row) => addEntry(db, me, row.entry)) }, { status: 201 });
   })),
 
-  // Bills
-  http.get(`${API}/bills`, member(({ db, url }) => {
-    const period = url.searchParams.get("period");
-    return HttpResponse.json(db.bills.filter((b) => !period || b.period === period).map((b) => toBill(db, b)));
-  }, PM)),
-  http.post(`${API}/bills`, member(async ({ db, request }) => {
-    const body = (await request.json()) as NewBill;
-    const bill = { id: nextId(db, "bill"), provider: body.provider, label: body.label, period: body.period, gross: toNanos(body.gross), discount: toNanos(body.discount), credit: toNanos(body.credit), net: toNanos(body.net), source: "manual" as const, revision: 1, received_at: `${TODAY}T12:00:00Z`, revisions: [], final: true };
-    db.bills.push(bill);
-    return HttpResponse.json(toBill(db, bill), { status: 201 });
-  }, CONTROLLER)),
-  http.post(`${API}/bills/import/preview`, member(async ({ db, request }) => HttpResponse.json(billCsv(db, await request.text())), CONTROLLER)),
-  http.post(`${API}/bills/import`, member(async ({ db, request }) => {
-    const { rows, problems } = billCsv(db, await request.text());
-    if (problems.length) return error(400, "invalid_csv", "Fix the rows with problems first.");
-    const added = rows.map((body) => {
-      const bill = { id: nextId(db, "bill"), provider: body.provider, label: body.label, period: body.period, gross: toNanos(body.gross), discount: toNanos(body.discount), credit: toNanos(body.credit), net: toNanos(body.net), source: "csv" as const, revision: 1, received_at: `${TODAY}T12:00:00Z`, revisions: [], final: true };
-      db.bills.push(bill);
-      return toBill(db, bill);
-    });
-    return HttpResponse.json(added);
-  }, CONTROLLER)),
-  http.get(`${API}/bill-connections`, member(({ db }) => HttpResponse.json(db.connections), PM)),
-  http.post(`${API}/bill-connections`, member(async ({ db, request }) => {
-    const { provider, key } = (await request.json()) as { provider: Db["connections"][number]["provider"]; key: string };
-    if (key.trim().length < 12) return error(400, "invalid_key", "This does not look like an admin key.");
-    const connection = { id: nextId(db, "bc"), provider, status: "ok" as const, last_pull_at: `${TODAY}T12:00:00Z`, message: null };
-    db.connections.push(connection);
-    return HttpResponse.json(connection, { status: 201 });
-  }, CONTROLLER)),
-  http.post(`${API}/bill-connections/:id/pull`, member(({ db, params }) => {
-    const connection = db.connections.find((c) => c.id === params.id);
-    if (!connection) return error(404, "not_found", "No such connection.");
-    connection.last_pull_at = `${TODAY}T17:00:00Z`;
-    return HttpResponse.json(connection);
-  }, CONTROLLER)),
-  http.get(`${API}/reconciliation`, member(({ db, url }) => HttpResponse.json(reconciliation(db, url.searchParams.get("period") ?? TODAY.slice(0, 7))), PM)),
-
-  // Periods and the close
-  http.get(`${API}/periods`, member(({ db }) => HttpResponse.json([...db.periods].reverse().map((p) => ({
-    id: p.id,
-    status: p.status,
-    closed_at: p.closed_at,
-    closed_by: p.closed_by,
-    total: m(db.entries.filter((e) => e.period === p.id && (e.status === "submitted" || e.status === "approved" || e.status === "locked")).reduce((s, e) => s + (e.list ?? 0), 0), cur(db)),
-  }))))),
-  http.get(`${API}/periods/:id/close-check`, member(({ db, params }) => HttpResponse.json(closeCheck(db, params.id ?? "")), CONTROLLER)),
-  http.post(`${API}/periods/:id/close`, member(({ db, me, params }) => {
-    const id = params.id ?? "";
-    const check = closeCheck(db, id);
-    if (!check.can_close) return error(409, "cannot_close", check.blocked_by.join(" "));
-    const period = db.periods.find((p) => p.id === id);
-    if (!period) return error(404, "not_found", "No such period.");
-    Object.assign(period, { status: "closed", closed_at: `${TODAY}T17:30:00Z`, closed_by: me.id, tag_map: { ...db.tagMap } });
-    for (const entry of db.entries) if (entry.period === id && (entry.status === "approved" || entry.status === "submitted")) entry.status = "locked";
-    return HttpResponse.json({ ...period, total: m(0, cur(db)) });
-  }, CONTROLLER)),
-  http.get(`${API}/periods/:id/cost-sheet`, member(({ db, params }) => {
-    const sheet = costSheet(db, params.id ?? "");
-    return sheet ? HttpResponse.json(sheet) : error(404, "not_closed", "This period is not closed yet.");
-  }, CONTROLLER)),
-  http.post(`${API}/periods/:id/cost-sheet/link`, member(({ params, url }) => HttpResponse.json({ url: `${url.origin}/shared/cost-sheet/cs_${params.id ?? ""}` }), CONTROLLER)),
-  http.get(`${API}/shared/cost-sheets/:token`, ({ params }) => {
-    // A link finance opens without signing in.
-    const db = load();
-    const sheet = costSheet(db, String(params.token).replace(/^cs_/, ""));
-    const closer = db.people.find((p) => p.id === sheet?.closed_by)?.name ?? sheet?.closed_by ?? "";
-    return sheet ? HttpResponse.json({ ...sheet, closed_by: closer, organization: db.organization.name }) : error(404, "not_found", "This link does not work any more.");
-  }),
-  http.get(`${API}/periods/:id/cost-sheet.csv`, member(({ db, params, url }) => {
-    const columns = (url.searchParams.get("columns") ?? "").split(",").filter(Boolean);
-    return new HttpResponse(costSheetCsv(db, params.id ?? "", columns), { headers: { "content-type": "text/csv; charset=utf-8" } });
-  }, CONTROLLER)),
-  http.post(`${API}/periods/:id/adjustments`, member(async ({ db, me, params, request }) => {
-    if (!isClosed(db, params.id ?? "")) return error(409, "open", "Adjustments go on closed periods. Change the token entries of an open period instead.");
-    const body = (await request.json()) as { rung: string; value: string; amount: { nanos: number | string }; reason: string };
-    if (!body.reason.trim()) return error(400, "invalid", "Give a reason.");
-    const adjustment = { id: nextId(db, "adj"), period: params.id ?? "", rung: body.rung, value: body.value, amount: toNanos(body.amount), reason: body.reason, posted_by: me.id, posted_at: `${TODAY}T12:00:00Z`, late_sheet: false };
-    db.adjustments.push(adjustment);
-    return HttpResponse.json(toAdjustment(db, adjustment), { status: 201 });
-  }, CONTROLLER)),
-
   // Rules
   http.get(`${API}/organization/rules`, member(({ db }) => HttpResponse.json(db.rules))),
   http.put(`${API}/organization/rules`, member(async ({ db, request }) => {
@@ -756,6 +650,7 @@ export const handlers = [
     return new HttpResponse(JSON.stringify(files, null, 2), { headers: { "content-type": "application/json" } });
   }, CONTROLLER)),
   ...tokenEntryHandlers({ API, member, fail: error, now }),
+  ...closeHandlers({ API, member, fail: error, load, now }),
   ...customerRelationsHandlers({ API, member, fail: error, now }),
   ...enterpriseHandlers({ API, member, fail: error, now }),
   ...reportsHandlers({ API, member, fail: error, now }),

@@ -155,6 +155,54 @@ export type Issue = Schemas["IssueView"];
 export type IssueText = Schemas["IssueText"];
 export type AssistantQuestion = Schemas["QuestionView"];
 
+// Bills, reconciliation, periods, the close and the cost sheet (docs: Account
+// > Bills, Monthly close, Adjustments; Report > The cost sheet). Amounts are
+// decimal strings in the currency named next to them.
+export type BillView = Schemas["BillView"];
+export type BillInput = Schemas["BillInput"];
+export type BillSource = Schemas["BillSource"];
+/**
+ * How a provider charges for what a bill covers. Seats and subscriptions are
+ * flat fees and have no bill. The service's document gives the bill's and the
+ * organization's cost source one name, so its schema lists all six.
+ */
+export type BillCostSource = Exclude<CostSource, "seat" | "subscription">;
+export type BillCheck = Schemas["BillCheck"];
+export type WithoutBill = Schemas["WithoutBill"];
+export type ReconciliationTotals = Schemas["Totals"];
+export type Reconciliation = Schemas["Reconciliation"];
+export type PeriodSummary = Schemas["PeriodSummary"];
+export type PeriodView = Schemas["PeriodView"];
+export type OpenItems = Schemas["OpenItems"];
+export type CostSheet = Schemas["CostSheet"];
+export type BillBlock = Schemas["BillBlock"];
+export type CostRow = Schemas["CostRow"];
+export type ProjectTotal = Schemas["ProjectTotal"];
+export type KindTotals = Schemas["KindTotals"];
+export type AdjustmentRow = Schemas["AdjustmentRow"];
+export type AdjustmentInput = Schemas["AdjustmentInput"];
+export type CostSheetLink = Schemas["CostSheetLink"];
+/** A cost sheet behind a link, with the organization's name for finance. */
+export type SharedCostSheet = Schemas["SharedCostSheet"];
+export type LateSheet = Schemas["LateSheet"];
+/** How many people a request to submit before the close reaches. */
+export type Reminded = Schemas["Reminded"];
+export type BillApi = Schemas["BillApi"];
+export type BillConnectionView = Schemas["BillConnectionView"];
+export type NewBillConnection = Schemas["NewBillConnection"];
+export type BillCsvBill = Schemas["BillCsvBill"];
+export type BillCsvProblem = Schemas["BillCsvProblem"];
+export type BillCsvPreview = Schemas["BillCsvPreview"];
+export type BillCsvUploaded = Schemas["BillCsvUploaded"];
+/** A cloud whose own cost export can be uploaded as one period's bill. */
+export type BillCloud = "bedrock" | "vertex" | "foundry";
+/** Which file a CSV upload is: left out, one bill per row in the bill schema's columns. */
+export interface BillCsvQuery {
+  cloud?: BillCloud;
+  /** The period a cloud's export is the bill for. */
+  period?: PeriodId;
+}
+
 
 /** How often token sheets are due (docs: Account > Cadence and token sheets). */
 export type CadenceKind = Schemas["CadenceKind"];
@@ -184,138 +232,9 @@ export type Submitted = Schemas["Submitted"];
 export type ShareInput = Schemas["ShareInput"];
 export type ApproveInput = Schemas["ApproveInput"];
 export type Decided = Schemas["Decided"];
-export type Reminded = Schemas["Reminded"];
 
 export type CostKind = "direct" | "project_overhead" | "organization_overhead";
 
 /** Billed, a list-price estimate, or an unknown model. Every figure says which. */
 export type ValueLabel = "billed" | "list_estimate" | "unknown_model";
 
-export interface CsvPreview<Row> {
-  rows: Row[];
-  /** Problems per row, by row number counted from 1. */
-  problems: { row: number; message: string }[];
-}
-
-export type BillProvider =
-  | "anthropic_enterprise"
-  | "anthropic_console"
-  | "openai"
-  | "bedrock"
-  | "vertex"
-  | "foundry"
-  | "other";
-
-export interface Bill {
-  id: string;
-  provider: BillProvider;
-  /** A label for `other`, such as `Cursor`. */
-  label: string;
-  period: PeriodId;
-  gross: Money;
-  discount: Money;
-  credit: Money;
-  net: Money;
-  /** In the reporting currency at the exchange rate of the bill's date. */
-  net_reporting: Money;
-  exchange_rate: string | null;
-  source: "api" | "csv" | "manual";
-  revision: number;
-  received_at: string;
-  /** Earlier revisions, newest first. */
-  revisions: { revision: number; net: Money; received_at: string }[];
-}
-
-export interface NewBill {
-  provider: BillProvider;
-  label: string;
-  period: PeriodId;
-  gross: Money;
-  discount: Money;
-  credit: Money;
-  net: Money;
-}
-
-export interface BillConnection {
-  id: string;
-  provider: "anthropic_enterprise" | "anthropic_console" | "openai";
-  status: "ok" | "failing";
-  last_pull_at: string | null;
-  message: string | null;
-}
-
-export interface Reconciliation {
-  period: PeriodId;
-  bills: {
-    bill: string;
-    provider: BillProvider;
-    label: string;
-    bill_net: Money;
-    token_entries: Money;
-    residual: Money;
-  }[];
-  total: { bill_net: Money; token_entries: Money; residual: Money };
-  /** Share of the bills that token entries explain, in basis points. */
-  attribution: number;
-}
-
-export interface Period {
-  id: PeriodId;
-  status: "open" | "closed";
-  closed_at: string | null;
-  closed_by: string | null;
-  total: Money;
-}
-
-export interface CloseCheck {
-  period: PeriodId;
-  bills: { provider: BillProvider; label: string; received: boolean; final: boolean }[];
-  organization_overhead: { amount: Money; entries: number };
-  late_sheets: { person: string; starts: string; ends: string }[];
-  unapproved: number;
-  approval: boolean;
-  reconciliation: Reconciliation;
-  can_close: boolean;
-  /** Why the close is blocked, in plain words. */
-  blocked_by: string[];
-}
-
-export interface CostSheetLine {
-  /** The ladder rung, such as `project` or `ticket`. */
-  rung: string;
-  value: string;
-  label: string | null;
-  amount: Money;
-  children: CostSheetLine[];
-}
-
-export interface Adjustment {
-  id: string;
-  period: PeriodId;
-  rung: string;
-  value: string;
-  amount: Money;
-  reason: string;
-  posted_by: string;
-  posted_at: string;
-  late_sheet: boolean;
-}
-
-export interface NewAdjustment {
-  rung: string;
-  value: string;
-  amount: Money;
-  reason: string;
-}
-
-export interface CostSheet {
-  period: PeriodId;
-  closed_at: string;
-  closed_by: string;
-  tag_map: TagMapChange;
-  lines: CostSheetLine[];
-  by_kind: Record<CostKind, Money>;
-  adjustments: Adjustment[];
-  reconciliation: Reconciliation;
-  approval: boolean;
-}

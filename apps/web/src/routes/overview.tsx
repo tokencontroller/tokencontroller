@@ -1,14 +1,14 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
-import type { CostKind, CostReport, Filter } from "@/api/contract";
+import type { CostKind, CostReport, Filter, Reconciliation } from "@/api/contract";
 import { api } from "@/api/endpoints";
 import { FilterTags } from "@/routes/budgets";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonClass } from "@/components/ui/button";
 import { Kpi, KpiRow, Loading, MoneyText, Note, PageHeader, RowBar, Section, ShareBar } from "@/components/ui/display";
 import { addMonths, describeFilter, filterToText, formatPeriod } from "@/lib/format";
-import { formatMoney, formatShare, fromDecimal, nanosOf, shareOf } from "@/lib/money";
+import { formatMoney, formatShare, fromDecimal, nanosOf, shareOf, sum } from "@/lib/money";
 import { refreshAll, useBilling, useFirstOpenPeriod, useMe, usePeriods, usePersonName } from "@/lib/queries";
 import { Field, FormError, Input } from "@/components/ui/form";
 import { forgetSignUp, readSignUp, rememberSignUp, type SignUpChoices } from "@/lib/remember";
@@ -158,23 +158,31 @@ function PeopleManagerView() {
   );
 }
 
+/** The share of a period's bills that token entries explain. */
+function attribution(recon: Reconciliation): string {
+  const c = recon.reporting_currency;
+  const explained = fromDecimal(recon.totals.token_entries, c);
+  const gross = sum([explained, fromDecimal(recon.totals.residual, c)], c);
+  return nanosOf(gross) > 0n ? formatShare(shareOf(explained, gross)) : "–";
+}
+
 function ControllerView() {
   const periods = usePeriods();
   const period = thisPeriod();
   const last = addMonths(period, -1);
   const recon = useQuery({ queryKey: ["reconciliation", last], queryFn: () => api.reconciliation(last) });
   const kinds = useCostKinds(period, {});
-  const lastPeriod = periods.data?.find((p) => p.id === last);
+  const lastPeriod = periods.data?.find((p) => p.period === last);
   return (
     <>
       <KpiRow>
         <Kpi label={`Token entries, ${formatPeriod(period)}`} value={kinds ? formatMoney(kinds.total) : "…"} note="so far" />
-        <Kpi label={`Attribution, ${formatPeriod(last)}`} value={recon.data ? formatShare(recon.data.attribution) : "…"} note="share of the bills token entries explain" tone="posted" />
-        <Kpi label={`Residual, ${formatPeriod(last)}`} value={recon.data ? formatMoney(recon.data.total.residual) : "…"} note="always shown" />
+        <Kpi label={`Attribution, ${formatPeriod(last)}`} value={recon.data ? attribution(recon.data) : "…"} note="share of the bills token entries explain" tone="posted" />
+        <Kpi label={`Residual, ${formatPeriod(last)}`} value={recon.data ? formatMoney(fromDecimal(recon.data.totals.residual, recon.data.reporting_currency)) : "…"} note="always shown" />
         <Kpi
           label={`Close, ${formatPeriod(last)}`}
-          value={lastPeriod?.status === "closed" ? <Badge tone="posted">closed</Badge> : <Badge>open</Badge>}
-          note={lastPeriod?.status === "closed" ? <Link to="/close/$period" params={{ period: last }} className="text-accent hover:underline">Cost sheet</Link> : <Link to="/close" className="text-accent hover:underline">Run the close</Link>}
+          value={lastPeriod?.closed ? <Badge tone="posted">closed</Badge> : <Badge>open</Badge>}
+          note={lastPeriod?.closed ? <Link to="/close/$period" params={{ period: last }} className="text-accent hover:underline">Cost sheet</Link> : <Link to="/close" className="text-accent hover:underline">Run the close</Link>}
         />
       </KpiRow>
       {kinds ? (

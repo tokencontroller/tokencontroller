@@ -49,7 +49,7 @@ const THIS_MONTH = TODAY.slice(0, 7);
 // report in another currency.
 const RATES: Record<string, [number, number]> = { USD: [1, 1], EUR: [92, 100], GBP: [79, 100], CHF: [88, 100] };
 
-function convert(nanos: number, from: string, to: string): number {
+export function convert(nanos: number, from: string, to: string): number {
   if (from === to) return nanos;
   const [fn, fd] = RATES[from] ?? [1, 1];
   const [tn, td] = RATES[to] ?? [1, 1];
@@ -169,7 +169,7 @@ interface AdjustmentLine {
 /** Adjustments to closed periods a person sees, matching a filter. */
 function adjustments(db: Db, me: Person, periods: string[], filter: Tags): AdjustmentLine[] {
   return db.adjustments
-    .map((a) => ({ id: a.id, period: a.period, tags: { [a.rung]: a.value }, amount: a.amount, reason: a.reason, late: a.late_sheet }))
+    .map((a) => ({ id: a.id, period: a.period, tags: a.tags, amount: a.amount, reason: a.reason, late: a.late }))
     .filter((a) => periods.includes(a.period) && seesTags(me, a.tags) && matches(a.tags, filter));
 }
 

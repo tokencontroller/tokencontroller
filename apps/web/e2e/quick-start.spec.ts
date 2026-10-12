@@ -25,7 +25,7 @@ test("a people manager creates an organization and puts in the first bill", asyn
   await openFromMenu(page, "Bills");
   await page.getByRole("button", { name: "Type in" }).click();
   const dialog = page.getByRole("dialog", { name: "Type in a bill" });
-  await dialog.getByLabel("Name on reports").fill("Cursor");
+  await dialog.getByLabel("Provider").selectOption("cursor");
   await dialog.getByLabel("Net").fill("1,240.50");
   await dialog.getByRole("button", { name: "Add bill" }).click();
   await expect(dialog).toBeHidden();

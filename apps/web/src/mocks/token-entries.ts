@@ -355,11 +355,12 @@ export function submitSheet(db: Db, me: Person, now: string): Submitted {
   // A token entry of a closed month is posted to it as a late adjustment and locked.
   let late = 0;
   for (const entry of drafts.filter((e) => isClosed(db, e.period))) {
-    const lines = linesOf(db, entry);
-    const tags = lines[0]?.tags ?? {};
-    const rung = db.tagMap.ladder.find((r) => tags[r]) ?? "organization";
-    db.nextId += 1;
-    db.adjustments.push({ id: `adj_${String(db.nextId)}`, period: entry.period, rung, value: tags[rung] ?? "organization", amount: entry.list ?? 0, reason: `Late token sheet from ${me.name.trim() || me.email}`, posted_by: me.id, posted_at: now, late_sheet: true });
+    // One late adjustment per split, tagged like the split (close/late.rs).
+    for (const line of linesOf(db, entry)) {
+      if (!line.list) continue;
+      db.nextId += 1;
+      db.adjustments.push({ id: `adj_${String(db.nextId)}`, period: entry.period, amount: line.list, tags: entry.splits[line.index]?.tags ?? {}, reason: `Late token sheet, submitted after ${entry.period} closed, on ${now.slice(0, 10)}`, late: true, posted_by: null, posted_at: now });
+    }
     entry.status = "locked";
     entry.late = true;
     late += 1;
