@@ -448,16 +448,21 @@ export function BillsPage(): ReactNode {
     {
       key: "revision",
       header: "Revision",
-      cell: (b) =>
-        b.revision > 1 ? (
-          <button type="button" className="text-accent hover:underline" onClick={() => setRevisions(b)}>
-            {b.revision}, restated
-          </button>
-        ) : (
-          b.revision
-        ),
+      cell: (b) => (
+        <span className="inline-flex flex-wrap items-center gap-2">
+          {b.revision > 1 ? (
+            <button type="button" className="text-accent hover:underline" onClick={() => setRevisions(b)}>
+              {b.revision}, restated
+            </button>
+          ) : (
+            b.revision
+          )}
+          {b.final ? null : <Badge tone="exception">not final</Badge>}
+        </span>
+      ),
       csv: (b) => b.revision,
     },
+    { key: "final", header: "Final", csvOnly: true, cell: (b) => (b.final ? "yes" : "no"), csv: (b) => (b.final ? "yes" : "no") },
     { key: "gross", header: "Gross", align: "right", wide: true, cell: (b) => money(b.gross, b.currency), csv: (b) => b.gross },
     { key: "discount", header: "Discount", align: "right", wide: true, cell: (b) => money(b.discount, b.currency), csv: (b) => b.discount },
     { key: "credit", header: "Credit", align: "right", wide: true, cell: (b) => money(b.credit, b.currency), csv: (b) => b.credit },

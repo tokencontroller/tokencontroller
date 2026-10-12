@@ -65,7 +65,7 @@ function CloseChecklist({ period }: { period: string }) {
   const open = v.open_items;
   const currency = me.organization.reporting_currency;
   const lateSheets = late.data ?? [];
-  const billsIn = !r.metered || (r.bills.length > 0 && open.providers_without_bill.length === 0);
+  const billsIn = !r.metered || (r.bills.length > 0 && open.providers_without_bill.length === 0 && open.bills_not_final.length === 0);
   const nothingOpen = lateSheets.length === 0 && open.unapproved === 0 && open.without_agent_manager === 0;
   const totals = r.totals;
   const m = (amount: string) => formatMoney(fromDecimal(amount, r.reporting_currency));
@@ -77,7 +77,11 @@ function CloseChecklist({ period }: { period: string }) {
             <ul className="flex flex-wrap gap-2">
               {r.bills.map((b) => (
                 <li key={b.bill.id}>
-                  <Badge tone="posted">{providerName(b.bill.provider)}: in, revision {b.bill.revision}</Badge>
+                  {b.bill.final ? (
+                    <Badge tone="posted">{providerName(b.bill.provider)}: in, revision {b.bill.revision}</Badge>
+                  ) : (
+                    <Badge tone="exception">{providerName(b.bill.provider)}: in, not final yet</Badge>
+                  )}
                 </li>
               ))}
               {open.providers_without_bill.map((p) => (

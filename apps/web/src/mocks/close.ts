@@ -152,6 +152,7 @@ export function billView(bill: BillRecord, revision: BillRevisionRecord): BillVi
     source: revision.source,
     lines: (revision.lines ?? []) as BillView["lines"],
     recorded_at: revision.recorded_at,
+    final: revision.final ?? true,
   };
 }
 
@@ -695,11 +696,13 @@ export function periodViewOf(db: Db, period: string): PeriodView {
   const overhead = lines.filter((l) => costKind(l.tags, acc.ladder) === "organization_overhead");
   const without = new Map<string, number>();
   for (const line of lines.filter((l) => l.bill === null)) without.set(line.entry.provider, (without.get(line.entry.provider) ?? 0) + 1);
+  const notFinal = acc.bills.filter((b) => !(b.revision.final ?? true)).map((b) => b.record.provider);
   const blockers: string[] = [];
   if (acc.closed) blockers.push(`${period} is already closed. Corrections are adjustments.`);
   else {
     if (!ended(period)) blockers.push(`${period} is not over yet.`);
     if (unapproved) blockers.push(`${String(unapproved)} token entries are not approved yet. With approval on, every token entry must be approved before the close.`);
+    for (const provider of notFinal) blockers.push(`The bill from ${provider} for ${period} is not final yet. The close waits until ${provider} stops changing its figures.`);
     if (acc.metered) {
       for (const [provider, count] of [...without.entries()].sort(([a], [b]) => compare(a, b))) {
         blockers.push(`There is no bill from ${provider} for ${period} yet, so ${String(count)} token entries are on no bill. Send the bill from the API, as CSV or typed in.`);
@@ -716,6 +719,7 @@ export function periodViewOf(db: Db, period: string): PeriodView {
     open_items: {
       bills: acc.bills.length,
       providers_without_bill: [...without.keys()].sort(compare),
+      bills_not_final: notFinal,
       organization_overhead: dec(sum(overhead.map((l) => l.value ?? 0n)), acc.currency),
       organization_overhead_entries: overhead.length,
       late_token_sheets: lateSheets(db, period).length,

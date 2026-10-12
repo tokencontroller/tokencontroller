@@ -73,6 +73,8 @@ export interface BillRevisionRecord {
   recorded_at: string;
   /** What a cloud's export was summed from, as the service keeps it. */
   lines?: Record<string, string | null>[];
+  /** False while a pulled bill can still change; the close waits for it. Left out means final. */
+  final?: boolean;
 }
 
 /** A provider's bill for one period and cost source, with every revision. */
