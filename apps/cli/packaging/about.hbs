@@ -1,0 +1,18 @@
+# Licenses of the Rust crates in tc
+
+tc is MIT licensed. It is compiled with the crates below, each under its own license.
+
+{{#each overview}}
+- {{{name}}}: {{count}} crates
+{{/each}}
+
+{{#each licenses}}
+## {{{name}}}
+
+Used by {{#each used_by}}{{crate.name}} {{crate.version}}{{#unless @last}}, {{/unless}}{{/each}}.
+
+```text
+{{{text}}}
+```
+
+{{/each}}
