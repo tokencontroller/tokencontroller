@@ -124,10 +124,15 @@ pub struct SplitView {
     pub tags: BTreeMap<String, String>,
 }
 
-/// A token entry in JSON, as `tc review --json` prints it.
+/// A token entry in JSON, as `tc review --json` prints it. `cost`, `tags`
+/// and `by` are what the review list shows: the value of the priced model
+/// calls, the tags of the largest split, and why it sits there.
 #[derive(Debug, Serialize)]
 pub struct EntryView {
     pub number: i64,
+    pub cost: String,
+    pub tags: BTreeMap<String, String>,
+    pub by: String,
     pub agent_harness: String,
     pub session_id: String,
     pub model: String,
@@ -148,8 +153,17 @@ pub struct EntryView {
 
 impl EntryView {
     pub fn of(entry: &Entry) -> Self {
+        let tags = entry
+            .splits
+            .iter()
+            .max_by_key(|split| split.share_percent)
+            .map(|split| split.tags.clone())
+            .unwrap_or_default();
         Self {
             number: entry.row.number,
+            cost: decimal(entry.value.nanos, CURRENCY),
+            tags,
+            by: reason(entry),
             agent_harness: entry.row.harness.name().to_owned(),
             session_id: entry.row.session_id.clone(),
             model: entry.model.clone(),
@@ -178,6 +192,34 @@ impl EntryView {
                 .collect(),
         }
     }
+}
+
+/// The share of `part` in `whole` as a JSON number from 0 to 1 with four
+/// decimals, such as `0.9512`, computed without floats.
+pub fn fraction(part: i64, whole: i64) -> Box<serde_json::value::RawValue> {
+    let basis_points = if whole <= 0 || part <= 0 {
+        0
+    } else {
+        i128::from(part)
+            .saturating_mul(20_000)
+            .checked_div(i128::from(whole))
+            .unwrap_or(0)
+            .saturating_add(1)
+            .checked_div(2)
+            .unwrap_or(0)
+            .min(10_000)
+    };
+    let whole_part = basis_points.checked_div(10_000).unwrap_or(0);
+    let rest = basis_points.checked_rem(10_000).unwrap_or(0);
+    let digits = format!("{rest:04}");
+    let digits = digits.trim_end_matches('0');
+    let text = if digits.is_empty() {
+        whole_part.to_string()
+    } else {
+        format!("{whole_part}.{digits}")
+    };
+    serde_json::value::RawValue::from_string(text)
+        .unwrap_or_else(|_| serde_json::value::RawValue::NULL.to_owned())
 }
 
 /// The share of `part` in `whole`, in whole percent rounded half up.
@@ -232,6 +274,16 @@ mod tests {
             "ticket KD-214 · project storefront · team web"
         );
         assert_eq!(tag_line(&BTreeMap::new()), "");
+    }
+
+    #[test]
+    fn fractions_have_four_decimals() {
+        assert_eq!(fraction(1, 3).get(), "0.3333");
+        assert_eq!(fraction(2, 3).get(), "0.6667");
+        assert_eq!(fraction(95, 100).get(), "0.95");
+        assert_eq!(fraction(5, 5).get(), "1");
+        assert_eq!(fraction(0, 5).get(), "0");
+        assert_eq!(fraction(5, 0).get(), "0");
     }
 
     #[test]

@@ -2,6 +2,8 @@
 //! Connected, personal rules live in the service, so the web app and the mod
 //! show the same list; local, they live in the database on this machine.
 
+use serde::Serialize;
+
 use crate::app::App;
 use crate::cli::RulesAction;
 use crate::context::{Condition, Rule, Scope, Signal, Test};
@@ -12,13 +14,8 @@ pub fn run(app: &mut App<'_>, action: Option<RulesAction>) -> Result<()> {
     app.refresh_context(false)?;
     match action.unwrap_or(RulesAction::List) {
         RulesAction::List => {}
-        RulesAction::Add {
-            signal,
-            test,
-            value,
-            set,
-        } => {
-            let rule = parse_rule(app, &signal, &test, &value, &set)?;
+        RulesAction::Add { words } => {
+            let rule = parse_words(app, &words)?;
             let mut personal = personal_rules(app);
             personal.push(rule);
             save(app, &personal)?;
@@ -41,6 +38,18 @@ pub fn run(app: &mut App<'_>, action: Option<RulesAction>) -> Result<()> {
     list(app)
 }
 
+/// A rule in JSON: personal rules carry the number `tc rules remove` takes,
+/// and every rule its text as the list shows it.
+#[derive(Debug, Serialize)]
+struct RuleView<'a> {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    number: Option<usize>,
+    #[serde(rename = "rule")]
+    text: String,
+    #[serde(flatten)]
+    rule: &'a Rule,
+}
+
 fn personal_rules(app: &App<'_>) -> Vec<Rule> {
     app.context
         .rules
@@ -60,6 +69,49 @@ fn position(number: usize, len: usize) -> Result<usize> {
                 "there is no personal rule {number}; tc rules lists them, numbered from 1"
             ))
         })
+}
+
+/// A rule from its words: `branch starts-with review/ purpose=code-review`,
+/// as separate arguments or as one, as the mod's pane passes it. An arrow
+/// between the test and the tags may be written. Without a test word, a value
+/// that looks like a regular expression is one, and any other must match
+/// exactly.
+fn parse_words(app: &App<'_>, words: &[String]) -> Result<Rule> {
+    let split: Vec<String> = match words {
+        [one] => one.split_whitespace().map(str::to_owned).collect(),
+        _ => words.to_vec(),
+    };
+    let words: Vec<&str> = split
+        .iter()
+        .map(String::as_str)
+        .filter(|word| !matches!(*word, "→" | "->" | "=>"))
+        .collect();
+    let example = "write a rule as SIGNAL TEST VALUE NAME=VALUE, such as branch starts-with review/ purpose=code-review";
+    let (signal, test, value, set) = match words.as_slice() {
+        [signal, test, value, set @ ..] if Test::from_word(test).is_some() => {
+            (*signal, *test, *value, set)
+        }
+        [signal, value, set @ ..] => {
+            let test = if looks_like_regex(value) {
+                Test::Matches
+            } else {
+                Test::Is
+            };
+            (*signal, test.word(), *value, set)
+        }
+        _ => return Err(Error::usage(example)),
+    };
+    if set.is_empty() || set.iter().any(|pair| !pair.contains('=')) {
+        return Err(Error::usage(example));
+    }
+    let set: Vec<String> = set.iter().map(|pair| (*pair).to_owned()).collect();
+    parse_rule(app, signal, test, value, &set)
+}
+
+fn looks_like_regex(value: &str) -> bool {
+    value.contains([
+        '^', '$', '*', '+', '?', '(', ')', '[', ']', '{', '}', '|', '\\',
+    ])
 }
 
 fn parse_rule(
@@ -142,9 +194,26 @@ fn list(app: &mut App<'_>) -> Result<()> {
         .filter(|rule| rule.scope == Scope::Personal)
         .collect();
     if app.json {
+        let numbered: Vec<RuleView<'_>> = personal
+            .iter()
+            .enumerate()
+            .map(|(index, rule)| RuleView {
+                number: Some(index.saturating_add(1)),
+                text: rule.to_string(),
+                rule,
+            })
+            .collect();
+        let organization: Vec<RuleView<'_>> = organization
+            .iter()
+            .map(|rule| RuleView {
+                number: None,
+                text: rule.to_string(),
+                rule,
+            })
+            .collect();
         return output::json(
             app.out,
-            &serde_json::json!({ "organization": organization, "personal": personal }),
+            &serde_json::json!({ "rules": numbered, "organization": organization }),
         );
     }
     writeln!(
@@ -174,6 +243,14 @@ fn list(app: &mut App<'_>) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn regular_expressions_are_recognized() {
+        assert!(looks_like_regex("^review/"));
+        assert!(looks_like_regex(r"KD-\d+"));
+        assert!(!looks_like_regex("review/"));
+        assert!(!looks_like_regex("main"));
+    }
 
     #[test]
     fn positions_count_from_one() {

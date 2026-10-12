@@ -17,12 +17,20 @@ use crate::tokens::Tokens;
 /// List value is computed in US dollars, the currency of the price list.
 pub const CURRENCY: Currency = Currency::USD;
 
-/// What `TC_TICKET`, `TC_PROJECT` and `TC_TAGS` name for every entry in this
-/// run, as the GitHub Action sets them.
+/// What this run names for every entry it reads: tags from `TC_TICKET`,
+/// `TC_PROJECT` and `TC_TAGS` or `tc submit --tag`, and signals from
+/// `tc submit --signal`, as the GitHub Action passes them. Tags named here
+/// win over every rule; signals fill in what the session files lack.
 #[derive(Debug, Clone, Default)]
-pub struct RunTags(pub BTreeMap<String, String>);
+pub struct Run {
+    pub tags: BTreeMap<String, String>,
+    pub signals: BTreeMap<String, String>,
+}
 
-impl RunTags {
+/// The signals `tc submit --signal` takes.
+pub const RUN_SIGNALS: [&str; 4] = ["repository", "branch", "pull_request", "pull_request_title"];
+
+impl Run {
     pub fn from_env() -> Self {
         let mut tags = BTreeMap::new();
         if let Ok(list) = std::env::var("TC_TAGS") {
@@ -35,7 +43,10 @@ impl RunTags {
                 tags.insert(name.to_owned(), value.trim().to_owned());
             }
         }
-        Self(tags)
+        Self {
+            tags,
+            signals: BTreeMap::new(),
+        }
     }
 }
 
@@ -70,10 +81,13 @@ impl Value {
     }
 }
 
-/// The value of one model call: its list value, or the agent's own figure
-/// when the model is not on the price list.
+/// The list value of one model call: the agent's reported cost where it has
+/// one, otherwise its tokens at the price list (Bills: list value).
 pub fn message_value(message: &StoredMessage) -> Value {
-    match crate::prices::list_value(&message.model, &message.tokens).or(message.reported_cost) {
+    match message
+        .reported_cost
+        .or_else(|| crate::prices::list_value(&message.model, &message.tokens))
+    {
         Some(nanos) => Value {
             nanos,
             unknown_models: Vec::new(),
@@ -117,6 +131,9 @@ pub struct Entry {
     pub placed_by: String,
     pub candidates: Vec<String>,
     pub summary: Option<String>,
+    /// Tags named by hand, by `tc record` or for this run: they win over
+    /// every rule and are sent as named.
+    pub named: Named,
     /// Whether the classifier may decide this entry's ticket.
     pub asks_classifier: bool,
 }
@@ -153,7 +170,7 @@ impl Entry {
 pub struct Placing<'a> {
     pub context: &'a Context,
     pub patterns: &'a [KeyPattern],
-    pub run_tags: &'a RunTags,
+    pub run: &'a Run,
 }
 
 /// Builds the entries with the given statuses.
@@ -171,7 +188,7 @@ pub fn build(store: &Store, row: EntryRow, placing: &Placing<'_>) -> Result<Entr
     let keys = store.keys(row.harness, &row.session_id)?;
     let title = store.title(row.harness, &row.session_id)?;
 
-    let mut named: Named = placing.run_tags.0.clone();
+    let mut named: Named = placing.run.tags.clone();
     named.extend(row.named_tags.clone());
     let pick = row.pick.as_deref().map(|pick| {
         if pick == "none" {
@@ -180,7 +197,7 @@ pub fn build(store: &Store, row: EntryRow, placing: &Placing<'_>) -> Result<Entr
             Pick::Ticket(pick.to_owned())
         }
     });
-    let segments = segments_of(&row, &messages, &keys);
+    let segments = segments_of(&row, &messages, &keys, placing);
 
     let mut value = Value::default();
     let mut tokens = Tokens::default();
@@ -260,6 +277,7 @@ pub fn build(store: &Store, row: EntryRow, placing: &Placing<'_>) -> Result<Entr
         placed_by,
         candidates,
         summary,
+        named,
         asks_classifier,
     })
 }
@@ -272,8 +290,10 @@ fn segments_of(
     row: &EntryRow,
     messages: &[StoredMessage],
     keys: &[crate::placing::KeyCount],
+    placing: &Placing<'_>,
 ) -> Vec<Segment> {
-    let pull_request_title_keys: Vec<String> = row
+    let run = |name: &str| placing.run.signals.get(name).cloned();
+    let mut pull_request_title_keys: Vec<String> = row
         .signals
         .get("pull_request_title_keys")
         .map(|keys| {
@@ -283,6 +303,14 @@ fn segments_of(
                 .collect()
         })
         .unwrap_or_default();
+    if let Some(title) = placing.run.signals.get("pull_request_title") {
+        for key in crate::keys::find_all(placing.patterns, title) {
+            if !pull_request_title_keys.contains(&key) {
+                pull_request_title_keys.push(key);
+            }
+        }
+    }
+    let pull_request = run("pull_request").or_else(|| row.signals.get("pull_request").cloned());
     let mut segments: Vec<Segment> = Vec::new();
     for (index, message) in messages.iter().enumerate() {
         let position = segments.iter().position(|(signals, _, _)| {
@@ -302,10 +330,10 @@ fn segments_of(
                 .unwrap_or_default();
             let signals = Signals {
                 agent_harness: row.harness.name().to_owned(),
-                branch: message.branch.clone(),
+                branch: message.branch.clone().or_else(|| run("branch")),
                 directory: message.directory.clone(),
-                repository: message.repository.clone(),
-                pull_request: row.signals.get("pull_request").cloned(),
+                repository: message.repository.clone().or_else(|| run("repository")),
+                pull_request: pull_request.clone(),
                 subagent: message.subagent.clone(),
                 pull_request_title_keys: pull_request_title_keys.clone(),
                 prompt_keys: keys.to_vec(),
@@ -547,11 +575,11 @@ mod tests {
     fn one(store: &Store) -> Entry {
         let context = context();
         let patterns = context.key_patterns(None);
-        let run_tags = RunTags::default();
+        let run = Run::default();
         let placing = Placing {
             context: &context,
             patterns: &patterns,
-            run_tags: &run_tags,
+            run: &run,
         };
         load(store, &[Status::Draft], &placing)
             .unwrap()

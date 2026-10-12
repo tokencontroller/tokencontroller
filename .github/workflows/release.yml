@@ -1,0 +1,244 @@
+# Release (ADR 0015): a tag such as v1.0.0 builds tc for macOS, Linux and
+# Windows on Intel and ARM, publishes the archives and SHA256SUMS on the
+# GitHub release, writes the Homebrew formula to Formula/tc.rb, and writes the
+# winget manifest (submitted when the WINGET_TOKEN secret is set). A pull
+# request that touches the CLI or this file builds every archive and checks
+# the formula and manifest without publishing anything.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  pull_request:
+    paths:
+      - ".github/workflows/release.yml"
+      - "apps/cli/**"
+      - "Formula/**"
+      - "Cargo.lock"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: always
+  RELEASE: ${{ startsWith(github.ref, 'refs/tags/v') }}
+
+jobs:
+  notices:
+    name: Dependency licenses
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install the pinned toolchain
+        run: rustup toolchain install
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-about
+      - name: Write DEPENDENCIES.md
+        run: >-
+          cargo about generate --locked
+          --manifest-path apps/cli/Cargo.toml
+          --config apps/cli/packaging/about.toml
+          --output-file DEPENDENCIES.md
+          apps/cli/packaging/about.hbs
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dependencies
+          path: DEPENDENCIES.md
+
+  build:
+    name: Build ${{ matrix.target }}
+    needs: notices
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: x86_64-unknown-linux-gnu, runner: ubuntu-22.04, binary: tc }
+          - { target: aarch64-unknown-linux-gnu, runner: ubuntu-22.04-arm, binary: tc }
+          - { target: x86_64-apple-darwin, runner: macos-15-intel, binary: tc }
+          - { target: aarch64-apple-darwin, runner: macos-15, binary: tc }
+          - { target: x86_64-pc-windows-msvc, runner: windows-2022, binary: tc.exe }
+          - { target: aarch64-pc-windows-msvc, runner: windows-11-arm, binary: tc.exe }
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - name: Check that the tag matches the version
+        if: env.RELEASE == 'true'
+        run: python3 apps/cli/packaging/release.py check-version "${GITHUB_REF_NAME#v}"
+      - name: Install rustup where the runner has none
+        run: |
+          if command -v rustup >/dev/null; then exit 0; fi
+          if [ "$RUNNER_OS" = Windows ]; then
+            curl -sSfL -o rustup-init.exe "https://static.rust-lang.org/rustup/dist/${{ matrix.target }}/rustup-init.exe"
+            ./rustup-init.exe -y --default-toolchain none --profile minimal
+            echo "$USERPROFILE/.cargo/bin" >> "$GITHUB_PATH"
+          else
+            curl -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain none --profile minimal
+            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          fi
+      - name: Install the pinned toolchain
+        run: |
+          rustup toolchain install
+          rustup target add ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+      - name: Build
+        env:
+          # No Visual C++ runtime to install on Windows; macOS 11 and later.
+          RUSTFLAGS: ${{ contains(matrix.target, 'windows') && '-C target-feature=+crt-static' || '' }}
+          MACOSX_DEPLOYMENT_TARGET: "11.0"
+        run: cargo build --release --locked -p tokencontroller-cli --target ${{ matrix.target }}
+      - name: Run it
+        run: target/${{ matrix.target }}/release/${{ matrix.binary }} --version
+      - uses: actions/download-artifact@v7
+        with:
+          name: dependencies
+      - name: Pack
+        run: >-
+          python3 apps/cli/packaging/release.py archive ${{ matrix.target }}
+          target/${{ matrix.target }}/release/${{ matrix.binary }}
+          DEPENDENCIES.md dist
+      - uses: actions/upload-artifact@v7
+        with:
+          name: tc-${{ matrix.target }}
+          path: dist/*
+
+  check:
+    name: Formula and manifest
+    if: github.event_name != 'push'
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v7
+        with:
+          pattern: tc-*
+          path: dist
+          merge-multiple: true
+      - name: Write SHA256SUMS, the formula and the winget manifest
+        run: |
+          python3 apps/cli/packaging/release.py sums dist
+          python3 apps/cli/packaging/release.py formula 1.0.0 dist/SHA256SUMS > tc.rb
+          python3 apps/cli/packaging/release.py winget 1.0.0 dist/SHA256SUMS winget
+          ruby -c tc.rb
+          ruby -c Formula/tc.rb
+          tar -xzf dist/tc-x86_64-unknown-linux-gnu.tar.gz -C dist
+          dist/tc --version
+          {
+            echo "### Release dry run"
+            echo
+            echo '```'
+            cat dist/SHA256SUMS
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  publish:
+    name: Publish the release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v7
+        with:
+          pattern: tc-*
+          path: dist
+          merge-multiple: true
+      - name: Write SHA256SUMS
+        run: python3 apps/cli/packaging/release.py sums dist
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --verify-tag \
+            --title "tc $version" \
+            --notes "tc $version for macOS, Linux and Windows. Install it as the docs say: https://docs.tokencontroller.com/collect/cli#install. What changed: https://docs.tokencontroller.com/changelog"
+
+  homebrew:
+    name: Homebrew formula
+    needs: publish
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+      - name: Write Formula/tc.rb for this release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          gh release download "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --pattern SHA256SUMS --dir release
+          python3 apps/cli/packaging/release.py formula "$version" release/SHA256SUMS > Formula/tc.rb
+          ruby -c Formula/tc.rb
+      - name: Put it on main
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Formula/tc.rb
+          if git diff --cached --quiet; then
+            echo "The formula on main is already this release's."
+            exit 0
+          fi
+          git commit -m "Homebrew formula for tc $version"
+          if git push origin HEAD:main; then
+            echo "Formula/tc.rb on main now installs tc $version." >> "$GITHUB_STEP_SUMMARY"
+          else
+            # main takes changes through pull requests only: open one.
+            branch="release/homebrew-$version"
+            git push --force origin "HEAD:refs/heads/$branch"
+            gh pr create --repo "$GITHUB_REPOSITORY" --base main --head "$branch" \
+              --title "Homebrew formula for tc $version" \
+              --body "The release workflow wrote Formula/tc.rb for tc $version from the release's SHA256SUMS."
+            echo "Opened a pull request with Formula/tc.rb for tc $version." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  winget:
+    name: winget manifest
+    needs: publish
+    runs-on: windows-2022
+    permissions:
+      contents: write
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - name: Write the manifest and attach it to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          gh release download "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --pattern SHA256SUMS --dir release
+          python3 apps/cli/packaging/release.py winget "$version" release/SHA256SUMS winget
+          7z a winget-manifest.zip ./winget/*
+          gh release upload "$GITHUB_REF_NAME" winget-manifest.zip --repo "$GITHUB_REPOSITORY" --clobber
+      - name: Submit it to winget
+        env:
+          WINGET_TOKEN: ${{ secrets.WINGET_TOKEN }}
+        run: |
+          if [ -z "$WINGET_TOKEN" ]; then
+            echo "No WINGET_TOKEN secret: the manifest is on the release, not submitted." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          curl -sSfL -o wingetcreate.exe https://aka.ms/wingetcreate/latest
+          ./wingetcreate.exe submit --token "$WINGET_TOKEN" winget

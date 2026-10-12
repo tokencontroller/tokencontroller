@@ -173,6 +173,10 @@ impl Client {
         };
         let status = response.status().as_u16();
         let text = response.into_body().read_to_string().map_err(network)?;
+        // Waiting for the person, or the code ran out: no body to read.
+        if status == 202 || status == 410 {
+            return Ok((status, None));
+        }
         if (200..300).contains(&status) {
             let parsed = if text.trim().is_empty() {
                 None
@@ -180,9 +184,6 @@ impl Client {
                 Some(serde_json::from_str(&text)?)
             };
             return Ok((status, parsed));
-        }
-        if status == 202 || status == 410 {
-            return Ok((status, None));
         }
         Err(Error::Service {
             status,

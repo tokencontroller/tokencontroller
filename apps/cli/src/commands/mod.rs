@@ -27,7 +27,7 @@ pub fn run(args: Args, out: &mut dyn Write) -> Result<()> {
         Command::Review { all } => review::run(&mut app, all),
         Command::Tag { number, tags } => review::tag(&mut app, number, &tags),
         Command::Split { number, shares } => review::split(&mut app, number, &shares),
-        Command::Submit => submit::run(&mut app),
+        Command::Submit { tags, signals } => submit::run(&mut app, &tags, &signals),
         Command::Report { by, filter, since } => {
             report::run(&mut app, &by, &filter, since.as_deref())
         }

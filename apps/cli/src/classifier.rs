@@ -4,9 +4,10 @@
 //! session as JSON to its standard input, and reads one line back: one of the
 //! candidate tickets, or `none`. The digest never leaves the machine.
 //!
-//! The digest holds no prompt text, only what `tc` keeps anyway: the branch,
-//! repository, title, summary, and how often and when each candidate ticket
-//! was named.
+//! The digest holds the branch, repository, title, how often each candidate
+//! ticket was named, and the sentences of the prompts that name it, so the
+//! classifier can tell work from a mention. Those sentences are read from the
+//! session files for the question and never stored.
 
 use std::io::{Read as _, Write as _};
 use std::process::{Command, Stdio};
@@ -41,6 +42,48 @@ pub struct Candidate {
     pub times_named: u64,
     /// Whether the branch or pull request title names it.
     pub in_branch_or_pull_request: bool,
+    /// Sentences of the prompts that name it, at most three.
+    pub mentions: Vec<String>,
+}
+
+/// The most sentences kept per candidate, and their length in characters.
+const MENTIONS: usize = 3;
+const MENTION_CHARS: usize = 240;
+
+/// Adds the sentences of `prompts` that name each candidate.
+pub fn add_mentions(digest: &mut Digest, prompts: &[String], patterns: &[KeyPattern]) {
+    for prompt in prompts {
+        for sentence in sentences(prompt) {
+            let named = crate::keys::find_all(patterns, sentence);
+            for candidate in &mut digest.candidates {
+                if candidate.mentions.len() < MENTIONS && named.contains(&candidate.ticket) {
+                    candidate
+                        .mentions
+                        .push(sentence.chars().take(MENTION_CHARS).collect());
+                }
+            }
+        }
+    }
+}
+
+/// Sentences: split at line breaks and after `.`, `!` or `?` and a space.
+fn sentences(text: &str) -> Vec<&str> {
+    let mut found = Vec::new();
+    for line in text.lines() {
+        let mut rest = line;
+        while let Some(end) = rest
+            .match_indices(['.', '!', '?'])
+            .map(|(at, mark)| at.saturating_add(mark.len()))
+            .find(|end| rest.get(*end..).is_some_and(|after| after.starts_with(' ')))
+        {
+            let (sentence, after) = rest.split_at(end);
+            found.push(sentence.trim());
+            rest = after;
+        }
+        found.push(rest.trim());
+    }
+    found.retain(|sentence| !sentence.is_empty());
+    found
 }
 
 /// The digest for an entry, or `None` when there is nothing to choose from.
@@ -66,6 +109,7 @@ pub fn digest(entry: &Entry, patterns: &[KeyPattern]) -> Option<Digest> {
                 .map_or(0, |count| count.count),
             in_branch_or_pull_request: branch_keys.contains(&ticket)
                 || signals.pull_request_title_keys.contains(&ticket),
+            mentions: Vec::new(),
             ticket,
         })
         .collect();
@@ -168,15 +212,42 @@ mod tests {
                     project: None,
                     times_named: 1,
                     in_branch_or_pull_request: false,
+                    mentions: Vec::new(),
                 },
                 Candidate {
                     ticket: "KD-2".into(),
                     project: None,
                     times_named: 3,
                     in_branch_or_pull_request: false,
+                    mentions: Vec::new(),
                 },
             ],
         }
+    }
+
+    #[test]
+    fn sentences_that_name_a_candidate_are_its_mentions() {
+        let patterns = vec![KeyPattern::new(None, r"^KD-\d+").unwrap()];
+        let mut asked = digest();
+        let prompts = vec![
+            "Fix the loop in KD-2. The follow-up will be KD-1. Thanks!".to_owned(),
+            "KD-2 again\nand KD-2 once more. Then KD-2 for the fourth time.".to_owned(),
+        ];
+        add_mentions(&mut asked, &prompts, &patterns);
+        let mentions = |ticket: &str| {
+            asked
+                .candidates
+                .iter()
+                .find(|c| c.ticket == ticket)
+                .map(|c| c.mentions.clone())
+                .unwrap()
+        };
+        assert_eq!(mentions("KD-1"), ["The follow-up will be KD-1."]);
+        assert_eq!(
+            mentions("KD-2"),
+            ["Fix the loop in KD-2.", "KD-2 again", "and KD-2 once more."]
+        );
+        assert_eq!(sentences("v1.2 is out. Yes"), ["v1.2 is out.", "Yes"]);
     }
 
     #[cfg(unix)]

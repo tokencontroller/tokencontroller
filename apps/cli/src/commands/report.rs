@@ -75,7 +75,8 @@ pub fn run(app: &mut App<'_>, by: &str, filters: &[String], since: Option<&str>)
             .map(|(value, row)| {
                 serde_json::json!({
                     "value": value,
-                    "list_value": decimal(row.nanos, CURRENCY),
+                    "cost": decimal(row.nanos, CURRENCY),
+                    "share": output::fraction(row.nanos, total),
                     "token_entries": row.entries,
                 })
             })

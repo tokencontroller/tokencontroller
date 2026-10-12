@@ -7,10 +7,11 @@ use std::io::Write;
 use crate::api::Client;
 use crate::classifier;
 use crate::context::{Context, Rule, Scope};
-use crate::entries::{self, Entry, Placing, RunTags};
+use crate::entries::{self, Entry, Placing, Run};
 use crate::error::{Error, Result};
 use crate::home::{Config, Home};
 use crate::keys::KeyPattern;
+use crate::sources::Harness;
 use crate::store::{Status, Store};
 use crate::sync::{Sources, sync};
 
@@ -26,7 +27,7 @@ pub struct App<'a> {
     pub config: Config,
     pub store: Store,
     pub context: Context,
-    pub run_tags: RunTags,
+    pub run: Run,
     pub json: bool,
     pub out: &'a mut dyn Write,
     pub now_ms: i64,
@@ -59,7 +60,7 @@ impl<'a> App<'a> {
             config,
             store,
             context: Context::default(),
-            run_tags: RunTags::from_env(),
+            run: Run::from_env(),
             json,
             out,
             now_ms,
@@ -206,17 +207,17 @@ impl<'a> App<'a> {
         self.classify()
     }
 
-    pub fn placing(&self) -> (Vec<KeyPattern>, RunTags) {
-        (self.patterns(), self.run_tags.clone())
+    pub fn placing(&self) -> (Vec<KeyPattern>, Run) {
+        (self.patterns(), self.run.clone())
     }
 
     /// Entries with the given statuses, built and placed.
     pub fn entries(&self, statuses: &[Status]) -> Result<Vec<Entry>> {
-        let (patterns, run_tags) = self.placing();
+        let (patterns, run) = self.placing();
         let placing = Placing {
             context: &self.context,
             patterns: &patterns,
-            run_tags: &run_tags,
+            run: &run,
         };
         entries::load(&self.store, statuses, &placing)
     }
@@ -228,11 +229,11 @@ impl<'a> App<'a> {
                 "there is no token entry {number}; tc review lists them"
             ))
         })?;
-        let (patterns, run_tags) = self.placing();
+        let (patterns, run) = self.placing();
         let placing = Placing {
             context: &self.context,
             patterns: &patterns,
-            run_tags: &run_tags,
+            run: &run,
         };
         entries::build(&self.store, row, &placing)
     }
@@ -251,13 +252,17 @@ impl<'a> App<'a> {
             {
                 continue;
             }
-            let Some(digest) = classifier::digest(&entry, &patterns) else {
+            let Some(mut digest) = classifier::digest(&entry, &patterns) else {
                 continue;
             };
+            // The question is remembered without the prompt sentences, which
+            // are never stored.
             let question = serde_json::to_string(&digest)?;
             if entry.row.pick_question.as_deref() == Some(question.as_str()) {
                 continue;
             }
+            let prompts = self.prompts(entry.row.harness, &entry.row.session_id)?;
+            classifier::add_mentions(&mut digest, &prompts, &patterns);
             match classifier::ask(&program, &digest) {
                 Ok(pick) => self.store.set_pick(&entry.row.local_id, &pick, &question)?,
                 Err(error) => {
@@ -268,6 +273,25 @@ impl<'a> App<'a> {
             }
         }
         Ok(())
+    }
+
+    /// A session's prompts, read again from its files for the classifier.
+    fn prompts(&self, harness: Harness, session_id: &str) -> Result<Vec<String>> {
+        let mut prompts = Vec::new();
+        for path in self.store.key_files(harness, session_id)? {
+            // A file that went away since it was read holds nothing to add.
+            let Ok(contents) = crate::sources::read(harness, std::path::Path::new(&path)) else {
+                continue;
+            };
+            prompts.extend(
+                contents
+                    .prompts
+                    .into_iter()
+                    .filter(|prompt| prompt.session_id == session_id)
+                    .map(|prompt| prompt.text),
+            );
+        }
+        Ok(prompts)
     }
 
     /// Today's date in the local time zone.

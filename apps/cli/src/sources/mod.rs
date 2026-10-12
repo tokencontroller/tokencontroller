@@ -5,7 +5,7 @@
 //! carry usage, how copies of one response are counted once, and how Codex's
 //! running totals turn into per-turn counts. They keep what ccusage drops and
 //! a token entry needs: the message and request IDs, the branch, the working
-//! directory and the ticket keys in prompts (ADR 0014).
+//! directory and the ticket keys in prompts (ADR 0015).
 //!
 //! Prompt text is only held in memory while a file is read, to find ticket
 //! keys. It is never stored and never leaves the machine.

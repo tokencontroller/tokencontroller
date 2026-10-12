@@ -10,6 +10,7 @@ A versioned REST API under `/api/v1`. The full description is an OpenAPI documen
 | Token | For |
 | --- | --- |
 | `tc_svc_…` | Service tokens for agents that report token entries. The creator is the agent manager. |
+| `tc_cli_…` | CLI tokens from `tc connect`: one person on one machine. They submit that person's token sheet and edit their rules. Revoke them under _Settings_. |
 | `tc_read_…` | Read tokens for reports. They see what their creator's role sees. |
 | `tc_org_…` | The organization token for telemetry push. |
 

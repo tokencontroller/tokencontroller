@@ -1,0 +1,103 @@
+#!/usr/bin/env python3
+"""Reference classifier for tc: picks the ticket a session worked on.
+
+tc runs it when its rules cannot place a session, or placed it on a ticket
+the prompts only mentioned. tc writes a digest of the session as JSON on
+standard input; this script answers with one candidate ticket or "none" on
+standard output. Nothing leaves the machine.
+
+It asks Laya, an open local decision model (Apache-2.0), one choice question:
+which candidate did the session work on, or none. Laya never writes text, it
+only picks among the choices, so the answer is always one tc accepts.
+
+    pip install laya        # Python 3.10 or later; the model downloads on first use
+    tc config classifier "python3 /path/to/pick-ticket"
+
+    pick-ticket --question  # print the question for a digest, without the model
+
+Use it as it is or as a starting point: any program that reads the digest and
+prints a candidate or "none" works.
+"""
+
+from __future__ import annotations
+
+import json
+import sys
+
+# Below this confidence the script answers "none" and the person decides.
+CONFIDENCE = 0.6
+MODEL = "convaiinnovations/laya"
+
+
+def state_of(digest: dict) -> str:
+    """The session as text, the way Laya reads a case."""
+    lines = []
+    if digest.get("title"):
+        lines.append(f"Session title: {digest['title']}")
+    if digest.get("branch"):
+        lines.append(f"Branch: {digest['branch']}")
+    if digest.get("repository"):
+        lines.append(f"Repository: {digest['repository']}")
+    lines.append(f"Agent: {digest.get('agent_harness', 'unknown')}")
+    for candidate in digest.get("candidates", []):
+        ticket = candidate["ticket"]
+        facts = [f"named {candidate.get('times_named', 0)} times in prompts"]
+        if candidate.get("in_branch_or_pull_request"):
+            facts.append("in the branch or pull request title")
+        if candidate.get("project"):
+            facts.append(f"project {candidate['project']}")
+        lines.append(f"Ticket {ticket}: {', '.join(facts)}.")
+        for sentence in candidate.get("mentions", []):
+            lines.append(f'  Prompt about {ticket}: "{sentence}"')
+    return "\n".join(lines)
+
+
+def question_of(digest: dict) -> dict:
+    """One choice: a candidate ticket, or none of them."""
+    criteria = {
+        candidate["ticket"]: f"the session did the work of ticket {candidate['ticket']}"
+        for candidate in digest.get("candidates", [])
+    }
+    criteria["none"] = (
+        "the prompts only mention these tickets, such as a follow-up or a "
+        "reference, and the work belongs to none of them"
+    )
+    return {
+        "ticket": {
+            "type": "choice",
+            "instructions": "Which ticket did this coding session work on?",
+            "criteria": criteria,
+        }
+    }
+
+
+def pick(digest: dict) -> str:
+    candidates = [candidate["ticket"] for candidate in digest.get("candidates", [])]
+    if not candidates:
+        return "none"
+    import laya  # imported here so --question works without the model
+
+    agent = laya.load(MODEL)
+    result = agent.predict(state_of(digest), question_of(digest))
+    answer = result.get("answers", {}).get("ticket", {})
+    choice = answer.get("choice")
+    confidence = answer.get("confidence")
+    if choice not in candidates:
+        return "none"
+    if isinstance(confidence, (int, float)) and confidence < CONFIDENCE:
+        return "none"
+    return choice
+
+
+def main() -> int:
+    digest = json.load(sys.stdin)
+    if "--question" in sys.argv[1:]:
+        json.dump({"state": state_of(digest), "questions": question_of(digest)}, sys.stdout)
+        print()
+        return 0
+    print(pick(digest))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -27,8 +27,8 @@ Issues are open: report bugs and ask questions on GitHub. Pull requests from out
 
 | Project | Used for |
 | --- | --- |
-| ccusage | Reading session files on the developer's machine, through its MIT adapter crates. |
-| LiteLLM, models.dev | Model prices for the [price tables](/reference/pricing-tables), refreshed daily. |
+| ccusage | How the CLI counts session files on the developer's machine: its readers follow ccusage's rules (MIT). |
+| LiteLLM, models.dev | Model prices for the [price tables](/reference/pricing-tables), refreshed daily. The CLI carries a copy of LiteLLM's list for estimates on the machine. |
 | Laya | The open local model in the reference [classifier](/attribute/classifier) script (Apache-2.0). |
 
 ## Where to next {#next}

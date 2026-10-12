@@ -560,6 +560,17 @@ impl Store {
         Ok(messages)
     }
 
+    /// The files in which a session named ticket keys.
+    pub fn key_files(&self, harness: Harness, session_id: &str) -> Result<Vec<String>> {
+        let mut statement = self.connection.prepare(
+            "SELECT DISTINCT path FROM session_keys WHERE harness = ?1 AND session_id = ?2 ORDER BY path",
+        )?;
+        let paths = statement
+            .query_map(params![harness.name(), session_id], |row| row.get(0))?
+            .collect::<std::result::Result<Vec<String>, _>>()?;
+        Ok(paths)
+    }
+
     /// Ticket keys found in a session's prompts and title, over all its
     /// files, in the order they were first named.
     pub fn keys(&self, harness: Harness, session_id: &str) -> Result<Vec<KeyCount>> {

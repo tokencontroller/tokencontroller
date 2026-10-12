@@ -11,7 +11,7 @@ use crate::amounts::decimal;
 use crate::app::App;
 use crate::entries::{CURRENCY, Entry};
 use crate::error::{Error, Result};
-use crate::output::{self, percent, utc};
+use crate::output::{self, fraction, percent, utc};
 use crate::store::{Status, StoredMessage};
 use crate::tokens::TokenKinds;
 
@@ -136,7 +136,7 @@ fn message_of(message: &StoredMessage) -> OutgoingMessage {
 
 /// The token entry as it is sent.
 pub fn outgoing(entry: &Entry) -> Outgoing {
-    let mut named = entry.row.named_tags.clone();
+    let mut named = entry.named.clone();
     let ticket = named.remove("ticket");
     let project = named.remove("project");
     let reported: Option<i64> = entry
@@ -181,14 +181,48 @@ pub fn outgoing(entry: &Entry) -> Outgoing {
     }
 }
 
-pub fn run(app: &mut App<'_>) -> Result<()> {
+/// Adds `--tag` and `--signal` values to this run.
+fn name_run(app: &mut App<'_>, tags: &[String], signals: &[String]) -> Result<()> {
+    for pair in tags {
+        let (name, value) = super::name_value(pair)
+            .filter(|(_, value)| !value.is_empty())
+            .ok_or_else(|| {
+                Error::usage(format!("{pair} is not NAME=VALUE, such as ticket=KD-214"))
+            })?;
+        if !app.context.allows_tag(&name) {
+            return Err(Error::usage(format!(
+                "{name} is not on your organization's list of tag names"
+            )));
+        }
+        app.run.tags.insert(name, value);
+    }
+    for pair in signals {
+        let (name, value) = super::name_value(pair)
+            .filter(|(_, value)| !value.is_empty())
+            .ok_or_else(|| {
+                Error::usage(format!("{pair} is not NAME=VALUE, such as pull_request=12"))
+            })?;
+        if !crate::entries::RUN_SIGNALS.contains(&name.as_str()) {
+            return Err(Error::usage(format!(
+                "{name} is not a signal tc submit takes; use {}",
+                crate::entries::RUN_SIGNALS.join(", ")
+            )));
+        }
+        app.run.signals.insert(name, value);
+    }
+    Ok(())
+}
+
+pub fn run(app: &mut App<'_>, tags: &[String], signals: &[String]) -> Result<()> {
+    app.refresh_context(false)?;
+    name_run(app, tags, signals)?;
     app.prepare()?;
     let entries = app.entries(&[Status::Draft, Status::Rejected])?;
     if entries.is_empty() {
         if app.json {
             return output::json(
                 app.out,
-                &serde_json::json!({"submitted": 0, "list_value": "0.00", "currency": CURRENCY.code(), "share_on_tickets_percent": 0}),
+                &serde_json::json!({"submitted": 0, "cost": "0.00", "currency": CURRENCY.code(), "share_on_tickets": 0}),
             );
         }
         writeln!(
@@ -248,9 +282,9 @@ pub fn run(app: &mut App<'_>) -> Result<()> {
             app.out,
             &serde_json::json!({
                 "submitted": entries.len(),
-                "list_value": decimal(total, CURRENCY),
+                "cost": decimal(total, CURRENCY),
                 "currency": CURRENCY.code(),
-                "share_on_tickets_percent": share,
+                "share_on_tickets": fraction(on_tickets, total),
             }),
         );
     }

@@ -1,4 +1,4 @@
-//! `tc`, the Token Controller command line (ADR 0010, ADR 0014).
+//! `tc`, the Token Controller command line (ADR 0010, ADR 0015).
 //!
 //! It reads the session files of Claude Code and Codex on this machine, keeps
 //! draft token entries in a local `SQLite` file, places them with the rules,
@@ -29,7 +29,17 @@ mod tokens;
 use std::process::ExitCode;
 
 fn main() -> ExitCode {
-    let matches = cli::command().get_matches();
+    let matches = match cli::command().try_get_matches() {
+        Ok(matches) => matches,
+        // Help and the version go to standard output and succeed; a wrong
+        // command line is the caller's mistake, exit code 1 like the rest.
+        Err(error) => {
+            let code = u8::from(error.use_stderr());
+            // Nothing is left to report if the terminal is gone.
+            let _ignored = error.print();
+            return ExitCode::from(code);
+        }
+    };
     let args = match cli::from_matches(&matches) {
         Ok(args) => args,
         Err(error) => {

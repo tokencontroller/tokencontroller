@@ -32,7 +32,10 @@ pub enum Command {
         number: i64,
         shares: Vec<String>,
     },
-    Submit,
+    Submit {
+        tags: Vec<String>,
+        signals: Vec<String>,
+    },
     Report {
         by: String,
         filter: Vec<String>,
@@ -52,11 +55,10 @@ pub enum Command {
 #[derive(Debug, PartialEq, Eq)]
 pub enum RulesAction {
     List,
+    /// The rule's words: `branch starts-with review/ purpose=code-review`,
+    /// as separate arguments or as one.
     Add {
-        signal: String,
-        test: String,
-        value: String,
-        set: Vec<String>,
+        words: Vec<String>,
     },
     Move {
         from: usize,
@@ -137,7 +139,24 @@ pub fn command() -> ClapCommand {
                     "Two or more TICKET=SHARE. Shares are weights and need not add up to 100.",
                 )),
         )
-        .subcommand(ClapCommand::new("submit").about("Submit your token sheet."))
+        .subcommand(
+            ClapCommand::new("submit")
+                .about("Submit your token sheet.")
+                .arg(
+                    Arg::new("tag")
+                        .long("tag")
+                        .value_name("NAME=VALUE")
+                        .action(ArgAction::Append)
+                        .help("A tag for every token entry this submit sends, such as ticket=KD-214. It wins over every rule. Repeat for more."),
+                )
+                .arg(
+                    Arg::new("signal")
+                        .long("signal")
+                        .value_name("NAME=VALUE")
+                        .action(ArgAction::Append)
+                        .help("A signal the session files lack, as the GitHub Action passes them: repository, branch, pull_request or pull_request_title. Repeat for more."),
+                ),
+        )
         .subcommand(report_command())
         .subcommand(
             ClapCommand::new("export")
@@ -193,14 +212,11 @@ fn rules_command() -> ClapCommand {
                 .subcommand(
                     ClapCommand::new("add")
                         .about("Add a personal rule, such as: tc rules add branch starts-with review/ purpose=code-review")
-                        .arg(Arg::new("signal").required(true).help(
-                            "branch, directory, repository, pull-request, subagent or agent-harness.",
-                        ))
-                        .arg(Arg::new("test").required(true).help(
-                            "is, starts-with, ends-with, contains or matches (a regular expression).",
-                        ))
-                        .arg(Arg::new("value").required(true).help("What the signal is compared with."))
-                        .arg(pairs_arg("set", "NAME=VALUE", "The tags the rule sets.")),
+                        .arg(pairs_arg(
+                            "rule",
+                            "RULE",
+                            "SIGNAL TEST VALUE NAME=VALUE… The signal is branch, directory, repository, pull-request, subagent or agent-harness. The test is is, starts-with, ends-with, contains or matches (a regular expression); without one, a value with ^ $ * + ? ( ) [ ] { } | or \\ is a regular expression and any other must match exactly.",
+                        )),
                 )
                 .subcommand(
                     ClapCommand::new("move")
@@ -257,7 +273,10 @@ pub fn from_matches(matches: &ArgMatches) -> Result<Args> {
             number: required(sub, "number")?,
             shares: texts(sub, "shares"),
         },
-        "submit" => Command::Submit,
+        "submit" => Command::Submit {
+            tags: texts(sub, "tag"),
+            signals: texts(sub, "signal"),
+        },
         "report" => Command::Report {
             by: required(sub, "by")?,
             filter: texts(sub, "filter"),
@@ -267,10 +286,7 @@ pub fn from_matches(matches: &ArgMatches) -> Result<Args> {
         "rules" => Command::Rules {
             action: match sub.subcommand() {
                 Some(("add", add)) => Some(RulesAction::Add {
-                    signal: required(add, "signal")?,
-                    test: required(add, "test")?,
-                    value: required(add, "value")?,
-                    set: texts(add, "set"),
+                    words: texts(add, "rule"),
                 }),
                 Some(("move", moving)) => Some(RulesAction::Move {
                     from: required(moving, "from")?,
@@ -343,7 +359,22 @@ mod tests {
                 shares: vec!["KD-231=60".into(), "KD-240=40".into()]
             }
         );
-        assert_eq!(parse("tc submit").unwrap().command, Command::Submit);
+        assert_eq!(
+            parse("tc submit").unwrap().command,
+            Command::Submit {
+                tags: Vec::new(),
+                signals: Vec::new()
+            }
+        );
+        assert_eq!(
+            parse("tc submit --tag project=storefront --tag purpose=code-review --signal pull_request=12")
+                .unwrap()
+                .command,
+            Command::Submit {
+                tags: vec!["project=storefront".into(), "purpose=code-review".into()],
+                signals: vec!["pull_request=12".into()]
+            }
+        );
         assert_eq!(
             parse("tc report --by day --filter team=web --filter client=acme --since 2026-10-01")
                 .unwrap()
@@ -355,6 +386,10 @@ mod tests {
             }
         );
         assert_eq!(parse("tc export --csv").unwrap().command, Command::Export);
+    }
+
+    #[test]
+    fn the_documented_rules_and_settings_parse() {
         assert_eq!(
             parse("tc rules").unwrap().command,
             Command::Rules { action: None }
@@ -371,10 +406,12 @@ mod tests {
                 .command,
             Command::Rules {
                 action: Some(RulesAction::Add {
-                    signal: "branch".into(),
-                    test: "starts-with".into(),
-                    value: "review/".into(),
-                    set: vec!["purpose=code-review".into()]
+                    words: vec![
+                        "branch".into(),
+                        "starts-with".into(),
+                        "review/".into(),
+                        "purpose=code-review".into()
+                    ]
                 })
             }
         );
