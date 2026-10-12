@@ -317,6 +317,16 @@ export function EntryDialog({ entry, onClose }: { entry: EntryView | null; onClo
                 ))}
               </ul>
             </Row>
+            {entry.candidates.length ? (
+              <Row label="Candidates">
+                <span className="flex flex-wrap items-center gap-1.5">
+                  {entry.candidates.map((key) => (
+                    <Tag key={key} name="ticket" value={key} />
+                  ))}
+                </span>
+                <span className="mt-1 block text-xs text-muted">Other tickets the session named that it is not placed on.</span>
+              </Row>
+            ) : null}
           </dl>
           <div className="mt-5 flex flex-wrap justify-end gap-2">
             {nobody && hasRole(me.person, "controller") ? (

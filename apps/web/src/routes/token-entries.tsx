@@ -208,7 +208,7 @@ const statuses: { value: TokenEntryStatus | ""; label: string }[] = [
 /** Token entries per page of the table. */
 const PAGE = 200;
 
-/** What placed a token entry's splits, and an unknown ticket where there is one. */
+/** What placed a token entry's splits, an unknown ticket where there is one, and the other tickets the session named. */
 function PlacedBy({ entry }: { entry: EntryView }) {
   return (
     <span className="mt-1.5 flex flex-wrap items-center gap-1 text-xs text-muted max-sm:justify-end">
@@ -218,6 +218,7 @@ function PlacedBy({ entry }: { entry: EntryView }) {
           unknown ticket {key}
         </Badge>
       ))}
+      {entry.candidates.length ? <span>· candidates {entry.candidates.join(", ")}</span> : null}
     </span>
   );
 }
@@ -294,6 +295,7 @@ export function TokenEntriesPage(): ReactNode {
     },
     { key: "tags", header: "Tags", csvOnly: true, cell: () => null, csv: tagText },
     { key: "by", header: "Placed by", csvOnly: true, cell: () => null, csv: (e) => e.splits.map((s) => (s.unknown_ticket ? `${s.placed_by}, unknown ticket ${s.unknown_ticket}` : s.placed_by)).join(" | ") },
+    { key: "candidates", header: "Candidates", csvOnly: true, cell: () => null, csv: (e) => e.candidates.join(" ") },
     {
       key: "cost",
       header: "List value",
