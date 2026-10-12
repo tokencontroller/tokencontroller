@@ -29,7 +29,8 @@ await tc.tokenEntries.create({
 - `token` is a service token (`tc_svc_…`), created in the web app under _Settings_. The person who creates it is the agent manager of everything it reports.
 - `url` points the client at a self-hosted instance. Without it the client talks to `https://app.tokencontroller.com`.
 - Every field is described in the [token entry schema](https://docs.tokencontroller.com/reference/token-entry). `problems(entry)` lists what is wrong with an entry before you send it; `create` checks the same and throws a `TokenControllerError`.
-- An entry with a `session_id` is tried again after a network error, a 429 or a 5xx answer, because the service counts one session once. An entry without one is sent once.
+- An entry with a `session_id` or a `local_id` is tried again after a network error, a 429 or a 5xx answer, because sending it again updates it instead of adding a second one. An entry without either is sent once.
+- An agent that knows its model calls can send them as `messages`, and split the entry by them with `splits`. Then a session that telemetry also reported is counted once, call by call. Money goes as a number or a decimal string such as `"0.031"`.
 
 Token entries sent this way arrive submitted. They never go on a token sheet.
 

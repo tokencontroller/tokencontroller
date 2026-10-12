@@ -7,24 +7,27 @@ import {
   headline,
   money,
   percent,
+  placedByLine,
+  placeLine,
   reportTable,
   reportText,
+  rowLabel,
   sessionTicket,
   sheetNote,
-  tagLine,
+  submittedText,
   when,
 } from './lib/format.ts'
-import {
-  addToOutbox,
-  HELP,
-  parseCommand,
-  repositoryName,
-  type TcRecord,
-  ticketKeyCandidates,
-  turnRecord,
-} from './lib/records.ts'
+import { HELP, parseCommand, sessionRecord } from './lib/records.ts'
 import { cleanSummary, SUMMARY_MODEL, SUMMARY_SYSTEM, summaryPrompt } from './lib/summary.ts'
-import { parseJson, readReport, readReview, readRules, readSheet, reason } from './lib/tc.ts'
+import {
+  parseJson,
+  readReport,
+  readReview,
+  readRules,
+  readSheet,
+  readSubmitted,
+  reason,
+} from './lib/tc.ts'
 
 type $ = EngineInterface
 
@@ -43,9 +46,8 @@ const editing = atom({ plugin: 'token-controller', key: 'editing' } as const, nu
 const notice = atom({ plugin: 'token-controller', key: 'notice' } as const, null)
 const problem = atom({ plugin: 'token-controller', key: 'problem' } as const, null)
 const ticket = atom({ plugin: 'token-controller', key: 'ticket' } as const, null)
-const keys = atom({ plugin: 'token-controller', key: 'keys' } as const, [])
+const handTags = atom({ plugin: 'token-controller', key: 'handTags' } as const, {})
 const summary = atom({ plugin: 'token-controller', key: 'summary' } as const, null)
-const cost = atom({ plugin: 'token-controller', key: 'cost' } as const, null)
 
 /** Where tc may be when the session's PATH does not have it (the desktop app). */
 const FALLBACK_PATHS = [
@@ -62,7 +64,7 @@ let queue: Promise<unknown> = Promise.resolve()
 let isSummarizing = false
 let isInteractive = true
 
-/** Runs one thing after another, so outbox writes never overlap. */
+/** Runs one thing after another, so store writes never overlap. */
 function serial<T>(work: () => Promise<T>): Promise<T> {
   const run = queue.then(work, work)
   queue = run.catch(() => undefined)
@@ -99,29 +101,33 @@ async function setProblem($: $, run: TcRun | null): Promise<void> {
   await update($, problem, () => text)
 }
 
-/** Keeps records in the machine's store until tc has taken them. */
-function remember($: $, ...records: TcRecord[]): Promise<void> {
+/**
+ * Keeps this session's record in the machine's store until tc has taken it.
+ * The record is the whole picture so far, so only the newest one waits.
+ */
+function remember($: $): Promise<void> {
   return serial(async () => {
-    const key = `outbox/${await $.session.id()}`
-    const outbox = ((await $.store.get(key)) as string[] | undefined) ?? []
-    await $.store.set(key, addToOutbox(outbox, ...records))
+    const [sessionId, line, tags] = await Promise.all([
+      $.session.id(),
+      read($, summary),
+      read($, handTags),
+    ])
+    await $.store.set(`record/${sessionId}`, sessionRecord(sessionId, line, tags))
   })
 }
 
 /** Hands every waiting record, this session's and earlier ones', to tc. */
 function flush($: $): Promise<void> {
   return serial(async () => {
-    const outboxes = (await $.store.keys()).filter(key => key.startsWith('outbox/'))
-    for (const key of outboxes) {
-      const lines = ((await $.store.get(key)) as string[] | undefined) ?? []
-      if (lines.length === 0) {
-        await $.store.delete(key)
-        continue
-      }
-      const run = await tc($, ['record'], `${lines.join('\n')}\n`)
-      if (!run.ok) {
-        await setProblem($, run)
-        return
+    const waiting = (await $.store.keys()).filter(key => key.startsWith('record/'))
+    for (const key of waiting) {
+      const record = await $.store.get(key)
+      if (record !== undefined) {
+        const run = await tc($, ['record', '--json'], `${JSON.stringify(record)}\n`)
+        if (!run.ok) {
+          await setProblem($, run)
+          return
+        }
       }
       await $.store.delete(key)
     }
@@ -142,7 +148,7 @@ async function refresh($: $): Promise<void> {
     const rows = readReview(parseJson(listed.stdout))
     await update($, review, () => rows)
     const placed = sessionTicket(rows, await $.session.id())
-    if (placed !== null) await update($, ticket, current => current ?? placed)
+    await update($, ticket, () => placed)
   }
 }
 
@@ -158,54 +164,15 @@ async function refreshRules($: $): Promise<void> {
   if (run.ok) await update($, rules, () => readRules(parseJson(run.stdout)))
 }
 
-async function git($: $, cwd: string, args: string[]): Promise<string | null> {
-  try {
-    const run = await $.process.run(['git', ...args], { cwd, timeoutMs: 5_000 })
-    const out = run.stdout.trim()
-    return run.exitCode === 0 && out !== '' ? out : null
-  } catch {
-    return null
-  }
-}
-
-async function recordTurn(
-  $: $,
-  e: { turnId: string; agentId?: string; usage?: Parameters<typeof turnRecord>[0]['usage'] },
-): Promise<void> {
-  if (e.usage === undefined) return
-  const usage = e.usage
-  const [sessionId, cwd, at, used, costBefore, seen] = await Promise.all([
-    $.session.id(),
-    $.session.cwd(),
-    $.clock.now(),
-    $.session.usage(),
-    read($, cost),
-    read($, keys),
-  ])
-  const [branch, remote] = await Promise.all([
-    git($, cwd, ['rev-parse', '--abbrev-ref', 'HEAD']),
-    git($, cwd, ['config', '--get', 'remote.origin.url']),
-  ])
-  const costAfter = used.cost?.usd
-  await remember(
-    $,
-    turnRecord({
-      sessionId,
-      turnId: e.turnId,
-      agentId: e.agentId,
-      at,
-      usage,
-      costBefore: costBefore ?? undefined,
-      costAfter,
-      cwd,
-      branch: branch === 'HEAD' ? null : branch,
-      repository: repositoryName(remote),
-      ticketKeys: seen,
-    }),
-  )
-  if (costAfter !== undefined) await update($, cost, () => costAfter)
+/**
+ * After a turn: tc reads the session's usage from Claude Code's own session
+ * files whenever it runs, so asking it for the band's figures is what brings
+ * the turn into the draft token entry.
+ */
+async function afterTurn($: $, isMain: boolean): Promise<void> {
+  if (isMain) await summarize($)
   await flush($)
-  await refresh($)
+  if (isInteractive) await refresh($)
 }
 
 /** Writes the one-line summary with a small model call of the mod's own. */
@@ -224,16 +191,15 @@ async function summarize($: $): Promise<void> {
     const line = answer.isAnswered ? cleanSummary(answer.text) : null
     if (line === null || line === previous) return
     await update($, summary, () => line)
-    await remember($, { kind: 'summary', session_id: await $.session.id(), summary: line })
-    await flush($)
+    await remember($)
   } finally {
     isSummarizing = false
   }
 }
 
 async function setTags($: $, tags: Record<string, string>): Promise<string> {
-  await remember($, { kind: 'tags', session_id: await $.session.id(), tags })
-  if (tags.ticket !== undefined) await update($, ticket, () => tags.ticket ?? null)
+  await update($, handTags, current => ({ ...current, ...tags }))
+  await remember($)
   await flush($)
   await refresh($)
   const problemNow = await read($, problem)
@@ -245,11 +211,11 @@ async function setTags($: $, tags: Record<string, string>): Promise<string> {
 
 async function submit($: $): Promise<string> {
   await flush($)
-  const run = await tc($, ['submit'])
+  const run = await tc($, ['submit', '--json'])
   await refresh($)
   if (run.missing) return INSTALL
   return run.ok
-    ? run.stdout.trim() || 'Submitted.'
+    ? submittedText(readSubmitted(parseJson(run.stdout)))
     : reason(run.stderr, run.stdout, 'tc submit failed')
 }
 
@@ -271,8 +237,8 @@ export const register: Register = on => {
       name: 'report',
       description:
         'Token Controller report: what agent work cost, grouped by ticket, project, team, any other tag name, or day. ' +
-        'Use it when the person asks what something cost, such as "what did KD-214 cost this week?", ' +
-        'and answer with the table it returns.',
+        'Use it when the person asks what something cost, such as "what did KD-214 cost this week?" ' +
+        '(by day, filter ticket=KD-214, then add up the days of this week), and answer with the table it returns.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -281,7 +247,6 @@ export const register: Register = on => {
             type: 'string',
             description: 'Limit to one tag value, as name=value, such as ticket=KD-214',
           },
-          since: { type: 'string', description: 'First day to count, as YYYY-MM-DD' },
         },
         required: ['by'],
       },
@@ -296,25 +261,15 @@ export const register: Register = on => {
     return started
   })
 
-  on('prompt.submit', async ($, e, next) => {
-    const found = ticketKeyCandidates(e.text)
-    if (found.length > 0) await update($, keys, seen => [...new Set([...seen, ...found])])
-    return next(e)
-  }).catch((_, e, next) => next(e)) // Never stand between the person and their prompt.
-
   on('turn.complete', async ($, e, next) => {
     const result = await next(e)
     const isMain = e.agentId === undefined && e.reason === 'answer'
-    const work = async () => {
-      await recordTurn($, e)
-      if (isMain) await summarize($)
-    }
     if (isInteractive) {
       // Outside the turn's dispatch, so tc and the summary never hold up the prompt.
-      $.clock.after(0, () => void work())
-    } else {
+      $.clock.after(0, () => void afterTurn($, isMain))
+    } else if (isMain) {
       // A headless run (claude -p, CI) ends with its turn: record before it does.
-      await work()
+      await afterTurn($, isMain)
     }
     return result
   })
@@ -353,11 +308,10 @@ export const register: Register = on => {
   })
 
   on('tool.call', { tool: TOOL }, async ($, e) => {
-    const input = e.input as { by?: unknown; filter?: unknown; since?: unknown }
+    const input = e.input as { by?: unknown; filter?: unknown }
     const by = typeof input.by === 'string' && input.by !== '' ? input.by : 'ticket'
     const args = ['report', '--by', by, '--json']
     if (typeof input.filter === 'string' && input.filter !== '') args.push('--filter', input.filter)
-    if (typeof input.since === 'string' && input.since !== '') args.push('--since', input.since)
     const run = await tc($, args)
     if (run.missing) return { result: INSTALL }
     if (!run.ok) return { result: reason(run.stderr, run.stdout, 'tc report failed') }
@@ -366,19 +320,18 @@ export const register: Register = on => {
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (e.props.hasSurvey) return next(e)
-    const [current, trouble, sessionTicketNow, now] = await Promise.all([
+    const [current, trouble, sessionTicketNow] = await Promise.all([
       read($, sheet),
       read($, problem),
       read($, ticket),
-      $.clock.now(),
     ])
     if (current === null && trouble === null) return next(e)
     const { Box, Text, Button } = $.ui.resolve(e)
-    const note = current === null ? null : sheetNote(current, now)
+    const note = current === null ? null : sheetNote(current)
     return (
       <Box flexDirection="row" gap={1}>
         {current !== null && <Text>{headline(current, sessionTicketNow)}</Text>}
-        {note !== null && <Text color={current?.isLate ? 'warning' : 'subtle'}>· {note}</Text>}
+        {note !== null && <Text color="warning">· {note}</Text>}
         {trouble !== null && (
           <Text color="warning" wrap="truncate-end">
             {trouble}
@@ -405,7 +358,9 @@ export const register: Register = on => {
       $.clock.now(),
     ])
     const width = Math.max(30, e.props.bodyColumns)
-    const note = current === null ? null : sheetNote(current, now)
+    const note = current === null ? null : sheetNote(current)
+    const drafts = rows.filter(row => !row.isRejected)
+    const rejected = rows.length - drafts.length
     const show = (next: Tab) => async () => {
       await update($, tab, () => next)
       await update($, notice, () => null)
@@ -422,11 +377,12 @@ export const register: Register = on => {
           <Text dimColor wrap="truncate-end">
             {[
               current.organization ?? 'Local only: tc connect to report to your organization',
-              `${current.tokenEntries} draft token ${current.tokenEntries === 1 ? 'entry' : 'entries'}`,
+              `${drafts.length} draft token ${drafts.length === 1 ? 'entry' : 'entries'}`,
+              ...(rejected > 0 ? [`${rejected} rejected`] : []),
             ].join(' · ')}
           </Text>
         )}
-        {note !== null && <Text color={current?.isLate ? 'warning' : 'subtle'}>{note}</Text>}
+        {note !== null && <Text color="warning">{note}</Text>}
         {trouble !== null && <Text color="warning">{trouble}</Text>}
         <Box flexDirection="row" gap={1} marginTop={1}>
           <Button
@@ -459,10 +415,8 @@ export const register: Register = on => {
       const [shownReport, by] = await Promise.all([read($, report), read($, reportBy)])
       const choices = ['ticket', 'project', 'team', 'day']
       const options = choices.includes(by) ? choices : [...choices, by]
-      const label =
-        shownReport === null
-          ? 0
-          : Math.min(20, Math.max(4, ...shownReport.rows.map(r => r.value.length)))
+      const labels = shownReport === null ? [] : shownReport.rows.map(r => rowLabel(r, by))
+      const label = Math.min(20, Math.max(5, ...labels.map(l => l.length)))
       const barWidth = Math.max(6, width - label - 22)
       const max = shownReport === null ? 0 : Math.max(0, ...shownReport.rows.map(r => r.cost))
       return (
@@ -487,9 +441,9 @@ export const register: Register = on => {
           )}
           {shownReport !== null && shownReport.rows.length > 0 && (
             <Box flexDirection="column">
-              {shownReport.rows.map(row => (
-                <Box key={`row-${row.value}`} flexDirection="row" gap={1}>
-                  <Text wrap="truncate-end">{row.value.slice(0, label).padEnd(label)}</Text>
+              {shownReport.rows.map((row, i) => (
+                <Box key={`row-${row.value ?? ''}`} flexDirection="row" gap={1}>
+                  <Text wrap="truncate-end">{(labels[i] ?? '').slice(0, label).padEnd(label)}</Text>
                   <Text>{money(row.cost, shownReport.currency, true).padStart(10)}</Text>
                   <Text dimColor>{(row.share === null ? '' : percent(row.share)).padStart(4)}</Text>
                   <Text color="claude">{bar(row.cost, max, barWidth)}</Text>
@@ -517,14 +471,14 @@ export const register: Register = on => {
             {listed.map(rule => (
               <Box key={`rule-${rule.number}`} flexDirection="row" gap={1}>
                 <Text dimColor>{String(rule.number).padStart(2)}</Text>
-                <Text wrap="truncate-end">{rule.rule}</Text>
+                <Text wrap="truncate-end">{rule.text}</Text>
                 <Button
                   key={`remove-${rule.number}`}
                   plain
                   dimColor
                   label="remove"
                   onPress={async () => {
-                    const run = await tc($, ['rules', 'remove', String(rule.number)])
+                    const run = await tc($, ['rules', 'remove', String(rule.number), '--json'])
                     await say(
                       run.ok
                         ? `Removed rule ${rule.number}.`
@@ -540,11 +494,11 @@ export const register: Register = on => {
             <Input
               key="add-rule"
               label="Add a rule"
-              placeholder="branch ^review/ → purpose=code-review"
+              placeholder="branch ^review/ -> purpose=code-review"
               submitLabel="Add"
               onSubmit={async (text: string) => {
                 if (text.trim() === '') return
-                const run = await tc($, ['rules', 'add', text.trim()])
+                const run = await tc($, ['rules', 'add', text.trim(), '--json'])
                 await say(
                   run.ok ? 'Added the rule.' : reason(run.stderr, run.stdout, 'tc rules failed'),
                 )
@@ -556,10 +510,12 @@ export const register: Register = on => {
       )
     }
 
-    const total = rows.reduce((sum, row) => sum + row.cost, 0)
+    const total = drafts.reduce((sum, row) => sum + (row.cost ?? 0), 0)
     const currency = current?.currency ?? 'USD'
+    const costText = (row: (typeof rows)[number]) =>
+      row.cost === null ? 'no price' : money(row.cost, currency, true)
     const whenWidth = Math.max(0, ...rows.map(row => when(row.startedAt, now).length))
-    const costWidth = Math.max(0, ...rows.map(row => money(row.cost, currency, true).length))
+    const costWidth = Math.max(0, ...rows.map(row => costText(row).length))
     return (
       <Box flexDirection="column" gap={1}>
         {header}
@@ -577,8 +533,7 @@ export const register: Register = on => {
                 }
               >
                 {String(row.number).padStart(2)} {when(row.startedAt, now).padEnd(whenWidth)}{' '}
-                {money(row.cost, currency, true).padStart(costWidth)}{' '}
-                {tagLine(row.tags) || 'no tags'}
+                {costText(row).padStart(costWidth)} {placeLine(row)}
               </Button>
               {row.summary !== '' && (
                 <Text wrap="truncate-end">
@@ -586,9 +541,13 @@ export const register: Register = on => {
                   {row.summary}
                 </Text>
               )}
-              <Text dimColor wrap="truncate-end">
+              <Text
+                dimColor={!row.isRejected}
+                color={row.isRejected ? 'warning' : undefined}
+                wrap="truncate-end"
+              >
                 {'   '}
-                {row.by}
+                {placedByLine(row)}
               </Text>
               {Input !== undefined && chosen === row.number && (
                 <Input
@@ -603,7 +562,7 @@ export const register: Register = on => {
                       .filter(Boolean)
                       .map((pair: string) => (pair.includes('=') ? pair : `ticket=${pair}`))
                     if (pairs.length === 0) return
-                    const run = await tc($, ['tag', String(row.number), ...pairs])
+                    const run = await tc($, ['tag', String(row.number), ...pairs, '--json'])
                     await say(
                       run.ok
                         ? `#${row.number}: ${pairs.join(' ')}`
@@ -617,13 +576,13 @@ export const register: Register = on => {
             </Box>
           ))}
         </Box>
-        {rows.length > 0 && (
+        {drafts.length > 0 && (
           <Box flexDirection="row" gap={1}>
             <Button
               key="submit"
               variant="primary"
               hotkey="s"
-              label={`Submit ${rows.length} ${rows.length === 1 ? 'entry' : 'entries'} · ${money(total, currency, true)}`}
+              label={`Submit ${drafts.length} ${drafts.length === 1 ? 'entry' : 'entries'} · ${money(total, currency, true)}`}
               onPress={async () => {
                 await say(await submit($))
               }}
