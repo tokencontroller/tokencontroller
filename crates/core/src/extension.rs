@@ -9,7 +9,8 @@
 //! Every hook has a default that keeps the open behavior, so adding a hook
 //! never breaks an implementation. Add a hook only where the docs name an
 //! Enterprise plan feature: sign-in providers, audit events, telemetry
-//! forwarding, bill connectors and member limits.
+//! forwarding, bill connectors, member limits and the notices that go with
+//! them.
 
 /// Hooks the service calls. Implementations must be cheap and must not block:
 /// a hook that needs the network spawns its own work.
@@ -35,6 +36,12 @@ pub trait Extension: Send + Sync + 'static {
     /// edition keeps no audit log.
     fn record_audit_event(&self, event: &AuditEvent) {
         let _ = event;
+    }
+
+    /// A message the web app shows to every controller of the organization,
+    /// such as an Enterprise plan renewal notice. The open edition has none.
+    fn controller_notice(&self) -> Option<String> {
+        None
     }
 
     /// Called with every telemetry batch the service accepts, before prompt
@@ -117,6 +124,7 @@ mod tests {
         assert_eq!(extension.edition(), "open");
         assert_eq!(extension.member_limit(), None);
         assert!(extension.sign_in_providers().is_empty());
+        assert_eq!(extension.controller_notice(), None);
         extension.record_audit_event(&AuditEvent {
             organization_id: "org".to_owned(),
             actor_id: None,
