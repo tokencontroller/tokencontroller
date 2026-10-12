@@ -6,7 +6,6 @@ import type {
   BillConnection,
   BudgetVsActualRow,
   CadenceInput,
-  CadenceView,
   CloseCheck,
   CostSheet,
   CsvPreview,
@@ -75,9 +74,9 @@ export const api = {
   billing: () => ok(typed.GET("/api/v1/billing")),
   checkout: (interval: Interval, country: string) => ok(typed.POST("/api/v1/billing/checkout", { body: { interval, country } })),
   billingPortal: () => ok(typed.POST("/api/v1/billing/portal")),
-  cadences: () => call<CadenceView[]>("GET", "/cadences"),
-  setCadence: (body: CadenceInput) => call<CadenceView>("PUT", "/cadences", { body }),
-  removeCadence: (id: string) => call<undefined>("DELETE", `/cadences/${enc(id)}`),
+  cadences: () => ok(typed.GET("/api/v1/cadences")),
+  setCadence: (body: CadenceInput) => ok(typed.PUT("/api/v1/cadences", { body })),
+  removeCadence: (id: string) => ok(typed.DELETE("/api/v1/cadences/{id}", path(id))),
 
   // People
   members: () => ok(typed.GET("/api/v1/members")),
@@ -218,5 +217,6 @@ export const api = {
   externalProjects: (id: string) => ok(typed.GET("/api/v1/ticket-systems/{id}/projects", path(id))),
   mapProjects: (id: string, mappings: TicketMapping[]) => ok(typed.PUT("/api/v1/ticket-systems/{id}/mappings", { ...path(id), body: mappings })),
   syncTickets: (id: string) => ok(typed.POST("/api/v1/ticket-systems/{id}/sync", path(id))),
-  rawExport: () => download("/export/raw"),
+  /** Everything the organization has, as a zip of JSON files. Controllers only. */
+  rawExport: () => download("/exports/raw"),
 };

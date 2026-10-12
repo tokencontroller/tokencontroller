@@ -898,7 +898,7 @@ export const handlers = [
     system.last_sync_at = `${TODAY}T17:05:00Z`;
     return HttpResponse.json(system, { status: 202 });
   }, CONTROLLER)),
-  http.get(`${API}/export/raw`, member(({ db }) => {
+  http.get(`${API}/exports/raw`, member(({ db }) => {
     const files = { "organization.json": db.organization, "people.json": db.people, "token_entries.json": db.entries, "bills.json": db.bills, "rules.json": db.rules, "tickets.json": db.tickets, "periods.json": db.periods, "tags.json": { names: db.tagNames, map: db.tagMap } };
     return new HttpResponse(JSON.stringify(files, null, 2), { headers: { "content-type": "application/json" } });
   }, CONTROLLER)),
