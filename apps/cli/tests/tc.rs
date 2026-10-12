@@ -559,11 +559,22 @@ fn a_token_sheet_is_submitted_with_keys_but_never_prompts() {
     assert_eq!(claude["splits"][0]["tags"]["ticket"], "KD-214");
     assert_eq!(claude["placed_by"], "rule: ticket key in branch");
 
-    // Submitted entries leave the review list. A second submit sends an
-    // empty token sheet: nothing to report, so the sheet is not late.
+    // Submitted entries leave the review list. The next command reads the
+    // context again, since the service's word on late sheets changed.
+    let context_reads = |service: &Service| {
+        service
+            .paths()
+            .iter()
+            .filter(|path| path.as_str() == "GET /api/v1/me/context")
+            .count()
+    };
+    let before = context_reads(&service);
     let review: Value =
         serde_json::from_str(&machine.tc_with(&["review", "--json"], &env, "").unwrap()).unwrap();
     assert_eq!(review["token_entries"].as_array().map(Vec::len), Some(0));
+    assert_eq!(context_reads(&service), before + 1);
+    // A second submit sends an empty token sheet: nothing to report, so
+    // the sheet is not late.
     let again = machine.tc_with(&["submit"], &env, "").unwrap();
     assert_eq!(again.trim(), "submitted token sheet · nothing to report");
     let seen = service.seen();
@@ -733,6 +744,38 @@ fn connect_signs_in_with_a_magic_link_and_keeps_the_token() {
     assert_eq!(status["rules"], 1);
     assert_eq!(status["token_sheet"]["period_start"], "2026-10-05");
     assert_eq!(status["token_sheet"]["late"], false);
+}
+
+/// The service says when a token sheet is late and when the controller
+/// asked everyone to submit before the close; `tc status` passes both on.
+#[test]
+fn status_shows_a_late_sheet_and_a_request_to_submit() {
+    let machine = Machine::ready().unwrap();
+    let service = Service::start(Box::new(|seen: &Seen| match seen.path.as_str() {
+        "/api/v1/me/context" => {
+            let mut context = context();
+            context["cadence"]["late"] = json!(true);
+            context["asked_to_submit"] =
+                json!({"period": "2026-09", "asked_by": "Lena Hofer", "asked_at": "2026-10-02T08:00:00Z"});
+            (200, context)
+        }
+        _ => (404, json!({"error": "no such route"})),
+    }))
+    .unwrap();
+    let env = [
+        ("TC_URL", service.url.as_str()),
+        ("TC_TOKEN", "tc_cli_test"),
+    ];
+    let status: Value =
+        serde_json::from_str(&machine.tc_with(&["status", "--json"], &env, "").unwrap()).unwrap();
+    assert_eq!(status["token_sheet"]["late"], true);
+    assert_eq!(status["asked_to_submit"]["period"], "2026-09");
+    let said = machine.tc_with(&["status"], &env, "").unwrap();
+    assert!(said.contains("· late: submit with tc submit"), "{said}");
+    assert!(
+        said.contains("asked by Lena Hofer to submit for 2026-09"),
+        "{said}"
+    );
 }
 
 /// Without an invite, `tc connect` asks for the address, and says so when

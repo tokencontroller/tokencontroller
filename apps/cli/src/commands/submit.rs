@@ -253,6 +253,7 @@ pub fn run(app: &mut App<'_>, tags: &[String], signals: &[String]) -> Result<()>
             submitted.push((entry.local_id.clone(), id));
         }
         app.store.mark_submitted(&submitted, app.now_ms)?;
+        app.context_is_stale()?;
     }
 
     let total = entries
@@ -302,6 +303,7 @@ fn nothing_to_submit(app: &mut App<'_>) -> Result<()> {
     if let Some(connection) = &connection {
         let client = crate::api::Client::new(&connection.service, Some(connection.token.clone()));
         client.submit::<Outgoing>(&[])?;
+        app.context_is_stale()?;
     }
     if app.json {
         return output::json(

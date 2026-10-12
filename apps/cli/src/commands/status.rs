@@ -5,6 +5,7 @@ use serde::Serialize;
 
 use crate::amounts::{decimal, display};
 use crate::app::{App, day_of, start_of_day_ms};
+use crate::context::AskedToSubmit;
 use crate::entries::CURRENCY;
 use crate::error::Result;
 use crate::output::{self, percent};
@@ -43,6 +44,7 @@ struct View {
     drafts: usize,
     today: Today,
     token_sheet: Option<Sheet>,
+    asked_to_submit: Option<AskedToSubmit>,
 }
 
 pub fn run(app: &mut App<'_>) -> Result<()> {
@@ -84,10 +86,12 @@ fn gather(app: &App<'_>) -> Result<View> {
             .period_start
             .parse::<jiff::civil::Date>()
             .map_or(0, start_of_day_ms);
-        // Late: drafts from before this cadence period were never submitted.
-        let late = entries
-            .iter()
-            .any(|entry| entry.row.status != Status::Submitted && entry.started_ms < start);
+        // Late: the service says an earlier period waits, or drafts from
+        // before this cadence period were never submitted.
+        let late = cadence.late
+            || entries
+                .iter()
+                .any(|entry| entry.row.status != Status::Submitted && entry.started_ms < start);
         Sheet {
             period_start: cadence.period_start.clone(),
             period_end: cadence.period_end.clone(),
@@ -109,6 +113,7 @@ fn gather(app: &App<'_>) -> Result<View> {
             nanos: total,
         },
         token_sheet,
+        asked_to_submit: app.context.asked_to_submit.clone(),
     })
 }
 
@@ -161,6 +166,18 @@ fn print(app: &mut App<'_>, view: &View) -> Result<()> {
             app.out,
             "Token sheet   {} to {}{note}",
             sheet.period_start, sheet.period_end
+        )?;
+    }
+    if let Some(asked) = &view.asked_to_submit {
+        let by = asked
+            .asked_by
+            .as_deref()
+            .map(|name| format!(" by {name}"))
+            .unwrap_or_default();
+        writeln!(
+            app.out,
+            "Close         asked{by} to submit for {} (tc submit)",
+            asked.period
         )?;
     }
     Ok(())

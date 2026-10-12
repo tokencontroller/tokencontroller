@@ -10,7 +10,7 @@ Every `tc` command.
 | Command | What it does |
 | --- | --- |
 | `tc connect URL` | Connect to an organization with an invite link, or to a self-hosted instance. |
-| `tc status` | Organization, person, agents found, rules, and today's cost and share on tickets. |
+| `tc status` | Organization, person, agents found, rules, today's cost and share on tickets, the token sheet's cadence period and whether it is late, and a controller's request to submit before the close. |
 | `tc review` | List draft token entries and their tags. `--all` adds the submitted ones. |
 | `tc tag N NAME=VALUE…` | Set tags on token entry N, such as `ticket=KD-214` or `purpose=learning`. An empty value removes a tag. |
 | `tc split N TICKET=SHARE…` | Split token entry N between tickets, such as `KD-231=60 KD-240=40`. |

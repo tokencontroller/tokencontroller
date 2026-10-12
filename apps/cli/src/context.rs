@@ -40,6 +40,9 @@ pub struct Context {
     /// Token entries a people manager sent back, with the reason.
     #[serde(default)]
     pub rejected: Vec<Rejection>,
+    /// A controller asked everyone to submit before the monthly close.
+    #[serde(default)]
+    pub asked_to_submit: Option<AskedToSubmit>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -84,6 +87,20 @@ pub struct Cadence {
     pub period_end: String,
     #[serde(default)]
     pub due_at: Option<String>,
+    /// The service's word: an earlier cadence period still waits for its
+    /// token sheet.
+    #[serde(default)]
+    pub late: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AskedToSubmit {
+    /// The month, such as `2026-09`.
+    pub period: String,
+    #[serde(default)]
+    pub asked_by: Option<String>,
+    #[serde(default)]
+    pub asked_at: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

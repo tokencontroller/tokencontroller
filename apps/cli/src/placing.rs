@@ -366,6 +366,7 @@ mod tests {
             )],
             cadence: None,
             rejected: Vec::new(),
+            asked_to_submit: None,
         }
     }
 
