@@ -29,7 +29,7 @@ use tokencontroller_core::tags::TagError;
 
 use crate::AppState;
 use crate::error::ApiError;
-use crate::organizations::Role;
+use crate::organizations::{self, Role};
 use crate::sign_in::Member;
 
 /// Tags on one record: tag name to value, one value per tag name.
@@ -343,6 +343,13 @@ async fn add_tag_name(
             "The tag name {name:?} is already on the list."
         )));
     }
+    organizations::record_audit_event(
+        &state,
+        member.organization_id,
+        Some(member.person_id),
+        "tag_name.added",
+        None,
+    );
     Ok((
         StatusCode::CREATED,
         Json(TagName {
@@ -429,6 +436,13 @@ async fn remove_tag_name(
     .execute(&mut *tx)
     .await?;
     tx.commit().await?;
+    organizations::record_audit_event(
+        &state,
+        member.organization_id,
+        Some(member.person_id),
+        "tag_name.removed",
+        None,
+    );
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -525,6 +539,13 @@ async fn set_tag_map(
     .fetch_one(&mut *tx)
     .await?;
     tx.commit().await?;
+    organizations::record_audit_event(
+        &state,
+        member.organization_id,
+        Some(member.person_id),
+        "tag_map.changed",
+        None,
+    );
     Ok(Json(map))
 }
 

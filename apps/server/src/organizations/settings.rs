@@ -166,6 +166,13 @@ pub(super) async fn update_organization(
     )
     .execute(&state.db)
     .await?;
+    super::record_audit_event(
+        &state,
+        member.organization_id,
+        Some(member.person_id),
+        "organization.settings_changed",
+        None,
+    );
     Ok(Json(load(&state.db, member.organization_id).await?))
 }
 

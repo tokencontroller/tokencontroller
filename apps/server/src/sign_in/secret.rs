@@ -14,9 +14,10 @@ use sha2::Sha256;
 pub const LINK: &str = "tc_link_";
 /// Prefix of the secret a local tool holds while it waits for its session.
 pub const POLL: &str = "tc_poll_";
-/// Prefix of a session token: the browser cookie, or a local tool's bearer
-/// token.
+/// Prefix of a browser session, kept in the `tc_session` cookie.
 pub const SESSION: &str = "tc_ses_";
+/// Prefix of a CLI token: the session `tc connect` keeps on one machine.
+pub const CLI: &str = "tc_cli_";
 /// Prefix of a service token, for agents that report token entries.
 pub const SERVICE: &str = "tc_svc_";
 /// Prefix of a read token, for reports.
@@ -87,7 +88,7 @@ pub fn short_code() -> Result<String, getrandom::Error> {
 }
 
 fn shown_prefix(token: &str) -> String {
-    let prefix_len = [SERVICE, READ, ORGANIZATION, SESSION, LINK, POLL]
+    let prefix_len = [SERVICE, READ, ORGANIZATION, SESSION, CLI, LINK, POLL]
         .iter()
         .find(|prefix| token.starts_with(**prefix))
         .map_or(0, |prefix| prefix.len());

@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT rules AS \"rules: JsonColumn<Vec<Rule>>\" FROM people WHERE id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "rules: JsonColumn<Vec<Rule>>",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "people",
+            "name": "rules"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "2686f4bdd77bf573c18e4b2e5243d883845d4547f897d56dc84a6456700d6740"
+}

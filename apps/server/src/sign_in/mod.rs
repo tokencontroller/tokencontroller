@@ -19,8 +19,8 @@ use utoipa_axum::routes;
 
 use crate::AppState;
 
-pub use caller::{Caller, Credential, CredentialKind, Member};
-pub use links::{domain_allowed, link_for_member, normalize_email};
+pub use caller::{Caller, Credential, CredentialKind, Member, signed_in};
+pub use links::{domain_allowed, link_for_member, normalize_email, start_session};
 
 /// This area's routes, relative to `/api/v1`.
 #[must_use]
@@ -30,6 +30,7 @@ pub fn routes() -> OpenApiRouter<AppState> {
         .routes(routes!(links::sign_up))
         .routes(routes!(links::link_page, links::use_link))
         .routes(routes!(links::poll))
+        .routes(routes!(links::providers))
         .routes(routes!(links::sign_out))
         .routes(routes!(links::me))
         .routes(routes!(tokens::list, tokens::create))
@@ -57,7 +58,7 @@ impl utoipa::Modify for SecuritySchemes {
                 HttpBuilder::new()
                     .scheme(HttpAuthScheme::Bearer)
                     .description(Some(
-                        "A local tool's session (`tc_ses_`) or an API token: `tc_svc_` for services, `tc_read_` to read, `tc_org_` for the organization.",
+                        "A CLI token from `tc connect` (`tc_cli_`) or an API token: `tc_svc_` for services, `tc_read_` to read, `tc_org_` for the organization.",
                     ))
                     .build(),
             ),

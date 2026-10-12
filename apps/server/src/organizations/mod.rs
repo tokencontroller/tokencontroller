@@ -7,8 +7,11 @@
 //! this folder, and its migrations in `migrations/` named
 //! `<timestamp>_organizations_<what>.sql`.
 
+mod audit;
 mod members;
+mod provisioning;
 mod role;
+mod rules;
 mod settings;
 
 use serde::Serialize;
@@ -22,8 +25,11 @@ use crate::AppState;
 use crate::error::ApiError;
 use crate::tags;
 
-pub use members::{MemberView, filters_of};
+pub use audit::record_audit_event;
+pub use members::{MemberStatus, MemberView, filters_of};
+pub use provisioning::{add_member, member_by_email, only_organization, remove_member};
 pub use role::{Role, UnknownRole};
+pub use rules::{OrganizationRules, organization_rules, personal_rules};
 pub use settings::{CostSource, Organization};
 
 /// The longest organization name.
@@ -42,6 +48,12 @@ pub fn routes() -> OpenApiRouter<AppState> {
         .routes(routes!(members::set_filters))
         .routes(routes!(members::resend_invite))
         .routes(routes!(members::show_invite))
+        .routes(routes!(
+            rules::get_organization_rules,
+            rules::set_organization_rules
+        ))
+        .routes(routes!(rules::set_personal_rules))
+        .routes(routes!(rules::context))
 }
 
 /// An organization's name and short name.

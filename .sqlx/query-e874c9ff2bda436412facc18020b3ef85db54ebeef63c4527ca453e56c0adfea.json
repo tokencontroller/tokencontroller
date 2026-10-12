@@ -1,0 +1,52 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT rules AS \"rules: JsonColumn<Vec<Rule>>\", several_keys, summary_match\n           FROM organizations WHERE id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "rules: JsonColumn<Vec<Rule>>",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "organizations",
+            "name": "rules"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "several_keys",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "organizations",
+            "name": "several_keys"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "summary_match",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "organizations",
+            "name": "summary_match"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "e874c9ff2bda436412facc18020b3ef85db54ebeef63c4527ca453e56c0adfea"
+}
