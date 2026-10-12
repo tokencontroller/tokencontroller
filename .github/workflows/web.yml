@@ -1,0 +1,65 @@
+# The web app's journeys (ADR 0009): one Playwright journey per docs guide
+# (quick start, review and submit, monthly close, CSV export), on a desktop
+# and a phone screen. Until the service's API lands they run against the mock
+# build, which holds the docs' example organization; then they move to the
+# compose image with seed data. The screenshots of the main screens are kept
+# as an artifact for people who read the product rather than run it.
+name: Web
+
+on:
+  pull_request:
+    paths:
+      - "apps/web/**"
+      - "pnpm-lock.yaml"
+      - ".github/workflows/web.yml"
+  push:
+    branches: [main]
+    paths:
+      - "apps/web/**"
+      - "pnpm-lock.yaml"
+      - ".github/workflows/web.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: web-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  journeys:
+    name: Web app journeys
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Install Chromium
+        run: pnpm exec playwright install --with-deps chromium
+      - name: Journeys on a desktop and a phone screen
+        run: pnpm e2e
+      - name: Screenshots of the main screens
+        if: success() || failure()
+        run: pnpm screenshots
+      - name: Keep the screenshots
+        if: success() || failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: web-screenshots
+          path: apps/web/screenshots/
+          if-no-files-found: ignore
+      - name: Keep the report
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-report
+          path: apps/web/playwright-report/
+          if-no-files-found: ignore
