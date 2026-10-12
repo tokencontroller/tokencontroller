@@ -6,6 +6,7 @@
 //! this folder, and its migrations in `migrations/` named
 //! `<timestamp>_projects_<what>.sql`.
 
+mod directory;
 mod project;
 mod ticket;
 
@@ -15,6 +16,7 @@ use utoipa_axum::routes;
 use crate::AppState;
 use crate::error::ApiError;
 
+pub use directory::directory;
 pub use project::{Client, Project, project_for_repository};
 pub use ticket::{Ticket, TicketSource, project_for_key};
 

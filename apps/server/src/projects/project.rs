@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use sqlx::types::Json as JsonColumn;
 use time::OffsetDateTime;
+use tokencontroller_core::pattern::TicketKeyPattern;
 use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
 
@@ -407,14 +408,12 @@ fn check_pattern(pattern: &str) -> Result<String, ApiError> {
             "The ticket key pattern must have 1 to {MAX_PATTERN_CHARS} characters."
         )));
     }
-    regex::RegexBuilder::new(pattern)
-        .size_limit(1 << 16)
-        .build()
-        .map_err(|error| {
-            ApiError::BadRequest(format!(
-                "The ticket key pattern is not a regular expression: {error}"
-            ))
-        })?;
+    TicketKeyPattern::new(pattern).map_err(|error| {
+        ApiError::BadRequest(format!(
+            "The ticket key pattern is not a regular expression: {}",
+            error.reason
+        ))
+    })?;
     Ok(pattern.to_owned())
 }
 

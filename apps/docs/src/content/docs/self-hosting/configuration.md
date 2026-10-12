@@ -28,9 +28,11 @@ The hosted service uses these to run its own support inbox, site assistant and n
 | `TC_INBOUND_MAIL_SECRET` | The secret incoming support mail is signed with. Turns on the support inbox. Needs `TC_SUPPORT_FROM`. |
 | `TC_SUPPORT_FROM` | The sender of support answers, such as `Support <support@example.com>`. |
 | `TC_ANTHROPIC_API_KEY` | A Claude API key. Support answers and the site assistant answer from these docs with it. Without it, every support message goes to the operators. |
-| `TC_SITE_URL` | The public website, such as `https://example.com`. Its pages may use the site assistant, the contact form and the newsletter sign-up. |
+| `TC_SITE_URL` | The public website, such as `https://example.com`. Its pages, also under `www.`, may use the site assistant, the contact form and the newsletter sign-up. |
 | `TC_RESEND_API_KEY` | A Resend API key. Turns on the newsletter. Needs `TC_NEWSLETTER_FROM`. |
 | `TC_NEWSLETTER_FROM` | The sender of the newsletter, such as `News <news@news.example.com>`. |
+
+The service deletes site assistant questions and the raw copy of support mail after 90 days, and a support conversation two years after its last message. A message's text stays with its conversation until then.
 
 ## Billing settings {#billing}
 

@@ -2203,6 +2203,7 @@ name = "tokencontroller-core"
 version = "1.0.0"
 dependencies = [
  "proptest",
+ "regex",
  "serde",
  "serde_json",
  "thiserror",
@@ -2222,7 +2223,6 @@ dependencies = [
  "http-body-util",
  "lettre",
  "mail-parser",
- "regex",
  "reqwest",
  "rustls",
  "serde",

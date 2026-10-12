@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, ticket_key_pattern AS \"pattern!\" FROM projects\n           WHERE organization_id = $1 AND archived_at IS NULL AND ticket_key_pattern IS NOT NULL",
+  "query": "SELECT id, ticket_key_pattern AS \"pattern!\" FROM projects\n           WHERE organization_id = $1 AND archived_at IS NULL AND ticket_key_pattern IS NOT NULL\n           ORDER BY name",
   "describe": {
     "columns": [
       {
@@ -36,5 +36,5 @@
       true
     ]
   },
-  "hash": "cca3bbd289533babc4dcb15cea5ad00c9e0b428eb76b6ab249969175fce8dd0b"
+  "hash": "9a48df7e60271473f32a5338f697bf50d446b7942f767329ba543ea67f8199ee"
 }

@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use sqlx::types::Json as JsonColumn;
 use time::OffsetDateTime;
+use tokencontroller_core::pattern::TicketKeyPattern;
 use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
 
@@ -114,7 +115,8 @@ pub struct TicketFilter {
     pub offset: i64,
 }
 
-/// The project whose ticket key pattern matches `key`, if exactly one does.
+/// The project whose ticket key pattern matches `key` as a whole. Where two
+/// match, the first by name wins, as in the core crate's directory.
 ///
 /// # Errors
 ///
@@ -126,21 +128,18 @@ pub async fn project_for_key(
 ) -> Result<Option<Uuid>, sqlx::Error> {
     let projects = sqlx::query!(
         r#"SELECT id, ticket_key_pattern AS "pattern!" FROM projects
-           WHERE organization_id = $1 AND archived_at IS NULL AND ticket_key_pattern IS NOT NULL"#,
+           WHERE organization_id = $1 AND archived_at IS NULL AND ticket_key_pattern IS NOT NULL
+           ORDER BY name"#,
         organization_id
     )
     .fetch_all(db)
     .await?;
-    let mut matching = projects.into_iter().filter(|project| {
-        regex::RegexBuilder::new(&project.pattern)
-            .size_limit(1 << 16)
-            .build()
-            .is_ok_and(|pattern| pattern.is_match(key))
-    });
-    Ok(match (matching.next(), matching.next()) {
-        (Some(project), None) => Some(project.id),
-        _ => None,
-    })
+    Ok(projects
+        .into_iter()
+        .find(|project| {
+            TicketKeyPattern::new(&project.pattern).is_ok_and(|pattern| pattern.is_key(key))
+        })
+        .map(|project| project.id))
 }
 
 pub(super) async fn load(

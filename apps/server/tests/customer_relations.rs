@@ -706,3 +706,70 @@ async fn an_issue_goes_to_confirmed_subscribers_only(pool: PgPool) {
         "<https://app.example/api/v1/newsletter/unsubscribe?token=u1>"
     );
 }
+
+#[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
+async fn old_questions_mail_and_conversations_are_deleted(pool: PgPool) {
+    // Retention runs with every feature off too.
+    let state = AppState::new(
+        pool.clone(),
+        config(Settings::default(), None),
+        Arc::new(NoExtension),
+    );
+    sqlx::query(
+        "INSERT INTO assistant_questions (question, answer, answered, created_at) VALUES
+         ('old', 'a', true, now() - interval '91 days'), ('new', 'a', true, now() - interval '89 days')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO inbound_mail (message_id, mailbox, envelope_from, envelope_to, raw, received_at) VALUES
+         ('old', 'support', 'a@example.com', 'support@example.com', 'x', now() - interval '91 days'),
+         ('new', 'support', 'a@example.com', 'support@example.com', 'x', now() - interval '89 days')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    // Both started three years ago; only the second had a message last month.
+    for (subject, last_message) in [("quiet", "3 years"), ("ongoing", "1 month")] {
+        sqlx::query(
+            "WITH c AS (
+               INSERT INTO support_conversations (channel, contact_email, subject, created_at)
+               VALUES ('mail', 'a@example.com', $1, now() - interval '3 years') RETURNING id
+             )
+             INSERT INTO support_messages (conversation_id, author, body, inbound_message_id, created_at)
+             SELECT id, 'customer', 'Hello', 'old', now() - $2::interval FROM c",
+        )
+        .bind(subject)
+        .bind(last_message)
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+
+    customer_relations::run_once(&state).await;
+
+    let questions: Vec<String> = sqlx::query_scalar("SELECT question FROM assistant_questions")
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+    assert_eq!(questions, ["new"]);
+    let mail: Vec<String> = sqlx::query_scalar("SELECT message_id FROM inbound_mail")
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+    assert_eq!(mail, ["new"]);
+    let conversations: Vec<String> =
+        sqlx::query_scalar("SELECT subject FROM support_conversations")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+    assert_eq!(conversations, ["ongoing"]);
+    // The message keeps its text when its raw mail is gone.
+    let body: String =
+        sqlx::query_scalar("SELECT body FROM support_messages WHERE inbound_message_id IS NULL")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(body, "Hello");
+}

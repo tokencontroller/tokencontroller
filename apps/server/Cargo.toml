@@ -25,7 +25,6 @@ hex.workspace = true
 hmac.workspace = true
 lettre.workspace = true
 mail-parser.workspace = true
-regex.workspace = true
 reqwest.workspace = true
 rustls.workspace = true
 serde.workspace = true

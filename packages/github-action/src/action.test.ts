@@ -18,7 +18,9 @@ async function fakeTc(folder: string): Promise<void> {
     'if [ "$1" = "--version" ]; then echo "tc 1.0.0"; exit 0; fi',
     'echo "args: $*" >&2',
     'echo "token: $TC_TOKEN url: $TC_URL" >&2',
-    'echo "submitted · 2 token entries · \\$3.20 · 100% on tickets"',
+    'echo "project: $TC_PROJECT ticket: $TC_TICKET tags: $TC_TAGS" >&2',
+    'echo "signals: $TC_SIGNALS" >&2',
+    'echo \'{"submitted":2,"list_value":"3.20","currency":"USD","share_on_tickets_percent":100}\'',
   ].join('\n')
   await writeFile(join(folder, 'tc'), script)
   await chmod(join(folder, 'tc'), 0o755)
@@ -44,6 +46,7 @@ test('the action runs tc submit with the inputs and reports the count', {
       INPUT_PROJECT: 'storefront',
       INPUT_TAGS: 'purpose=code-review',
       TC_TICKET: 'KD-214',
+      GITHUB_SERVER_URL: 'https://github.com',
       GITHUB_REPOSITORY: 'kestrel/storefront',
       GITHUB_HEAD_REF: 'kd-214-checkout',
       GITHUB_EVENT_PATH: event,
@@ -54,13 +57,18 @@ test('the action runs tc submit with the inputs and reports the count', {
   })
 
   assert.match(stdout, /^::add-mask::tc_svc_secret$/m)
+  assert.match(stderr, /^args: submit --json$/m)
+  assert.match(stderr, /token: tc_svc_secret url: https:\/\/app.tokencontroller.com/)
+  assert.match(stderr, /project: storefront ticket: KD-214 tags: purpose=code-review/)
   assert.match(
     stderr,
-    /args: submit --tag project=storefront --tag ticket=KD-214 --tag purpose=code-review --signal repository=kestrel\/storefront --signal branch=kd-214-checkout --signal pull_request=88 --signal pull_request_title=KD-214 Checkout/,
+    /signals: \{"repository":"github.com\/kestrel\/storefront","branch":"kd-214-checkout","pull_request":88,"pull_request_title":"KD-214 Checkout"\}/,
   )
-  assert.match(stderr, /token: tc_svc_secret url: https:\/\/app.tokencontroller.com/)
   assert.equal(await readFile(output, 'utf8'), 'token-entries=2\n')
-  assert.match(await readFile(summary, 'utf8'), /Reported 2 token entries on KD-214 · storefront/)
+  assert.match(
+    await readFile(summary, 'utf8'),
+    /Reported 2 token entries on KD-214 · storefront, 3.20 USD\./,
+  )
 })
 
 test('the action fails with a plain error when the token is missing', async () => {

@@ -1397,6 +1397,35 @@ async fn the_seed_is_the_docs_example_organization(pool: PgPool) {
     .await
     .unwrap();
     assert_eq!(invite.json["organization_name"], "Kestrel Digital");
+
+    // The core crate sees the same organization.
+    let directory = tokencontroller_server::projects::directory(
+        &pool,
+        tokencontroller_server::seed::ids::ORGANIZATION,
+    )
+    .await
+    .unwrap();
+    assert_eq!(directory.people.len(), 9);
+    let mara = tokencontroller_core::TagValue::new("m.ortner@kestrel.example").unwrap();
+    let ticket = tokencontroller_core::TagValue::new("KD-214").unwrap();
+    assert_eq!(
+        directory.project_of_ticket(&ticket).unwrap().as_str(),
+        "storefront"
+    );
+    assert_eq!(
+        directory
+            .project_of_repository("kestrel/storefront")
+            .unwrap()
+            .as_str(),
+        "storefront"
+    );
+    let storefront = tokencontroller_core::TagValue::new("storefront").unwrap();
+    let inherited = directory.inherited_tags(Some(&mara), Some(&storefront), Some(&ticket));
+    assert_eq!(inherited.get_str("team").unwrap().as_str(), "web");
+    assert_eq!(inherited.get_str("client").unwrap().as_str(), "acme");
+    let found = directory.find_ticket_keys("feature/KD-231-checkout");
+    assert_eq!(found.first().unwrap().key.as_str(), "KD-231");
+
     let nadia = session_for(&pool, tokencontroller_server::seed::ids::NADIA, "browser")
         .await
         .unwrap();

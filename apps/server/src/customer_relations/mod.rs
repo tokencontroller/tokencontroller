@@ -16,12 +16,15 @@
 //!   from the docs.
 //! - The newsletter (`/newsletter/...`) has double opt-in and one-click
 //!   unsubscribe, and goes out through Resend.
+//!
+//! The background loop also deletes what is kept long enough (`retention`).
 
 mod assistant;
 mod claude;
 mod inbox;
 mod mail;
 mod newsletter;
+mod retention;
 mod settings;
 mod support;
 mod web;
@@ -118,6 +121,9 @@ pub async fn run_once(state: &AppState) {
 }
 
 async fn run_locked(state: &AppState) {
+    if let Err(error) = retention::forget(&state.db).await {
+        tracing::error!("deleting old support and assistant data failed: {error:#}");
+    }
     let settings = &state.config.customer_relations;
     if settings.support_from.is_some() {
         // A handful per run, so one run never takes long.

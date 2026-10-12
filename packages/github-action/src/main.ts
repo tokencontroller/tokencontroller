@@ -6,7 +6,7 @@ import { promisify } from 'node:util'
 import { readJobSignals } from './github.ts'
 import { readInputs } from './inputs.ts'
 import { installTc } from './install.ts'
-import { reportedCount, submitArgs, tcEnv } from './tc.ts'
+import { readSubmitted, SUBMIT_ARGS, tcEnv } from './tc.ts'
 
 const run = promisify(execFile)
 
@@ -17,24 +17,23 @@ async function main(): Promise<void> {
 
   const signals = readJobSignals(env, path => readFileSync(path, 'utf8'))
   const tc = await installTc(env.RUNNER_TOOL_CACHE ?? tmpdir())
-  const args = submitArgs(inputs, signals)
-  console.log(`tc ${args.join(' ')}`)
+  console.log(`tc ${SUBMIT_ARGS.join(' ')}`)
 
-  const { stdout, stderr } = await run(tc, args, {
-    env: tcEnv(inputs, env),
+  const { stdout, stderr } = await run(tc, [...SUBMIT_ARGS], {
+    env: tcEnv(inputs, signals, env),
     maxBuffer: 16 * 1024 * 1024,
   })
   if (stderr.trim() !== '') console.error(stderr.trim())
-  console.log(stdout.trim())
 
-  const count = reportedCount(stdout) ?? 0
-  if (env.GITHUB_OUTPUT) appendFileSync(env.GITHUB_OUTPUT, `token-entries=${count}\n`)
+  const done = readSubmitted(stdout)
+  const entries = `${done.count} token ${done.count === 1 ? 'entry' : 'entries'}`
+  const where = [inputs.ticket, inputs.project].filter(Boolean).join(' · ')
+  const value = done.listValue === undefined ? '' : `, ${done.listValue} ${done.currency ?? ''}`
+  const line = `Reported ${entries}${where ? ` on ${where}` : ''}${value.trimEnd()}.`
+  console.log(line)
+  if (env.GITHUB_OUTPUT) appendFileSync(env.GITHUB_OUTPUT, `token-entries=${done.count}\n`)
   if (env.GITHUB_STEP_SUMMARY) {
-    const where = [inputs.ticket, inputs.project].filter(Boolean).join(' · ')
-    appendFileSync(
-      env.GITHUB_STEP_SUMMARY,
-      `### Token Controller\n\nReported ${count} token ${count === 1 ? 'entry' : 'entries'}${where ? ` on ${where}` : ''}.\n`,
-    )
+    appendFileSync(env.GITHUB_STEP_SUMMARY, `### Token Controller\n\n${line}\n`)
   }
 }
 
