@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE newsletter_subscribers\n             SET status = 'confirmed', confirmed_at = coalesce(confirmed_at, now())\n             WHERE confirm_token = $1\n             RETURNING id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "newsletter_subscribers",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "b1b6148f77f5290eea7d761dadc560b608c8d073ab25a458425deb66df9914e7"
+}

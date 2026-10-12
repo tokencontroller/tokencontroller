@@ -69,7 +69,7 @@ today         $212.40 spent         91% on tickets
 
 ```sh
 # inside Claude Code
-/plugin marketplace add tokencontroller/claude-code
+/plugin marketplace add tokencontroller/tokencontroller
 /plugin install token-controller
 ```
 

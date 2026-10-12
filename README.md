@@ -15,6 +15,7 @@ The docs at [docs.tokencontroller.com](https://docs.tokencontroller.com) say exa
 | `apps/cli/` | The `tc` command, in Rust | MIT |
 | `crates/` | Rust libraries the service and the CLI share: `core` holds money, rules and the `Extension` trait | AGPL-3.0 or MIT, per crate; `core` is MIT |
 | `packages/` | Everything published to a registry, one folder each: `claude-code-mod` first, then one mod per agent harness that allows mods, `sdk` and `github-action` | MIT |
+| `.claude-plugin/` | The plugin marketplace Claude Code reads with `/plugin marketplace add tokencontroller/tokencontroller`. It lists the mod in `packages/claude-code-mod` | |
 | `tests/golden/` | Acceptance cases as CSV, one folder per scenario in the docs | |
 | `scripts/` | The harness check and the end-to-end smoke test CI runs | |
 
