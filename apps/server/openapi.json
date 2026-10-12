@@ -317,6 +317,42 @@
         }
       }
     },
+    "/api/v1/exports/raw": {
+      "get": {
+        "tags": [
+          "reports"
+        ],
+        "summary": "Everything the organization has, as a zip of JSON files. Controllers\nonly.",
+        "operationId": "raw_export",
+        "responses": {
+          "200": {
+            "description": "A zip of JSON files",
+            "content": {
+              "application/zip": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "integer",
+                    "format": "int32",
+                    "minimum": 0
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Only controllers export everything",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/health": {
       "get": {
         "tags": [
@@ -721,6 +757,778 @@
         }
       }
     },
+    "/api/v1/reports/agent-harness": {
+      "get": {
+        "tags": [
+          "reports"
+        ],
+        "summary": "Cost by agent harness, agent name, model, effort or speed.",
+        "operationId": "agent_harness_report",
+        "parameters": [
+          {
+            "name": "period",
+            "in": "query",
+            "description": "The period, such as `2026-09`.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": "2026-09"
+          },
+          {
+            "name": "by",
+            "in": "query",
+            "description": "A tag name, or `agent_harness`, `agent_name`, `model`, `effort`,\n`speed`, `day` or `cost_kind`.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "example": "team"
+          },
+          {
+            "name": "filter",
+            "in": "query",
+            "description": "A tag filter, such as `client:acme,team:web`.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "example": "client:acme"
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "description": "`all` (the default) or `approved`.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/StatusView"
+            }
+          },
+          {
+            "name": "currency",
+            "in": "query",
+            "description": "Show the report in another currency, such as `USD`.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "view",
+            "in": "query",
+            "description": "`money` (the default) or `share`.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/View"
+            }
+          },
+          {
+            "name": "format",
+            "in": "query",
+            "description": "`csv` for a CSV file.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The report, as JSON or CSV",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Report"
+                }
+              },
+              "text/csv": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`by` is not one of the agent harness cuts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/reports/cost": {
+      "get": {
+        "tags": [
+          "reports"
+        ],
+        "summary": "Cost grouped by any tag, within a filter: the reporting API's main\nreport.",
+        "operationId": "cost_report",
+        "parameters": [
+          {
+            "name": "period",
+            "in": "query",
+            "description": "The period, such as `2026-09`.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": "2026-09"
+          },
+          {
+            "name": "by",
+            "in": "query",
+            "description": "A tag name, or `agent_harness`, `agent_name`, `model`, `effort`,\n`speed`, `day` or `cost_kind`.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "example": "team"
+          },
+          {
+            "name": "filter",
+            "in": "query",
+            "description": "A tag filter, such as `client:acme,team:web`.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "example": "client:acme"
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "description": "`all` (the default) or `approved`.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/StatusView"
+            }
+          },
+          {
+            "name": "currency",
+            "in": "query",
+            "description": "Show the report in another currency, such as `USD`.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "view",
+            "in": "query",
+            "description": "`money` (the default) or `share`.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/View"
+            }
+          },
+          {
+            "name": "format",
+            "in": "query",
+            "description": "`csv` for a CSV file.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The report, as JSON or CSV",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Report"
+                }
+              },
+              "text/csv": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The filter, grouping or currency cannot be read",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "An exchange rate is missing",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/reports/outliers": {
+      "get": {
+        "tags": [
+          "reports"
+        ],
+        "summary": "Tickets that cost far more or less than similar past tickets.",
+        "operationId": "outliers",
+        "parameters": [
+          {
+            "name": "period",
+            "in": "query",
+            "description": "The period, such as `2026-09`.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": "2026-09"
+          },
+          {
+            "name": "filter",
+            "in": "query",
+            "description": "Only tickets matching this tag filter, such as `client:acme`.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "example": "client:acme"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "How many tickets to list, 20 when left out.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "format",
+            "in": "query",
+            "description": "`csv` for a CSV file.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The outliers, as JSON or CSV",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Outliers"
+                }
+              },
+              "text/csv": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The filter cannot be read",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "An exchange rate is missing",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/reports/saved": {
+      "get": {
+        "tags": [
+          "reports"
+        ],
+        "summary": "The saved reports of the organization, by name.",
+        "operationId": "list_saved",
+        "responses": {
+          "200": {
+            "description": "Saved reports",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/SavedReport"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "reports"
+        ],
+        "summary": "Save a tag filter with a grouping as a report.",
+        "operationId": "save_report",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Saved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SavedReport"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "No name, no grouping, or a filter that cannot be read",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/reports/saved/{id}": {
+      "get": {
+        "tags": [
+          "reports"
+        ],
+        "summary": "A saved report for one period.",
+        "operationId": "run_saved",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The saved report",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "period",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": "2026-09"
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "description": "`all` (the default) or `approved`.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/StatusView"
+            }
+          },
+          {
+            "name": "currency",
+            "in": "query",
+            "description": "Show the report in another currency, such as `USD`.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "view",
+            "in": "query",
+            "description": "`money` (the default) or `share`.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/View"
+            }
+          },
+          {
+            "name": "format",
+            "in": "query",
+            "description": "`csv` for a CSV file.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The report, as JSON or CSV",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Report"
+                }
+              },
+              "text/csv": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such saved report",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "reports"
+        ],
+        "summary": "Remove a saved report. Its creator or a controller can.",
+        "operationId": "remove_saved",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The saved report",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Removed"
+          },
+          "404": {
+            "description": "No such saved report of yours",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/reports/token-budgets": {
+      "get": {
+        "tags": [
+          "token_budgets"
+        ],
+        "summary": "Token budget vs actual: one row per token budget in force for the\nperiod, with the token budget, the actual cost and the difference.\nToken budgets overlap, so the rows are never added up.",
+        "operationId": "token_budget_vs_actual",
+        "parameters": [
+          {
+            "name": "period",
+            "in": "query",
+            "description": "The period, such as `2026-09`. Left out: this month.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "example": "2026-09"
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "description": "`all` (the default) or `approved`.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/StatusView"
+            }
+          },
+          {
+            "name": "format",
+            "in": "query",
+            "description": "`csv` for a CSV file.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Token budget vs actual, as JSON or CSV",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenBudgetReport"
+                }
+              },
+              "text/csv": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The period is not valid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "An exchange rate is missing",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/reports/token-budgets/{id}": {
+      "get": {
+        "tags": [
+          "token_budgets"
+        ],
+        "summary": "One token budget opened down to the tickets (by their `ticket` tag) and\ntoken entries behind its actual, for a period it is in force in.",
+        "operationId": "token_budget_detail",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The token budget",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "period",
+            "in": "query",
+            "description": "The period, such as `2026-09`. Left out: this month.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "example": "2026-09"
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "description": "`all` (the default) or `approved`.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/StatusView"
+            }
+          },
+          {
+            "name": "format",
+            "in": "query",
+            "description": "`csv` for a CSV file.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "table",
+            "in": "query",
+            "description": "The table the CSV file holds: `tickets` (the default) or\n`token_entries`.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The token budget's actual opened down, as JSON or CSV",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenBudgetDetail"
+                }
+              },
+              "text/csv": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The period or table is not valid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such token budget",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The token budget is not in force in the period, or an exchange rate is missing",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/reports/token-entries": {
+      "get": {
+        "tags": [
+          "reports"
+        ],
+        "summary": "Token entries with their splits, tags and summaries, within the caller's\nrole.",
+        "operationId": "token_entries",
+        "parameters": [
+          {
+            "name": "period",
+            "in": "query",
+            "description": "The period, such as `2026-09`. Left out: all time.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "example": "2026-09"
+          },
+          {
+            "name": "filter",
+            "in": "query",
+            "description": "A tag filter, such as `client:acme,team:web`.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "example": "client:acme"
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "description": "Statuses, comma separated, out of `submitted`, `approved`,\n`rejected` and `locked`. Left out: every status that counts.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "example": "submitted,approved"
+          },
+          {
+            "name": "format",
+            "in": "query",
+            "description": "`csv` for a CSV file of every matching token entry, one row per\nsplit.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Token entries per page, up to 5000.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Token entries, as a JSON page or one CSV file",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenEntriesPage"
+                }
+              },
+              "text/csv": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The filter or a status cannot be read",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/shared/cost-sheets/{secret}": {
       "get": {
         "tags": [
@@ -775,6 +1583,274 @@
           },
           "404": {
             "description": "No such link, or it was revoked",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tickets/{key}/token-forecast": {
+      "post": {
+        "tags": [
+          "token_budgets"
+        ],
+        "summary": "Make a token forecast for a ticket from similar past work: its title\nand description are compared with the summaries of past token entries,\nand the median actual cost of the best-matching past tickets is\nproposed. Nothing is planned until a person accepts it.",
+        "operationId": "create_token_forecast",
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "description": "The ticket key, such as KD-214",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "The token forecast",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenForecastView"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Outside the filters you are assigned",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such ticket",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Token forecasts are off on this instance or for this organization, the ticket has no text, or the model failed; the message says which",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/token-budgets": {
+      "get": {
+        "tags": [
+          "token_budgets"
+        ],
+        "summary": "The token budgets you may see: a controller all of them, a people\nmanager those within their filters, an agent manager those on their own\nperson. They can overlap; never add them up.",
+        "operationId": "list_token_budgets",
+        "parameters": [
+          {
+            "name": "format",
+            "in": "query",
+            "description": "`csv` for a CSV file.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The token budgets, as JSON or CSV",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TokenBudgetView"
+                  }
+                }
+              },
+              "text/csv": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "token_budgets"
+        ],
+        "summary": "Set a token budget on a tag filter: for one period, every month from a\nperiod on, or all time. People managers set them within the filters they\nare assigned, controllers anywhere.",
+        "operationId": "create_token_budget",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TokenBudgetInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Set",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenBudgetView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The filter, period or amount is not valid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Outside the filters you are assigned",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/token-budgets/{id}": {
+      "put": {
+        "tags": [
+          "token_budgets"
+        ],
+        "summary": "Change a token budget. Both its old and its new filter must lie within\nthe filters you are assigned.",
+        "operationId": "update_token_budget",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The token budget",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TokenBudgetInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Changed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenBudgetView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The filter, period or amount is not valid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Outside the filters you are assigned",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such token budget",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "token_budgets"
+        ],
+        "summary": "Remove a token budget. It no longer shows in token budget vs actual.",
+        "operationId": "remove_token_budget",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The token budget",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Removed"
+          },
+          "403": {
+            "description": "Outside the filters you are assigned",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such token budget",
             "content": {
               "application/json": {
                 "schema": {
@@ -970,6 +2046,149 @@
         }
       }
     },
+    "/api/v1/token-forecasts/settings": {
+      "get": {
+        "tags": [
+          "token_budgets"
+        ],
+        "summary": "Whether token forecasts are on for the organization and available on\nthis instance.",
+        "operationId": "get_settings",
+        "responses": {
+          "200": {
+            "description": "The token forecast settings",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenForecastSettings"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "token_budgets"
+        ],
+        "summary": "Switch token forecasts on or off for the organization. Token budgets\nwork either way.",
+        "operationId": "set_settings",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TokenForecastSettingsInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The token forecast settings",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenForecastSettings"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Only a controller can switch token forecasts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/token-forecasts/{id}/accept": {
+      "post": {
+        "tags": [
+          "token_budgets"
+        ],
+        "summary": "Accept a token forecast: it becomes a token budget on its ticket for\nall time. Keep only some matches, or type the amount instead.",
+        "operationId": "accept_token_forecast",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The token forecast",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AcceptInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "The token budget",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenBudgetView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The amount or a match is not valid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Outside the filters you are assigned",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such token forecast",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Already accepted, or there is no amount to accept",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/token-sheets/late": {
       "get": {
         "tags": [
@@ -1030,6 +2249,34 @@
   },
   "components": {
     "schemas": {
+      "AcceptInput": {
+        "type": "object",
+        "description": "How to accept a token forecast.",
+        "properties": {
+          "amount": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Type the amount instead, in the reporting currency, such as `45.00`.",
+            "example": "45.00"
+          },
+          "tickets": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "Keep only these matches, by ticket key: the token budget is their\nmedian cost. Left out: the proposal as it is.",
+            "example": [
+              "KD-180",
+              "KD-191"
+            ]
+          }
+        }
+      },
       "AdjustmentInput": {
         "type": "object",
         "description": "An adjustment to post (docs: Account > Adjustments).",
@@ -1050,6 +2297,43 @@
           "tags": {
             "type": "object",
             "description": "The cost object and any other tags, such as `{\"ticket\": \"KD-214\"}`.\nNo tags puts it on the organization.",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "AdjustmentLine": {
+        "type": "object",
+        "description": "An adjustment to a closed period that counts in actual.",
+        "required": [
+          "id",
+          "amount",
+          "tags",
+          "reason",
+          "late"
+        ],
+        "properties": {
+          "amount": {
+            "type": "string",
+            "example": "-120.00"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "late": {
+            "type": "boolean",
+            "description": "Posted from a token sheet submitted after its period closed."
+          },
+          "reason": {
+            "type": "string"
+          },
+          "tags": {
+            "type": "object",
             "additionalProperties": {
               "type": "string"
             },
@@ -1137,6 +2421,14 @@
             "description": "These token entries. Left out: every submitted token entry matching\n`period` and `filter` that the caller may approve."
           }
         }
+      },
+      "Baseline": {
+        "type": "string",
+        "description": "What a ticket was compared with.",
+        "enum": [
+          "project",
+          "organization"
+        ]
       },
       "BillInput": {
         "type": "object",
@@ -1700,6 +2992,14 @@
           }
         }
       },
+      "Direction": {
+        "type": "string",
+        "description": "Above or below the baseline.",
+        "enum": [
+          "high",
+          "low"
+        ]
+      },
       "EntryStatus": {
         "type": "string",
         "description": "Where a token entry stands (docs: Reference > Data model, status).",
@@ -1838,6 +3138,63 @@
           },
           "unknown_model_count": {
             "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "Filter": {
+        "type": "object",
+        "description": "A set of tags. The empty filter matches everything.",
+        "additionalProperties": {
+          "type": "string"
+        },
+        "propertyNames": {
+          "type": "string"
+        },
+        "example": {
+          "client": "acme"
+        }
+      },
+      "ForecastMatch": {
+        "type": "object",
+        "description": "One past ticket a token forecast matched.",
+        "required": [
+          "ticket",
+          "confidence",
+          "actual",
+          "token_entries",
+          "unknown_model_entries"
+        ],
+        "properties": {
+          "actual": {
+            "type": "string",
+            "description": "Its actual cost over all time, in the reporting currency.",
+            "example": "41.87"
+          },
+          "confidence": {
+            "type": "integer",
+            "format": "int32",
+            "description": "How alike its token entries' summaries are to the ticket, in percent.",
+            "example": 82,
+            "minimum": 0
+          },
+          "ticket": {
+            "type": "string",
+            "example": "KD-180"
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "token_entries": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "unknown_model_entries": {
+            "type": "integer",
+            "description": "Token entries on a model missing from the price table: their cost is\nnot known, so this ticket is left out of the proposal.",
             "minimum": 0
           }
         }
@@ -1990,6 +3347,118 @@
           "unknown_model": {
             "type": "integer",
             "description": "Token entries on a model missing from the price table.",
+            "minimum": 0
+          }
+        }
+      },
+      "Outcome": {
+        "type": "string",
+        "description": "How actual compares with the token budget.",
+        "enum": [
+          "overrun",
+          "underrun",
+          "at_token_budget"
+        ]
+      },
+      "Outlier": {
+        "type": "object",
+        "description": "One ticket far from its baseline.",
+        "required": [
+          "ticket",
+          "amount",
+          "baseline",
+          "ratio",
+          "direction",
+          "compared_with",
+          "similar_tickets",
+          "token_entries",
+          "unknown_model"
+        ],
+        "properties": {
+          "amount": {
+            "type": "string",
+            "description": "The ticket's cost so far, up to the end of the period.",
+            "example": "212.40"
+          },
+          "baseline": {
+            "type": "string",
+            "description": "The median cost of similar past tickets.",
+            "example": "48.10"
+          },
+          "compared_with": {
+            "$ref": "#/components/schemas/Baseline"
+          },
+          "direction": {
+            "$ref": "#/components/schemas/Direction"
+          },
+          "project": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ratio": {
+            "type": "string",
+            "description": "Cost over baseline, such as `4.4` for four times as much.",
+            "example": "4.4"
+          },
+          "similar_tickets": {
+            "type": "integer",
+            "description": "How many past tickets the baseline comes from.",
+            "minimum": 0
+          },
+          "ticket": {
+            "type": "string",
+            "example": "KD-214"
+          },
+          "token_entries": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "unknown_model": {
+            "type": "integer",
+            "description": "Token entries on a model missing from the price table.",
+            "minimum": 0
+          }
+        }
+      },
+      "Outliers": {
+        "type": "object",
+        "description": "The outliers of a period.",
+        "required": [
+          "period",
+          "closed",
+          "currency",
+          "label",
+          "tickets",
+          "without_baseline"
+        ],
+        "properties": {
+          "closed": {
+            "type": "boolean"
+          },
+          "currency": {
+            "type": "string",
+            "example": "EUR"
+          },
+          "label": {
+            "type": "string",
+            "description": "`list-price estimate`."
+          },
+          "period": {
+            "type": "string",
+            "example": "2026-09"
+          },
+          "tickets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Outlier"
+            },
+            "description": "Furthest from the baseline first."
+          },
+          "without_baseline": {
+            "type": "integer",
+            "description": "Tickets of the period with too few similar past tickets to compare.",
             "minimum": 0
           }
         }
@@ -2250,6 +3719,110 @@
           }
         }
       },
+      "Report": {
+        "type": "object",
+        "description": "A report.",
+        "required": [
+          "period",
+          "closed",
+          "by",
+          "filter",
+          "status",
+          "view",
+          "currency",
+          "label",
+          "rows",
+          "total"
+        ],
+        "properties": {
+          "by": {
+            "type": "string"
+          },
+          "closed": {
+            "type": "boolean"
+          },
+          "currency": {
+            "type": "string",
+            "example": "EUR"
+          },
+          "exchange_rate": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The rate from the reporting currency, when shown in another one."
+          },
+          "filter": {
+            "$ref": "#/components/schemas/Filter"
+          },
+          "label": {
+            "type": "string",
+            "description": "`list-price estimate`, or `share of the period`."
+          },
+          "period": {
+            "type": "string",
+            "example": "2026-09"
+          },
+          "rows": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ReportRow"
+            }
+          },
+          "status": {
+            "$ref": "#/components/schemas/StatusView"
+          },
+          "total": {
+            "type": "string"
+          },
+          "view": {
+            "$ref": "#/components/schemas/View"
+          }
+        }
+      },
+      "ReportRow": {
+        "type": "object",
+        "description": "One line of a report.",
+        "required": [
+          "amount",
+          "token_entries",
+          "unknown_model",
+          "adjustment"
+        ],
+        "properties": {
+          "adjustment": {
+            "type": "boolean",
+            "description": "An adjustment posted to the closed period, shown as its own line."
+          },
+          "amount": {
+            "type": "string",
+            "example": "41.87"
+          },
+          "share": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The line's share of the total in percent, such as `41.20`, in the\nshare view."
+          },
+          "token_entries": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "unknown_model": {
+            "type": "integer",
+            "description": "Token entries on a model missing from the price table.",
+            "minimum": 0
+          },
+          "value": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The group, such as `web`; `null` for token entries without it."
+          }
+        }
+      },
       "Review": {
         "type": "object",
         "description": "The caller's review list.",
@@ -2275,6 +3848,68 @@
               "$ref": "#/components/schemas/SheetSummary"
             },
             "description": "The person's token sheets, newest first."
+          }
+        }
+      },
+      "SaveInput": {
+        "type": "object",
+        "description": "A report to save.",
+        "required": [
+          "name",
+          "by"
+        ],
+        "properties": {
+          "by": {
+            "type": "string",
+            "example": "team"
+          },
+          "filter": {
+            "type": "string",
+            "description": "A tag filter in the URL form, such as `client:acme`.",
+            "example": "client:acme"
+          },
+          "name": {
+            "type": "string",
+            "example": "ACME by team"
+          }
+        }
+      },
+      "SavedReport": {
+        "type": "object",
+        "description": "A saved report.",
+        "required": [
+          "id",
+          "name",
+          "filter",
+          "by",
+          "created_at"
+        ],
+        "properties": {
+          "by": {
+            "type": "string",
+            "description": "A tag name, or `agent_harness`, `agent_name`, `model`, `effort`,\n`speed`, `day` or `cost_kind`.",
+            "example": "team"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "created_by": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "filter": {
+            "$ref": "#/components/schemas/Filter"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string",
+            "example": "ACME by team"
           }
         }
       },
@@ -2362,6 +3997,428 @@
           }
         }
       },
+      "StatusView": {
+        "type": "string",
+        "description": "Which counting token entries a report shows (docs: Report > Reading\nreports, status).",
+        "enum": [
+          "all",
+          "approved"
+        ]
+      },
+      "TicketActual": {
+        "type": "object",
+        "description": "The actual of one ticket behind a token budget.",
+        "required": [
+          "actual",
+          "token_entries",
+          "unknown_model_entries"
+        ],
+        "properties": {
+          "actual": {
+            "type": "string",
+            "example": "41.87"
+          },
+          "ticket": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The ticket key; `null` for cost on no ticket.",
+            "example": "KD-214"
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "token_entries": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "unknown_model_entries": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "TokenBudgetDetail": {
+        "type": "object",
+        "description": "One token budget opened down to what makes up its actual.",
+        "required": [
+          "period",
+          "currency",
+          "row",
+          "tickets",
+          "token_entries",
+          "adjustments"
+        ],
+        "properties": {
+          "adjustments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AdjustmentLine"
+            }
+          },
+          "currency": {
+            "type": "string",
+            "example": "EUR"
+          },
+          "period": {
+            "type": "string",
+            "example": "2026-09"
+          },
+          "row": {
+            "$ref": "#/components/schemas/TokenBudgetRow"
+          },
+          "tickets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TicketActual"
+            },
+            "description": "Actual per ticket, the largest first; they add up to actual."
+          },
+          "token_entries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EntryView"
+            },
+            "description": "The token entries behind actual, with their own list value."
+          }
+        }
+      },
+      "TokenBudgetInput": {
+        "type": "object",
+        "description": "A token budget to set.",
+        "required": [
+          "amount"
+        ],
+        "properties": {
+          "amount": {
+            "type": "string",
+            "description": "The amount in the reporting currency, above zero, such as `1500.00`.",
+            "example": "1500.00"
+          },
+          "every_month": {
+            "type": "boolean",
+            "description": "The amount applies to every month from `period` on."
+          },
+          "filter": {
+            "$ref": "#/components/schemas/Filter",
+            "description": "The tag filter: tag names and values, such as `{\"team\": \"web\",\n\"client\": \"acme\"}`. No tags is the whole organization."
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "A name to tell it apart, such as `Ana, monthly`."
+          },
+          "period": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The period, such as `2026-09`. Left out: all time, as for a ticket.",
+            "example": "2026-09"
+          }
+        }
+      },
+      "TokenBudgetReport": {
+        "type": "object",
+        "description": "Token budget vs actual for one period.",
+        "required": [
+          "period",
+          "currency",
+          "status",
+          "rows"
+        ],
+        "properties": {
+          "currency": {
+            "type": "string",
+            "example": "EUR"
+          },
+          "period": {
+            "type": "string",
+            "example": "2026-09"
+          },
+          "rows": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TokenBudgetRow"
+            },
+            "description": "Token budgets overlap, so rows are never added up."
+          },
+          "status": {
+            "$ref": "#/components/schemas/StatusView",
+            "description": "The view of token entries counted: `all` or `approved`."
+          }
+        }
+      },
+      "TokenBudgetRow": {
+        "type": "object",
+        "description": "One token budget against its actual.",
+        "required": [
+          "token_budget",
+          "amount",
+          "actual",
+          "difference",
+          "token_entries",
+          "unknown_model_entries"
+        ],
+        "properties": {
+          "actual": {
+            "type": "string",
+            "description": "What was spent, in the reporting currency: list value of the counting\ntoken entries matching the filter, plus adjustments to closed\nperiods. Token entries on an unknown model are not in it.",
+            "example": "1620.00"
+          },
+          "actual_period": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The period actual is counted over; `null` for an all-time token\nbudget, which counts every period.",
+            "example": "2026-09"
+          },
+          "amount": {
+            "type": "string",
+            "description": "The token budget in the reporting currency.",
+            "example": "1500.00"
+          },
+          "difference": {
+            "type": "string",
+            "description": "Actual minus token budget: above zero is an overrun, below zero an\nunderrun.",
+            "example": "120.00"
+          },
+          "outcome": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Outcome",
+                "description": "`null` when token entries on an unknown model leave it open."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "token_budget": {
+            "$ref": "#/components/schemas/TokenBudgetView"
+          },
+          "token_entries": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "unknown_model_entries": {
+            "type": "integer",
+            "description": "Token entries on a model missing from the price table: counted, but\ntheir cost is not known, so it is not in `actual`.",
+            "minimum": 0
+          }
+        }
+      },
+      "TokenBudgetView": {
+        "type": "object",
+        "description": "One token budget as the API shows it.",
+        "required": [
+          "id",
+          "filter",
+          "every_month",
+          "applies",
+          "amount",
+          "currency",
+          "set_at"
+        ],
+        "properties": {
+          "amount": {
+            "type": "string",
+            "description": "The token budget, such as `1500.00`.",
+            "example": "1500.00"
+          },
+          "applies": {
+            "type": "string",
+            "description": "When it applies, in words: `2026-09`, `every month from 2026-09` or\n`all time`.",
+            "example": "every month from 2026-09"
+          },
+          "currency": {
+            "type": "string",
+            "example": "EUR"
+          },
+          "every_month": {
+            "type": "boolean",
+            "description": "The amount applies to each month from `period` on."
+          },
+          "filter": {
+            "$ref": "#/components/schemas/Filter",
+            "description": "The tag filter, such as `{\"person\": \"ana@example.com\"}`."
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "period": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The one period, or the first period of a token budget for every\nmonth; `null` for all time.",
+            "example": "2026-09"
+          },
+          "set_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "set_by": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Who set it."
+          },
+          "token_forecast_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "The token forecast it was accepted from."
+          }
+        }
+      },
+      "TokenEntriesPage": {
+        "type": "object",
+        "description": "One page of token entries, oldest first.",
+        "required": [
+          "token_entries",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "token_entries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EntryView"
+            }
+          },
+          "total": {
+            "type": "integer",
+            "description": "Matching token entries on all pages.",
+            "minimum": 0
+          }
+        }
+      },
+      "TokenForecastSettings": {
+        "type": "object",
+        "description": "Whether token forecasts are on.",
+        "required": [
+          "enabled",
+          "available"
+        ],
+        "properties": {
+          "available": {
+            "type": "boolean",
+            "description": "Whether this instance has an embeddings model configured. Without\none, token forecasts are off whatever `enabled` says."
+          },
+          "enabled": {
+            "type": "boolean",
+            "description": "Whether the organization uses token forecasts: on unless a\ncontroller switched them off."
+          },
+          "model": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The embeddings model, such as `text-embedding-3-small`."
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why token forecasts are off, in plain words; `null` while they are\non."
+          }
+        }
+      },
+      "TokenForecastSettingsInput": {
+        "type": "object",
+        "description": "Switches token forecasts on or off for the organization.",
+        "required": [
+          "enabled"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          }
+        }
+      },
+      "TokenForecastView": {
+        "type": "object",
+        "description": "A token forecast for one ticket.",
+        "required": [
+          "id",
+          "ticket",
+          "currency",
+          "matches",
+          "model",
+          "created_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "currency": {
+            "type": "string",
+            "example": "EUR"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "matches": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ForecastMatch"
+            },
+            "description": "The most alike first."
+          },
+          "model": {
+            "type": "string",
+            "description": "The embeddings model it compared with."
+          },
+          "proposed": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The median actual cost of the matches with a known cost; `null` when\nthere is none.",
+            "example": "38.20"
+          },
+          "ticket": {
+            "type": "string",
+            "example": "KD-214"
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
       "Totals": {
         "type": "object",
         "description": "The organization-wide figures, in the reporting currency.",
@@ -2395,6 +4452,14 @@
             "type": "string"
           }
         }
+      },
+      "View": {
+        "type": "string",
+        "description": "Money or shares of the period.",
+        "enum": [
+          "money",
+          "share"
+        ]
       }
     }
   }

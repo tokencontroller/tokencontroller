@@ -117,7 +117,11 @@ fn parse_millionths(text: &str) -> Option<i32> {
     if whole.is_empty() && fraction.is_empty() {
         return None;
     }
-    if !whole.chars().chain(fraction.chars()).all(|c| c.is_ascii_digit()) {
+    if !whole
+        .chars()
+        .chain(fraction.chars())
+        .all(|c| c.is_ascii_digit())
+    {
         return None;
     }
     let digits: String = whole.chars().chain(fraction.chars()).collect();
@@ -177,9 +181,12 @@ pub fn median(amounts: &[Money], currency: Currency) -> Result<Option<Money>, Mo
     };
     if count.is_multiple_of(2) {
         let lower_index = upper_index.checked_sub(1).ok_or(MoneyError::Overflow)?;
-        let lower = sorted.get(lower_index).copied().ok_or(MoneyError::Overflow)?;
-        let both = Money::from_nanos(lower, currency)
-            .checked_add(Money::from_nanos(upper, currency))?;
+        let lower = sorted
+            .get(lower_index)
+            .copied()
+            .ok_or(MoneyError::Overflow)?;
+        let both =
+            Money::from_nanos(lower, currency).checked_add(Money::from_nanos(upper, currency))?;
         let halves = both.allocate(&[1, 1])?;
         Ok(halves.into_iter().next())
     } else {
@@ -212,7 +219,9 @@ mod tests {
 
     #[test]
     fn refuses_what_is_not_a_number() {
-        for text in ["", "abc", "1.2.3", "--1", "1e", "NaN", "inf", ".", "1e999", "2001", "-2000.5"] {
+        for text in [
+            "", "abc", "1.2.3", "--1", "1e", "NaN", "inf", ".", "1e999", "2001", "-2000.5",
+        ] {
             assert_eq!(parse_millionths(text), None, "{text}");
         }
         assert_eq!(parse_millionths("2000"), Some(2_000_000_000));
@@ -220,7 +229,10 @@ mod tests {
             Embedding::parse(["0.1", "x"]),
             Err(EmbeddingError::NotANumber("x".to_owned()))
         );
-        assert_eq!(Embedding::parse(Vec::<String>::new()), Err(EmbeddingError::Empty));
+        assert_eq!(
+            Embedding::parse(Vec::<String>::new()),
+            Err(EmbeddingError::Empty)
+        );
     }
 
     #[test]

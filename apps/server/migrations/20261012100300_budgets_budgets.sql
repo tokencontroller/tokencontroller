@@ -22,6 +22,10 @@ CREATE TABLE token_budgets (
 
 CREATE INDEX token_budgets_by_organization ON token_budgets (organization_id) WHERE removed_at IS NULL;
 
+-- A token forecast is accepted at most once.
+CREATE UNIQUE INDEX token_budgets_one_per_forecast ON token_budgets (token_forecast_id)
+    WHERE token_forecast_id IS NOT NULL AND removed_at IS NULL;
+
 -- The embedding of a token entry's summary, in millionths, made with
 -- `model`. Only summaries are embedded; no other text exists.
 CREATE TABLE summary_embeddings (
@@ -35,15 +39,17 @@ CREATE TABLE summary_embeddings (
 CREATE INDEX summary_embeddings_by_organization ON summary_embeddings (organization_id, model);
 
 -- A suggestion for one ticket: the matched past tickets with their
--- confidence and cost, and the median proposed. It becomes a token budget
--- only when a person accepts it.
+-- confidence and cost, and the median proposed (none when no match has a
+-- known cost). `model` is the embeddings model it compared with. It
+-- becomes a token budget only when a person accepts it.
 CREATE TABLE token_forecasts (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     organization_id uuid NOT NULL REFERENCES organizations (id) ON DELETE CASCADE,
     ticket_id uuid NOT NULL REFERENCES tickets (id) ON DELETE CASCADE,
-    proposed_nanos bigint,
+    proposed_nanos bigint CHECK (proposed_nanos IS NULL OR proposed_nanos >= 0),
     currency text NOT NULL CHECK (currency ~ '^[A-Z]{3}$'),
     matches jsonb NOT NULL CHECK (jsonb_typeof(matches) = 'array'),
+    model text NOT NULL,
     created_by uuid NOT NULL REFERENCES people (id),
     created_at timestamptz NOT NULL DEFAULT now()
 );
