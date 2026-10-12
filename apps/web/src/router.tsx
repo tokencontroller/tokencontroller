@@ -1,0 +1,157 @@
+import { createRootRoute, createRoute, createRouter, Outlet, redirect } from "@tanstack/react-router";
+import { ApiError } from "@/api/client";
+import { AppShell } from "@/components/app-shell";
+import { ErrorBox } from "@/components/ui/display";
+import { meQuery, queryClient } from "@/lib/queries";
+import { hasRole } from "@/lib/roles";
+import type { Role } from "@/api/contract";
+import { ApprovalPage } from "@/routes/approval";
+import { BillsPage } from "@/routes/bills";
+import { ConnectComputerPage } from "@/routes/cli";
+import { ClosePage } from "@/routes/close";
+import { CostSheetPage, SharedCostSheetPage } from "@/routes/cost-sheet";
+import { BudgetsPage } from "@/routes/budgets";
+import { OverviewPage } from "@/routes/overview";
+import { PeoplePage } from "@/routes/people";
+import { ProjectPage, ProjectsPage } from "@/routes/projects";
+import { ReportsPage } from "@/routes/reports";
+import { ReviewPage } from "@/routes/review";
+import { RulesPage } from "@/routes/rules";
+import { SettingsPage } from "@/routes/settings";
+import { SignInPage, SignUpPage, VerifyPage } from "@/routes/sign-in";
+import { TagsPage } from "@/routes/tags";
+import { TokenEntriesPage } from "@/routes/token-entries";
+import { NotFoundPage } from "@/routes/not-found";
+
+const rootRoute = createRootRoute({ component: Outlet, notFoundComponent: NotFoundPage });
+
+const signInRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/sign-in",
+  validateSearch: (search: Record<string, unknown>): { sent?: string; next?: string } => ({
+    ...(typeof search.sent === "string" ? { sent: search.sent } : {}),
+    ...(typeof search.next === "string" ? { next: search.next } : {}),
+  }),
+  component: SignInPage,
+});
+
+const verifyRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/sign-in/verify",
+  validateSearch: (search: Record<string, unknown>): { token: string; next?: string } => ({
+    token: typeof search.token === "string" ? search.token : "",
+    ...(typeof search.next === "string" ? { next: search.next } : {}),
+  }),
+  component: VerifyPage,
+});
+
+const signUpRoute = createRoute({ getParentRoute: () => rootRoute, path: "/signup", component: SignUpPage });
+
+// The cost sheet link a controller hands to finance: no sign-in.
+const sharedCostSheetRoute = createRoute({ getParentRoute: () => rootRoute, path: "/shared/cost-sheet/$token", component: SharedCostSheetPage });
+
+// Everything below needs a signed-in member.
+const appRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  id: "app",
+  beforeLoad: async ({ location }): Promise<void> => {
+    try {
+      await queryClient.query({ ...meQuery, staleTime: "static" });
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) {
+        // Back to the page they asked for once signed in, such as /cli/WDJB-MJHT.
+        const next = location.pathname === "/" ? {} : { next: location.href };
+        // eslint-disable-next-line @typescript-eslint/only-throw-error -- the router's way to redirect
+        throw redirect({ to: "/sign-in", search: next });
+      }
+      throw error;
+    }
+  },
+  component: () => (
+    <AppShell>
+      <Outlet />
+    </AppShell>
+  ),
+  errorComponent: ({ error }) => (
+    <div className="mx-auto max-w-lg p-8">
+      <ErrorBox error={error} />
+    </div>
+  ),
+});
+
+/** Keeps a page to the roles the docs give it. */
+function requireRole(role: Role): () => Promise<void> {
+  return async () => {
+    const me = await queryClient.query({ ...meQuery, staleTime: "static" });
+    if (!hasRole(me.person, role)) {
+      // eslint-disable-next-line @typescript-eslint/only-throw-error -- the router's way to redirect
+      throw redirect({ to: "/" });
+    }
+  };
+}
+
+export interface PeriodSearch {
+  period?: string;
+}
+
+const periodSearch = (search: Record<string, unknown>): PeriodSearch =>
+  typeof search.period === "string" && /^\d{4}-\d{2}$/.test(search.period) ? { period: search.period } : {};
+
+const page = <P extends string>(path: P, component: () => React.ReactNode, role: Role = "agent_manager") =>
+  createRoute({ getParentRoute: () => appRoute, path, beforeLoad: requireRole(role), validateSearch: periodSearch, component });
+
+const overviewRoute = page("/", OverviewPage);
+const reviewRoute = page("/review", ReviewPage);
+const entriesRoute = page("/token-entries", TokenEntriesPage);
+const approvalRoute = page("/approval", ApprovalPage, "people_manager");
+const billsRoute = page("/bills", BillsPage, "controller");
+const closeRoute = page("/close", ClosePage, "controller");
+const costSheetRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: "/close/$period",
+  beforeLoad: requireRole("controller"),
+  component: CostSheetPage,
+});
+const budgetsRoute = page("/budgets", BudgetsPage, "people_manager");
+const reportsRoute = page("/reports", ReportsPage);
+const projectsRoute = page("/projects", ProjectsPage, "people_manager");
+const projectRoute = createRoute({ getParentRoute: () => appRoute, path: "/projects/$key", beforeLoad: requireRole("people_manager"), component: ProjectPage });
+const tagsRoute = page("/tags", TagsPage, "controller");
+const rulesRoute = page("/rules", RulesPage);
+const peopleRoute = page("/people", PeoplePage, "people_manager");
+const settingsRoute = page("/settings", SettingsPage);
+// `tc connect` sends people here to connect a computer (a device sign-in).
+const cliRoute = createRoute({ getParentRoute: () => appRoute, path: "/cli/$code", component: ConnectComputerPage });
+
+const routeTree = rootRoute.addChildren([
+  signInRoute,
+  verifyRoute,
+  signUpRoute,
+  sharedCostSheetRoute,
+  appRoute.addChildren([
+    overviewRoute,
+    reviewRoute,
+    entriesRoute,
+    approvalRoute,
+    billsRoute,
+    closeRoute,
+    costSheetRoute,
+    budgetsRoute,
+    reportsRoute,
+    projectsRoute,
+    projectRoute,
+    tagsRoute,
+    rulesRoute,
+    peopleRoute,
+    settingsRoute,
+    cliRoute,
+  ]),
+]);
+
+export const router = createRouter({ routeTree, defaultPreload: "intent", scrollRestoration: true });
+
+declare module "@tanstack/react-router" {
+  interface Register {
+    router: typeof router;
+  }
+}
