@@ -232,9 +232,9 @@ pub(super) async fn invite_member(
         }
         None => {}
     }
-    let limit = crate::billing::member_limit(&state, member.organization_id).await?;
+    let limit = super::member_limit(&state, member.organization_id).await?;
     if super::member_count(&state.db, member.organization_id).await? >= limit.max {
-        return Err(ApiError::Conflict(limit.message.to_owned()));
+        return Err(ApiError::Conflict(limit.message));
     }
 
     let code = format!(

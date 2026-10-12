@@ -15,8 +15,8 @@ use utoipa::ToSchema;
 
 use super::claude::{self, Ask, ClaudeError, Role};
 use super::web::{self, Limit, Refusal};
-use crate::AppState;
 use crate::error::{ApiError, ErrorBody};
+use crate::hosted::Hosted;
 
 /// The longest question the assistant takes.
 pub const MAX_QUESTION: usize = 500;
@@ -96,11 +96,11 @@ fn per_visitor() -> &'static Limit {
     ),
 )]
 pub async fn ask(
-    State(state): State<AppState>,
+    State(state): State<Hosted>,
     headers: HeaderMap,
     Json(question): Json<Question>,
 ) -> Response {
-    let settings = &state.config.customer_relations;
+    let settings = &state.settings.customer_relations;
     let response = answer(&state, &headers, question)
         .await
         .map_or_else(IntoResponse::into_response, |answer| {
@@ -110,16 +110,16 @@ pub async fn ask(
 }
 
 /// The browser's preflight for [`ask`].
-pub async fn ask_preflight(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    web::preflight(&state.config.customer_relations, &headers)
+pub async fn ask_preflight(State(state): State<Hosted>, headers: HeaderMap) -> Response {
+    web::preflight(&state.settings.customer_relations, &headers)
 }
 
 async fn answer(
-    state: &AppState,
+    state: &Hosted,
     headers: &HeaderMap,
     question: Question,
 ) -> Result<AssistantAnswer, Refusal> {
-    let settings = &state.config.customer_relations;
+    let settings = &state.settings.customer_relations;
     if settings.anthropic_api_key.is_none() || settings.site_url.is_none() {
         return Err(ApiError::NotFound.into());
     }

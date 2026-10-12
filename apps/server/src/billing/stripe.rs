@@ -8,7 +8,7 @@ use anyhow::Context as _;
 use serde::Deserialize;
 use uuid::Uuid;
 
-use crate::config::StripeConfig;
+use super::StripeConfig;
 use crate::error::ApiError;
 
 const API: &str = "https://api.stripe.com/v1";

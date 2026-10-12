@@ -13,7 +13,7 @@ async fn main() -> ExitCode {
     let mut args = std::env::args().skip(1);
     let command = args.next();
     let result = match command.as_deref() {
-        None | Some("serve") => tokencontroller_server::serve(Arc::new(NoExtension)).await,
+        None | Some("serve") => tokencontroller_server::hosted::serve(Arc::new(NoExtension)).await,
         Some("seed") => tokencontroller_server::seed().await,
         Some("openapi") => write_openapi(),
         Some("sign-in-link") => match args.next() {

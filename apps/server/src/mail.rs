@@ -163,8 +163,6 @@ mod tests {
             smtp_url: None,
             smtp_from: smtp_from.map(str::to_owned),
             prices_refresh: true,
-            customer_relations: crate::customer_relations::Settings::default(),
-            stripe: None,
             embeddings: None,
         }
     }

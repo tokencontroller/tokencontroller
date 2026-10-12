@@ -8,8 +8,8 @@ use uuid::Uuid;
 
 use super::admin::{self, Scope};
 use super::{customers, feedback};
-use crate::AppState;
 use crate::error::ApiError;
+use crate::hosted::Hosted;
 
 /// The operators' tools, as `tools/list` shows them to an operator.
 #[must_use]
@@ -69,7 +69,7 @@ pub fn operator_tools() -> Vec<Value> {
 /// [`ApiError::BadRequest`] for a bad argument, [`ApiError::NotFound`] for an
 /// unknown organization, or a database error.
 pub async fn call_operator_tool(
-    state: &AppState,
+    state: &Hosted,
     name: &str,
     arguments: &Value,
 ) -> Result<Option<Value>, ApiError> {

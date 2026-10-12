@@ -233,6 +233,33 @@ pub async fn member_count(db: &PgPool, organization_id: Uuid) -> Result<i64, sql
     .await
 }
 
+/// The most members an organization may have unless the extension or a
+/// hook says otherwise: the Team plan's 150 (docs: Plans and limits).
+pub const DEFAULT_MEMBER_LIMIT: u32 = 150;
+
+/// The member limit of an organization: what the build's hooks say (such
+/// as a plan), else what the extension says, else [`DEFAULT_MEMBER_LIMIT`].
+///
+/// # Errors
+///
+/// Whatever the hook fails with.
+pub async fn member_limit(
+    state: &AppState,
+    organization_id: Uuid,
+) -> Result<crate::hooks::MemberLimit, ApiError> {
+    if let Some(limit) = state.hooks.member_limit(state, organization_id).await? {
+        return Ok(limit);
+    }
+    let max = state
+        .extension
+        .member_limit()
+        .unwrap_or(DEFAULT_MEMBER_LIMIT);
+    Ok(crate::hooks::MemberLimit {
+        max: i64::from(max),
+        message: "This instance allows no more members.".to_owned(),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

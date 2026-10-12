@@ -10,6 +10,7 @@
 //! every hour as the job `onboarding-emails`.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use lettre::message::Mailbox;
 use serde::Serialize;
@@ -19,7 +20,9 @@ use utoipa::ToSchema;
 use uuid::Uuid;
 
 use super::mail::{self, Outgoing};
-use crate::AppState;
+
+use crate::hosted::{Hosted, Settings as HostedSettings};
+use crate::jobs::Job;
 
 /// How long an organization may sit at a step before it gets the email.
 const STALLED_AFTER: Duration = Duration::days(3);
@@ -304,11 +307,11 @@ pub async fn journey(db: &PgPool, organization_id: Uuid) -> Result<Option<Journe
 ///
 /// When the database fails. A mail that cannot be sent is logged, and its
 /// step is tried again on the next run if no controller got it.
-pub async fn send_due(state: &AppState, now: OffsetDateTime) -> anyhow::Result<usize> {
+pub async fn send_due(state: &Hosted, now: OffsetDateTime) -> anyhow::Result<usize> {
     let Some(smtp_url) = state.config.smtp_url.as_deref() else {
         return Ok(0);
     };
-    if !state.config.customer_relations.onboarding_emails {
+    if !state.settings.customer_relations.onboarding_emails {
         return Ok(0);
     }
     let mut sent = 0_usize;
@@ -343,20 +346,25 @@ pub async fn send_due(state: &AppState, now: OffsetDateTime) -> anyhow::Result<u
     Ok(sent)
 }
 
-/// The job runner's entry: sends what is due now.
-///
-/// # Errors
-///
-/// Fails as [`send_due`] does.
-pub async fn run_job(state: AppState) -> anyhow::Result<String> {
-    let sent = send_due(&state, OffsetDateTime::now_utc()).await?;
-    Ok(format!("sent onboarding emails to {sent} organizations"))
+/// The `onboarding-emails` job for the job runner: sends what is due now.
+#[must_use]
+pub fn job(settings: Arc<HostedSettings>) -> Job {
+    Job::new(JOB, JOB_EVERY, move |app| {
+        let state = Hosted {
+            app,
+            settings: Arc::clone(&settings),
+        };
+        async move {
+            let sent = send_due(&state, OffsetDateTime::now_utc()).await?;
+            Ok(format!("sent onboarding emails to {sent} organizations"))
+        }
+    })
 }
 
 /// Sends `step`'s email to the organization's controllers; whether at least
 /// one of them got it.
 async fn send(
-    state: &AppState,
+    state: &Hosted,
     smtp_url: &str,
     organization: &Progress,
     step: Step,
@@ -370,7 +378,7 @@ async fn send(
     )
     .fetch_all(&state.db)
     .await?;
-    let support_from = &state.config.customer_relations.support_from;
+    let support_from = &state.settings.customer_relations.support_from;
     let questions = if support_from.is_some() {
         " Questions? Reply to this email."
     } else {

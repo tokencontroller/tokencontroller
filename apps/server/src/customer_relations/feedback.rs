@@ -28,8 +28,8 @@ use uuid::Uuid;
 use super::admin::{self, CustomerLink, Reviewer, Scope};
 use super::mail::{self, Outgoing};
 use super::web::Limit;
-use crate::AppState;
 use crate::error::{ApiError, ErrorBody};
+use crate::hosted::Hosted;
 use crate::sign_in::Member;
 
 /// The largest screenshot, decoded.
@@ -367,7 +367,7 @@ async fn own(
     ),
 )]
 pub async fn send_report(
-    State(state): State<AppState>,
+    State(state): State<Hosted>,
     member: Member,
     Json(report): Json<NewReport>,
 ) -> Result<(StatusCode, Json<ReportView>), ApiError> {
@@ -427,7 +427,7 @@ pub async fn send_report(
     responses((status = OK, body = Vec<ReportView>)),
 )]
 pub async fn my_reports(
-    State(state): State<AppState>,
+    State(state): State<Hosted>,
     member: Member,
 ) -> Result<Json<Vec<ReportView>>, ApiError> {
     Ok(Json(own(&state.db, member.person_id, None).await?))
@@ -445,7 +445,7 @@ pub async fn my_reports(
     ),
 )]
 pub async fn screenshot(
-    State(state): State<AppState>,
+    State(state): State<Hosted>,
     member: Member,
     Path(id): Path<Uuid>,
 ) -> Result<Response, ApiError> {
@@ -497,7 +497,7 @@ pub struct ReportFilter {
     ),
 )]
 pub async fn list_received(
-    State(state): State<AppState>,
+    State(state): State<Hosted>,
     reviewer: Reviewer,
     Query(filter): Query<ReportFilter>,
 ) -> Result<Json<Vec<ReceivedReport>>, ApiError> {
@@ -526,7 +526,7 @@ async fn one_received(db: &PgPool, scope: Scope, id: Uuid) -> Result<ReceivedRep
     ),
 )]
 pub async fn get_received(
-    State(state): State<AppState>,
+    State(state): State<Hosted>,
     reviewer: Reviewer,
     Path(id): Path<Uuid>,
 ) -> Result<Json<ReceivedReport>, ApiError> {
@@ -576,7 +576,7 @@ fn version(value: &str) -> Result<String, ApiError> {
     ),
 )]
 pub async fn update_received(
-    State(state): State<AppState>,
+    State(state): State<Hosted>,
     reviewer: Reviewer,
     Path(id): Path<Uuid>,
     Json(change): Json<ReportChange>,
@@ -631,12 +631,12 @@ pub async fn update_received(
 /// # Errors
 ///
 /// When the database fails. A notice that fails is tried again next run.
-pub async fn notify(state: &AppState) -> anyhow::Result<()> {
+pub async fn notify(state: &Hosted) -> anyhow::Result<()> {
     let Some(smtp_url) = &state.config.smtp_url else {
         return Ok(());
     };
     let from = state
-        .config
+        .settings
         .customer_relations
         .support_from
         .clone()
@@ -667,14 +667,14 @@ impl Notices<'_> {
     }
 }
 
-async fn notify_reviewers(state: &AppState, notices: &Notices<'_>) -> anyhow::Result<()> {
+async fn notify_reviewers(state: &Hosted, notices: &Notices<'_>) -> anyhow::Result<()> {
     let new = sqlx::query!(
         "SELECT id, organization_id, kind FROM feedback_reports
          WHERE reviewers_notified_at IS NULL ORDER BY created_at LIMIT 20"
     )
     .fetch_all(&state.db)
     .await?;
-    let operators = &state.config.customer_relations.operator_emails;
+    let operators = &state.settings.customer_relations.operator_emails;
     for report in new {
         let reviewers = if operators.is_empty() {
             sqlx::query_scalar!(
@@ -713,7 +713,7 @@ async fn notify_reviewers(state: &AppState, notices: &Notices<'_>) -> anyhow::Re
     Ok(())
 }
 
-async fn notify_senders(state: &AppState, notices: &Notices<'_>) -> anyhow::Result<()> {
+async fn notify_senders(state: &Hosted, notices: &Notices<'_>) -> anyhow::Result<()> {
     let news = sqlx::query!(
         "SELECT f.id, f.status, f.fixed_in, f.created_at, p.email
          FROM feedback_reports f JOIN people p ON p.id = f.person_id

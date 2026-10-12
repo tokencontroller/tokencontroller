@@ -15,7 +15,7 @@ use sqlx::{PgPool, Postgres, Transaction};
 
 use super::claude::{self, Ask, ClaudeError, Role};
 use super::mail::{self, Outgoing};
-use crate::AppState;
+use crate::hosted::Hosted;
 
 /// The longest message text kept and sent to Claude.
 const MAX_TEXT: usize = 20_000;
@@ -387,7 +387,7 @@ struct Claimed {
 ///
 /// When the database fails. A Claude API failure is not an error: the
 /// conversation is tried again in five minutes.
-pub async fn answer_next(state: &AppState) -> anyhow::Result<bool> {
+pub async fn answer_next(state: &Hosted) -> anyhow::Result<bool> {
     let claimed = sqlx::query_as!(
         Claimed,
         "UPDATE support_conversations
@@ -406,7 +406,7 @@ pub async fn answer_next(state: &AppState) -> anyhow::Result<bool> {
         return Ok(false);
     };
 
-    let settings = &state.config.customer_relations;
+    let settings = &state.settings.customer_relations;
     if settings.anthropic_api_key.is_none() {
         escalate(
             &state.db,
@@ -497,7 +497,7 @@ fn turns<'a>(messages: impl Iterator<Item = (&'a str, &'a str)>) -> Vec<(Role, S
 /// # Errors
 ///
 /// When the database fails.
-pub async fn apply(state: &AppState, id: Uuid, decision: &Decision) -> anyhow::Result<()> {
+pub async fn apply(state: &Hosted, id: Uuid, decision: &Decision) -> anyhow::Result<()> {
     let kind = if KINDS.contains(&decision.kind.as_str()) {
         decision.kind.as_str()
     } else {
@@ -565,14 +565,14 @@ async fn escalate(
 ///
 /// When the database fails.
 pub async fn add_reply(
-    state: &AppState,
+    state: &Hosted,
     id: Uuid,
     author: &str,
     body: &str,
     links: &[String],
 ) -> Result<(), sqlx::Error> {
     let sender = state
-        .config
+        .settings
         .customer_relations
         .support_from
         .as_deref()
@@ -597,8 +597,8 @@ pub async fn add_reply(
 /// # Errors
 ///
 /// When the database fails. A mail that fails is tried again later.
-pub async fn send_replies(state: &AppState) -> anyhow::Result<usize> {
-    let settings = &state.config.customer_relations;
+pub async fn send_replies(state: &Hosted) -> anyhow::Result<usize> {
+    let settings = &state.settings.customer_relations;
     let (Some(smtp_url), Some(from)) = (&state.config.smtp_url, &settings.support_from) else {
         return Ok(0);
     };
@@ -682,8 +682,8 @@ pub fn reply_subject(subject: &str) -> String {
 /// # Errors
 ///
 /// When the database fails.
-pub async fn notify_operators(state: &AppState) -> anyhow::Result<()> {
-    let settings = &state.config.customer_relations;
+pub async fn notify_operators(state: &Hosted) -> anyhow::Result<()> {
+    let settings = &state.settings.customer_relations;
     let (Some(smtp_url), Some(from)) = (&state.config.smtp_url, &settings.support_from) else {
         return Ok(());
     };

@@ -21,8 +21,8 @@ use utoipa::{IntoParams, ToSchema};
 use super::mail::{self, Outgoing, Sent};
 use super::settings::Settings;
 use super::web::{self, Limit, Refusal};
-use crate::AppState;
 use crate::error::{ApiError, ErrorBody};
+use crate::hosted::Hosted;
 
 /// Sign-ups per visitor per hour.
 const SIGN_UPS_PER_VISITOR: usize = 5;
@@ -83,11 +83,11 @@ fn token() -> String {
     ),
 )]
 pub async fn sign_up(
-    State(state): State<AppState>,
+    State(state): State<Hosted>,
     headers: HeaderMap,
     Json(sign_up): Json<SignUp>,
 ) -> Response {
-    let settings = &state.config.customer_relations;
+    let settings = &state.settings.customer_relations;
     let response = match subscribe(&state, &headers, sign_up).await {
         Ok(()) => (
             StatusCode::ACCEPTED,
@@ -102,12 +102,12 @@ pub async fn sign_up(
 }
 
 /// The browser's preflight for [`sign_up`].
-pub async fn sign_up_preflight(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    web::preflight(&state.config.customer_relations, &headers)
+pub async fn sign_up_preflight(State(state): State<Hosted>, headers: HeaderMap) -> Response {
+    web::preflight(&state.settings.customer_relations, &headers)
 }
 
-async fn subscribe(state: &AppState, headers: &HeaderMap, sign_up: SignUp) -> Result<(), Refusal> {
-    enabled(&state.config.customer_relations)?;
+async fn subscribe(state: &Hosted, headers: &HeaderMap, sign_up: SignUp) -> Result<(), Refusal> {
+    enabled(&state.settings.customer_relations)?;
     let email = sign_up.email.trim().to_lowercase();
     if email.parse::<lettre::Address>().is_err() || email.chars().count() > 254 {
         return Err(ApiError::BadRequest("Enter a valid mail address.".to_owned()).into());
@@ -159,11 +159,11 @@ async fn subscribe(state: &AppState, headers: &HeaderMap, sign_up: SignUp) -> Re
     ),
 )]
 pub async fn confirm(
-    State(state): State<AppState>,
+    State(state): State<Hosted>,
     headers: HeaderMap,
     Json(token): Json<Token>,
 ) -> Response {
-    let settings = &state.config.customer_relations;
+    let settings = &state.settings.customer_relations;
     let result = async {
         enabled(settings)?;
         let confirmed = sqlx::query_scalar!(
@@ -185,8 +185,8 @@ pub async fn confirm(
 }
 
 /// The browser's preflight for [`confirm`].
-pub async fn confirm_preflight(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    web::preflight(&state.config.customer_relations, &headers)
+pub async fn confirm_preflight(State(state): State<Hosted>, headers: HeaderMap) -> Response {
+    web::preflight(&state.settings.customer_relations, &headers)
 }
 
 /// Unsubscribe with one click. The address is deleted from the list.
@@ -204,11 +204,11 @@ pub async fn confirm_preflight(State(state): State<AppState>, headers: HeaderMap
     ),
 )]
 pub async fn unsubscribe(
-    State(state): State<AppState>,
+    State(state): State<Hosted>,
     headers: HeaderMap,
     Query(token): Query<Token>,
 ) -> Response {
-    let settings = &state.config.customer_relations;
+    let settings = &state.settings.customer_relations;
     let result = async {
         enabled(settings)?;
         sqlx::query!(
@@ -226,11 +226,11 @@ pub async fn unsubscribe(
 }
 
 /// The browser's preflight for [`unsubscribe`].
-pub async fn unsubscribe_preflight(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    web::preflight(&state.config.customer_relations, &headers)
+pub async fn unsubscribe_preflight(State(state): State<Hosted>, headers: HeaderMap) -> Response {
+    web::preflight(&state.settings.customer_relations, &headers)
 }
 
-fn unsubscribe_headers(state: &AppState, unsubscribe_token: &str) -> Vec<(&'static str, String)> {
+fn unsubscribe_headers(state: &Hosted, unsubscribe_token: &str) -> Vec<(&'static str, String)> {
     vec![
         (
             "List-Unsubscribe",
@@ -260,8 +260,8 @@ fn reply_to(settings: &Settings) -> Option<String> {
 /// # Errors
 ///
 /// When the database fails or Resend refuses a mail.
-pub async fn send_confirmations(state: &AppState) -> anyhow::Result<()> {
-    let settings = &state.config.customer_relations;
+pub async fn send_confirmations(state: &Hosted) -> anyhow::Result<()> {
+    let settings = &state.settings.customer_relations;
     let (Some(from), Some(site)) = (&settings.newsletter_from, &settings.site_url) else {
         return Ok(());
     };
@@ -315,8 +315,8 @@ pub async fn send_confirmations(state: &AppState) -> anyhow::Result<()> {
 /// # Errors
 ///
 /// When the database fails or Resend refuses a mail.
-pub async fn send_issues(state: &AppState) -> anyhow::Result<()> {
-    let settings = &state.config.customer_relations;
+pub async fn send_issues(state: &Hosted) -> anyhow::Result<()> {
+    let settings = &state.settings.customer_relations;
     let (Some(from), Some(site)) = (&settings.newsletter_from, &settings.site_url) else {
         return Ok(());
     };

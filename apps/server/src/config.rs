@@ -19,12 +19,6 @@ pub enum ConfigError {
     PublicUrl,
     #[error("TC_PRICES_REFRESH must be `on` or `off`, not {0:?}")]
     PricesRefresh(String),
-    #[error(transparent)]
-    CustomerRelations(#[from] crate::customer_relations::SettingsError),
-    #[error(
-        "TC_STRIPE_SECRET_KEY and TC_STRIPE_WEBHOOK_SECRET go together: set both for Team plan billing, or neither"
-    )]
-    StripeHalfSet,
     #[error(
         "TC_EMBEDDINGS_URL must start with https:// or http://, such as https://api.openai.com/v1"
     )]
@@ -77,21 +71,6 @@ pub struct Config {
     /// `TC_EMBEDDINGS_URL`, `TC_EMBEDDINGS_KEY` and `TC_EMBEDDINGS_MODEL`:
     /// the model token forecasts compare text with, if any.
     pub embeddings: Option<EmbeddingsConfig>,
-    /// The support inbox, site assistant and newsletter settings, all off
-    /// unless set.
-    pub customer_relations: crate::customer_relations::Settings,
-    /// Team plan billing through Stripe, only on the hosted service. `None`
-    /// keeps billing off, as on every self-hosted instance.
-    pub stripe: Option<StripeConfig>,
-}
-
-/// `TC_STRIPE_SECRET_KEY` and `TC_STRIPE_WEBHOOK_SECRET`.
-#[derive(Clone, PartialEq, Eq)]
-pub struct StripeConfig {
-    /// The API key the service calls Stripe with.
-    pub secret_key: String,
-    /// The signing secret of the webhook endpoint.
-    pub webhook_secret: String,
 }
 
 impl Config {
@@ -135,19 +114,6 @@ impl Config {
             Some(other) => return Err(ConfigError::PricesRefresh(other.to_owned())),
         };
 
-        let customer_relations = crate::customer_relations::Settings::from_lookup(&lookup)?;
-        let stripe = match (
-            read("TC_STRIPE_SECRET_KEY"),
-            read("TC_STRIPE_WEBHOOK_SECRET"),
-        ) {
-            (Some(secret_key), Some(webhook_secret)) => Some(StripeConfig {
-                secret_key,
-                webhook_secret,
-            }),
-            (None, None) => None,
-            _ => return Err(ConfigError::StripeHalfSet),
-        };
-
         let embeddings = match (read("TC_EMBEDDINGS_URL"), read("TC_EMBEDDINGS_MODEL")) {
             (None, None) if read("TC_EMBEDDINGS_KEY").is_none() => None,
             (Some(url), Some(model)) => {
@@ -172,8 +138,6 @@ impl Config {
             smtp_url: read("TC_SMTP_URL"),
             smtp_from: read("TC_SMTP_FROM"),
             prices_refresh,
-            customer_relations,
-            stripe,
             embeddings,
         })
     }
@@ -189,8 +153,6 @@ impl fmt::Debug for Config {
             .field("smtp_url", &self.smtp_url.as_ref().map(|_| "<hidden>"))
             .field("smtp_from", &self.smtp_from)
             .field("prices_refresh", &self.prices_refresh)
-            .field("customer_relations", &self.customer_relations)
-            .field("stripe", &self.stripe.as_ref().map(|_| "<hidden>"))
             .field("embeddings", &self.embeddings)
             .finish()
     }
@@ -226,20 +188,7 @@ mod tests {
         assert_eq!(config.smtp_url, None);
         assert_eq!(config.smtp_from, None);
         assert!(config.prices_refresh);
-        assert!(config.stripe.is_none());
         assert_eq!(config.embeddings, None);
-    }
-
-    #[test]
-    fn stripe_needs_both_settings() {
-        let mut pairs = minimal();
-        pairs.push(("TC_STRIPE_SECRET_KEY", "sk_test_123"));
-        assert_eq!(config(&pairs), Err(ConfigError::StripeHalfSet));
-
-        pairs.push(("TC_STRIPE_WEBHOOK_SECRET", "whsec_456"));
-        let stripe = config(&pairs).unwrap().stripe.unwrap();
-        assert_eq!(stripe.secret_key, "sk_test_123");
-        assert_eq!(stripe.webhook_secret, "whsec_456");
     }
 
     #[test]
@@ -330,8 +279,6 @@ mod tests {
     fn debug_output_hides_secrets() {
         let mut pairs = minimal();
         pairs.push(("TC_SMTP_URL", "smtp://user:pass@mail.example.com:587"));
-        pairs.push(("TC_STRIPE_SECRET_KEY", "sk_test_hidden"));
-        pairs.push(("TC_STRIPE_WEBHOOK_SECRET", "whsec_hidden"));
         pairs.push(("TC_EMBEDDINGS_URL", "https://api.openai.com/v1"));
         pairs.push(("TC_EMBEDDINGS_KEY", "sk-test-0123"));
         pairs.push(("TC_EMBEDDINGS_MODEL", "text-embedding-3-small"));
@@ -339,8 +286,6 @@ mod tests {
         assert!(!shown.contains(KEY));
         assert!(!shown.contains("pass@"));
         assert!(!shown.contains("secret@"));
-        assert!(!shown.contains("sk_test_hidden"));
-        assert!(!shown.contains("whsec_hidden"));
         assert!(!shown.contains("sk-test-0123"));
         assert!(shown.contains("text-embedding-3-small"));
     }

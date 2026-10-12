@@ -16,8 +16,8 @@ use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
 
 use super::support;
-use crate::AppState;
 use crate::error::{ApiError, ErrorBody};
+use crate::hosted::Hosted;
 use crate::organizations::Role;
 use crate::sign_in::Member;
 
@@ -81,8 +81,8 @@ pub struct Reviewer {
 /// # Errors
 ///
 /// When the database fails.
-pub async fn is_operator(state: &AppState, person_id: Uuid) -> Result<bool, ApiError> {
-    let operators = &state.config.customer_relations.operator_emails;
+pub async fn is_operator(state: &Hosted, person_id: Uuid) -> Result<bool, ApiError> {
+    let operators = &state.settings.customer_relations.operator_emails;
     if operators.is_empty() {
         return Ok(false);
     }
@@ -100,8 +100,8 @@ async fn email_of(db: &PgPool, person_id: Uuid) -> Result<String, sqlx::Error> {
 /// # Errors
 ///
 /// When the database fails.
-pub async fn review_scope(state: &AppState, member: &Member) -> Result<Option<Scope>, ApiError> {
-    let operators = &state.config.customer_relations.operator_emails;
+pub async fn review_scope(state: &Hosted, member: &Member) -> Result<Option<Scope>, ApiError> {
+    let operators = &state.settings.customer_relations.operator_emails;
     if operators.is_empty() {
         return Ok((member.role == Role::Controller)
             .then_some(Scope::Organization(member.organization_id)));
@@ -110,16 +110,16 @@ pub async fn review_scope(state: &AppState, member: &Member) -> Result<Option<Sc
     Ok(operators.contains(&email).then_some(Scope::All))
 }
 
-impl FromRequestParts<AppState> for Operator {
+impl FromRequestParts<Hosted> for Operator {
     type Rejection = ApiError;
 
-    async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, ApiError> {
+    async fn from_request_parts(parts: &mut Parts, state: &Hosted) -> Result<Self, ApiError> {
         let member = Member::from_request_parts(parts, state)
             .await
             .map_err(|_| ApiError::NotFound)?;
         let email = email_of(&state.db, member.person_id).await?;
         if state
-            .config
+            .settings
             .customer_relations
             .operator_emails
             .contains(&email)
@@ -131,10 +131,10 @@ impl FromRequestParts<AppState> for Operator {
     }
 }
 
-impl FromRequestParts<AppState> for Reviewer {
+impl FromRequestParts<Hosted> for Reviewer {
     type Rejection = ApiError;
 
-    async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, ApiError> {
+    async fn from_request_parts(parts: &mut Parts, state: &Hosted) -> Result<Self, ApiError> {
         let member = Member::from_request_parts(parts, state)
             .await
             .map_err(|_| ApiError::NotFound)?;
@@ -188,7 +188,7 @@ pub struct Overview {
     ),
 )]
 pub async fn overview(
-    State(state): State<AppState>,
+    State(state): State<Hosted>,
     _operator: Operator,
 ) -> Result<Json<Overview>, ApiError> {
     let row = sqlx::query!(
@@ -331,7 +331,7 @@ pub(super) async fn conversations(
     ),
 )]
 pub async fn list_support(
-    State(state): State<AppState>,
+    State(state): State<Hosted>,
     _operator: Operator,
     Query(filter): Query<SupportFilter>,
 ) -> Result<Json<Vec<ConversationSummary>>, ApiError> {
@@ -415,7 +415,7 @@ async fn conversation(db: &PgPool, id: Uuid) -> Result<ConversationView, ApiErro
     ),
 )]
 pub async fn get_support(
-    State(state): State<AppState>,
+    State(state): State<Hosted>,
     _operator: Operator,
     Path(id): Path<Uuid>,
 ) -> Result<Json<ConversationView>, ApiError> {
@@ -445,12 +445,12 @@ pub struct Reply {
     ),
 )]
 pub async fn reply(
-    State(state): State<AppState>,
+    State(state): State<Hosted>,
     _operator: Operator,
     Path(id): Path<Uuid>,
     Json(reply): Json<Reply>,
 ) -> Result<(StatusCode, Json<ConversationView>), ApiError> {
-    if state.config.customer_relations.support_from.is_none() || state.config.smtp_url.is_none() {
+    if state.settings.customer_relations.support_from.is_none() || state.config.smtp_url.is_none() {
         return Err(ApiError::Conflict(
             "Support mail is off: set TC_SUPPORT_FROM and TC_SMTP_URL.".to_owned(),
         ));
@@ -489,7 +489,7 @@ pub async fn reply(
     ),
 )]
 pub async fn close(
-    State(state): State<AppState>,
+    State(state): State<Hosted>,
     _operator: Operator,
     Path(id): Path<Uuid>,
 ) -> Result<Json<ConversationView>, ApiError> {
@@ -543,7 +543,7 @@ pub struct QuestionView {
     ),
 )]
 pub async fn list_questions(
-    State(state): State<AppState>,
+    State(state): State<Hosted>,
     _operator: Operator,
     Query(filter): Query<QuestionFilter>,
 ) -> Result<Json<Vec<QuestionView>>, ApiError> {
@@ -629,8 +629,8 @@ async fn issue(db: &PgPool, id: Uuid) -> Result<IssueView, ApiError> {
         .ok_or(ApiError::NotFound)
 }
 
-fn newsletter_on(state: &AppState) -> bool {
-    let settings = &state.config.customer_relations;
+fn newsletter_on(state: &Hosted) -> bool {
+    let settings = &state.settings.customer_relations;
     settings.resend_api_key.is_some() && settings.newsletter_from.is_some()
 }
 
@@ -645,7 +645,7 @@ fn newsletter_on(state: &AppState) -> bool {
     ),
 )]
 pub async fn newsletter(
-    State(state): State<AppState>,
+    State(state): State<Hosted>,
     _operator: Operator,
 ) -> Result<Json<NewsletterView>, ApiError> {
     let counts = sqlx::query!(
@@ -693,7 +693,7 @@ fn subject(value: &str) -> Result<String, ApiError> {
     ),
 )]
 pub async fn create_issue(
-    State(state): State<AppState>,
+    State(state): State<Hosted>,
     _operator: Operator,
     Json(draft): Json<IssueText>,
 ) -> Result<(StatusCode, Json<IssueView>), ApiError> {
@@ -724,7 +724,7 @@ pub async fn create_issue(
     ),
 )]
 pub async fn update_issue(
-    State(state): State<AppState>,
+    State(state): State<Hosted>,
     _operator: Operator,
     Path(id): Path<Uuid>,
     Json(change): Json<IssueText>,
@@ -767,7 +767,7 @@ pub async fn update_issue(
     ),
 )]
 pub async fn send_issue(
-    State(state): State<AppState>,
+    State(state): State<Hosted>,
     _operator: Operator,
     Path(id): Path<Uuid>,
 ) -> Result<Json<IssueView>, ApiError> {
