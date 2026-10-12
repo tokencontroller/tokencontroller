@@ -5,6 +5,13 @@
  * reads as unknown, never as a crash.
  */
 
+/** A controller's request to submit before the monthly close. */
+export interface AskedToSubmit {
+  /** The month, such as `2026-09`. */
+  period: string
+  askedBy: string | null
+}
+
 /** `tc status --json`: today's cost and the token sheet. */
 export interface Sheet {
   isConnected: boolean
@@ -15,6 +22,7 @@ export interface Sheet {
   /** 0 to 1, or null while there is nothing to share. */
   shareOnTickets: number | null
   isLate: boolean
+  askedToSubmit: AskedToSubmit | null
 }
 
 export interface Split {
@@ -119,6 +127,8 @@ export function parseJson(text: string): unknown {
 export function readSheet(value: unknown): Sheet {
   const top = object(value)
   const today = object(top.today)
+  const asked = object(top.asked_to_submit)
+  const period = str(asked.period)
   return {
     isConnected: top.connected === true,
     organization: str(top.organization),
@@ -126,6 +136,7 @@ export function readSheet(value: unknown): Sheet {
     today: num(today.list_value) ?? 0,
     shareOnTickets: fraction(today.share_on_tickets_percent),
     isLate: object(top.token_sheet).late === true,
+    askedToSubmit: period === null ? null : { period, askedBy: str(asked.asked_by) },
   }
 }
 
