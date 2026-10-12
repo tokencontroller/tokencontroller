@@ -5,6 +5,8 @@
 //! this folder, and its migrations in `migrations/` named
 //! `<timestamp>_close_<what>.sql`.
 
+pub mod period;
+
 use utoipa_axum::router::OpenApiRouter;
 
 use crate::AppState;

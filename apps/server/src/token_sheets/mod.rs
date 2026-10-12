@@ -5,6 +5,8 @@
 //! this folder, and its migrations in `migrations/` named
 //! `<timestamp>_token_sheets_<what>.sql`.
 
+pub mod cadence;
+
 use utoipa_axum::router::OpenApiRouter;
 
 use crate::AppState;

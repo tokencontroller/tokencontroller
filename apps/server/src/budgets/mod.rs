@@ -4,6 +4,8 @@
 //! this folder, and its migrations in `migrations/` named
 //! `<timestamp>_budgets_<what>.sql`.
 
+pub mod similarity;
+
 use utoipa_axum::router::OpenApiRouter;
 
 use crate::AppState;
