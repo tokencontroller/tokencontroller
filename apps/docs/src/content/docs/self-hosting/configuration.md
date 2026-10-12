@@ -24,15 +24,15 @@ The hosted service uses these to run its own support inbox, site assistant and n
 
 | Variable | Meaning |
 | --- | --- |
-| `TC_OPERATOR_EMAILS` | Comma-separated addresses of the people who run the instance. They get a notice with a link when a support conversation needs a person. |
+| `TC_OPERATOR_EMAILS` | Comma-separated addresses of the people who run the instance. Signed in with one of them, a member sees the admin area: support conversations, site assistant questions, the newsletter, feedback reports and a record of each organization. They get a notice with a link when a support conversation or a feedback report needs a person. Without it, each organization's controllers read its feedback reports. |
 | `TC_INBOUND_MAIL_SECRET` | The secret incoming support mail is signed with. Turns on the support inbox. Needs `TC_SUPPORT_FROM`. |
-| `TC_SUPPORT_FROM` | The sender of support answers, such as `Support <support@example.com>`. |
+| `TC_SUPPORT_FROM` | The sender of support answers, such as `Support <support@example.com>`. Turns on support inside the app; the answer goes to the member's address. |
 | `TC_ANTHROPIC_API_KEY` | A Claude API key. Support answers and the site assistant answer from these docs with it. Without it, every support message goes to the operators. |
 | `TC_SITE_URL` | The public website, such as `https://example.com`. Its pages, also under `www.`, may use the site assistant, the contact form and the newsletter sign-up. |
 | `TC_RESEND_API_KEY` | A Resend API key. Turns on the newsletter. Needs `TC_NEWSLETTER_FROM`. |
 | `TC_NEWSLETTER_FROM` | The sender of the newsletter, such as `News <news@news.example.com>`. |
 
-The service deletes site assistant questions and the raw copy of support mail after 90 days, and a support conversation two years after its last message. A message's text stays with its conversation until then.
+The service deletes site assistant questions, the raw copy of support mail and feedback screenshots after 90 days, a support conversation two years after its last message, and a feedback report two years after its last change. A message's text stays with its conversation until then.
 
 ## Billing settings {#billing}
 

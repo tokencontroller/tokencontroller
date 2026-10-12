@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM feedback_reports WHERE updated_at < now() - interval '2 years'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "bf93faca2edb6a9d72d0354855e1e6402e6a174ef7c12051378e765404450889"
+}

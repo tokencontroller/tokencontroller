@@ -94,7 +94,8 @@ pub enum Plan {
 
 /// Stripe statuses in which the Team plan is in force. `past_due` keeps it
 /// while Stripe retries the card.
-fn is_team(status: Option<&str>) -> bool {
+#[must_use]
+pub fn is_team(status: Option<&str>) -> bool {
     matches!(status, Some("active" | "past_due"))
 }
 

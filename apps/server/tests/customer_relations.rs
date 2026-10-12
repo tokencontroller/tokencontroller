@@ -6,12 +6,15 @@ use std::sync::{Arc, Mutex};
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
+use base64::Engine as _;
 use hmac::{KeyInit as _, Mac as _};
 use http_body_util::BodyExt as _;
 use serde_json::{Value, json};
+use sqlx::types::Uuid;
 use sqlx::{PgPool, Row as _};
 use tokencontroller_core::NoExtension;
 use tokencontroller_server::customer_relations::{self, Settings};
+use tokencontroller_server::sign_in::secret;
 use tokencontroller_server::{AppState, Config, router};
 use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader};
 use tower::ServiceExt as _;
@@ -772,4 +775,857 @@ async fn old_questions_mail_and_conversations_are_deleted(pool: PgPool) {
             .await
             .unwrap();
     assert_eq!(body, "Hello");
+}
+
+// --- The admin area and feedback reports ---
+
+/// A new organization with a signed-in controller: its id, the person and
+/// their session token.
+async fn organization(pool: &PgPool, name: &str, email: &str) -> TestResult<(Uuid, Uuid, String)> {
+    let mut connection = pool.acquire().await?;
+    let created = tokencontroller_server::organizations::create(&mut connection, name, email)
+        .await
+        .map_err(|error| error.to_string())?;
+    let session = session_for(pool, created.person_id).await?;
+    Ok((created.organization_id, created.person_id, session))
+}
+
+/// A joined member of `organization` with `role`, and their session token.
+async fn member(
+    pool: &PgPool,
+    organization: Uuid,
+    email: &str,
+    role: &str,
+) -> TestResult<(Uuid, String)> {
+    let person: Uuid = sqlx::query_scalar(
+        "INSERT INTO people (organization_id, email, role, joined_at) VALUES ($1, $2, $3, now()) RETURNING id",
+    )
+    .bind(organization)
+    .bind(email)
+    .bind(role)
+    .fetch_one(pool)
+    .await?;
+    Ok((person, session_for(pool, person).await?))
+}
+
+async fn session_for(pool: &PgPool, person_id: Uuid) -> TestResult<String> {
+    let session = secret::generate(secret::SESSION, "0123456789abcdef0123456789abcdef")?;
+    sqlx::query("INSERT INTO sessions (token_hash, person_id, client, expires_at) VALUES ($1, $2, 'browser', now() + interval '1 day')")
+        .bind(&session.hash)
+        .bind(person_id)
+        .execute(pool)
+        .await?;
+    Ok(session.token)
+}
+
+/// Calls the API as the person with `session`; returns the status, the JSON
+/// body (or Null) and the content type.
+async fn call(
+    state: &AppState,
+    method: &str,
+    uri: &str,
+    session: Option<&str>,
+    body: Option<Value>,
+) -> TestResult<(StatusCode, Value, String)> {
+    let mut request = Request::builder().method(method).uri(uri);
+    if let Some(session) = session {
+        request = request.header("cookie", format!("tc_session={session}"));
+    }
+    let request = match body {
+        Some(body) => request
+            .header("content-type", "application/json")
+            .body(Body::from(body.to_string()))?,
+        None => request.body(Body::empty())?,
+    };
+    let response = router(state.clone()).oneshot(request).await?;
+    let status = response.status();
+    let content_type = response
+        .headers()
+        .get("content-type")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default()
+        .to_owned();
+    let bytes = response.into_body().collect().await?.to_bytes();
+    let json = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
+    Ok((status, json, content_type))
+}
+
+const PNG: &[u8] = b"\x89PNG\r\n\x1a\nnot really an image";
+
+#[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
+async fn only_operators_see_the_admin_area(pool: PgPool) {
+    let fake = fake_services(json!({})).await;
+    let (smtp, sent) = fake_smtp().await.unwrap();
+    let mut settings = settings(&fake);
+    settings.anthropic_api_key = None;
+    let state = AppState::new(
+        pool.clone(),
+        config(settings, Some(smtp)),
+        Arc::new(NoExtension),
+    );
+    let (_, _, ops) = organization(&pool, "Token Controller", "ops@example.com")
+        .await
+        .unwrap();
+    let (kestrel, _, ana) = organization(&pool, "Kestrel Digital", "ana@kestrel.example")
+        .await
+        .unwrap();
+
+    let (status, overview, _) = call(&state, "GET", "/api/v1/admin", Some(&ops), None)
+        .await
+        .unwrap();
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(overview["support_escalated"], 0);
+    for session in [Some(ana.as_str()), None] {
+        for uri in [
+            "/api/v1/admin",
+            "/api/v1/admin/support",
+            "/api/v1/admin/customers",
+            "/api/v1/admin/newsletter",
+        ] {
+            let (status, _, _) = call(&state, "GET", uri, session, None).await.unwrap();
+            assert_eq!(status, StatusCode::NOT_FOUND, "{uri} is hidden");
+        }
+    }
+
+    // Without a Claude key the contact form message waits for a person.
+    let (status, _, _) = post_json(
+        &state,
+        "/api/v1/contact",
+        &json!({"email": "ana@kestrel.example", "message": "Can we pay by invoice?", "website": ""}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(status, StatusCode::ACCEPTED);
+    customer_relations::run_once(&state).await;
+    let (_, list, _) = call(&state, "GET", "/api/v1/admin/support", Some(&ops), None)
+        .await
+        .unwrap();
+    assert_eq!(list.as_array().unwrap().len(), 1);
+    assert_eq!(list[0]["state"], "escalated");
+    let id = list[0]["id"].as_str().unwrap().to_owned();
+    let (_, conversation, _) = call(
+        &state,
+        "GET",
+        &format!("/api/v1/admin/support/{id}"),
+        Some(&ops),
+        None,
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        conversation["messages"][0]["body"],
+        "Can we pay by invoice?"
+    );
+    assert_eq!(conversation["customer"]["id"], kestrel.to_string());
+
+    let (status, _, _) = call(
+        &state,
+        "POST",
+        &format!("/api/v1/admin/support/{id}/replies"),
+        Some(&ana),
+        Some(json!({"text": "Hi"})),
+    )
+    .await
+    .unwrap();
+    assert_eq!(status, StatusCode::NOT_FOUND, "only operators answer");
+    let (status, _, _) = call(
+        &state,
+        "POST",
+        &format!("/api/v1/admin/support/{id}/replies"),
+        Some(&ops),
+        Some(json!({"text": " "})),
+    )
+    .await
+    .unwrap();
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let (status, answered, _) = call(
+        &state,
+        "POST",
+        &format!("/api/v1/admin/support/{id}/replies"),
+        Some(&ops),
+        Some(json!({"text": "Hi Ana, yes. Write when you are ready."})),
+    )
+    .await
+    .unwrap();
+    assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(answered["conversation"]["state"], "answered");
+    customer_relations::run_once(&state).await;
+    let mails = sent.lock().unwrap().clone();
+    let reply = mails
+        .iter()
+        .find(|mail| mail.contains("Write when you are ready"))
+        .unwrap();
+    assert!(reply.contains("ana@kestrel.example"));
+    assert!(reply.contains("Token Controller support"));
+
+    let (status, closed, _) = call(
+        &state,
+        "POST",
+        &format!("/api/v1/admin/support/{id}/close"),
+        Some(&ops),
+        None,
+    )
+    .await
+    .unwrap();
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(closed["conversation"]["state"], "closed");
+    let (_, open, _) = call(&state, "GET", "/api/v1/admin/support", Some(&ops), None)
+        .await
+        .unwrap();
+    assert_eq!(open, json!([]));
+    let (_, all_closed, _) = call(
+        &state,
+        "GET",
+        "/api/v1/admin/support?state=closed",
+        Some(&ops),
+        None,
+    )
+    .await
+    .unwrap();
+    assert_eq!(all_closed.as_array().unwrap().len(), 1);
+    let (status, _, _) = call(
+        &state,
+        "GET",
+        "/api/v1/admin/support?state=lost",
+        Some(&ops),
+        None,
+    )
+    .await
+    .unwrap();
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+}
+
+#[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
+async fn operators_write_and_send_the_newsletter(pool: PgPool) {
+    let fake = fake_services(json!({})).await;
+    let state = AppState::new(
+        pool.clone(),
+        config(settings(&fake), None),
+        Arc::new(NoExtension),
+    );
+    let (_, _, ops) = organization(&pool, "Token Controller", "ops@example.com")
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO newsletter_subscribers (email, source, status, confirm_token, unsubscribe_token, confirmed_at, confirmation_sent_at)
+         VALUES ('a@kestrel.example', 'test', 'confirmed', 'c1', 'u1', now(), now()),
+                ('b@kestrel.example', 'test', 'pending', 'c2', 'u2', NULL, now())",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let (status, draft, _) = call(
+        &state,
+        "POST",
+        "/api/v1/admin/newsletter/issues",
+        Some(&ops),
+        Some(json!({"subject": "News", "body": "Draft"})),
+    )
+    .await
+    .unwrap();
+    assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(draft["status"], "draft");
+    let id = draft["id"].as_str().unwrap().to_owned();
+    let (status, _, _) = call(
+        &state,
+        "POST",
+        "/api/v1/admin/newsletter/issues",
+        Some(&ops),
+        Some(json!({"subject": "Two\nlines", "body": "x"})),
+    )
+    .await
+    .unwrap();
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let (_, changed, _) = call(
+        &state,
+        "PATCH",
+        &format!("/api/v1/admin/newsletter/issues/{id}"),
+        Some(&ops),
+        Some(json!({"body": "Token Controller 1.0.0 is out."})),
+    )
+    .await
+    .unwrap();
+    assert_eq!(changed["subject"], "News");
+    assert_eq!(changed["body"], "Token Controller 1.0.0 is out.");
+
+    let (status, sending, _) = call(
+        &state,
+        "POST",
+        &format!("/api/v1/admin/newsletter/issues/{id}/send"),
+        Some(&ops),
+        None,
+    )
+    .await
+    .unwrap();
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(sending["status"], "sending");
+    assert_eq!(sending["recipients"], 1, "confirmed subscribers only");
+    let (status, _, _) = call(
+        &state,
+        "PATCH",
+        &format!("/api/v1/admin/newsletter/issues/{id}"),
+        Some(&ops),
+        Some(json!({"body": "late"})),
+    )
+    .await
+    .unwrap();
+    assert_eq!(status, StatusCode::CONFLICT);
+    let (status, _, _) = call(
+        &state,
+        "POST",
+        &format!("/api/v1/admin/newsletter/issues/{id}/send"),
+        Some(&ops),
+        None,
+    )
+    .await
+    .unwrap();
+    assert_eq!(status, StatusCode::CONFLICT, "an issue goes out once");
+
+    customer_relations::run_once(&state).await;
+    let (_, newsletter, _) = call(&state, "GET", "/api/v1/admin/newsletter", Some(&ops), None)
+        .await
+        .unwrap();
+    assert_eq!(newsletter["on"], true);
+    assert_eq!(newsletter["confirmed"], 1);
+    assert_eq!(newsletter["pending"], 1);
+    assert_eq!(newsletter["issues"][0]["status"], "sent");
+    assert_eq!(newsletter["issues"][0]["delivered"], 1);
+
+    // Without Resend nothing can be sent.
+    let off = AppState::new(
+        pool.clone(),
+        config(
+            Settings {
+                operator_emails: vec!["ops@example.com".to_owned()],
+                ..Settings::default()
+            },
+            None,
+        ),
+        Arc::new(NoExtension),
+    );
+    let (_, draft, _) = call(
+        &off,
+        "POST",
+        "/api/v1/admin/newsletter/issues",
+        Some(&ops),
+        Some(json!({"subject": "Later", "body": "x"})),
+    )
+    .await
+    .unwrap();
+    let (status, _, _) = call(
+        &off,
+        "POST",
+        &format!(
+            "/api/v1/admin/newsletter/issues/{}/send",
+            draft["id"].as_str().unwrap()
+        ),
+        Some(&ops),
+        None,
+    )
+    .await
+    .unwrap();
+    assert_eq!(status, StatusCode::CONFLICT);
+}
+
+#[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
+async fn feedback_reaches_the_operators_and_the_answer_reaches_the_sender(pool: PgPool) {
+    let fake = fake_services(json!({})).await;
+    let (smtp, sent) = fake_smtp().await.unwrap();
+    let state = AppState::new(
+        pool.clone(),
+        config(settings(&fake), Some(smtp)),
+        Arc::new(NoExtension),
+    );
+    let (_, _, ops) = organization(&pool, "Token Controller", "ops@example.com")
+        .await
+        .unwrap();
+    let (kestrel, _, ana) = organization(&pool, "Kestrel Digital", "ana@kestrel.example")
+        .await
+        .unwrap();
+    let (_, ben) = member(&pool, kestrel, "ben@kestrel.example", "agent_manager")
+        .await
+        .unwrap();
+
+    let report = json!({
+        "kind": "bug",
+        "text": "The cost sheet shows the wrong month.",
+        "screenshot": {"type": "image/png", "data": base64::engine::general_purpose::STANDARD.encode(PNG)},
+        "diagnostics": {
+            "page": "/reports/cost-sheet?client=acme",
+            "app_version": "1.0.0",
+            "browser": "Firefox",
+            "screen": "1440x900",
+            "errors": ["Could not load the cost sheet."],
+            "request_ids": ["req-1"]
+        }
+    });
+    let mut smuggled = report.clone();
+    smuggled["diagnostics"]["request_body"] = json!("{\"prompt\": \"secret\"}");
+    let (status, _, _) = call(
+        &state,
+        "POST",
+        "/api/v1/feedback",
+        Some(&ana),
+        Some(smuggled),
+    )
+    .await
+    .unwrap();
+    assert!(
+        status.is_client_error(),
+        "nothing but the listed diagnostics"
+    );
+    let (status, _, _) = call(
+        &state,
+        "POST",
+        "/api/v1/feedback",
+        None,
+        Some(report.clone()),
+    )
+    .await
+    .unwrap();
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+
+    let (status, created, _) = call(&state, "POST", "/api/v1/feedback", Some(&ana), Some(report))
+        .await
+        .unwrap();
+    assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(created["status"], "received");
+    assert_eq!(created["has_screenshot"], true);
+    assert_eq!(created["diagnostics"]["page"], "/reports/cost-sheet");
+    let id = created["id"].as_str().unwrap().to_owned();
+
+    let (_, mine, _) = call(&state, "GET", "/api/v1/feedback", Some(&ana), None)
+        .await
+        .unwrap();
+    assert_eq!(mine.as_array().unwrap().len(), 1);
+    let (_, bens, _) = call(&state, "GET", "/api/v1/feedback", Some(&ben), None)
+        .await
+        .unwrap();
+    assert_eq!(bens, json!([]), "a member sees their own reports");
+    let screenshot = format!("/api/v1/feedback/{id}/screenshot");
+    let (status, _, content_type) = call(&state, "GET", &screenshot, Some(&ana), None)
+        .await
+        .unwrap();
+    assert_eq!(
+        (status, content_type.as_str()),
+        (StatusCode::OK, "image/png")
+    );
+    let (status, _, _) = call(&state, "GET", &screenshot, Some(&ops), None)
+        .await
+        .unwrap();
+    assert_eq!(status, StatusCode::OK);
+    let (status, _, _) = call(&state, "GET", &screenshot, Some(&ben), None)
+        .await
+        .unwrap();
+    assert_eq!(status, StatusCode::NOT_FOUND);
+
+    customer_relations::run_once(&state).await;
+    let notice = sent
+        .lock()
+        .unwrap()
+        .iter()
+        .find(|mail| mail.contains("To: ops@example.com"))
+        .cloned()
+        .unwrap();
+    assert!(notice.contains(&format!("https://app.example/admin/feedback/{id}")));
+    assert!(
+        !notice.contains("wrong month"),
+        "a notice never carries the report"
+    );
+
+    // With operators, the customer's controller does not read reports.
+    let (status, _, _) = call(&state, "GET", "/api/v1/admin/feedback", Some(&ana), None)
+        .await
+        .unwrap();
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    let (_, received, _) = call(
+        &state,
+        "GET",
+        "/api/v1/admin/feedback?status=received",
+        Some(&ops),
+        None,
+    )
+    .await
+    .unwrap();
+    assert_eq!(received[0]["reporter"]["email"], "ana@kestrel.example");
+    assert_eq!(received[0]["organization"]["name"], "Kestrel Digital");
+
+    let report = format!("/api/v1/admin/feedback/{id}");
+    let (_, answered, _) = call(
+        &state,
+        "PATCH",
+        &report,
+        Some(&ops),
+        Some(json!({"answer": "Thanks, we reproduced it."})),
+    )
+    .await
+    .unwrap();
+    assert_eq!(answered["report"]["status"], "answered");
+    customer_relations::run_once(&state).await;
+    let (status, fixed, _) = call(
+        &state,
+        "PATCH",
+        &report,
+        Some(&ops),
+        Some(json!({"fixed_in": "1.0.1"})),
+    )
+    .await
+    .unwrap();
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(fixed["report"]["status"], "fixed");
+    assert_eq!(fixed["report"]["answer"], "Thanks, we reproduced it.");
+    customer_relations::run_once(&state).await;
+    let to_ana: Vec<String> = sent
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|mail| mail.contains("To: ana@kestrel.example"))
+        .cloned()
+        .collect();
+    assert_eq!(to_ana.len(), 2);
+    assert!(
+        to_ana[0].contains("has an answer") && to_ana[0].contains("https://app.example/feedback")
+    );
+    assert!(
+        !to_ana[0].contains("reproduced"),
+        "the answer is read in the app"
+    );
+    assert!(to_ana[1].contains("fixed in version 1.0.1"));
+    let (_, mine, _) = call(&state, "GET", "/api/v1/feedback", Some(&ana), None)
+        .await
+        .unwrap();
+    assert_eq!(mine[0]["fixed_in"], "1.0.1");
+
+    // A full-screen screenshot fits; more than 3 MB does not.
+    let mut big = PNG.to_vec();
+    big.resize(2_900_000, 0);
+    let encoded = base64::engine::general_purpose::STANDARD.encode(&big);
+    let (status, _, _) = call(&state, "POST", "/api/v1/feedback", Some(&ben), Some(json!({"kind": "bug", "text": "Big", "screenshot": {"type": "image/png", "data": encoded}}))).await.unwrap();
+    assert_eq!(status, StatusCode::CREATED);
+    big.resize(3_200_000, 0);
+    let encoded = base64::engine::general_purpose::STANDARD.encode(&big);
+    let (status, _, _) = call(&state, "POST", "/api/v1/feedback", Some(&ben), Some(json!({"kind": "bug", "text": "Too big", "screenshot": {"type": "image/png", "data": encoded}}))).await.unwrap();
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+
+    let (_, other, _) = call(
+        &state,
+        "POST",
+        "/api/v1/feedback",
+        Some(&ben),
+        Some(json!({"kind": "idea", "text": "Dark mode"})),
+    )
+    .await
+    .unwrap();
+    let (status, _, _) = call(
+        &state,
+        "PATCH",
+        &format!("/api/v1/admin/feedback/{}", other["id"].as_str().unwrap()),
+        Some(&ops),
+        Some(json!({"status": "fixed"})),
+    )
+    .await
+    .unwrap();
+    assert_eq!(status, StatusCode::BAD_REQUEST, "fixed needs the version");
+}
+
+#[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
+async fn without_operators_controllers_read_their_own_reports(pool: PgPool) {
+    let (smtp, sent) = fake_smtp().await.unwrap();
+    let state = AppState::new(
+        pool.clone(),
+        config(Settings::default(), Some(smtp)),
+        Arc::new(NoExtension),
+    );
+    let (_, _, acme) = organization(&pool, "Acme", "cfo@acme.example")
+        .await
+        .unwrap();
+    let (kestrel, _, ana) = organization(&pool, "Kestrel Digital", "ana@kestrel.example")
+        .await
+        .unwrap();
+    let (_, ben) = member(&pool, kestrel, "ben@kestrel.example", "agent_manager")
+        .await
+        .unwrap();
+
+    let (_, created, _) = call(
+        &state,
+        "POST",
+        "/api/v1/feedback",
+        Some(&ben),
+        Some(json!({"kind": "question", "text": "Where do bills go?"})),
+    )
+    .await
+    .unwrap();
+    let id = created["id"].as_str().unwrap().to_owned();
+    let (_, theirs, _) = call(&state, "GET", "/api/v1/admin/feedback", Some(&ana), None)
+        .await
+        .unwrap();
+    assert_eq!(theirs.as_array().unwrap().len(), 1);
+    let (_, others, _) = call(&state, "GET", "/api/v1/admin/feedback", Some(&acme), None)
+        .await
+        .unwrap();
+    assert_eq!(others, json!([]));
+    let (status, _, _) = call(
+        &state,
+        "GET",
+        &format!("/api/v1/admin/feedback/{id}"),
+        Some(&acme),
+        None,
+    )
+    .await
+    .unwrap();
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    let (status, _, _) = call(&state, "GET", "/api/v1/admin/feedback", Some(&ben), None)
+        .await
+        .unwrap();
+    assert_eq!(
+        status,
+        StatusCode::NOT_FOUND,
+        "agent managers do not read reports"
+    );
+    let (status, _, _) = call(&state, "GET", "/api/v1/admin", Some(&ana), None)
+        .await
+        .unwrap();
+    assert_eq!(
+        status,
+        StatusCode::NOT_FOUND,
+        "the rest of the admin area needs operators"
+    );
+
+    customer_relations::run_once(&state).await;
+    let mails = sent.lock().unwrap().clone();
+    assert_eq!(mails.len(), 1);
+    assert!(mails[0].contains("To: ana@kestrel.example"));
+    assert!(
+        mails[0].contains("<noreply@app.example>"),
+        "the instance's own sender"
+    );
+}
+
+#[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
+async fn the_customer_record_brings_it_together(pool: PgPool) {
+    let fake = fake_services(json!({})).await;
+    let state = AppState::new(
+        pool.clone(),
+        config(settings(&fake), None),
+        Arc::new(NoExtension),
+    );
+    let (_, _, ops) = organization(&pool, "Token Controller", "ops@example.com")
+        .await
+        .unwrap();
+    let (kestrel, _, ana) = organization(&pool, "Kestrel Digital", "ana@kestrel.example")
+        .await
+        .unwrap();
+    member(&pool, kestrel, "ben@kestrel.example", "agent_manager")
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO support_conversations (channel, contact_email, subject, state) VALUES ('mail', 'Ana@Kestrel.example', 'Invoices', 'escalated'), ('mail', 'someone@else.example', 'Hi', 'new')")
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO newsletter_subscribers (email, source, status, confirm_token, unsubscribe_token) VALUES ('ana@kestrel.example', 'test', 'confirmed', 'c', 'u')")
+        .execute(&pool)
+        .await
+        .unwrap();
+    call(
+        &state,
+        "POST",
+        "/api/v1/feedback",
+        Some(&ana),
+        Some(json!({"kind": "idea", "text": "Export to Excel"})),
+    )
+    .await
+    .unwrap();
+
+    let (status, note, _) = call(
+        &state,
+        "POST",
+        &format!("/api/v1/admin/customers/{kestrel}/notes"),
+        Some(&ops),
+        Some(json!({"text": "Call: they close monthly."})),
+    )
+    .await
+    .unwrap();
+    assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(note["author_email"], "ops@example.com");
+    let (status, _, _) = call(
+        &state,
+        "POST",
+        &format!("/api/v1/admin/customers/{}/notes", Uuid::new_v4()),
+        Some(&ops),
+        Some(json!({"text": "x"})),
+    )
+    .await
+    .unwrap();
+    assert_eq!(status, StatusCode::NOT_FOUND);
+
+    let (_, customers, _) = call(&state, "GET", "/api/v1/admin/customers", Some(&ops), None)
+        .await
+        .unwrap();
+    let listed = customers
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|customer| customer["name"] == "Kestrel Digital")
+        .unwrap()
+        .clone();
+    assert_eq!(listed["members"], 2);
+    assert_eq!(listed["open_support"], 1);
+    assert_eq!(listed["open_feedback"], 1);
+    assert_eq!(listed["plan"], Value::Null, "billing is off in this test");
+
+    let (_, record, _) = call(
+        &state,
+        "GET",
+        &format!("/api/v1/admin/customers/{kestrel}"),
+        Some(&ops),
+        None,
+    )
+    .await
+    .unwrap();
+    assert_eq!(record["customer"]["name"], "Kestrel Digital");
+    assert_eq!(record["members"].as_array().unwrap().len(), 2);
+    let ana_row = record["members"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|member| member["email"] == "ana@kestrel.example")
+        .unwrap()
+        .clone();
+    assert_eq!(ana_row["newsletter"], "confirmed");
+    assert_eq!(ana_row["role"], "controller");
+    assert_eq!(record["support"].as_array().unwrap().len(), 1);
+    assert_eq!(record["support"][0]["subject"], "Invoices");
+    assert_eq!(record["feedback"][0]["report"]["text"], "Export to Excel");
+    assert_eq!(record["notes"][0]["body"], "Call: they close monthly.");
+}
+
+#[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
+async fn old_screenshots_and_reports_are_deleted(pool: PgPool) {
+    let state = AppState::new(
+        pool.clone(),
+        config(Settings::default(), None),
+        Arc::new(NoExtension),
+    );
+    let (organization, person, _) = organization(&pool, "Kestrel Digital", "ana@kestrel.example")
+        .await
+        .unwrap();
+    for (text, age) in [("old", "3 years"), ("month", "100 days"), ("new", "1 day")] {
+        sqlx::query(
+            "INSERT INTO feedback_reports (organization_id, person_id, kind, body, screenshot, screenshot_type, created_at, updated_at, reviewers_notified_at)
+             VALUES ($1, $2, 'bug', $3, $4, 'image/png', now() - $5::interval, now() - $5::interval, now())",
+        )
+        .bind(organization)
+        .bind(person)
+        .bind(text)
+        .bind(PNG)
+        .bind(age)
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+
+    customer_relations::run_once(&state).await;
+
+    let left: Vec<(String, bool)> = sqlx::query_as(
+        "SELECT body, screenshot IS NOT NULL FROM feedback_reports ORDER BY created_at",
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        left,
+        [("month".to_owned(), false), ("new".to_owned(), true)]
+    );
+}
+
+#[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
+async fn members_write_to_support_from_the_app(pool: PgPool) {
+    let fake = fake_services(json!({
+        "action": "answer", "kind": "question",
+        "answer": "Hi Ana, bills go under Bills.", "links": [], "reason": ""
+    }))
+    .await;
+    let (smtp, sent) = fake_smtp().await.unwrap();
+    let state = AppState::new(
+        pool.clone(),
+        config(settings(&fake), Some(smtp)),
+        Arc::new(NoExtension),
+    );
+    let (_, _, ana) = organization(&pool, "Kestrel Digital", "ana@kestrel.example")
+        .await
+        .unwrap();
+
+    let (status, support, _) = call(&state, "GET", "/api/v1/support", Some(&ana), None)
+        .await
+        .unwrap();
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(support["answer_to"], "ana@kestrel.example");
+    let (status, _, _) = call(
+        &state,
+        "POST",
+        "/api/v1/support/messages",
+        None,
+        Some(json!({"message": "Hi"})),
+    )
+    .await
+    .unwrap();
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    let (status, _, _) = call(
+        &state,
+        "POST",
+        "/api/v1/support/messages",
+        Some(&ana),
+        Some(json!({"message": "  "})),
+    )
+    .await
+    .unwrap();
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let (status, _, _) = call(
+        &state,
+        "POST",
+        "/api/v1/support/messages",
+        Some(&ana),
+        Some(json!({"message": "Where do bills go?"})),
+    )
+    .await
+    .unwrap();
+    assert_eq!(status, StatusCode::ACCEPTED);
+
+    customer_relations::run_once(&state).await;
+    let row = sqlx::query("SELECT channel, contact_email, state FROM support_conversations")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(row.get::<String, _>("channel"), "app");
+    assert_eq!(row.get::<String, _>("contact_email"), "ana@kestrel.example");
+    assert_eq!(row.get::<String, _>("state"), "answered");
+    let mails = sent.lock().unwrap().clone();
+    assert!(
+        mails
+            .iter()
+            .any(|mail| mail.contains("To: ana@kestrel.example")
+                && mail.contains("bills go under Bills"))
+    );
+
+    // Without the support inbox, as on most self-hosted instances.
+    let off = AppState::new(
+        pool.clone(),
+        config(Settings::default(), None),
+        Arc::new(NoExtension),
+    );
+    let (status, _, _) = call(&off, "GET", "/api/v1/support", Some(&ana), None)
+        .await
+        .unwrap();
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    let (status, _, _) = call(
+        &off,
+        "POST",
+        "/api/v1/support/messages",
+        Some(&ana),
+        Some(json!({"message": "Hi"})),
+    )
+    .await
+    .unwrap();
+    assert_eq!(status, StatusCode::NOT_FOUND);
 }
