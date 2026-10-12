@@ -10,6 +10,313 @@
     "version": "1.0.0"
   },
   "paths": {
+    "/api/v1/bills": {
+      "get": {
+        "tags": [
+          "bills"
+        ],
+        "summary": "The latest revision of every bill, newest period first.",
+        "operationId": "list_bills",
+        "parameters": [
+          {
+            "name": "period",
+            "in": "query",
+            "description": "Only this period, such as `2026-09`.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "example": "2026-09"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The bills",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/BillView"
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Only a controller can read bills",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "bills"
+        ],
+        "summary": "Send a bill for a period.",
+        "description": "Stores a new revision when the figures differ from the latest one, and\nanswers 200 with the unchanged bill when they do not.",
+        "operationId": "post_bill",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BillInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The same figures were already stored",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BillView"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Stored as a new revision",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BillView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The figures cannot be read or do not add up",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Only a controller can send bills",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/bills/{id}": {
+      "get": {
+        "tags": [
+          "bills"
+        ],
+        "summary": "Every revision of one bill, oldest first.",
+        "operationId": "get_bill",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The bill",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The bill's revisions",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/BillView"
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such bill",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/cadences": {
+      "get": {
+        "tags": [
+          "token_sheets"
+        ],
+        "summary": "The cadences of the organization and its projects.",
+        "operationId": "list_cadences",
+        "responses": {
+          "200": {
+            "description": "The cadences",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/CadenceView"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "token_sheets"
+        ],
+        "summary": "Set the cadence of the organization or of one project. A people manager\nsets a project's cadence within the filters they are assigned.",
+        "operationId": "set_cadence",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CadenceInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The cadence in force",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CadenceView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The cadence is not valid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Outside the filters you are assigned",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such project",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/cadences/{id}": {
+      "delete": {
+        "tags": [
+          "token_sheets"
+        ],
+        "summary": "Remove a cadence: its token sheets are no longer due.",
+        "operationId": "remove_cadence",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The cadence",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Removed"
+          },
+          "404": {
+            "description": "No such cadence",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/cost-sheet-links/{id}": {
+      "delete": {
+        "tags": [
+          "close"
+        ],
+        "summary": "Revoke a link: it stops working at once.",
+        "operationId": "revoke_link",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The link",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Revoked"
+          },
+          "404": {
+            "description": "No such link",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/health": {
       "get": {
         "tags": [
@@ -40,10 +347,1108 @@
           }
         }
       }
+    },
+    "/api/v1/periods": {
+      "get": {
+        "tags": [
+          "close"
+        ],
+        "summary": "Every period from the first with a token entry or a bill up to this\nmonth, newest first.",
+        "operationId": "list_periods",
+        "responses": {
+          "200": {
+            "description": "The periods",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PeriodSummary"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/periods/{period}": {
+      "get": {
+        "tags": [
+          "close"
+        ],
+        "summary": "One period and what is still open in it.",
+        "operationId": "get_period",
+        "parameters": [
+          {
+            "name": "period",
+            "in": "path",
+            "description": "The period, such as 2026-09",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The period",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PeriodView"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "An exchange rate is missing",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/periods/{period}/adjustments": {
+      "post": {
+        "tags": [
+          "close"
+        ],
+        "summary": "Post a signed correction to a closed period.",
+        "operationId": "post_adjustment",
+        "parameters": [
+          {
+            "name": "period",
+            "in": "path",
+            "description": "The closed period, such as 2026-09",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdjustmentInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Posted; the cost sheet with it",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CostSheet"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The amount or reason is missing",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The period is not closed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/periods/{period}/close": {
+      "post": {
+        "tags": [
+          "close"
+        ],
+        "summary": "Close a period: lock its token entries and keep the tag map, price table\nand bills it closed with. Answers with the cost sheet.",
+        "operationId": "close_period",
+        "parameters": [
+          {
+            "name": "period",
+            "in": "path",
+            "description": "The period, such as 2026-09",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Closed; the cost sheet",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CostSheet"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Only a controller can close a period",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The period cannot close yet; the message says why",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/periods/{period}/cost-sheet": {
+      "get": {
+        "tags": [
+          "close"
+        ],
+        "summary": "The cost sheet of a period: final once it is closed, a preview while it\nis open.",
+        "operationId": "get_cost_sheet",
+        "parameters": [
+          {
+            "name": "period",
+            "in": "path",
+            "description": "The period, such as 2026-09",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "columns",
+            "in": "query",
+            "description": "Extra tag names as columns, comma-separated, such as `team,purpose`.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "format",
+            "in": "query",
+            "description": "`csv` for a CSV file; JSON otherwise.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The cost sheet, as JSON or CSV",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CostSheet"
+                }
+              },
+              "text/csv": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "An exchange rate is missing",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/periods/{period}/cost-sheet/links": {
+      "get": {
+        "tags": [
+          "close"
+        ],
+        "summary": "The links made for a period.",
+        "operationId": "list_links",
+        "parameters": [
+          {
+            "name": "period",
+            "in": "path",
+            "description": "The period, such as 2026-09",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The links, newest first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/CostSheetLink"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "close"
+        ],
+        "summary": "Make a link that shows the cost sheet without signing in.",
+        "operationId": "create_link",
+        "parameters": [
+          {
+            "name": "period",
+            "in": "path",
+            "description": "The closed period, such as 2026-09",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "The link, with its address",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CostSheetLink"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The period is not closed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/reconciliation": {
+      "get": {
+        "tags": [
+          "bills"
+        ],
+        "summary": "Each bill of a period against its token entries, with residual.",
+        "operationId": "get_reconciliation",
+        "parameters": [
+          {
+            "name": "period",
+            "in": "query",
+            "description": "The period, such as `2026-09`.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": "2026-09"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The period's reconciliation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Reconciliation"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Only a controller can read the reconciliation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "An exchange rate is missing",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/shared/cost-sheets/{secret}": {
+      "get": {
+        "tags": [
+          "close"
+        ],
+        "summary": "The cost sheet behind a link, without signing in.",
+        "operationId": "shared_cost_sheet",
+        "parameters": [
+          {
+            "name": "secret",
+            "in": "path",
+            "description": "The secret part of the link",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "columns",
+            "in": "query",
+            "description": "Extra tag names as columns, comma-separated, such as `team,purpose`.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "format",
+            "in": "query",
+            "description": "`csv` for a CSV file; JSON otherwise.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The cost sheet, as JSON or CSV",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CostSheet"
+                }
+              },
+              "text/csv": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such link, or it was revoked",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/token-entries/approval": {
+      "get": {
+        "tags": [
+          "token_sheets"
+        ],
+        "summary": "Submitted token entries waiting for approval, within the caller's\nfilters.",
+        "operationId": "approval_queue",
+        "parameters": [
+          {
+            "name": "period",
+            "in": "query",
+            "description": "The period, such as `2026-09`. Left out: every open period.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "example": "2026-09"
+          },
+          {
+            "name": "filter",
+            "in": "query",
+            "description": "A tag filter in the URL form, such as `team:web,client:acme`.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "example": "team:web"
+          },
+          {
+            "name": "format",
+            "in": "query",
+            "description": "`csv` for a CSV file.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Token entries waiting for approval, as JSON or CSV",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/EntryView"
+                  }
+                }
+              },
+              "text/csv": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Only people managers approve",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/token-entries/approve": {
+      "post": {
+        "tags": [
+          "token_sheets"
+        ],
+        "summary": "Approve submitted token entries, one by one or in bulk.",
+        "operationId": "approve",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApproveInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Approved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Decided"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Approval is off",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/token-entries/{id}/reject": {
+      "post": {
+        "tags": [
+          "token_sheets"
+        ],
+        "summary": "Send a token entry back to its agent manager with a reason. It does not\ncount until it is fixed and submitted again.",
+        "operationId": "reject",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The token entry",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RejectInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Rejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EntryView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A reason is needed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such token entry within your filters",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The token entry is in a closed period",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/token-sheets/late": {
+      "get": {
+        "tags": [
+          "token_sheets"
+        ],
+        "summary": "Late token sheets: whose, and for which cadence period. A people manager\nsees the people within their filters; an agent manager their own.",
+        "operationId": "list_late",
+        "parameters": [
+          {
+            "name": "period",
+            "in": "query",
+            "description": "Only cadence periods overlapping this month, such as `2026-09`.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "example": "2026-09"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Late token sheets, oldest first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/LateSheet"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/token-sheets/review": {
+      "get": {
+        "tags": [
+          "token_sheets"
+        ],
+        "summary": "The caller's own review list: rejected token entries and token sheets.",
+        "operationId": "review",
+        "responses": {
+          "200": {
+            "description": "The review list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Review"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
     "schemas": {
+      "AdjustmentInput": {
+        "type": "object",
+        "description": "An adjustment to post (docs: Account > Adjustments).",
+        "required": [
+          "amount",
+          "reason"
+        ],
+        "properties": {
+          "amount": {
+            "type": "string",
+            "description": "Plus or minus, in the reporting currency, such as `-120.00`.",
+            "example": "-120.00"
+          },
+          "reason": {
+            "type": "string",
+            "example": "Provider credit for the September outage"
+          },
+          "tags": {
+            "type": "object",
+            "description": "The cost object and any other tags, such as `{\"ticket\": \"KD-214\"}`.\nNo tags puts it on the organization.",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "AdjustmentRow": {
+        "type": "object",
+        "description": "An adjustment as the cost sheet shows it.",
+        "required": [
+          "id",
+          "amount",
+          "tags",
+          "reason",
+          "late",
+          "posted_at"
+        ],
+        "properties": {
+          "amount": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "late": {
+            "type": "boolean",
+            "description": "Posted for a token sheet that came in after the close."
+          },
+          "posted_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "posted_by": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Who posted it; `null` for a late token sheet, posted on its own."
+          },
+          "reason": {
+            "type": "string"
+          },
+          "tags": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "ApproveInput": {
+        "type": "object",
+        "description": "Token entries to approve: by ID, or everything matching a filter and\nperiod.",
+        "properties": {
+          "filter": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "example": "team:web"
+          },
+          "period": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "example": "2026-09"
+          },
+          "token_entry_ids": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "These token entries. Left out: every submitted token entry matching\n`period` and `filter` that the caller may approve."
+          }
+        }
+      },
+      "BillInput": {
+        "type": "object",
+        "description": "A bill as the bills endpoint and the web app send it (docs: Reference >\nBill schema). Amounts are decimal strings in `currency`.",
+        "required": [
+          "period",
+          "provider",
+          "cost_source",
+          "net",
+          "currency"
+        ],
+        "properties": {
+          "cost_source": {
+            "$ref": "#/components/schemas/CostSource"
+          },
+          "credit": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "example": "0"
+          },
+          "currency": {
+            "type": "string",
+            "example": "USD"
+          },
+          "discount": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "example": "0"
+          },
+          "exchange_rate": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "To the organization's reporting currency, at the bill's date. Left\nout, Token Controller fills it in.",
+            "example": "0.9214"
+          },
+          "gross": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Before discount and credit. Left out, it is net plus discount plus\ncredit.",
+            "example": "1234.56"
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "net": {
+            "type": "string",
+            "example": "1234.56"
+          },
+          "period": {
+            "type": "string",
+            "description": "The calendar month, such as `2026-09`.",
+            "example": "2026-09"
+          },
+          "provider": {
+            "type": "string",
+            "description": "Who charged, such as `anthropic` or `openai`.",
+            "example": "anthropic"
+          },
+          "typed_in": {
+            "type": "boolean",
+            "description": "Typed in by hand in the web app, rather than sent by a program."
+          }
+        }
+      },
+      "BillLine": {
+        "type": "object",
+        "description": "One line of the bill that is not a token entry, in the reporting\ncurrency: residual, discount or credit of one provider.",
+        "required": [
+          "provider",
+          "residual",
+          "discount",
+          "credit"
+        ],
+        "properties": {
+          "credit": {
+            "type": "string"
+          },
+          "discount": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "residual": {
+            "type": "string"
+          }
+        }
+      },
+      "BillSource": {
+        "type": "string",
+        "description": "How a bill reached Token Controller.",
+        "enum": [
+          "pulled",
+          "csv",
+          "manual",
+          "api"
+        ]
+      },
+      "BillView": {
+        "type": "object",
+        "description": "A stored bill revision.",
+        "required": [
+          "id",
+          "period",
+          "provider",
+          "cost_source",
+          "revision",
+          "currency",
+          "gross",
+          "discount",
+          "credit",
+          "net",
+          "exchange_rate_given",
+          "source",
+          "lines",
+          "recorded_at"
+        ],
+        "properties": {
+          "cost_source": {
+            "$ref": "#/components/schemas/CostSource"
+          },
+          "credit": {
+            "type": "string",
+            "example": "0.00"
+          },
+          "currency": {
+            "type": "string",
+            "example": "USD"
+          },
+          "discount": {
+            "type": "string",
+            "example": "0.00"
+          },
+          "exchange_rate": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "To the reporting currency; `null` until a rate for the bill's date is\nknown.",
+            "example": "0.9214"
+          },
+          "exchange_rate_given": {
+            "type": "boolean",
+            "description": "Whether the rate came with the bill, rather than from the reference\nrates."
+          },
+          "gross": {
+            "type": "string",
+            "example": "1234.56"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "net": {
+            "type": "string",
+            "example": "1234.56"
+          },
+          "period": {
+            "type": "string",
+            "example": "2026-09"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "recorded_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int32",
+            "description": "1 for the first figure, higher after each restatement."
+          },
+          "source": {
+            "$ref": "#/components/schemas/BillSource"
+          }
+        }
+      },
+      "CadenceInput": {
+        "type": "object",
+        "description": "A cadence to set.",
+        "required": [
+          "kind"
+        ],
+        "properties": {
+          "every_days": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "For a custom cadence: the length of each cadence period in days,\nfrom 1 to 366.",
+            "minimum": 0
+          },
+          "kind": {
+            "$ref": "#/components/schemas/CadenceKind"
+          },
+          "project": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The project's name; left out for the whole organization."
+          },
+          "starts_on": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date",
+            "description": "The day the first cadence period starts. Left out: the Monday of\nthis week."
+          }
+        }
+      },
+      "CadenceKind": {
+        "type": "string",
+        "description": "How often token sheets are due.",
+        "enum": [
+          "weekly",
+          "every_two_weeks",
+          "monthly",
+          "custom"
+        ]
+      },
+      "CadencePeriod": {
+        "type": "object",
+        "description": "One stretch of a cadence: from `starts_on` up to and including `ends_on`.",
+        "required": [
+          "starts_on",
+          "ends_on"
+        ],
+        "properties": {
+          "ends_on": {
+            "type": "string",
+            "format": "date"
+          },
+          "starts_on": {
+            "type": "string",
+            "format": "date"
+          }
+        }
+      },
+      "CadenceView": {
+        "type": "object",
+        "description": "A cadence as the API shows it.",
+        "required": [
+          "id",
+          "kind",
+          "starts_on",
+          "current",
+          "set_by",
+          "set_at"
+        ],
+        "properties": {
+          "current": {
+            "$ref": "#/components/schemas/CadencePeriod",
+            "description": "The cadence period running today."
+          },
+          "every_days": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "For a custom cadence: the length of each cadence period in days.",
+            "minimum": 0
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/CadenceKind"
+          },
+          "project": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The project it is set for; `null` for the whole organization."
+          },
+          "set_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "set_by": {
+            "type": "string"
+          },
+          "starts_on": {
+            "type": "string",
+            "format": "date",
+            "description": "The day the first cadence period starts."
+          }
+        }
+      },
       "Check": {
         "type": "string",
         "description": "Whether one part of the service works.",
@@ -51,6 +1456,346 @@
           "ok",
           "failing"
         ]
+      },
+      "CostKind": {
+        "type": "string",
+        "description": "How specific a split's cost object is.",
+        "enum": [
+          "direct",
+          "project_overhead",
+          "organization_overhead"
+        ]
+      },
+      "CostRow": {
+        "type": "object",
+        "description": "One line of cost: everything with the same cost object, cost kind and\nextra columns.",
+        "required": [
+          "rung",
+          "cost_object",
+          "kind",
+          "tags",
+          "amount",
+          "token_entries",
+          "unknown_model",
+          "estimate"
+        ],
+        "properties": {
+          "amount": {
+            "type": "string",
+            "example": "41.87"
+          },
+          "cost_object": {
+            "type": "string",
+            "description": "The cost object, such as `KD-214`; empty for the organization."
+          },
+          "estimate": {
+            "type": "boolean",
+            "description": "Whether the amount is a list-price estimate from a provider without a\nbill, such as a seat plan."
+          },
+          "kind": {
+            "$ref": "#/components/schemas/CostKind"
+          },
+          "rung": {
+            "type": "string",
+            "description": "The rung the cost object sits on, such as `ticket`, or\n`organization`."
+          },
+          "tags": {
+            "type": "object",
+            "description": "The value of every rung of the ladder the cost carries, such as the\nticket's project, and of each extra column asked for.",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "token_entries": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "unknown_model": {
+            "type": "integer",
+            "description": "Token entries on a model missing from the price table: counted, never\nvalued as zero.",
+            "minimum": 0
+          }
+        }
+      },
+      "CostSheet": {
+        "type": "object",
+        "description": "The cost sheet.",
+        "required": [
+          "period",
+          "closed",
+          "currency",
+          "ladder",
+          "columns",
+          "rows",
+          "projects",
+          "kinds",
+          "bill_lines",
+          "adjustments",
+          "reconciliation",
+          "total"
+        ],
+        "properties": {
+          "adjustments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AdjustmentRow"
+            }
+          },
+          "bill_lines": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BillLine"
+            }
+          },
+          "closed": {
+            "type": "boolean",
+            "description": "False while the period is open: the figures can still change."
+          },
+          "closed_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "columns": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The extra tag names asked for as columns."
+          },
+          "currency": {
+            "type": "string",
+            "example": "EUR"
+          },
+          "kinds": {
+            "$ref": "#/components/schemas/KindTotals"
+          },
+          "ladder": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The ladder the cost objects were read with, most specific first."
+          },
+          "period": {
+            "type": "string",
+            "example": "2026-09"
+          },
+          "projects": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProjectTotal"
+            }
+          },
+          "reconciliation": {
+            "$ref": "#/components/schemas/Reconciliation"
+          },
+          "rows": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CostRow"
+            }
+          },
+          "total": {
+            "type": "string",
+            "description": "Token entries plus residual, minus discount and credit, plus\nadjustments."
+          }
+        }
+      },
+      "CostSheetLink": {
+        "type": "object",
+        "description": "A link to a cost sheet.",
+        "required": [
+          "id",
+          "period",
+          "created_by",
+          "created_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "created_by": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "period": {
+            "type": "string",
+            "example": "2026-09"
+          },
+          "revoked_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "url": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The address to hand finance. Shown only when the link is made."
+          }
+        }
+      },
+      "CostSource": {
+        "type": "string",
+        "description": "How a provider charges for what a bill covers. Seats and subscriptions\nare flat fees and have no bill.",
+        "enum": [
+          "usage_at_api_rates",
+          "api_key",
+          "cloud_marketplace",
+          "reseller"
+        ]
+      },
+      "CurrentSheet": {
+        "type": "object",
+        "description": "The cadence period running for a person, as the CLI and the Claude Code\nmod show it.",
+        "required": [
+          "period_start",
+          "period_end",
+          "late"
+        ],
+        "properties": {
+          "late": {
+            "type": "boolean",
+            "description": "Whether an earlier cadence period still waits for its token sheet."
+          },
+          "period_end": {
+            "type": "string",
+            "format": "date"
+          },
+          "period_start": {
+            "type": "string",
+            "format": "date"
+          }
+        }
+      },
+      "Decided": {
+        "type": "object",
+        "description": "How many token entries changed.",
+        "required": [
+          "approved",
+          "skipped"
+        ],
+        "properties": {
+          "approved": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "skipped": {
+            "type": "integer",
+            "description": "Asked for by ID, but not submitted or not within the caller's\nfilters.",
+            "minimum": 0
+          }
+        }
+      },
+      "EntryStatus": {
+        "type": "string",
+        "description": "Where a token entry stands (docs: Reference > Data model, status).",
+        "enum": [
+          "draft",
+          "submitted",
+          "approved",
+          "rejected",
+          "locked"
+        ]
+      },
+      "EntryView": {
+        "type": "object",
+        "description": "One token entry.",
+        "required": [
+          "id",
+          "agent_harness",
+          "model",
+          "provider",
+          "started_at",
+          "status",
+          "automatic",
+          "summary",
+          "currency",
+          "label",
+          "splits"
+        ],
+        "properties": {
+          "agent_harness": {
+            "type": "string"
+          },
+          "agent_manager": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "agent_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "automatic": {
+            "type": "boolean",
+            "description": "Arrived with no person involved, such as from CI."
+          },
+          "currency": {
+            "type": "string",
+            "example": "USD"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "label": {
+            "type": "string",
+            "description": "`list-price estimate`, or `unknown model`."
+          },
+          "list_value": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The list value of all splits; `null` when the model is unknown."
+          },
+          "model": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "rejected_reason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why a people manager sent it back."
+          },
+          "splits": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SplitView"
+            }
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "status": {
+            "$ref": "#/components/schemas/EntryStatus"
+          },
+          "summary": {
+            "type": "string"
+          }
+        }
       },
       "ErrorBody": {
         "type": "object",
@@ -67,6 +1812,33 @@
           "message": {
             "type": "string",
             "description": "What went wrong, in plain English."
+          }
+        }
+      },
+      "Estimate": {
+        "type": "object",
+        "description": "Token entries from a provider without a bill this period, such as a seat\nplan: their list value is an estimate at API prices.",
+        "required": [
+          "provider",
+          "token_entries",
+          "token_entry_count",
+          "unknown_model_count"
+        ],
+        "properties": {
+          "provider": {
+            "type": "string"
+          },
+          "token_entries": {
+            "type": "string",
+            "description": "In the reporting currency."
+          },
+          "token_entry_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "unknown_model_count": {
+            "type": "integer",
+            "minimum": 0
           }
         }
       },
@@ -95,6 +1867,532 @@
           "version": {
             "type": "string",
             "description": "The running version, such as `1.0.0`."
+          }
+        }
+      },
+      "KindTotals": {
+        "type": "object",
+        "description": "Cost per cost kind: how specific the attribution is.",
+        "required": [
+          "direct",
+          "project_overhead",
+          "organization_overhead"
+        ],
+        "properties": {
+          "direct": {
+            "type": "string"
+          },
+          "direct_percent": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Each kind's share of all token entries, in percent.",
+            "minimum": 0
+          },
+          "organization_overhead": {
+            "type": "string"
+          },
+          "organization_overhead_percent": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "project_overhead": {
+            "type": "string"
+          },
+          "project_overhead_percent": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "LateSheet": {
+        "type": "object",
+        "description": "One late token sheet.",
+        "required": [
+          "person_id",
+          "person",
+          "email",
+          "period_start",
+          "period_end"
+        ],
+        "properties": {
+          "email": {
+            "type": "string"
+          },
+          "period_end": {
+            "type": "string",
+            "format": "date"
+          },
+          "period_start": {
+            "type": "string",
+            "format": "date"
+          },
+          "person": {
+            "type": "string"
+          },
+          "person_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "OpenItems": {
+        "type": "object",
+        "description": "What still needs a look before a period closes (docs: Account > Monthly\nclose, steps 1 to 3).",
+        "required": [
+          "bills",
+          "organization_overhead",
+          "organization_overhead_entries",
+          "late_token_sheets",
+          "unapproved",
+          "rejected",
+          "unknown_model"
+        ],
+        "properties": {
+          "bills": {
+            "type": "integer",
+            "description": "Bills in for the period.",
+            "minimum": 0
+          },
+          "late_token_sheets": {
+            "type": "integer",
+            "description": "Token sheets whose cadence period is over and that were not\nsubmitted.",
+            "minimum": 0
+          },
+          "organization_overhead": {
+            "type": "string",
+            "description": "Organization overhead: cost on no project that may belong on one."
+          },
+          "organization_overhead_entries": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "rejected": {
+            "type": "integer",
+            "description": "Token entries sent back to their agent manager.",
+            "minimum": 0
+          },
+          "unapproved": {
+            "type": "integer",
+            "description": "With approval on: token entries not approved yet.",
+            "minimum": 0
+          },
+          "unknown_model": {
+            "type": "integer",
+            "description": "Token entries on a model missing from the price table.",
+            "minimum": 0
+          }
+        }
+      },
+      "PeriodSummary": {
+        "type": "object",
+        "description": "A period and whether it is closed.",
+        "required": [
+          "period",
+          "ended",
+          "closed"
+        ],
+        "properties": {
+          "closed": {
+            "type": "boolean"
+          },
+          "closed_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "closed_by": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The controller who closed it."
+          },
+          "ended": {
+            "type": "boolean",
+            "description": "Whether the calendar month is over."
+          },
+          "period": {
+            "type": "string",
+            "example": "2026-09"
+          }
+        }
+      },
+      "PeriodView": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/PeriodSummary"
+          },
+          {
+            "type": "object",
+            "required": [
+              "approval",
+              "open_items",
+              "can_close",
+              "blockers"
+            ],
+            "properties": {
+              "approval": {
+                "type": "boolean"
+              },
+              "blockers": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Why it cannot close yet, in plain words."
+              },
+              "can_close": {
+                "type": "boolean",
+                "description": "Whether a controller can close it now."
+              },
+              "open_items": {
+                "$ref": "#/components/schemas/OpenItems"
+              }
+            }
+          }
+        ],
+        "description": "One period, with what is still open in it."
+      },
+      "ProjectTotal": {
+        "type": "object",
+        "description": "One project's cost.",
+        "required": [
+          "project",
+          "direct",
+          "project_overhead",
+          "total"
+        ],
+        "properties": {
+          "direct": {
+            "type": "string",
+            "description": "On its tickets."
+          },
+          "project": {
+            "type": "string"
+          },
+          "project_overhead": {
+            "type": "string",
+            "description": "On the project but on no ticket."
+          },
+          "total": {
+            "type": "string"
+          }
+        }
+      },
+      "ProviderCheck": {
+        "type": "object",
+        "description": "One provider's check: its bills against its token entries.",
+        "required": [
+          "provider",
+          "bills",
+          "currency",
+          "gross",
+          "discount",
+          "credit",
+          "net",
+          "token_entries",
+          "residual",
+          "token_entry_count",
+          "unknown_model_count"
+        ],
+        "properties": {
+          "attribution_percent": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "The share of the gross that token entries explain, in percent.",
+            "minimum": 0
+          },
+          "bills": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BillView"
+            },
+            "description": "The bills of the period from this provider, latest revision (or, for\na closed period, the revision it closed with)."
+          },
+          "credit": {
+            "type": "string"
+          },
+          "currency": {
+            "type": "string",
+            "example": "USD"
+          },
+          "discount": {
+            "type": "string"
+          },
+          "gross": {
+            "type": "string",
+            "description": "The bills' gross, at list price before discount and credit."
+          },
+          "net": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "residual": {
+            "type": "string",
+            "description": "Gross minus token entries: what no token entry explains."
+          },
+          "token_entries": {
+            "type": "string",
+            "description": "The list value of the provider's token entries."
+          },
+          "token_entry_count": {
+            "type": "integer",
+            "description": "How many token entries were counted.",
+            "minimum": 0
+          },
+          "unknown_model_count": {
+            "type": "integer",
+            "description": "Token entries on a model missing from the price table. Their cost is\nunknown, so it sits in residual, never as zero.",
+            "minimum": 0
+          }
+        }
+      },
+      "Reconciliation": {
+        "type": "object",
+        "description": "A period's reconciliation.",
+        "required": [
+          "period",
+          "closed",
+          "reporting_currency",
+          "providers",
+          "estimates",
+          "totals",
+          "restated_after_close"
+        ],
+        "properties": {
+          "closed": {
+            "type": "boolean"
+          },
+          "estimates": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Estimate"
+            }
+          },
+          "period": {
+            "type": "string",
+            "example": "2026-09"
+          },
+          "providers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProviderCheck"
+            }
+          },
+          "reporting_currency": {
+            "type": "string",
+            "example": "EUR"
+          },
+          "restated_after_close": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BillView"
+            },
+            "description": "Bills a provider restated after the period closed. The closed figures\nstay as they were; a controller can post an adjustment."
+          },
+          "totals": {
+            "$ref": "#/components/schemas/Totals"
+          }
+        }
+      },
+      "RejectInput": {
+        "type": "object",
+        "description": "Why a token entry goes back.",
+        "required": [
+          "reason"
+        ],
+        "properties": {
+          "reason": {
+            "type": "string",
+            "example": "This was the Globex pitch, not ACME: please move it to GLOBEX-7"
+          }
+        }
+      },
+      "Rejected": {
+        "type": "object",
+        "description": "A token entry sent back to its agent manager.",
+        "required": [
+          "token_entry_id",
+          "reason"
+        ],
+        "properties": {
+          "local_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The local tool's ID for the session, so it can show the reason on the\ndraft."
+          },
+          "reason": {
+            "type": "string"
+          },
+          "token_entry_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "Review": {
+        "type": "object",
+        "description": "The caller's review list.",
+        "required": [
+          "rejected",
+          "context",
+          "token_sheets"
+        ],
+        "properties": {
+          "context": {
+            "$ref": "#/components/schemas/SheetContext"
+          },
+          "rejected": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EntryView"
+            },
+            "description": "Sent back with a reason: fix and submit again."
+          },
+          "token_sheets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SheetSummary"
+            },
+            "description": "The person's token sheets, newest first."
+          }
+        }
+      },
+      "SheetContext": {
+        "type": "object",
+        "description": "What the local tools need to know about a person's token sheets.",
+        "required": [
+          "rejected"
+        ],
+        "properties": {
+          "cadence": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/CurrentSheet",
+                "description": "`null` when no cadence applies."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "rejected": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Rejected"
+            }
+          }
+        }
+      },
+      "SheetSummary": {
+        "type": "object",
+        "description": "One of the person's token sheets.",
+        "required": [
+          "period_start",
+          "period_end",
+          "token_entries",
+          "last_submitted_at"
+        ],
+        "properties": {
+          "last_submitted_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "period_end": {
+            "type": "string",
+            "format": "date"
+          },
+          "period_start": {
+            "type": "string",
+            "format": "date"
+          },
+          "token_entries": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "SplitView": {
+        "type": "object",
+        "description": "One split of a token entry.",
+        "required": [
+          "id",
+          "tags"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "list_value": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`null` for an unknown model."
+          },
+          "tags": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "Totals": {
+        "type": "object",
+        "description": "The organization-wide figures, in the reporting currency.",
+        "required": [
+          "token_entries",
+          "residual",
+          "discount",
+          "credit",
+          "net",
+          "estimates"
+        ],
+        "properties": {
+          "credit": {
+            "type": "string"
+          },
+          "discount": {
+            "type": "string"
+          },
+          "estimates": {
+            "type": "string",
+            "description": "List value of token entries without a bill, labelled an estimate."
+          },
+          "net": {
+            "type": "string",
+            "description": "What the bills charged: token entries plus residual minus discount\nand credit."
+          },
+          "residual": {
+            "type": "string"
+          },
+          "token_entries": {
+            "type": "string"
           }
         }
       }

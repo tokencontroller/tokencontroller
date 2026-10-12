@@ -5,6 +5,10 @@
 //! this folder, and its migrations in `migrations/` named
 //! `<timestamp>_reports_<what>.sql`.
 
+pub mod entries;
+pub mod filter;
+pub mod lines;
+pub mod scope;
 pub mod csv;
 
 use utoipa_axum::router::OpenApiRouter;
