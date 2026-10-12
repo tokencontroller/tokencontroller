@@ -24,12 +24,18 @@ import type {
   TokenForecast,
   TokenSheet,
 } from "@/api/contract";
+import { toDecimal } from "@/lib/money";
 import { TODAY, type BillRecord, type Db, type EntryRecord } from "./seed";
 
 export const NANOS = 1_000_000_000;
 
 export function m(nanos: number, currency: string): Money {
   return { nanos, currency };
+}
+
+/** Nano-units as the service's decimal string, rounded to the currency's minor unit. */
+export function dec(nanos: number, currency: string): string {
+  return toDecimal(m(Math.round(nanos), currency));
 }
 
 export function cur(db: Db): string {
