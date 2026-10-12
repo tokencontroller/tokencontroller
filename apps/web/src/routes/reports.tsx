@@ -28,8 +28,6 @@ interface ViewOptions {
   currency: string;
 }
 
-const spectrum = [1, 2, 3, 4, 5, 6, 7].map((n) => `var(--color-spectrum-${n})`);
-
 function ResultTable({ result, view, csvName, valueLabel }: { result: ReportResult; view: ViewOptions; csvName: string; valueLabel: (row: ReportRow) => string }) {
   const max = Math.max(1, ...result.rows.map((r) => r.share));
   const columns: Column<ReportRow>[] = [
@@ -38,13 +36,12 @@ function ResultTable({ result, view, csvName, valueLabel }: { result: ReportResu
       header: result.group_by.replace("_", " "),
       cell: (r) => (
         <span className="flex items-center gap-2">
-          <span aria-hidden="true" className="size-2 shrink-0 rounded-full" style={{ background: r.value === null ? "var(--color-line-strong)" : spectrum[result.rows.indexOf(r) % 7] }} />
           {r.value === null ? <span className="text-muted">{valueLabel(r)}</span> : valueLabel(r)}
         </span>
       ),
       csv: (r) => valueLabel(r),
     },
-    { key: "bar", header: "", wide: true, className: "w-1/3", cell: (r) => <RowBar share={(r.share * 10000) / max} color={r.value === null ? "var(--color-line-strong)" : (spectrum[result.rows.indexOf(r) % 7] ?? "")} /> },
+    { key: "bar", header: "", wide: true, className: "w-1/3", cell: (r) => <RowBar share={(r.share * 10000) / max} color={r.value === null ? "var(--color-line-strong)" : "var(--color-accent)"} /> },
     {
       key: "amount",
       header: view.share ? "Share" : "Cost",

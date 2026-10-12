@@ -29,7 +29,7 @@ function TicketPicker({ entry }: { entry: TokenEntry }) {
   const list = [...(tickets.data ?? [])].sort((a, b) => Number(candidates.has(b.key)) - Number(candidates.has(a.key)));
   return (
     <Select
-      aria-label={`Ticket for entry ${entry.id}`}
+      aria-label={`Ticket for “${entry.summary}”`}
       className="h-8 min-w-36 text-[13px]"
       value={tags.ticket ?? ""}
       disabled={save.isPending}

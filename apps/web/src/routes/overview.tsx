@@ -40,11 +40,11 @@ function Bars({ result, label }: { result: ReportResult; label: (value: string |
   const max = Math.max(1, ...result.rows.map((r) => r.share));
   return (
     <ul className="space-y-2.5">
-      {result.rows.slice(0, 6).map((r, i) => (
+      {result.rows.slice(0, 6).map((r) => (
         <li key={r.value ?? "none"} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 text-sm sm:grid-cols-[160px_1fr_auto]">
           <span className={`truncate ${r.value === null ? "text-muted" : ""}`}>{label(r.value)}</span>
           <span className="col-span-2 row-start-2 sm:col-span-1 sm:row-start-auto">
-            <RowBar share={(r.share * 10000) / max} color={r.value === null ? "var(--color-line-strong)" : `var(--color-spectrum-${(i % 7) + 1})`} />
+            <RowBar share={(r.share * 10000) / max} color={r.value === null ? "var(--color-line-strong)" : "var(--color-accent)"} />
           </span>
           <MoneyText value={r.amount} />
         </li>

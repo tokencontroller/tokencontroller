@@ -5,3 +5,4 @@ src/api/generated.ts
 test-results
 playwright-report
 *.tsbuildinfo
+screenshots

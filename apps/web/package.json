@@ -13,7 +13,8 @@
     "test": "pnpm generate && vitest run",
     "build": "pnpm generate && tsc -b --noEmit && vite build",
     "build:mock": "pnpm generate && VITE_API_MOCK=1 vite build --outDir dist-mock",
-    "e2e": "playwright test"
+    "e2e": "playwright test --project=desktop --project=phone",
+    "screenshots": "playwright test --project=screenshots"
   },
   "dependencies": {
     "@base-ui/react": "1.9.0",
