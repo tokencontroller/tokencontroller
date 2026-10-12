@@ -1,30 +1,29 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
-import type { Filter, ReportResult } from "@/api/contract";
+import type { CostKind, CostReport, Filter } from "@/api/contract";
 import { api } from "@/api/endpoints";
 import { FilterTags } from "@/routes/budgets";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonClass } from "@/components/ui/button";
 import { Kpi, KpiRow, Loading, MoneyText, Note, PageHeader, RowBar, Section, ShareBar } from "@/components/ui/display";
 import { addMonths, describeFilter, filterToText, formatPeriod } from "@/lib/format";
-import { formatMoney, formatShare, shareOf } from "@/lib/money";
+import { formatMoney, formatShare, fromDecimal, nanosOf, shareOf } from "@/lib/money";
 import { refreshAll, useBilling, useFirstOpenPeriod, useMe, usePeriods, usePersonName } from "@/lib/queries";
 import { Field, FormError, Input } from "@/components/ui/form";
 import { forgetSignUp, readSignUp, rememberSignUp, type SignUpChoices } from "@/lib/remember";
 import { hasRole } from "@/lib/roles";
 import { thisPeriod } from "@/lib/today";
 
-/** Direct, project overhead and organization overhead from two groupings of one filter. */
+/** Direct, project overhead and organization overhead as shares of one filter's cost, and its cost by project. */
 function useCostKinds(period: string, filter: Filter) {
-  const byTicket = useQuery({ queryKey: ["report", period, filterToText(filter), "ticket"], queryFn: () => api.cost({ period, filter, group_by: "ticket" }) });
-  const byProject = useQuery({ queryKey: ["report", period, filterToText(filter), "project"], queryFn: () => api.cost({ period, filter, group_by: "project" }) });
-  if (!byTicket.data || !byProject.data) return null;
+  const byKind = useQuery({ queryKey: ["report", period, filterToText(filter), "cost_kind", "share"], queryFn: () => api.cost({ period, filter, by: "cost_kind", share: true }) });
+  const byProject = useQuery({ queryKey: ["report", period, filterToText(filter), "project"], queryFn: () => api.cost({ period, filter, by: "project" }) });
+  if (!byKind.data || !byProject.data) return null;
   // Nothing recorded yet: no kind has a share.
-  if (!byTicket.data.rows.length) return { direct: 0, project: 0, organization: 0, total: byProject.data.total, byProject: byProject.data };
-  const noTicket = byTicket.data.rows.find((r) => r.value === null)?.share ?? 0;
-  const noProject = byProject.data.rows.find((r) => r.value === null)?.share ?? 0;
-  return { direct: 10000 - noTicket, project: noTicket - noProject, organization: noProject, total: byProject.data.total, byProject: byProject.data };
+  const kinds = byKind.data.rows;
+  const share = (kind: CostKind) => kinds.find((r) => r.value === kind && !r.adjustment)?.share ?? 0;
+  return { direct: share("direct"), project: share("project_overhead"), organization: share("organization_overhead"), total: fromDecimal(byProject.data.total, byProject.data.currency), byProject: byProject.data };
 }
 
 function KindBar({ kinds }: { kinds: NonNullable<ReturnType<typeof useCostKinds>> }) {
@@ -40,15 +39,16 @@ function KindBar({ kinds }: { kinds: NonNullable<ReturnType<typeof useCostKinds>
   );
 }
 
-function Bars({ result, label }: { result: ReportResult; label: (value: string | null) => string }) {
-  const max = Math.max(1, ...result.rows.map((r) => r.share));
+function Bars({ result, label }: { result: CostReport; label: (value: string | null) => string }) {
+  const rows = result.rows.filter((r) => !r.adjustment).slice(0, 6).map((r) => ({ value: r.value ?? null, amount: fromDecimal(r.amount, result.currency) }));
+  const max = rows.reduce((most, r) => (nanosOf(r.amount) > most ? nanosOf(r.amount) : most), 1n);
   return (
     <ul className="space-y-2.5">
-      {result.rows.slice(0, 6).map((r) => (
+      {rows.map((r) => (
         <li key={r.value ?? "none"} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 text-sm sm:grid-cols-[160px_1fr_auto]">
           <span className={`truncate ${r.value === null ? "text-muted" : ""}`}>{label(r.value)}</span>
           <span className="col-span-2 row-start-2 sm:col-span-1 sm:row-start-auto">
-            <RowBar share={(r.share * 10000) / max} color={r.value === null ? "var(--color-line-strong)" : "var(--color-accent)"} />
+            <RowBar share={Number((nanosOf(r.amount) * 10000n) / max)} color={r.value === null ? "var(--color-line-strong)" : "var(--color-accent)"} />
           </span>
           <MoneyText value={r.amount} />
         </li>
@@ -63,8 +63,9 @@ function MyCost() {
   const sheet = useQuery({ queryKey: ["token-sheet"], queryFn: api.tokenSheet });
   // The person tag holds the email.
   const kinds = useCostKinds(period, { person: me.person.email });
-  const budgets = useQuery({ queryKey: ["budgets", period], queryFn: () => api.budgets(period) });
-  const myBudget = budgets.data?.find((b) => filterToText(b.filter) === `person:${me.person.email}`);
+  const budgets = useQuery({ queryKey: ["token-budget-report", period], queryFn: () => api.tokenBudgetReport(period) });
+  const myBudget = budgets.data?.rows.find((r) => filterToText(r.token_budget.filter) === `person:${me.person.email}`);
+  const budgetMoney = myBudget ? { amount: fromDecimal(myBudget.amount, myBudget.token_budget.currency), actual: fromDecimal(myBudget.actual, myBudget.token_budget.currency) } : null;
   const drafts = sheet.data?.entries.filter((e) => e.status === "draft").length ?? 0;
   const rejected = sheet.data?.entries.filter((e) => e.status === "rejected").length ?? 0;
   return (
@@ -78,7 +79,7 @@ function MyCost() {
         <Kpi label={`Your cost, ${formatPeriod(period)}`} value={kinds ? formatMoney(kinds.total) : "…"} note="submitted token entries" />
         <Kpi label="On tickets" value={kinds ? formatShare(kinds.direct) : "…"} tone="posted" />
         <Kpi label="To review" value={drafts} note={rejected ? `${rejected} sent back to you` : "draft token entries"} tone={rejected ? "exception" : undefined} />
-        <Kpi label="Your token budget" value={myBudget ? formatMoney(myBudget.amount) : "none"} note={myBudget ? `${formatShare(shareOf(myBudget.actual, myBudget.amount))} used` : undefined} />
+        <Kpi label="Your token budget" value={budgetMoney ? formatMoney(budgetMoney.amount) : "none"} note={budgetMoney ? `${formatShare(shareOf(budgetMoney.actual, budgetMoney.amount))} used` : undefined} />
       </KpiRow>
       {drafts || rejected ? (
         <div className="mb-8 flex flex-col gap-3 rounded-lg border border-line bg-sheet p-4 sm:flex-row sm:items-center sm:justify-between">
@@ -107,13 +108,13 @@ function MyCost() {
 
 function FilterCard({ filter, period }: { filter: Filter; period: string }) {
   const name = usePersonName();
-  const byPerson = useQuery({ queryKey: ["report", period, filterToText(filter), "person"], queryFn: () => api.cost({ period, filter, group_by: "person" }) });
+  const byPerson = useQuery({ queryKey: ["report", period, filterToText(filter), "person"], queryFn: () => api.cost({ period, filter, by: "person" }) });
   const kinds = useCostKinds(period, filter);
   return (
     <div className="rounded-lg border border-line p-4">
       <div className="mb-3 flex items-center justify-between gap-2">
         <FilterTags filter={filter} />
-        <span className="text-lg font-light num">{byPerson.data ? formatMoney(byPerson.data.total) : "…"}</span>
+        <span className="text-lg font-light num">{byPerson.data ? formatMoney(fromDecimal(byPerson.data.total, byPerson.data.currency)) : "…"}</span>
       </div>
       {kinds ? <KindBar kinds={kinds} /> : null}
       <div className="mt-4">{byPerson.data ? <Bars result={byPerson.data} label={(v) => (v ? name(v) : "no person")} /> : <Loading />}</div>
@@ -126,10 +127,10 @@ function PeopleManagerView() {
   const period = thisPeriod();
   const toApprove = useFirstOpenPeriod() ?? period;
   const waiting = useQuery({ queryKey: ["token-entries", toApprove, "submitted", "", ""], queryFn: () => api.tokenEntries({ period: toApprove, status: "submitted" }) });
-  const budgets = useQuery({ queryKey: ["budget-vs-actual", period], queryFn: () => api.budgetVsActual(period) });
+  const budgets = useQuery({ queryKey: ["token-budget-report", period], queryFn: () => api.tokenBudgetReport(period) });
   const current = useQuery({ queryKey: ["token-entries", period, "", "", ""], queryFn: () => api.tokenEntries({ period }) });
   const orphans = current.data?.filter((e) => e.agent_manager === null) ?? [];
-  const overruns = budgets.data?.filter((b) => Number(b.difference.nanos) > 0) ?? [];
+  const overruns = budgets.data?.rows.filter((r) => r.outcome === "overrun") ?? [];
   const filters = me.person.role === "controller" ? [] : me.person.filters;
   return (
     <>
@@ -141,7 +142,7 @@ function PeopleManagerView() {
       ) : null}
       <KpiRow>
         <Kpi label={`Waiting for approval, ${formatPeriod(toApprove)}`} value={me.organization.approval ? (waiting.data?.length ?? "…") : "off"} note={me.organization.approval ? <Link to="/approval" className="text-accent hover:underline">Open approval</Link> : "approval is off"} />
-        <Kpi label="Token budgets over" value={budgets.data ? `${overruns.length} of ${budgets.data.length}` : "…"} note={<Link to="/reports" className="text-accent hover:underline">Token budget vs actual</Link>} tone={overruns.length ? "exception" : undefined} />
+        <Kpi label="Token budgets over" value={budgets.data ? `${overruns.length} of ${budgets.data.rows.length}` : "…"} note={<Link to="/reports" className="text-accent hover:underline">Token budget vs actual</Link>} tone={overruns.length ? "exception" : undefined} />
       </KpiRow>
       {filters.length ? (
         <Section title={`Your filters, ${formatPeriod(period)}`} lead="Cost per person within each filter you are assigned. Filters can overlap.">

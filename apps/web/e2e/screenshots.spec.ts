@@ -35,6 +35,21 @@ for (const screen of screens) {
   });
 }
 
+test("token forecast and token budget vs actual", async ({ page }) => {
+  await signIn(page, "kai");
+  await page.goto("/budgets");
+  await page.getByLabel("Ticket for the token forecast").selectOption("KD-260");
+  await page.getByRole("button", { name: "Make a token forecast" }).click();
+  await page.getByRole("list", { name: "Similar past tickets" }).waitFor();
+  await page.screenshot({ path: `${dir}/31-token-forecast.png`, fullPage: true });
+  await page.goto("/reports");
+  await page.getByRole("tab", { name: "Token budget vs actual" }).click();
+  await page.getByRole("button", { name: "ticket: KD-214" }).click();
+  await page.getByRole("dialog", { name: "ticket: KD-214" }).getByRole("table", { name: "Token entries" }).waitFor();
+  await page.waitForLoadState("networkidle");
+  await page.screenshot({ path: `${dir}/32-token-budget-vs-actual.png` });
+});
+
 test("phone", async ({ browser, baseURL }) => {
   const context = await browser.newContext({ ...(baseURL ? { baseURL } : {}), viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
   const page = await context.newPage();

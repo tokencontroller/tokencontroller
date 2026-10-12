@@ -5,6 +5,7 @@ export const people = {
   mara: "m.ortner@kestrel.example", // agent manager, team web
   priya: "p.shah@kestrel.example", // people manager for team: web
   nadia: "n.berger@kestrel.example", // controller
+  kai: "k.novak@kestrel.example", // people manager for client: acme
 } as const;
 
 /** Signs in the way a person does: email, then the link from the email. */

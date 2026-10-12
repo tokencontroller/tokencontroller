@@ -16,7 +16,6 @@ import type {
   Project,
   OrganizationRules,
   Rule,
-  SavedReport,
   Tags,
   Ticket,
   TicketSystem,
@@ -73,13 +72,53 @@ export interface BillRecord {
   final: boolean;
 }
 
+/** A token budget as the service stores it, the amount in nano-units of the reporting currency. */
 export interface BudgetRecord {
   id: string;
+  name: string | null;
   filter: Tags;
-  period: string;
+  /** The one period, or the first of every month; null for all time. */
+  period: string | null;
+  every_month: boolean;
   amount: number;
-  from_forecast: boolean;
+  token_forecast_id: string | null;
+  /** The person id of who set it. */
+  set_by: string;
+  set_at: string;
+}
+
+/** One past ticket a token forecast matched, as stored when it was made. */
+export interface ForecastMatchRecord {
+  ticket: string;
+  title: string | null;
+  confidence: number;
+  /** Its actual cost over all time when the forecast was made, in nano-units. */
+  actual: number;
+  token_entries: number;
+  unknown_model_entries: number;
+}
+
+export interface ForecastRecord {
+  id: string;
+  ticket: string;
+  currency: string;
+  /** The median of the matches with a known cost, in nano-units; null when none has one. */
+  proposed: number | null;
+  matches: ForecastMatchRecord[];
+  model: string;
   created_by: string;
+  created_at: string;
+}
+
+/** A saved report: a tag filter with a grouping. */
+export interface SavedReportRecord {
+  id: string;
+  name: string;
+  filter: Tags;
+  by: string;
+  /** The person id of who saved it. */
+  created_by: string | null;
+  created_at: string;
 }
 
 export interface AdjustmentRecord {
@@ -111,7 +150,8 @@ export interface Db {
   organization: Organization;
   /** Team plan billing; `enabled` false is a self-hosted instance. */
   billing: { enabled: boolean; plan: Plan; status: string | null; interval: Interval | null; current_period_end: string | null; cancel_at_period_end: boolean };
-  forecasts: boolean;
+  /** Token forecasts: on unless a controller switched them off; `model` null is an instance without an embeddings model. */
+  forecasts: { enabled: boolean; model: string | null; made: ForecastRecord[] };
   session: string | null;
   /** The last magic link "sent", so the mock sign-in page can offer it. */
   pendingLink: { token: string; email: string } | null;
@@ -129,7 +169,7 @@ export interface Db {
   periods: PeriodRecord[];
   adjustments: AdjustmentRecord[];
   budgets: BudgetRecord[];
-  reports: SavedReport[];
+  reports: SavedReportRecord[];
   rules: OrganizationRules;
   /** Each person's own rules, by person ID. */
   personalRules: Record<string, Rule[]>;
@@ -578,26 +618,58 @@ export function createDb(): Db {
     restated.received_at = "2026-10-09T06:00:00Z";
   }
 
-  const budget = (filter: Tags, period: string, dollars: number, from_forecast = false): BudgetRecord => ({
-    id: `tb_${Object.values(filter).join("_")}_${period}`,
+  // Token budgets, as people managers set them: some for every month, one
+  // for a single period, and two all-time ones on tickets, one of them
+  // accepted from a token forecast made when KD-231 started.
+  const kai = who("kai").id;
+  const budget = (n: number, name: string | null, filter: Tags, applies: { period: string | null; every_month?: boolean }, nanos: number, by: string, at: string, forecast: string | null = null): BudgetRecord => ({
+    id: `7b000000-0000-4000-8000-${String(n).padStart(12, "0")}`,
+    name,
     filter,
-    period,
-    amount: dollars * NANOS,
-    from_forecast,
-    created_by: who(filter.client ? "kai" : "priya").id,
+    period: applies.period,
+    every_month: applies.every_month ?? false,
+    amount: nanos,
+    token_forecast_id: forecast,
+    set_by: by,
+    set_at: at,
   });
-  const budgets: BudgetRecord[] = [];
-  for (const period of ["2026-09", "2026-10"]) {
-    budgets.push(
-      budget({ person: MARA.email }, period, 900),
-      budget({ team: "web" }, period, 3200),
-      budget({ client: "acme" }, period, 2800),
-      budget({ ticket: "KD-214" }, period, 560, true),
-      budget({ ticket: "KD-231" }, period, 440),
-      budget({ ticket: "CP-18" }, period, 380, true),
-      budget({ project: "intranet" }, period, 600),
-    );
-  }
+  // What a storefront ticket had cost by the end of August, when KD-231's token forecast was made.
+  const before = (e: EntryRecord, key: string) => e.period <= "2026-08" && e.splits.some((split) => split.tags.ticket === key);
+  const costBySeptember = (key: string) =>
+    entries
+      .filter((e) => before(e, key))
+      .reduce((sum, e) => sum + e.splits.filter((split) => split.tags.ticket === key).reduce((part, split) => part + Math.round(((e.list ?? 0) * split.share) / 10_000), 0), 0);
+  const forecastMatches: ForecastMatchRecord[] = (
+    [
+      ["KD-150", 81],
+      ["KD-200", 64],
+      ["KD-214", 52],
+      ["KD-120", 38],
+    ] as const
+  ).map(([key, confidence]) => ({
+    ticket: key,
+    title: tickets.find((t) => t.key === key)?.title ?? null,
+    confidence,
+    actual: costBySeptember(key),
+    token_entries: entries.filter((e) => before(e, key)).length,
+    unknown_model_entries: 0,
+  }));
+  const costs = forecastMatches.map((match) => match.actual).sort((a, b) => a - b);
+  // The median of four: the two middle costs, halved the way the service splits money.
+  const proposed = Math.ceil(((costs[1] ?? 0) + (costs[2] ?? 0)) / 2);
+  const forecasts: ForecastRecord[] = [
+    { id: "7f000000-0000-4000-8000-000000000001", ticket: "KD-231", currency: CURRENCY, proposed, matches: forecastMatches, model: "text-embedding-3-small", created_by: kai, created_at: "2026-09-01T09:20:00Z" },
+  ];
+  const usd = (dollars: number) => dollars * NANOS;
+  const budgets: BudgetRecord[] = [
+    budget(1, "Mara, monthly", { person: MARA.email }, { period: "2026-09", every_month: true }, usd(550), who("priya").id, "2026-08-28T10:00:00Z"),
+    budget(2, "Team web, monthly", { team: "web" }, { period: "2026-09", every_month: true }, usd(1300), who("priya").id, "2026-08-28T10:05:00Z"),
+    budget(3, "Team mobile, monthly", { team: "mobile" }, { period: "2026-09", every_month: true }, usd(700), who("tom").id, "2026-08-29T08:30:00Z"),
+    budget(4, "Acme, monthly", { client: "acme" }, { period: "2026-09", every_month: true }, usd(1100), kai, "2026-08-31T14:00:00Z"),
+    budget(5, null, { ticket: "KD-231" }, { period: null }, proposed, kai, "2026-09-01T09:25:00Z", "7f000000-0000-4000-8000-000000000001"),
+    budget(6, null, { ticket: "KD-214" }, { period: null }, usd(950), kai, "2026-09-02T11:10:00Z"),
+    budget(7, "Intranet, October", { project: "intranet" }, { period: "2026-10" }, usd(300), who("nadia").id, "2026-10-01T08:00:00Z"),
+  ];
 
   const nadia = who("nadia").id;
 
@@ -613,7 +685,7 @@ export function createDb(): Db {
       created_at: "2026-05-04T08:00:00Z",
     },
     billing: { enabled: true, plan: "team", status: "active", interval: "year", current_period_end: "2027-05-04T08:00:00Z", cancel_at_period_end: false },
-    forecasts: true,
+    forecasts: { enabled: true, model: "text-embedding-3-small", made: forecasts },
     session: null,
     pendingLink: null,
     people,
@@ -639,9 +711,9 @@ export function createDb(): Db {
     ],
     budgets,
     reports: [
-      { id: "rp_1", name: "Cost per team for Acme", filter: { client: "acme" }, group_by: "team" },
-      { id: "rp_2", name: "Code review cost by project", filter: { purpose: "code-review" }, group_by: "project" },
-      { id: "rp_3", name: "Web team by project", filter: { team: "web" }, group_by: "project" },
+      { id: "5e000000-0000-4000-8000-000000000001", name: "Cost per team for Acme", filter: { client: "acme" }, by: "team", created_by: kai, created_at: "2026-07-20T13:10:00Z" },
+      { id: "5e000000-0000-4000-8000-000000000002", name: "Code review cost by project", filter: { purpose: "code-review" }, by: "project", created_by: nadia, created_at: "2026-08-03T09:00:00Z" },
+      { id: "5e000000-0000-4000-8000-000000000003", name: "Web team by project", filter: { team: "web" }, by: "project", created_by: who("priya").id, created_at: "2026-08-12T15:30:00Z" },
     ],
     rules: {
       rules: [

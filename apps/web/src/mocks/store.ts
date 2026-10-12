@@ -5,23 +5,17 @@
 import type {
   Adjustment,
   Bill,
-  BudgetVsActualRow,
   CloseCheck,
   CostKind,
   CostSheet,
   CostSheetLine,
   Filter,
-  HarnessCut,
   Money,
-  Outlier,
   Person,
   Reconciliation,
-  ReportResult,
   Tags,
   Ticket,
-  TokenBudget,
   TokenEntry,
-  TokenForecast,
   TokenSheet,
 } from "@/api/contract";
 import { toDecimal } from "@/lib/money";
@@ -152,79 +146,8 @@ export function toEntry(db: Db, entry: EntryRecord): TokenEntry {
   };
 }
 
-const RATES: Record<string, [number, number]> = { USD: [1, 1], EUR: [92, 100], GBP: [79, 100], CHF: [88, 100] };
-
-/** Converts from the reporting currency at the rate of the period's last day. */
-export function convert(nanos: number, from: string, to: string): number {
-  if (from === to) return nanos;
-  const [fn, fd] = RATES[from] ?? [1, 1];
-  const [tn, td] = RATES[to] ?? [1, 1];
-  return Math.round((nanos * fd * tn) / (fn * td));
-}
-
 function sumNanos(rows: { nanos: number | null }[]): number {
   return rows.reduce((s, r) => s + (r.nanos ?? 0), 0);
-}
-
-export function visibleSplits(db: Db, person: Person, period: string, filter: Filter, approvedOnly = false): SplitRow[] {
-  return db.entries
-    .filter((e) => e.period === period && counts(e, approvedOnly) && canSee(person, e))
-    .flatMap(splitsOf)
-    .filter((row) => matches(row.tags, filter))
-    .filter((row) => person.role !== "people_manager" || row.entry.agent_manager === person.id || row.entry.agent_manager === null || person.filters.some((f) => matches(row.tags, f)));
-}
-
-export function costReport(
-  db: Db,
-  person: Person,
-  query: { period: string; filter: Filter; group_by: string; currency?: string | undefined; approved_only?: boolean },
-): ReportResult {
-  const from = cur(db);
-  const to = query.currency || from;
-  const rows = visibleSplits(db, person, query.period, query.filter, query.approved_only);
-  const groups = new Map<string | null, number>();
-  for (const row of rows) {
-    const key = row.tags[query.group_by] ?? null;
-    groups.set(key, (groups.get(key) ?? 0) + (row.nanos ?? 0));
-  }
-  const total = sumNanos(rows);
-  const list = [...groups.entries()]
-    .map(([value, nanos]) => ({ value, nanos }))
-    .sort((a, b) => (a.value === null ? 1 : b.value === null ? -1 : b.nanos - a.nanos));
-  return {
-    period: query.period,
-    currency: to,
-    group_by: query.group_by,
-    rows: list.map(({ value, nanos }) => ({
-      value,
-      amount: m(convert(nanos, from, to), to),
-      share: total ? Math.round((nanos * 10000) / total) : 0,
-      label: "list_estimate",
-    })),
-    total: m(convert(total, from, to), to),
-    estimate: db.organization.cost_source === "seat",
-  };
-}
-
-export function harnessReport(db: Db, person: Person, period: string, by: HarnessCut): ReportResult {
-  const currency = cur(db);
-  const rows = visibleSplits(db, person, period, {});
-  const groups = new Map<string | null, number>();
-  for (const row of rows) {
-    const key = by === "agent_harness" ? row.entry.agent_harness : by === "agent_name" ? row.entry.agent_name : by === "model" ? row.entry.model : row.entry.effort;
-    groups.set(key, (groups.get(key) ?? 0) + (row.nanos ?? 0));
-  }
-  const total = sumNanos(rows);
-  return {
-    period,
-    currency,
-    group_by: by,
-    rows: [...groups.entries()]
-      .sort((a, b) => (a[0] === null ? 1 : b[0] === null ? -1 : b[1] - a[1]))
-      .map(([value, nanos]) => ({ value, amount: m(nanos, currency), share: total ? Math.round((nanos * 10000) / total) : 0, label: "list_estimate" })),
-    total: m(total, currency),
-    estimate: db.organization.cost_source === "seat",
-  };
 }
 
 const PROVIDER_OF_BILL: Record<string, string> = {
@@ -459,86 +382,4 @@ export function toTicket(t: Db["tickets"][number]): Ticket {
     if (t[field] !== undefined) ticket[field] = t[field];
   }
   return ticket;
-}
-
-export function budgetActual(db: Db, filter: Filter, period: string): number {
-  return db.entries
-    .filter((e) => e.period === period && counts(e))
-    .flatMap(splitsOf)
-    .filter((r) => matches(r.tags, filter))
-    .reduce((s, r) => s + (r.nanos ?? 0), 0);
-}
-
-export function visibleBudgets(db: Db, person: Person, period: string): TokenBudget[] {
-  const currency = cur(db);
-  return db.budgets
-    .filter((b) => b.period === period)
-    .filter((b) => person.role === "controller" || matches(b.filter, { person: person.email }) || person.filters.some((f) => Object.entries(f).every(([k, v]) => b.filter[k] === v) || overlaps(db, b.filter, f)))
-    .map((b) => ({ id: b.id, filter: b.filter, period: b.period, amount: m(b.amount, currency), actual: m(budgetActual(db, b.filter, period), currency), from_forecast: b.from_forecast, created_by: b.created_by }));
-}
-
-function overlaps(db: Db, budget: Filter, filter: Filter): boolean {
-  return db.entries.some((e) => e.splits.some((s) => matches(s.tags, budget) && matches(s.tags, filter)));
-}
-
-export function budgetVsActual(db: Db, person: Person, period: string): BudgetVsActualRow[] {
-  return visibleBudgets(db, person, period).map((b) => ({
-    budget: b.id,
-    filter: b.filter,
-    amount: b.amount,
-    actual: b.actual,
-    difference: m(Number(b.actual.nanos) - Number(b.amount.nanos), b.amount.currency),
-  }));
-}
-
-function words(text: string): Set<string> {
-  return new Set(text.toLowerCase().split(/[^a-z]+/).filter((w) => w.length > 3));
-}
-
-export function forecast(db: Db, key: string): TokenForecast | null {
-  const target = db.tickets.find((t) => t.key === key);
-  if (!target) return null;
-  const want = words(`${target.title ?? ""} ${target.description ?? ""}`);
-  const closed = new Set(db.periods.filter((p) => p.status === "closed").map((p) => p.id));
-  const candidates = db.tickets
-    .filter((t) => t.key !== key)
-    .map((t) => {
-      const summaryText = db.entries.filter((e) => closed.has(e.period) && e.splits.some((s) => s.tags.ticket === t.key)).map((e) => e.summary).join(" ");
-      const have = words(`${t.title ?? ""} ${summaryText}`);
-      const shared = [...want].filter((w) => have.has(w)).length;
-      const cost = db.entries.filter((e) => closed.has(e.period)).flatMap(splitsOf).filter((r) => r.tags.ticket === t.key).reduce((s, r) => s + (r.nanos ?? 0), 0);
-      const sameProject = t.project_id === target.project_id ? 1 : 0;
-      return { t, cost, confidence: Math.min(92, 38 + shared * 18 + sameProject * 12) };
-    })
-    .filter((c) => c.cost > 0)
-    .sort((a, b) => b.confidence - a.confidence || b.cost - a.cost)
-    .slice(0, 4);
-  if (!candidates.length) return null;
-  const costs = candidates.map((c) => c.cost).sort((a, b) => a - b);
-  const mid = Math.floor(costs.length / 2);
-  const median = costs.length % 2 ? (costs[mid] ?? 0) : Math.round(((costs[mid - 1] ?? 0) + (costs[mid] ?? 0)) / 2);
-  const currency = cur(db);
-  return {
-    ticket: key,
-    matches: candidates.map((c) => ({ ticket: c.t.key, title: c.t.title ?? null, cost: m(c.cost, currency), confidence: c.confidence })),
-    proposal: m(Math.round(median / 1e9) * 1e9, currency),
-  };
-}
-
-export function outliers(db: Db, person: Person, period: string): Outlier[] {
-  const currency = cur(db);
-  const perTicket = (p: string) => {
-    const map = new Map<string, number>();
-    for (const row of visibleSplits(db, person, p, {})) {
-      if (row.tags.ticket) map.set(row.tags.ticket, (map.get(row.tags.ticket) ?? 0) + (row.nanos ?? 0));
-    }
-    return map;
-  };
-  const past = db.periods.filter((p) => p.status === "closed" && p.id < period).flatMap((p) => [...perTicket(p.id).values()]).sort((a, b) => a - b);
-  const baseline = past.length ? (past[Math.floor(past.length / 2)] ?? 0) : 0;
-  if (!baseline) return [];
-  return [...perTicket(period).entries()]
-    .map(([ticket, cost]) => ({ ticket, title: db.tickets.find((t) => t.key === ticket)?.title ?? null, cost: m(cost, currency), baseline: m(baseline, currency), ratio: Math.round((cost * 100) / baseline) }))
-    .filter((o) => o.ratio >= 160 || o.ratio <= 50)
-    .sort((a, b) => Math.abs(Math.log(b.ratio / 100)) - Math.abs(Math.log(a.ratio / 100)));
 }

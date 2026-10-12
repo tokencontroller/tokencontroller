@@ -25,23 +25,19 @@ import { parseCsv } from "@/lib/csv";
 import { filterFromText } from "@/lib/format";
 import { enterpriseHandlers, mockEdition } from "./enterprise";
 import { customerRelationsHandlers } from "./customer-relations";
+import { reportsHandlers } from "./reports";
 import { createDb, defaultRules, TODAY, type Db, type EntryRecord } from "./seed";
 import {
-  budgetVsActual,
   canSee,
   closeCheck,
-  costReport,
   costSheet,
   costSheetCsv,
   cur,
-  forecast,
-  harnessReport,
   lateSheets,
   m,
   matches,
   NANOS,
   onTickets,
-  outliers,
   reconciliation,
   splitsOf,
   toAdjustment,
@@ -50,7 +46,6 @@ import {
   toTicket,
   tokenSheet,
   viewer,
-  visibleBudgets,
 } from "./store";
 
 const KEY = "tc-mock-db";
@@ -316,6 +311,7 @@ function organizationOf(db: Db, name: string, email: string, founderName: string
     bills: [],
     connections: [],
     budgets: [],
+    forecasts: { ...db.forecasts, made: [] },
     reports: [],
     adjustments: [],
     tokens: [],
@@ -763,49 +759,6 @@ export const handlers = [
     return HttpResponse.json(toAdjustment(db, adjustment), { status: 201 });
   }, CONTROLLER)),
 
-  // Token budgets and forecasts
-  http.get(`${API}/budgets`, member(({ db, me, url }) => HttpResponse.json(visibleBudgets(db, me, url.searchParams.get("period") ?? TODAY.slice(0, 7))))),
-  http.post(`${API}/budgets`, member(async ({ db, me, request }) => {
-    const body = (await request.json()) as { filter: Tags; period: string; amount: { nanos: number | string }; from_forecast: boolean };
-    if (me.role === "people_manager" && !me.filters.some((f) => Object.entries(f).every(([k, v]) => body.filter[k] === v))) {
-      return error(403, "forbidden", "Token budgets go within the filters you are assigned.");
-    }
-    const budget = { id: nextId(db, "tb"), filter: body.filter, period: body.period, amount: toNanos(body.amount), from_forecast: body.from_forecast, created_by: me.id };
-    db.budgets.push(budget);
-    return HttpResponse.json(visibleBudgets(db, me, body.period).find((b) => b.id === budget.id), { status: 201 });
-  }, PM)),
-  http.delete(`${API}/budgets/:id`, member(({ db, params }) => {
-    db.budgets = db.budgets.filter((b) => b.id !== params.id);
-    return new HttpResponse(null, { status: 204 });
-  }, PM)),
-  http.get(`${API}/forecasts/:ticket`, member(({ db, params }) => {
-    if (!db.forecasts) return error(404, "off", "Token forecasts are switched off.");
-    const result = forecast(db, params.ticket ?? "");
-    return result ? HttpResponse.json(result) : error(404, "no_history", "No similar past work yet. Close a few periods first.");
-  }, PM)),
-
-  // Reports
-  http.get(`${API}/reports/saved`, member(({ db }) => HttpResponse.json(db.reports))),
-  http.post(`${API}/reports/saved`, member(async ({ db, request }) => {
-    const report = { ...((await request.json()) as { name: string; filter: Tags; group_by: string }), id: nextId(db, "rp") };
-    db.reports.push(report);
-    return HttpResponse.json(report, { status: 201 });
-  })),
-  http.delete(`${API}/reports/saved/:id`, member(({ db, params }) => {
-    db.reports = db.reports.filter((r) => r.id !== params.id);
-    return new HttpResponse(null, { status: 204 });
-  })),
-  http.get(`${API}/reports/cost`, member(({ db, me, url }) => HttpResponse.json(costReport(db, me, {
-    period: url.searchParams.get("period") ?? TODAY.slice(0, 7),
-    group_by: url.searchParams.get("by") ?? "project",
-    filter: filterFromText(url.searchParams.get("filter") ?? ""),
-    currency: url.searchParams.get("currency") ?? undefined,
-    approved_only: url.searchParams.get("approved_only") === "true",
-  })))),
-  http.get(`${API}/reports/budget-vs-actual`, member(({ db, me, url }) => HttpResponse.json(budgetVsActual(db, me, url.searchParams.get("period") ?? TODAY.slice(0, 7))))),
-  http.get(`${API}/reports/agent-harness`, member(({ db, me, url }) => HttpResponse.json(harnessReport(db, me, url.searchParams.get("period") ?? TODAY.slice(0, 7), (url.searchParams.get("by") ?? "agent_harness") as "agent_harness")))),
-  http.get(`${API}/reports/outliers`, member(({ db, me, url }) => HttpResponse.json(outliers(db, me, url.searchParams.get("period") ?? TODAY.slice(0, 7))))),
-
   // Rules
   http.get(`${API}/organization/rules`, member(({ db }) => HttpResponse.json(db.rules))),
   http.put(`${API}/organization/rules`, member(async ({ db, request }) => {
@@ -905,6 +858,7 @@ export const handlers = [
   }, CONTROLLER)),
   ...customerRelationsHandlers({ API, member, fail: error, now }),
   ...enterpriseHandlers({ API, member, fail: error, now }),
+  ...reportsHandlers({ API, member, fail: error, now }),
 ];
 
 /** Money helper for tests. */
