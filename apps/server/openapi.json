@@ -1772,6 +1772,24 @@
       }
     },
     "/api/v1/me/rules": {
+      "get": {
+        "tags": [
+          "rules"
+        ],
+        "summary": "Your own rules, in order. They run after the organization's.",
+        "operationId": "get_personal_rules",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PersonalRules"
+                }
+              }
+            }
+          }
+        }
+      },
       "put": {
         "tags": [
           "rules"
@@ -2380,9 +2398,9 @@
         "parameters": [
           {
             "name": "archived",
-            "in": "path",
+            "in": "query",
             "description": "Include archived projects.",
-            "required": true,
+            "required": false,
             "schema": {
               "type": "boolean"
             }
@@ -2613,7 +2631,7 @@
         "parameters": [
           {
             "name": "token",
-            "in": "path",
+            "in": "query",
             "required": true,
             "schema": {
               "type": "string"
@@ -3080,7 +3098,7 @@
         "tags": [
           "tags"
         ],
-        "summary": "Remove a tag name. People, projects and tickets lose its values; token\nentries keep theirs. Controllers only; not while the tag map uses it.",
+        "summary": "Remove a tag name. People, projects, tickets and rules lose its values;\ntoken entries keep theirs. Controllers only; not while the tag map uses it.",
         "operationId": "remove_tag_name",
         "parameters": [
           {
@@ -3106,6 +3124,68 @@
             }
           },
           "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tags/{name}/merge": {
+      "post": {
+        "tags": [
+          "tags"
+        ],
+        "summary": "Merge values of a tag name into one, on people, projects, tickets,\npeople managers' filters and rules. Controllers only. The built-in names\ncannot be merged: their values are members, projects and tickets.",
+        "operationId": "merge_values",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MergeValues"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The tag name's values after the merge",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TagValue"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
             "content": {
               "application/json": {
                 "schema": {
@@ -3150,6 +3230,262 @@
         }
       }
     },
+    "/api/v1/ticket-systems": {
+      "get": {
+        "tags": [
+          "integrations"
+        ],
+        "summary": "The ticket systems the organization connected.",
+        "operationId": "list_ticket_systems",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TicketSystemView"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "integrations"
+        ],
+        "summary": "Connect a ticket system with an API token. Controllers only. The first\nsync starts right away; whoever connects a ticket system answers for\nthat data flow.",
+        "operationId": "connect_ticket_system",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewTicketSystem"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TicketSystemView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The address or the token is not usable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/ticket-systems/{id}": {
+      "delete": {
+        "tags": [
+          "integrations"
+        ],
+        "summary": "Disconnect a ticket system. Controllers only. Its tickets stay, and stop\nsyncing.",
+        "operationId": "disconnect_ticket_system",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The ticket system",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Disconnected"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/ticket-systems/{id}/mappings": {
+      "put": {
+        "tags": [
+          "integrations"
+        ],
+        "summary": "Set which projects of the ticket system feed which Token Controller\nprojects, replacing the earlier mapping. Controllers only. A project\nwithout a ticket key pattern gets the one its tickets use, and a sync\nstarts right away.",
+        "operationId": "set_mappings",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The ticket system",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/Mapping"
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TicketSystemView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A project is unknown or mapped twice",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/ticket-systems/{id}/projects": {
+      "get": {
+        "tags": [
+          "integrations"
+        ],
+        "summary": "The projects the ticket system shows the token, to map. Controllers\nonly.",
+        "operationId": "external_projects",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The ticket system",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ExternalProject"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The ticket system refused the token or could not be read",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/ticket-systems/{id}/sync": {
+      "post": {
+        "tags": [
+          "integrations"
+        ],
+        "summary": "Sync a ticket system now, without waiting for its 15 minutes. Controllers\nonly.",
+        "operationId": "sync_now",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The ticket system",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "The sync starts within a minute",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TicketSystemView"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/tickets": {
       "get": {
         "tags": [
@@ -3160,57 +3496,45 @@
         "parameters": [
           {
             "name": "project_id",
-            "in": "path",
-            "required": true,
+            "in": "query",
+            "required": false,
             "schema": {
-              "type": [
-                "string",
-                "null"
-              ],
+              "type": "string",
               "format": "uuid"
             }
           },
           {
             "name": "parent_id",
-            "in": "path",
-            "required": true,
+            "in": "query",
+            "required": false,
             "schema": {
-              "type": [
-                "string",
-                "null"
-              ],
+              "type": "string",
               "format": "uuid"
             }
           },
           {
             "name": "q",
-            "in": "path",
+            "in": "query",
             "description": "Part of the key or the title.",
-            "required": true,
+            "required": false,
             "schema": {
-              "type": [
-                "string",
-                "null"
-              ]
+              "type": "string"
             }
           },
           {
             "name": "limit",
-            "in": "path",
+            "in": "query",
             "description": "At most 500; default 100.",
-            "required": true,
+            "required": false,
             "schema": {
-              "type": [
-                "integer",
-                "null"
-              ],
+              "type": "integer",
               "format": "int64"
             }
           },
           {
             "name": "offset",
-            "in": "path",
-            "required": true,
+            "in": "query",
+            "required": false,
             "schema": {
               "type": "integer",
               "format": "int64"
@@ -3750,6 +4074,14 @@
           }
         }
       },
+      "ConnectionStatus": {
+        "type": "string",
+        "description": "How a connection's last pull or sync went.",
+        "enum": [
+          "ok",
+          "failing"
+        ]
+      },
       "ContactMessage": {
         "type": "object",
         "description": "A message through the contact form.",
@@ -3822,7 +4154,7 @@
           "rules": {
             "type": "array",
             "items": {
-              "type": "object"
+              "$ref": "#/components/schemas/Rule"
             },
             "description": "The person's own rules, in order."
           }
@@ -3848,12 +4180,12 @@
           "rules": {
             "type": "array",
             "items": {
-              "type": "object"
+              "$ref": "#/components/schemas/Rule"
             },
             "description": "The organization's rules, in order; they run before the person's."
           },
           "several_keys": {
-            "type": "string"
+            "$ref": "#/components/schemas/SeveralKeys"
           },
           "tag_names": {
             "type": "array",
@@ -4340,6 +4672,24 @@
           }
         }
       },
+      "ExternalProject": {
+        "type": "object",
+        "description": "A project in a ticket system, to map onto a Token Controller project.",
+        "required": [
+          "key",
+          "name"
+        ],
+        "properties": {
+          "key": {
+            "type": "string",
+            "description": "What [`fetch_updated`] takes: the Jira Cloud project key (`KD`), the\nAzure DevOps project ID, or the `GitHub` repository as `owner/name`."
+          },
+          "name": {
+            "type": "string",
+            "description": "The name people see."
+          }
+        }
+      },
       "HandOver": {
         "type": "object",
         "description": "Move a service token to another person, who becomes the agent manager\nof its future token entries.",
@@ -4533,6 +4883,31 @@
           }
         }
       },
+      "Mapping": {
+        "type": "object",
+        "description": "One project of a ticket system mapped to a Token Controller project.",
+        "required": [
+          "external",
+          "project"
+        ],
+        "properties": {
+          "external": {
+            "type": "string",
+            "description": "The ticket system's project: the Jira project key, the Azure DevOps\nproject ID or the GitHub repository as `owner/name`, as\n`GET /ticket-systems/{id}/projects` lists them."
+          },
+          "external_name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Its name. Optional when mapping; the key stands in."
+          },
+          "project": {
+            "type": "string",
+            "description": "The Token Controller project, by name."
+          }
+        }
+      },
       "Me": {
         "type": "object",
         "description": "Who is signed in.",
@@ -4655,6 +5030,28 @@
             "description": "Tags their new token entries inherit, such as `{\"team\": \"web\"}`."
           }
         }
+      },
+      "MergeValues": {
+        "type": "object",
+        "description": "Values of one tag name to merge into one.",
+        "required": [
+          "from",
+          "into"
+        ],
+        "properties": {
+          "from": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The values to replace, such as `Acme` and `acme-corp`."
+          },
+          "into": {
+            "type": "string",
+            "description": "The value they become, such as `acme`. It may be one of them, or new."
+          }
+        },
+        "additionalProperties": false
       },
       "MessageView": {
         "type": "object",
@@ -4945,6 +5342,35 @@
               "string",
               "null"
             ]
+          }
+        }
+      },
+      "NewTicketSystem": {
+        "type": "object",
+        "description": "A ticket system to connect.",
+        "required": [
+          "kind",
+          "site",
+          "token"
+        ],
+        "properties": {
+          "email": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "For Jira Cloud: the email of the Atlassian account the token belongs\nto. Jira Cloud signs in with both."
+          },
+          "kind": {
+            "$ref": "#/components/schemas/TicketSystem"
+          },
+          "site": {
+            "type": "string",
+            "description": "The Jira Cloud site, such as `https://acme.atlassian.net`, the Azure\nDevOps organization, such as `https://dev.azure.com/acme`, or\n`https://api.github.com`."
+          },
+          "token": {
+            "type": "string",
+            "description": "An API token from the ticket system."
           }
         }
       },
@@ -5261,12 +5687,12 @@
           "rules": {
             "type": "array",
             "items": {
-              "type": "object"
+              "$ref": "#/components/schemas/Rule"
             },
             "description": "In order. The default rules until a controller changes them."
           },
           "several_keys": {
-            "type": "string",
+            "$ref": "#/components/schemas/SeveralKeys",
             "description": "What the \"ticket key in prompts\" rule does when prompts name several\ntickets: `most_often`, `equal_split` or `first_named`."
           },
           "summary_match": {
@@ -5285,14 +5711,18 @@
               "null"
             ],
             "items": {
-              "type": "object"
+              "$ref": "#/components/schemas/Rule"
             },
             "description": "Replaces the whole list, in order. An empty list switches every rule\noff."
           },
           "several_keys": {
-            "type": [
-              "string",
-              "null"
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/SeveralKeys"
+              },
+              {
+                "type": "null"
+              }
             ]
           },
           "summary_match": {
@@ -5378,7 +5808,7 @@
           "rules": {
             "type": "array",
             "items": {
-              "type": "object"
+              "$ref": "#/components/schemas/Rule"
             },
             "description": "In order. They run after the organization's."
           }
@@ -5770,6 +6200,164 @@
           }
         }
       },
+      "Rule": {
+        "type": "object",
+        "description": "A rule: when every condition holds, do the action. Such as\n`{\"name\": \"review branches\", \"when\": [{\"signal\": \"branch\", \"test\":\n{\"starts_with\": \"review/\"}}], \"then\": {\"set_tags\": {\"purpose\":\n\"code-review\"}}}`.",
+        "required": [
+          "name",
+          "then"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "The name the review list shows, such as `ticket key in branch`."
+          },
+          "then": {
+            "$ref": "#/components/schemas/RuleAction"
+          },
+          "when": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RuleCondition"
+            },
+            "description": "Conditions that must all hold. No condition means always."
+          }
+        },
+        "additionalProperties": false
+      },
+      "RuleAction": {
+        "oneOf": [
+          {
+            "type": "object",
+            "description": "Finds a ticket key with the projects' ticket key patterns and places\nthe token entry on that ticket.",
+            "required": [
+              "ticket_key_in"
+            ],
+            "properties": {
+              "ticket_key_in": {
+                "$ref": "#/components/schemas/RuleKeySource",
+                "description": "Finds a ticket key with the projects' ticket key patterns and places\nthe token entry on that ticket."
+              }
+            }
+          },
+          {
+            "type": "string",
+            "description": "Places the token entry on the project its repository is mapped to.",
+            "enum": [
+              "repository_project"
+            ]
+          },
+          {
+            "type": "object",
+            "description": "Sets tags, such as `purpose: code-review`. A `ticket` or `project`\nhere places the token entry like the rules above.",
+            "required": [
+              "set_tags"
+            ],
+            "properties": {
+              "set_tags": {
+                "$ref": "#/components/schemas/BTreeMap",
+                "description": "Sets tags, such as `purpose: code-review`. A `ticket` or `project`\nhere places the token entry like the rules above."
+              }
+            }
+          }
+        ],
+        "description": "What a rule does."
+      },
+      "RuleCondition": {
+        "type": "object",
+        "description": "A test on one signal.",
+        "required": [
+          "signal",
+          "test"
+        ],
+        "properties": {
+          "signal": {
+            "$ref": "#/components/schemas/RuleSignal"
+          },
+          "test": {
+            "$ref": "#/components/schemas/RuleTest"
+          }
+        },
+        "additionalProperties": false
+      },
+      "RuleKeySource": {
+        "type": "string",
+        "description": "Where a rule looks for ticket keys.",
+        "enum": [
+          "branch",
+          "pull_request_title",
+          "prompts_or_session_title"
+        ]
+      },
+      "RuleSignal": {
+        "type": "string",
+        "description": "The signals a rule can test.",
+        "enum": [
+          "branch",
+          "working_directory",
+          "repository",
+          "pull_request",
+          "subagent_type",
+          "ticket"
+        ]
+      },
+      "RuleTest": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "is"
+            ],
+            "properties": {
+              "is": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "starts_with"
+            ],
+            "properties": {
+              "starts_with": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "contains"
+            ],
+            "properties": {
+              "contains": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "A regular expression.",
+            "required": [
+              "matches"
+            ],
+            "properties": {
+              "matches": {
+                "type": "string",
+                "description": "A regular expression."
+              }
+            }
+          },
+          {
+            "type": "string",
+            "enum": [
+              "is_set"
+            ]
+          }
+        ],
+        "description": "How a signal is tested. Every test but `is_set` fails when the signal is\nmissing."
+      },
       "Screenshot": {
         "type": "object",
         "description": "A screenshot the person saw, and blurred where they wanted, before\nsending.",
@@ -5811,6 +6399,15 @@
             "type": "string"
           }
         }
+      },
+      "SeveralKeys": {
+        "type": "string",
+        "description": "What the \"ticket key in prompts\" rule does when the prompts name several\ntickets.",
+        "enum": [
+          "most_often",
+          "equal_split",
+          "first_named"
+        ]
       },
       "SignInProvider": {
         "type": "object",
@@ -5882,6 +6479,13 @@
           },
           "local_tool": {
             "type": "boolean"
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Your own name, as your colleagues will see it. Can be set later."
           },
           "organization_name": {
             "type": "string",
@@ -6290,6 +6894,69 @@
           "azure_devops",
           "github_issues"
         ]
+      },
+      "TicketSystem": {
+        "type": "string",
+        "description": "The ticket systems tickets sync from.",
+        "enum": [
+          "jira",
+          "azure_devops",
+          "github_issues"
+        ]
+      },
+      "TicketSystemView": {
+        "type": "object",
+        "description": "A connected ticket system, as the web app shows it. The token is never\nsent back.",
+        "required": [
+          "id",
+          "kind",
+          "site",
+          "key_hint",
+          "mappings",
+          "status"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "key_hint": {
+            "type": "string",
+            "description": "The token's last characters, to tell tokens apart."
+          },
+          "kind": {
+            "$ref": "#/components/schemas/TicketSystem"
+          },
+          "last_sync_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "When the last sync succeeded."
+          },
+          "mappings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Mapping"
+            },
+            "description": "Which of its projects feed which Token Controller project."
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why the last sync failed."
+          },
+          "site": {
+            "type": "string",
+            "description": "The Jira Cloud site, the Azure DevOps organization or the GitHub API."
+          },
+          "status": {
+            "$ref": "#/components/schemas/ConnectionStatus"
+          }
+        }
       },
       "Token": {
         "type": "object",

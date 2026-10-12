@@ -33,6 +33,7 @@ pub mod sign_in;
 pub mod status;
 pub mod tags;
 pub mod token_sheets;
+pub mod web;
 
 use std::io::IsTerminal as _;
 use std::sync::Arc;
@@ -93,6 +94,7 @@ where
 
     let state = AppState::new(db, config, extension);
     customer_relations::start(state.clone());
+    jobs::start(state.clone());
     let extra = extra_routes(state.clone()).await?;
     let app = router(state).merge(extra);
 

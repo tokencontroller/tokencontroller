@@ -6,6 +6,7 @@
 //! `#[utoipa::path]` in its area module and register it there with
 //! `routes!`, so the OpenAPI document always lists it.
 
+use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::Context as _;
@@ -59,18 +60,23 @@ fn api() -> OpenApiRouter<AppState> {
     OpenApiRouter::with_openapi(ApiDoc::openapi()).nest(API_PREFIX, area_routes())
 }
 
-/// The whole HTTP service, ready to serve.
+/// The whole HTTP service, ready to serve: the API, and the web app on
+/// every other path when the image carries it.
 pub fn router(state: AppState) -> Router {
     let (api_router, openapi) = api().split_for_parts();
     let openapi = Arc::new(openapi);
-    api_router
-        .route(
-            "/api/v1/openapi.json",
-            get(move || {
-                let openapi = Arc::clone(&openapi);
-                async move { Json(openapi) }
-            }),
-        )
+    let router = api_router.route(
+        "/api/v1/openapi.json",
+        get(move || {
+            let openapi = Arc::clone(&openapi);
+            async move { Json(openapi) }
+        }),
+    );
+    let router = match crate::web::routes(Path::new(crate::web::WEB_DIR)) {
+        Some(web) => router.merge(web),
+        None => router,
+    };
+    router
         .layer(PropagateRequestIdLayer::x_request_id())
         .layer(TraceLayer::new_for_http().make_span_with(request_span))
         .layer(SetRequestIdLayer::x_request_id(MakeRequestUuid))

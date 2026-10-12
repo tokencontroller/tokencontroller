@@ -467,6 +467,47 @@ async fn the_core_places_a_ticket_in_the_branch_with_its_project_and_tags(pool: 
 }
 
 #[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
+async fn the_organizations_and_the_persons_own_rules_place_token_entries(pool: PgPool) {
+    let (organization, person) = organization(&pool).await.unwrap();
+    sqlx::query("INSERT INTO tag_names (organization_id, name) VALUES ($1, 'purpose')")
+        .bind(organization)
+        .execute(&pool)
+        .await
+        .unwrap();
+    // The organization switched every rule off; Mara has one of her own.
+    sqlx::query("UPDATE organizations SET rules = '[]' WHERE id = $1")
+        .bind(organization)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE people SET rules = $2 WHERE id = $1")
+        .bind(person)
+        .bind(serde_json::json!([{
+            "name": "review branches",
+            "when": [{ "signal": "branch", "test": { "starts_with": "review/" } }],
+            "then": { "set_tags": { "purpose": "code-review" } }
+        }]))
+        .execute(&pool)
+        .await
+        .unwrap();
+    let sent = entry(&serde_json::json!({
+        "signals": { "branch": "review/KD-214-cart-total" },
+    }))
+    .unwrap();
+    let stored = submit(&pool, organization, person, vec![sent], Door::TokenSheet)
+        .await
+        .unwrap();
+    assert_eq!(
+        split_tags(&pool, stored[0].id).await.unwrap(),
+        vec![vec![
+            tag("person", "mara@kestrel.example", "person"),
+            tag("purpose", "code-review", "rule"),
+            tag("team", "web", "inherited"),
+        ]]
+    );
+}
+
+#[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
 async fn telemetry_lands_on_the_project_of_its_repository(pool: PgPool) {
     let (organization, _) = organization(&pool).await.unwrap();
     let mut first = call("s7", "msg_1", datetime!(2026-10-05 09:00 UTC), 10);
@@ -579,4 +620,50 @@ async fn a_new_price_table_prices_calls_whose_model_was_unknown(pool: PgPool) {
             .unwrap();
     // Two million tokens at 3 USD per million.
     assert_eq!(value, Some(6_000_000_000));
+}
+
+#[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
+async fn the_seed_has_token_entries_placed_on_tickets(pool: PgPool) {
+    tokencontroller_server::seed::load(&pool).await.unwrap();
+    let count = async || -> i64 {
+        sqlx::query_scalar("SELECT count(*) FROM token_entries")
+            .fetch_one(&pool)
+            .await
+            .unwrap()
+    };
+    let first = count().await;
+    assert!(first > 0);
+    // Loading again puts the same token entries back.
+    tokencontroller_server::seed::load(&pool).await.unwrap();
+    assert_eq!(count().await, first);
+
+    let on_tickets: Vec<(String, String)> = sqlx::query_as(
+        "SELECT DISTINCT t.value, p.value FROM split_tags t
+         JOIN split_tags p ON p.split_id = t.split_id AND p.name = 'project'
+         WHERE t.name = 'ticket' ORDER BY t.value",
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    for (ticket, project) in &on_tickets {
+        let expected = match ticket.split_once('-').map(|(prefix, _)| prefix) {
+            Some("KD") => "storefront",
+            Some("CP") => "claims-portal",
+            Some("INT") => "intranet",
+            _ => "",
+        };
+        assert_eq!(project, expected, "{ticket}");
+    }
+    assert!(on_tickets.len() >= 3, "{on_tickets:?}");
+    let unsynced: i64 = sqlx::query_scalar("SELECT count(*) FROM splits WHERE ticket_not_synced")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(unsynced, 0, "every seeded ticket exists");
+    let without_cost: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM token_entries WHERE reported_cost_nanos IS NULL")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(without_cost, 0);
 }

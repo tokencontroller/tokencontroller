@@ -299,6 +299,7 @@ pub async fn load(db: &PgPool) -> anyhow::Result<()> {
     tickets(&mut tx).await?;
     tx.commit().await?;
     tracing::info!("seed data loaded: Kestrel Digital");
+    crate::ingest::seed::load(db).await?;
     Ok(())
 }
 

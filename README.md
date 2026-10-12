@@ -24,7 +24,7 @@ Rust code is one Cargo workspace (`Cargo.toml` at the root). TypeScript code is 
 
 ### The service, by area
 
-The service has one module folder per area under `apps/server/src/`, so work on different areas never touches the same files. Each folder registers its own routes; `api.rs` only puts them together. Next to it, `mail.rs` sends the service's own mail (sign-in links, invites) and `change.rs` reads optional fields of a change request.
+The service has one module folder per area under `apps/server/src/`, so work on different areas never touches the same files. Each folder registers its own routes; `api.rs` only puts them together. Next to it, `mail.rs` sends the service's own mail (sign-in links, invites), `change.rs` reads optional fields of a change request and `web.rs` serves the web app on every path outside `/api/`.
 
 | Module | Area |
 |---|---|

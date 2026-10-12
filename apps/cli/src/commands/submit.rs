@@ -52,7 +52,7 @@ pub struct OutgoingSignals {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub repository: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub pull_request: Option<String>,
+    pub pull_request: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub subagent_type: Option<String>,
     /// Ticket keys found in prompts, the session title and the pull
@@ -117,7 +117,7 @@ fn signals_of(split: &crate::entries::Split) -> OutgoingSignals {
         branch: signals.branch.clone(),
         working_directory: signals.directory.clone(),
         repository: signals.repository.clone(),
-        pull_request: signals.pull_request.clone(),
+        pull_request: signals.pull_request_number(),
         subagent_type: signals.subagent.clone(),
         ticket_keys: keys,
     }

@@ -1,52 +1,53 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT reporting_currency, cost_source, approval FROM organizations WHERE id = $1",
+  "query": "SELECT kind, site, sealed_credentials FROM ticket_systems\n         WHERE organization_id = $1 AND id = $2",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "reporting_currency",
+        "name": "kind",
         "type_info": "Text",
         "origin": {
           "Table": {
-            "table": "organizations",
-            "name": "reporting_currency"
+            "table": "ticket_systems",
+            "name": "kind"
           }
         }
       },
       {
         "ordinal": 1,
-        "name": "cost_source",
+        "name": "site",
         "type_info": "Text",
         "origin": {
           "Table": {
-            "table": "organizations",
-            "name": "cost_source"
+            "table": "ticket_systems",
+            "name": "site"
           }
         }
       },
       {
         "ordinal": 2,
-        "name": "approval",
-        "type_info": "Bool",
+        "name": "sealed_credentials",
+        "type_info": "Text",
         "origin": {
           "Table": {
-            "table": "organizations",
-            "name": "approval"
+            "table": "ticket_systems",
+            "name": "sealed_credentials"
           }
         }
       }
     ],
     "parameters": {
       "Left": [
+        "Uuid",
         "Uuid"
       ]
     },
     "nullable": [
       false,
-      true,
+      false,
       false
     ]
   },
-  "hash": "08664366de0c95ff3934e8b4223ab539f77ae034ecf9ce4837f8983878dd9d52"
+  "hash": "aeca14d1bca02448bb80482248ddec703087be436098508a9f0db0514bf5991f"
 }
