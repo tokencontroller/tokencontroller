@@ -33,7 +33,6 @@ pub mod sign_in;
 pub mod status;
 pub mod tags;
 pub mod token_sheets;
-pub mod web;
 
 use std::io::IsTerminal as _;
 use std::sync::Arc;
@@ -95,10 +94,7 @@ where
     let state = AppState::new(db, config, extension);
     customer_relations::start(state.clone());
     let extra = extra_routes(state.clone()).await?;
-    let app = web::with_web_app(
-        router(state).merge(extra),
-        std::path::Path::new(web::WEB_DIR),
-    );
+    let app = router(state).merge(extra);
 
     let listener = tokio::net::TcpListener::bind(LISTEN_ADDRESS)
         .await

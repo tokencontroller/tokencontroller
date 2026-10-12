@@ -97,27 +97,12 @@ async fn seed_data_loads_twice_without_error(pool: PgPool) {
 }
 
 #[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
-async fn the_web_app_sits_behind_the_whole_api(pool: PgPool) {
-    let dir = std::env::temp_dir().join(format!("tc-web-{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir_all(&dir).unwrap();
-    std::fs::write(
-        dir.join("index.html"),
-        "<!doctype html><title>Token Controller</title>",
-    )
-    .unwrap();
-    let app = tokencontroller_server::web::with_web_app(
-        router(AppState::new(pool, test_config(), Arc::new(NoExtension))),
-        &dir,
-    );
-    let send = |path: &str| {
-        let request = Request::get(path).body(Body::empty()).unwrap();
-        app.clone().oneshot(request)
-    };
-
-    let health = send("/api/v1/health").await.unwrap();
-    assert_eq!(health.status(), StatusCode::OK);
-    // Every answer carries the request id that feedback reports quote.
-    let id = health
+async fn every_answer_carries_a_request_id(pool: PgPool) {
+    let app = router(AppState::new(pool, test_config(), Arc::new(NoExtension)));
+    let request = Request::get("/api/v1/health").body(Body::empty()).unwrap();
+    let response = app.clone().oneshot(request).await.unwrap();
+    // Feedback reports quote this id (docs: Security and privacy).
+    let id = response
         .headers()
         .get("x-request-id")
         .unwrap()
@@ -125,14 +110,11 @@ async fn the_web_app_sits_behind_the_whole_api(pool: PgPool) {
         .unwrap();
     assert!(uuid::Uuid::parse_str(id).is_ok(), "{id}");
 
-    let page = send("/close/2026-09").await.unwrap();
-    assert_eq!(page.status(), StatusCode::OK);
-    let body = page.into_body().collect().await.unwrap().to_bytes();
-    assert!(String::from_utf8_lossy(&body).contains("<title>Token Controller</title>"));
-
-    let missing = send("/api/v1/nothing-here").await.unwrap();
-    assert_eq!(missing.status(), StatusCode::NOT_FOUND);
-    let body = missing.into_body().collect().await.unwrap().to_bytes();
-    let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(body["error"], "not_found");
+    // An id the caller already sent is kept.
+    let request = Request::get("/api/v1/health")
+        .header("x-request-id", "abc-123")
+        .body(Body::empty())
+        .unwrap();
+    let response = app.oneshot(request).await.unwrap();
+    assert_eq!(response.headers().get("x-request-id").unwrap(), "abc-123");
 }
