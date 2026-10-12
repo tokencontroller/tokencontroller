@@ -12,10 +12,11 @@ test("an agent manager fixes the exception and submits the token sheet", async (
   await expect(page.getByText("$212.40").first()).toBeVisible();
   await expect(page.getByText("67%")).toBeVisible();
 
-  // Number 5 has no ticket and two candidates: set KD-231.
+  // Number 5 has no ticket and two candidates, tickets the session named: place it on KD-231.
   const ticket = page.getByLabel("Ticket for “Address lookup edge cases”");
   await expect(ticket).toHaveValue("");
-  await ticket.selectOption("KD-231");
+  await expect(page.getByRole("button", { name: /^Place “Address lookup edge cases” on / })).toHaveCount(2);
+  await page.getByRole("button", { name: "Place “Address lookup edge cases” on KD-231" }).click();
   await expect(ticket).toHaveValue("KD-231");
   await expect(page.getByText("95%")).toBeVisible();
 

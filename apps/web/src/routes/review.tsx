@@ -15,7 +15,7 @@ import { formatDate, formatDateTime, formatDay, formatPeriod, formatTime } from 
 import { formatMoney, formatShare, fromDecimal, toDecimal } from "@/lib/money";
 import { refreshAll, useProjects, useTickets } from "@/lib/queries";
 
-/** Sets the ticket of a token entry with one split, right in the review list. */
+/** Sets the ticket of a token entry with one split, right in the review list; the candidates come first, one tap each. */
 function TicketPicker({ entry }: { entry: EntryView }) {
   const tickets = useTickets();
   const projects = useProjects();
@@ -39,12 +39,33 @@ function TicketPicker({ entry }: { entry: EntryView }) {
         onChange={(e) => save.mutate(e.target.value)}
       >
         <option value="">No ticket</option>
-        {(tickets.data ?? []).map((t) => (
-          <option key={t.key} value={t.key}>
-            {t.key}
-          </option>
-        ))}
+        {entry.candidates.length ? (
+          <optgroup label="Candidates">
+            {entry.candidates.map((key) => (
+              <option key={key} value={key}>
+                {key}
+              </option>
+            ))}
+          </optgroup>
+        ) : null}
+        {(tickets.data ?? [])
+          .filter((t) => !entry.candidates.includes(t.key))
+          .map((t) => (
+            <option key={t.key} value={t.key}>
+              {t.key}
+            </option>
+          ))}
       </Select>
+      {entry.candidates.length ? (
+        <span className="mt-1 flex flex-wrap items-center gap-1 text-xs text-muted">
+          Candidates:
+          {entry.candidates.map((key) => (
+            <button key={key} type="button" aria-label={`Place “${entry.summary}” on ${key}`} disabled={save.isPending} onClick={() => save.mutate(key)} className="rounded border border-line px-1.5 font-mono text-[11px] text-accent hover:bg-accent-tint">
+              {key}
+            </button>
+          ))}
+        </span>
+      ) : null}
       {save.error ? <span className="mt-1 block text-xs text-exception">{save.error.message}</span> : null}
     </span>
   );
@@ -168,6 +189,7 @@ export function ReviewPage(): ReactNode {
     { key: "ticket", header: "Ticket", cell: (e) => <TicketPicker entry={e} />, csv: (e) => e.splits.map((s) => s.tags.ticket ?? "").join(" | ") },
     { key: "tags", header: "Tags", wide: true, className: "min-w-52", cell: (e) => <TagRow tags={e.splits[0]?.tags ?? {}} hide={["person", "ticket"]} />, csv: (e) => e.splits.map((s) => Object.entries(s.tags).filter(([k]) => k !== "person").map(([k, v]) => `${k}: ${v}`).join(" · ")).join(" | ") },
     { key: "by", header: "By", wide: true, cell: (e) => <PlacedBy entry={e} />, csv: (e) => e.splits.map((s) => (s.unknown_ticket ? `${s.placed_by}, unknown ticket ${s.unknown_ticket}` : s.placed_by)).join(" | ") },
+    { key: "candidates", header: "Candidates", csvOnly: true, cell: () => null, csv: (e) => e.candidates.join(" ") },
   ];
   return (
     <>
