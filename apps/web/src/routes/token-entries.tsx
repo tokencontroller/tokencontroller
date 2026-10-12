@@ -1,11 +1,11 @@
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery } from "@tanstack/react-query";
 import { getRouteApi } from "@tanstack/react-router";
 import { useState, type ReactNode } from "react";
-import type { NewTokenEntry, Tags, TokenEntry, TokenEntryStatus } from "@/api/contract";
+import type { EntryView, NewTokenEntry, Tags, TokenEntryStatus } from "@/api/contract";
 import { api } from "@/api/endpoints";
-import { EntryDialog, entryValue, TagEditor } from "@/components/entry-dialog";
+import { EntryDialog, entryValue, listTotal, TagEditor, unknownTickets, valueLabel } from "@/components/entry-dialog";
 import { PeriodSelect } from "@/components/period-select";
-import { Badge, CostKindBadge, costKindLabel, StatusBadge } from "@/components/ui/badge";
+import { Badge, StatusBadge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { ErrorBox, Loading, MoneyText, Note, PageHeader } from "@/components/ui/display";
@@ -13,9 +13,9 @@ import { Field, FormError, Input, Select, Textarea } from "@/components/ui/form"
 import { DataTable, type Column } from "@/components/ui/table";
 import { TagRow } from "@/components/ui/tag";
 import { notify } from "@/components/ui/toast";
-import { describeFilter, filterFromText, filterToText, formatDay, formatTime, formatTokens, totalTokens } from "@/lib/format";
-import { formatMoney, sum, toDecimal } from "@/lib/money";
-import { refreshAll, useMe, usePeople, usePersonName } from "@/lib/queries";
+import { describeFilter, displayName, filterFromText, filterToText, formatDay, formatTime } from "@/lib/format";
+import { formatMoney, toDecimal } from "@/lib/money";
+import { refreshAll, useMe, usePeople } from "@/lib/queries";
 import { hasRole } from "@/lib/roles";
 import { thisPeriod, today } from "@/lib/today";
 
@@ -196,7 +196,41 @@ function ImportCsv({ open, onClose }: { open: boolean; onClose: () => void }) {
   );
 }
 
-const statuses: (TokenEntryStatus | "")[] = ["", "draft", "submitted", "approved", "rejected", "locked"];
+/** The token entries table shows the statuses that count unless one is picked. Drafts stay on the token sheet. */
+const statuses: { value: TokenEntryStatus | ""; label: string }[] = [
+  { value: "", label: "All that count" },
+  { value: "submitted", label: "Submitted" },
+  { value: "approved", label: "Approved" },
+  { value: "rejected", label: "Rejected" },
+  { value: "locked", label: "Locked" },
+];
+
+/** Token entries per page of the table. */
+const PAGE = 200;
+
+/** What placed a token entry's splits, and an unknown ticket where there is one. */
+function PlacedBy({ entry }: { entry: EntryView }) {
+  return (
+    <span className="mt-1.5 flex flex-wrap items-center gap-1 text-xs text-muted max-sm:justify-end">
+      {[...new Set(entry.splits.map((s) => s.placed_by))].join(", ")}
+      {unknownTickets(entry).map((key) => (
+        <Badge key={key} tone="exception">
+          unknown ticket {key}
+        </Badge>
+      ))}
+    </span>
+  );
+}
+
+const tagText = (entry: EntryView) =>
+  entry.splits
+    .map((s) =>
+      Object.entries(s.tags)
+        .filter(([k]) => k !== "person")
+        .map(([k, v]) => `${k}: ${v}`)
+        .join(" · "),
+    )
+    .join(" | ");
 
 export function TokenEntriesPage(): ReactNode {
   const me = useMe();
@@ -204,24 +238,27 @@ export function TokenEntriesPage(): ReactNode {
   const navigate = tokenEntriesRoute.useNavigate();
   const period = search.period ?? thisPeriod();
   const [status, setStatus] = useState<TokenEntryStatus | "">("");
+  // The person tag holds the agent manager's email.
   const [person, setPerson] = useState("");
   const [filterText, setFilterText] = useState("");
-  const [open, setOpen] = useState<TokenEntry | null>(null);
+  const [limit, setLimit] = useState(PAGE);
+  const [open, setOpen] = useState<EntryView | null>(null);
   const [adding, setAdding] = useState(false);
   const [importing, setImporting] = useState(false);
   const filter = filterFromText(filterText);
+  const query = { ...filter, ...(person ? { person } : {}) };
   const people = usePeople();
-  const name = usePersonName();
   const entries = useQuery({
-    queryKey: ["token-entries", period, status, person, filterToText(filter)],
-    queryFn: () => api.tokenEntries({ period, status, person, filter }),
+    queryKey: ["token-entries", period, status, filterToText(query), limit],
+    queryFn: () => api.tokenEntries({ period, filter: query, status: status ? [status] : [], limit }),
+    placeholderData: keepPreviousData,
   });
-  const currency = me.organization.reporting_currency;
-  const rows = entries.data ?? [];
-  const orphans = rows.filter((e) => e.agent_manager === null);
-  const columns: Column<TokenEntry>[] = [
+  const rows = entries.data?.token_entries ?? [];
+  const matching = entries.data?.total ?? 0;
+  const orphans = rows.filter((e) => (e.agent_manager ?? null) === null);
+  const columns: Column<EntryView>[] = [
     { key: "when", header: "When", className: "whitespace-nowrap", cell: (e) => <span className="num !text-left">{formatDay(e.started_at)} {formatTime(e.started_at)}</span>, csv: (e) => e.started_at },
-    { key: "person", header: "Agent manager", className: "whitespace-nowrap", cell: (e) => (e.agent_manager ? name(e.agent_manager) : <Badge tone="exception">nobody</Badge>), csv: (e) => e.agent_manager ?? "" },
+    { key: "person", header: "Agent manager", className: "whitespace-nowrap", cell: (e) => e.agent_manager ?? <Badge tone="exception">nobody</Badge>, csv: (e) => e.agent_manager ?? "" },
     {
       key: "agent",
       header: "Agent",
@@ -231,6 +268,7 @@ export function TokenEntriesPage(): ReactNode {
         <span className="block leading-tight">
           {e.agent_harness}
           {e.agent_name ? <span className="text-muted"> · {e.agent_name}</span> : null}
+          {e.automatic ? <span className="text-muted"> · automatic</span> : null}
           <span className="mt-0.5 block font-mono text-[11px] text-muted">{e.model}</span>
         </span>
       ),
@@ -238,6 +276,7 @@ export function TokenEntriesPage(): ReactNode {
     },
     { key: "agent_name", header: "Agent name", csvOnly: true, cell: () => null, csv: (e) => e.agent_name ?? "" },
     { key: "model", header: "Model", csvOnly: true, cell: () => null, csv: (e) => e.model },
+    { key: "provider", header: "Provider", csvOnly: true, cell: () => null, csv: (e) => e.provider },
     {
       key: "summary",
       header: "Summary",
@@ -246,24 +285,34 @@ export function TokenEntriesPage(): ReactNode {
         <span className="block">
           <span className="line-clamp-2 text-ink-soft">{e.summary}</span>
           <span className="mt-1.5 hidden sm:block">
+            {e.splits.length > 1 ? <span className="mb-1 block text-xs text-muted">{e.splits.length} splits</span> : null}
             <TagRow tags={e.splits[0]?.tags ?? {}} />
           </span>
+          <PlacedBy entry={e} />
         </span>
       ),
       csv: (e) => e.summary,
     },
-    { key: "tags", header: "Tags", csvOnly: true, cell: () => null, csv: (e) => e.splits.map((s) => Object.entries(s.tags).map(([k, v]) => `${k}: ${v}`).join(" · ")).join(" | ") },
-    { key: "kind", header: "Cost kind", wide: true, cell: (e) => (e.splits.length > 1 ? <Badge>split</Badge> : e.splits[0] ? <CostKindBadge kind={e.splits[0].cost_kind} /> : null), csv: (e) => e.splits.map((s) => costKindLabel[s.cost_kind]).join(" | ") },
-    { key: "tokens", header: "Tokens", align: "right", wide: "xl", cell: (e) => formatTokens(totalTokens(e.tokens)), csv: (e) => totalTokens(e.tokens) },
-    { key: "cost", header: "Cost", align: "right", cell: (e) => <MoneyText value={entryValue(e)} label={e.value_label} />, csv: (e) => { const v = entryValue(e); return v ? toDecimal(v) : "unknown model"; } },
+    { key: "tags", header: "Tags", csvOnly: true, cell: () => null, csv: tagText },
+    { key: "by", header: "Placed by", csvOnly: true, cell: () => null, csv: (e) => e.splits.map((s) => (s.unknown_ticket ? `${s.placed_by}, unknown ticket ${s.unknown_ticket}` : s.placed_by)).join(" | ") },
+    {
+      key: "cost",
+      header: "List value",
+      align: "right",
+      cell: (e) => <MoneyText value={entryValue(e)} label={valueLabel(e)} />,
+      csv: (e) => {
+        const v = entryValue(e);
+        return v ? toDecimal(v) : "unknown model";
+      },
+    },
     { key: "status", header: "Status", cell: (e) => <StatusBadge status={e.status} />, csv: (e) => e.status },
   ];
-  const total = sum(rows.map(entryValue).filter((v) => v !== null), currency);
+  const total = listTotal(rows, me.organization.reporting_currency);
   return (
     <>
       <PageHeader
         title="Token entries"
-        lead={hasRole(me.person, "controller") ? "Every token entry in the organization." : hasRole(me.person, "people_manager") ? "Your own token entries and those within your filters." : "Your own token entries."}
+        lead={hasRole(me.person, "controller") ? "Every token entry in the organization." : hasRole(me.person, "people_manager") ? "Your own token entries and those within your filters." : "Your own token entries. Drafts are on your token sheet until you submit them."}
         actions={
           <>
             <Button onClick={() => setImporting(true)}>Import CSV</Button>
@@ -275,43 +324,57 @@ export function TokenEntriesPage(): ReactNode {
       />
       {orphans.length && hasRole(me.person, "people_manager") ? (
         <Note tone="exception">
-          {orphans.length} token {orphans.length === 1 ? "entry has" : "entries have"} no agent manager. Open {orphans.length === 1 ? "it" : "one"} to take it over.
+          {orphans.length} token {orphans.length === 1 ? "entry has" : "entries have"} no agent manager. Open {orphans.length === 1 ? "it" : "one"} to see how to hand it over.
         </Note>
       ) : null}
       <div className="mb-4 grid gap-2 sm:flex sm:flex-wrap sm:items-end">
         <PeriodSelect value={period} onChange={(p) => void navigate({ search: { period: p } })} />
         <Select aria-label="Status" value={status} onChange={(e) => setStatus(e.target.value as TokenEntryStatus | "")} className="sm:w-40">
           {statuses.map((s) => (
-            <option key={s} value={s}>
-              {s ? `${s.charAt(0).toUpperCase()}${s.slice(1)}` : "Any status"}
+            <option key={s.value} value={s.value}>
+              {s.label}
             </option>
           ))}
         </Select>
         {hasRole(me.person, "people_manager") ? (
           <Select aria-label="Agent manager" value={person} onChange={(e) => setPerson(e.target.value)} className="sm:w-48">
             <option value="">Everyone</option>
-            {(people.data ?? []).map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
+            {(people.data ?? [])
+              .filter((p) => p.status !== "removed")
+              .map((p) => (
+                <option key={p.id} value={p.email}>
+                  {displayName(p)}
+                </option>
+              ))}
           </Select>
         ) : null}
         <Input aria-label="Tag filter" value={filterText} onChange={(e) => setFilterText(e.target.value)} placeholder="Filter, such as client:acme,team:web" className="sm:w-72" />
       </div>
       {Object.keys(filter).length ? <p className="mb-3 text-[13px] text-muted">Showing {describeFilter(filter)}.</p> : null}
       {entries.isPending ? <Loading /> : entries.isError ? <ErrorBox error={entries.error} /> : (
-        <DataTable stack
-          columns={columns}
-          rows={rows}
-          rowKey={(e) => e.id}
-          csvName={`token-entries-${period}.csv`}
-          onRowClick={setOpen}
-          rowClassName={(e) => (e.agent_manager === null ? "bg-exception-tint" : "")}
-          caption="Token entries"
-          empty="No token entries match."
-          totals={{ label: `${rows.length} token entries`, values: { cost: formatMoney(total) }, csv: { cost: toDecimal(total) } }}
-        />
+        <>
+          <DataTable stack
+            columns={columns}
+            rows={rows}
+            rowKey={(e) => e.id}
+            csvName={`token-entries-${period}.csv`}
+            onRowClick={setOpen}
+            rowClassName={(e) => ((e.agent_manager ?? null) === null ? "bg-exception-tint" : "")}
+            caption="Token entries"
+            empty="No token entries match."
+            totals={{ label: `${String(rows.length)} token ${rows.length === 1 ? "entry" : "entries"}`, values: { cost: formatMoney(total) }, csv: { cost: toDecimal(total) } }}
+          />
+          {matching > rows.length ? (
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-[13px] text-muted">
+              <span>
+                Showing {rows.length} of {matching}. The CSV holds what is shown.
+              </span>
+              <Button size="sm" onClick={() => setLimit(limit + PAGE)} disabled={entries.isFetching}>
+                Show more
+              </Button>
+            </div>
+          ) : null}
+        </>
       )}
       <EntryDialog entry={open} onClose={() => setOpen(null)} />
       <AddEntry open={adding} onClose={() => setAdding(false)} />

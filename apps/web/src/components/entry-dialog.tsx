@@ -1,12 +1,13 @@
 import { useMutation } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
-import type { Tags, TokenEntry } from "@/api/contract";
+import type { EntryView, Money, Person, Project, SplitView, Tags, ValueLabel } from "@/api/contract";
+import { formatDateTime, tagList } from "@/lib/format";
+import { formatShare, fromDecimal, nanosOf, shareOf, sum } from "@/lib/money";
 import { api } from "@/api/endpoints";
-import { formatDateTime, formatTokens, tagList } from "@/lib/format";
-import { refreshAll, useMe, usePersonName, useProjects, useTagNames, useTickets } from "@/lib/queries";
+import { refreshAll, useMe, useProjects, useTagNames, useTickets } from "@/lib/queries";
 import { hasRole } from "@/lib/roles";
-import { Badge, CostKindBadge, StatusBadge, valueLabelText } from "./ui/badge";
+import { Badge, StatusBadge, valueLabelText } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Dialog } from "./ui/dialog";
 import { MoneyText, Note } from "./ui/display";
@@ -15,6 +16,58 @@ import { Tag, TagValueList } from "./ui/tag";
 import { notify } from "./ui/toast";
 
 const builtIn = ["person", "ticket", "project"];
+
+/** The most splits a token entry can be split into by hand. */
+const MAX_SPLITS = 20;
+
+/** A token entry's list value, or null for an unknown model. */
+export function entryValue(entry: EntryView): Money | null {
+  return entry.list_value ? fromDecimal(entry.list_value, entry.currency) : null;
+}
+
+/** The total list value of token entries in one currency; unknown models are left out, never counted as zero. */
+export function listTotal(entries: EntryView[], fallback: string): Money {
+  const currency = entries.find((e) => e.list_value)?.currency ?? fallback;
+  return sum(
+    entries.filter((e) => e.currency === currency).flatMap((e) => {
+      const value = entryValue(e);
+      return value ? [value] : [];
+    }),
+    currency,
+  );
+}
+
+/** How a token entry's figure is labelled: a list-price estimate, or an unknown model. */
+export function valueLabel(entry: EntryView): ValueLabel {
+  return entry.list_value ? "list_estimate" : "unknown_model";
+}
+
+/** A split's share of its token entry's list value in basis points, when both are known. */
+export function splitShare(entry: EntryView, split: SplitView): number | null {
+  const whole = entryValue(entry);
+  if (!whole || !split.list_value || nanosOf(whole) === 0n) return null;
+  return shareOf(fromDecimal(split.list_value, entry.currency), whole);
+}
+
+/** Whether a token entry is the member's own: its person tag is their email. */
+export function isOwn(entry: EntryView, person: Person): boolean {
+  return entry.splits.some((split) => split.tags.person === person.email);
+}
+
+/** The unknown tickets of a token entry: keys that matched a pattern but that the ticket sync did not find. */
+export function unknownTickets(entry: EntryView): string[] {
+  return [...new Set(entry.splits.flatMap((split) => (split.unknown_ticket ? [split.unknown_ticket] : [])))];
+}
+
+/**
+ * A split's tags as a person names them when placing it by hand: without the
+ * person, which comes from who did the work, and without what the project
+ * passes on, which follows from the ticket or project again.
+ */
+export function namedTags(tags: Tags, projects: Project[] | undefined): Tags {
+  const passed = projects?.find((p) => p.name === tags.project)?.tags ?? {};
+  return Object.fromEntries(Object.entries(tags).filter(([name, value]) => name !== "person" && passed[name] !== value));
+}
 
 /** Picks a ticket, a project and any other tag on the organization's list. */
 export function TagEditor({ tags, onChange }: { tags: Tags; onChange: (tags: Tags) => void }) {
@@ -59,40 +112,48 @@ export function TagEditor({ tags, onChange }: { tags: Tags; onChange: (tags: Tag
   );
 }
 
-function SplitEditor({ entry, onDone }: { entry: TokenEntry; onDone: () => void }) {
+function SplitEditor({ entry, onDone }: { entry: EntryView; onDone: () => void }) {
   const tickets = useTickets();
-  const first = entry.splits[0]?.tags.ticket ?? "";
-  const [rows, setRows] = useState<{ ticket: string; percent: string }[]>(
-    entry.splits.length > 1
-      ? entry.splits.map((s) => ({ ticket: s.tags.ticket ?? "", percent: String(s.share / 100) }))
-      : [
-          { ticket: first, percent: "60" },
-          { ticket: "", percent: "40" },
-        ],
-  );
-  const total = rows.reduce((s, r) => s + (Number(r.percent) || 0), 0);
+  const projects = useProjects();
+  const first = entry.splits[0]?.tags ?? {};
+  const [rows, setRows] = useState<{ ticket: string; percent: string }[]>(() => {
+    if (entry.splits.length < 2) {
+      return [
+        { ticket: first.ticket ?? "", percent: "60" },
+        { ticket: "", percent: "40" },
+      ];
+    }
+    return entry.splits.map((split) => {
+      const share = splitShare(entry, split);
+      return { ticket: split.tags.ticket ?? "", percent: share === null ? "" : String(Math.round(share / 100)) };
+    });
+  });
+  const percents = rows.map((r) => (/^\d+$/.test(r.percent.trim()) ? Number(r.percent) : NaN));
+  const total = percents.reduce((sum, p) => sum + (Number.isNaN(p) ? 0 : p), 0);
+  const valid = percents.every((p) => Number.isInteger(p) && p > 0) && total === 100;
   const save = useMutation({
-    mutationFn: () =>
-      api.setSplits(
+    mutationFn: () => {
+      // The other tags stay; each split gets its own ticket, and its project follows from it.
+      const rest = Object.fromEntries(Object.entries(namedTags(first, projects.data)).filter(([k]) => k !== "ticket" && k !== "project"));
+      return api.setSplits(
         entry.id,
-        rows.map((r) => {
-          const rest = Object.fromEntries(Object.entries(entry.splits[0]?.tags ?? {}).filter(([k]) => !["ticket", "project", "client"].includes(k)));
-          return { share: Math.round((Number(r.percent) || 0) * 100), tags: r.ticket ? { ...rest, ticket: r.ticket } : rest };
-        }),
-      ),
+        rows.map((r) => ({ share_percent: Number(r.percent), tags: r.ticket ? { ...rest, ticket: r.ticket } : rest })),
+      );
+    },
     onSuccess: async () => {
       await refreshAll();
       notify("Split saved");
       onDone();
     },
   });
+  const change = (i: number, row: Partial<{ ticket: string; percent: string }>) => setRows(rows.map((r, j) => (j === i ? { ...r, ...row } : r)));
   return (
     <div className="space-y-3">
-      <p className="text-sm text-muted">One session, several tickets. The shares are your judgment, not a measurement.</p>
+      <p className="text-sm text-muted">One session, several tickets. The shares are your judgment, not a measurement: whole percents that add up to 100.</p>
       {rows.map((row, i) => (
         <div key={i} className="flex items-end gap-2">
-          <Field label={`Split ${i + 1}`} className="flex-1">
-            <Select aria-label={`Split ${i + 1} ticket`} value={row.ticket} onChange={(e) => setRows(rows.map((r, j) => (j === i ? { ...r, ticket: e.target.value } : r)))}>
+          <Field label={`Split ${String(i + 1)}`} className="min-w-0 flex-1">
+            <Select aria-label={`Split ${String(i + 1)} ticket`} value={row.ticket} onChange={(e) => change(i, { ticket: e.target.value })}>
               <option value="">No ticket</option>
               {(tickets.data ?? []).map((t) => (
                 <option key={t.key} value={t.key}>
@@ -101,21 +162,26 @@ function SplitEditor({ entry, onDone }: { entry: TokenEntry; onDone: () => void 
               ))}
             </Select>
           </Field>
-          <Field label="Share %" className="w-24">
-            <Input aria-label={`Split ${i + 1} share`} inputMode="decimal" value={row.percent} onChange={(e) => setRows(rows.map((r, j) => (j === i ? { ...r, percent: e.target.value } : r)))} />
+          <Field label="Share %" className="w-20 shrink-0">
+            <Input aria-label={`Split ${String(i + 1)} share`} inputMode="numeric" value={row.percent} onChange={(e) => change(i, { percent: e.target.value })} />
           </Field>
+          {rows.length > 2 ? (
+            <Button size="sm" variant="ghost" aria-label={`Remove split ${String(i + 1)}`} onClick={() => setRows(rows.filter((_, j) => j !== i))}>
+              ×
+            </Button>
+          ) : null}
         </div>
       ))}
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <Button size="sm" variant="ghost" onClick={() => setRows([...rows, { ticket: "", percent: "0" }])}>
+        <Button size="sm" variant="ghost" disabled={rows.length >= MAX_SPLITS} onClick={() => setRows([...rows, { ticket: "", percent: "" }])}>
           Add a split
         </Button>
-        <span className={`text-sm ${total === 100 ? "text-muted" : "text-exception"}`}>Total {total}%</span>
+        <span className={`text-sm ${valid ? "text-muted" : "text-exception"}`}>Total {total}%</span>
       </div>
       <FormError error={save.error} />
       <div className="flex justify-end gap-2">
         <Button onClick={onDone}>Cancel</Button>
-        <Button variant="primary" disabled={total !== 100 || save.isPending} onClick={() => save.mutate()}>
+        <Button variant="primary" disabled={!valid || save.isPending} onClick={() => save.mutate()}>
           Save split
         </Button>
       </div>
@@ -125,22 +191,44 @@ function SplitEditor({ entry, onDone }: { entry: TokenEntry; onDone: () => void 
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="grid grid-cols-[120px_1fr] gap-3 border-b border-line py-2 text-sm last:border-0">
+    <div className="grid grid-cols-[110px_1fr] gap-3 border-b border-line py-2 text-sm last:border-0 sm:grid-cols-[120px_1fr]">
       <dt className="font-mono text-[11px] uppercase tracking-wide text-muted">{label}</dt>
       <dd className="min-w-0">{children}</dd>
     </div>
   );
 }
 
-/** The token entry slip: every field, its splits, and what the viewer may do with it. */
-export function EntryDialog({ entry, onClose }: { entry: TokenEntry | null; onClose: () => void }) {
+/** One split: its share and list value when there are several, its tags, what placed it and an unknown ticket. */
+function SplitLine({ entry, split }: { entry: EntryView; split: SplitView }) {
+  const several = entry.splits.length > 1;
+  const share = several ? splitShare(entry, split) : null;
+  return (
+    <li className="space-y-1">
+      <span className="flex flex-wrap items-center gap-1.5">
+        {share !== null ? <span className="num mr-1 text-xs text-muted">{formatShare(share)}</span> : null}
+        {tagList(split.tags).map(([n, v]) => (
+          <Tag key={n} name={n} value={v} />
+        ))}
+        {several ? <MoneyText value={split.list_value ? fromDecimal(split.list_value, entry.currency) : null} label={valueLabel(entry)} /> : null}
+      </span>
+      <span className="flex flex-wrap items-center gap-1.5 text-xs text-muted">
+        {split.placed_by}
+        {split.unknown_ticket ? <Badge tone="exception">unknown ticket {split.unknown_ticket}</Badge> : null}
+      </span>
+    </li>
+  );
+}
+
+/** The token entry slip: every field the service gives, its splits, and what the viewer may do with it. */
+export function EntryDialog({ entry, onClose }: { entry: EntryView | null; onClose: () => void }) {
   const me = useMe();
-  const name = usePersonName();
+  const projects = useProjects();
   const [mode, setMode] = useState<"view" | "tag" | "split" | "reject">("view");
   const [tags, setTags] = useState<Tags>({});
   const [reason, setReason] = useState("");
   const close = () => {
     setMode("view");
+    setReason("");
     onClose();
   };
   const saveTags = useMutation({
@@ -160,29 +248,34 @@ export function EntryDialog({ entry, onClose }: { entry: TokenEntry | null; onCl
     },
   });
   const approve = useMutation({
-    mutationFn: () => api.approve([entry?.id ?? ""]),
-    onSuccess: async () => {
+    mutationFn: () => api.approve({ token_entry_ids: [entry?.id ?? ""] }),
+    onSuccess: async (r) => {
       await refreshAll();
-      notify("Approved");
+      if (r.approved) notify("Approved");
+      else notify("Not approved", "It is no longer submitted, or not within your filters.");
       close();
     },
   });
   if (!entry) return null;
-  const mine = entry.agent_manager === me.person.id;
-  const editable = entry.status !== "locked" && (mine || hasRole(me.person, "people_manager"));
-  const canReview = hasRole(me.person, "people_manager") && entry.status === "submitted";
-  const tokens = entry.tokens;
-  const value = entry.billed_value ?? entry.list_value;
+  const mine = isOwn(entry, me.person);
+  // The service lets you fix your own token entries until they are approved or locked.
+  const editable = mine && ["draft", "rejected", "submitted"].includes(entry.status);
+  // People managers decide within their filters, never on their own; controllers on any.
+  const decides = hasRole(me.person, "people_manager") && (!mine || hasRole(me.person, "controller"));
+  const canApprove = decides && me.organization.approval && entry.status === "submitted";
+  const canReject = decides && (entry.status === "submitted" || entry.status === "approved");
+  const nobody = (entry.agent_manager ?? null) === null;
+  const label = valueLabel(entry);
   return (
     <Dialog open={Boolean(entry)} onOpenChange={(open) => !open && close()} title="Token entry" description={entry.summary} wide>
-      {entry.reject_reason ? (
+      {entry.status === "rejected" && entry.rejected_reason ? (
         <Note tone="exception">
-          <b>Sent back:</b> {entry.reject_reason}
+          <b>Sent back:</b> {entry.rejected_reason}
         </Note>
       ) : null}
-      {entry.agent_manager === null ? (
+      {nobody ? (
         <Note tone="exception">
-          Nobody answers for this token entry: its service token belongs to nobody. Take it over, or move the service token to someone under Settings.
+          Nobody answers for this token entry: its service token belongs to nobody. Move the service token to someone under Settings; only future token entries follow.
         </Note>
       ) : null}
       {mode === "view" ? (
@@ -192,60 +285,42 @@ export function EntryDialog({ entry, onClose }: { entry: TokenEntry | null; onCl
               <span className="flex flex-wrap items-center gap-2">
                 <StatusBadge status={entry.status} />
                 {entry.automatic ? <Badge>automatic</Badge> : null}
-                {entry.late ? <Badge tone="exception">late</Badge> : null}
               </span>
             </Row>
             <Row label="Agent">
               {entry.agent_harness}
-              {entry.agent_name ? ` · ${entry.agent_name}` : ""} · <span className="font-mono text-[13px]">{entry.model}</span>
+              {entry.agent_name ? ` · ${entry.agent_name}` : ""} · <span className="break-all font-mono text-[13px]">{entry.model}</span>
             </Row>
-            <Row label="Agent manager">{name(entry.agent_manager)}</Row>
-            <Row label="Start · end">
-              {formatDateTime(entry.started_at)} · {formatDateTime(entry.ended_at).split(" ").slice(-2).join(" ")}
+            <Row label="Provider">{entry.provider}</Row>
+            <Row label="Agent manager">{nobody ? <Badge tone="exception">nobody</Badge> : entry.agent_manager}</Row>
+            <Row label="Started">{formatDateTime(entry.started_at)}</Row>
+            <Row label="List value">
+              <MoneyText value={entryValue(entry)} label={label} /> {label === "unknown_model" ? null : <span className="text-xs text-muted">{valueLabelText[label]}</span>}
             </Row>
-            <Row label="Tokens">
-              <span className="num !text-left">
-                in {tokens.input.toLocaleString("en-US")} · out {tokens.output.toLocaleString("en-US")} · cache write {formatTokens(tokens.cache_write)} · cache read {formatTokens(tokens.cache_read)}
-              </span>
-            </Row>
-            <Row label="Cost">
-              <MoneyText value={value} label={entry.value_label} /> <span className="text-xs text-muted">{valueLabelText[entry.value_label]}</span>
-            </Row>
-            <Row label="Placed by">{entry.placed_by}</Row>
-            <Row label={entry.splits.length > 1 ? "Splits" : "Tags"}>
-              <ul className="space-y-2">
-                {entry.splits.map((split, i) => (
-                  <li key={i} className="flex flex-wrap items-center gap-1.5">
-                    {entry.splits.length > 1 ? <span className="num mr-1 text-xs text-muted">{split.share / 100}%</span> : null}
-                    {tagList(split.tags).map(([n, v]) => (
-                      <Tag key={n} name={n} value={v} />
-                    ))}
-                    <CostKindBadge kind={split.cost_kind} />
-                    {entry.splits.length > 1 ? <MoneyText value={split.value} /> : null}
-                  </li>
+            <Row label={entry.splits.length > 1 ? `${String(entry.splits.length)} splits` : "Tags"}>
+              <ul className="space-y-3">
+                {entry.splits.map((split) => (
+                  <SplitLine key={split.id} entry={entry} split={split} />
                 ))}
               </ul>
-              {entry.candidates.length ? <p className="mt-2 text-xs text-muted">Candidates: {entry.candidates.join(", ")}</p> : null}
             </Row>
           </dl>
           <div className="mt-5 flex flex-wrap justify-end gap-2">
-            {entry.agent_manager === null && hasRole(me.person, "controller") ? (
+            {nobody && hasRole(me.person, "controller") ? (
               // Its service token belongs to nobody: hand the token over (docs: Roles).
               <Link to="/settings" hash="api-tokens" className="inline-flex h-9 items-center rounded-md px-3 text-sm text-accent hover:underline">
                 Hand over its service token
               </Link>
             ) : null}
-            {canReview ? (
-              <>
-                <Button variant="danger" onClick={() => setMode("reject")}>
-                  Reject
-                </Button>
-                {me.organization.approval ? (
-                  <Button onClick={() => approve.mutate()} disabled={approve.isPending}>
-                    Approve
-                  </Button>
-                ) : null}
-              </>
+            {canReject ? (
+              <Button variant="danger" onClick={() => setMode("reject")}>
+                Reject
+              </Button>
+            ) : null}
+            {canApprove ? (
+              <Button onClick={() => approve.mutate()} disabled={approve.isPending}>
+                Approve
+              </Button>
             ) : null}
             {editable ? (
               <>
@@ -253,7 +328,7 @@ export function EntryDialog({ entry, onClose }: { entry: TokenEntry | null; onCl
                 <Button
                   variant="primary"
                   onClick={() => {
-                    setTags(Object.fromEntries(Object.entries(entry.splits[0]?.tags ?? {}).filter(([k]) => k !== "person" && k !== "client")));
+                    setTags(namedTags(entry.splits[0]?.tags ?? {}, projects.data));
                     setMode("tag");
                   }}
                 >
@@ -262,10 +337,12 @@ export function EntryDialog({ entry, onClose }: { entry: TokenEntry | null; onCl
               </>
             ) : null}
           </div>
+          <FormError error={approve.error} />
         </>
       ) : null}
       {mode === "tag" ? (
         <div className="space-y-4">
+          {entry.splits.length > 1 ? <p className="text-sm text-muted">Saving tags makes it one split again.</p> : null}
           <TagEditor tags={tags} onChange={setTags} />
           <FormError error={saveTags.error} />
           <div className="flex justify-end gap-2">
@@ -279,7 +356,7 @@ export function EntryDialog({ entry, onClose }: { entry: TokenEntry | null; onCl
       {mode === "split" ? <SplitEditor entry={entry} onDone={() => setMode("view")} /> : null}
       {mode === "reject" ? (
         <div className="space-y-4">
-          <Field label="Reason" hint="The agent manager sees it in their review list.">
+          <Field label="Reason" hint="The agent manager sees it in their review list. It does not count until it is fixed and submitted again.">
             <Textarea autoFocus value={reason} onChange={(e) => setReason(e.target.value)} placeholder="This was for KD-231, not KD-214." />
           </Field>
           <FormError error={reject.error} />
@@ -293,9 +370,4 @@ export function EntryDialog({ entry, onClose }: { entry: TokenEntry | null; onCl
       ) : null}
     </Dialog>
   );
-}
-
-/** The value and its label, as one table cell. */
-export function entryValue(entry: TokenEntry) {
-  return entry.billed_value ?? entry.list_value;
 }

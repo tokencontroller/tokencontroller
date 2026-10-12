@@ -15,8 +15,6 @@ import type {
   Reconciliation,
   Tags,
   Ticket,
-  TokenEntry,
-  TokenSheet,
 } from "@/api/contract";
 import { toDecimal } from "@/lib/money";
 import { TODAY, type BillRecord, type Db, type EntryRecord } from "./seed";
@@ -112,40 +110,6 @@ export function splitsOf(entry: EntryRecord): SplitRow[] {
   return entry.splits.map((split, i) => ({ entry, tags: split.tags, nanos: parts[i] ?? null, share: split.share }));
 }
 
-export function toEntry(db: Db, entry: EntryRecord): TokenEntry {
-  const currency = cur(db);
-  const { ladder, cost_center } = db.tagMap;
-  return {
-    id: entry.id,
-    period: entry.period,
-    agent_harness: entry.agent_harness,
-    agent_name: entry.agent_name,
-    model: entry.model,
-    started_at: entry.started_at,
-    ended_at: entry.ended_at,
-    tokens: entry.tokens,
-    list_value: entry.list === null ? null : m(entry.list, currency),
-    billed_value: entry.billed === null ? null : m(entry.billed, currency),
-    value_label: entry.list === null && entry.billed === null ? "unknown_model" : entry.billed !== null ? "billed" : "list_estimate",
-    summary: entry.summary,
-    agent_manager: entry.agent_manager,
-    automatic: entry.automatic,
-    status: entry.status,
-    reject_reason: entry.reject_reason,
-    placed_by: entry.placed_by,
-    candidates: entry.candidates,
-    splits: splitsOf(entry).map((row) => ({
-      share: row.share,
-      tags: row.tags,
-      value: row.nanos === null ? null : m(row.nanos, currency),
-      cost_kind: costKind(row.tags, ladder),
-      cost_center: row.tags[cost_center] ?? row.tags.person ?? "nobody",
-      cost_object: costObject(row.tags, ladder),
-    })),
-    late: entry.late,
-  };
-}
-
 function sumNanos(rows: { nanos: number | null }[]): number {
   return rows.reduce((s, r) => s + (r.nanos ?? 0), 0);
 }
@@ -221,30 +185,6 @@ export function lateSheets(db: Db, period?: string): { person: string; starts: s
     seen.set(`${entry.agent_manager}:${cadence.starts}`, { person: entry.agent_manager, ...cadence });
   }
   return [...seen.values()];
-}
-
-export function onTickets(rows: SplitRow[]): number {
-  const total = sumNanos(rows);
-  const direct = sumNanos(rows.filter((r) => r.tags.ticket));
-  return total ? Math.round((direct * 10000) / total) : 0;
-}
-
-export function tokenSheet(db: Db, person: Person): TokenSheet {
-  const currency = cur(db);
-  const mine = db.entries.filter((e) => e.agent_manager === person.id && (e.status === "draft" || e.status === "rejected"));
-  const drafts = mine.filter((e) => e.status === "draft");
-  const rows = drafts.flatMap(splitsOf);
-  const cadence = cadencePeriod(drafts[0]?.started_at ?? `${TODAY}T00:00:00Z`);
-  return {
-    person: person.id,
-    cadence: db.cadences.find((c) => !c.project)?.kind ?? null,
-    starts: cadence.starts,
-    ends: cadence.ends,
-    late: lateSheets(db).some((s) => s.person === person.id),
-    entries: mine.sort((a, b) => a.started_at.localeCompare(b.started_at)).map((e) => toEntry(db, e)),
-    total: m(sumNanos(rows), currency),
-    on_tickets: onTickets(rows),
-  };
 }
 
 export function closeCheck(db: Db, period: string): CloseCheck {

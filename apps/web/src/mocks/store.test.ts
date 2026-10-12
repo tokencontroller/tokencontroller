@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
-import { createDb, MARA } from "./seed";
-import { allocate, closeCheck, costSheet, reconciliation, tokenSheet } from "./store";
+import { createDb } from "./seed";
+import { allocate, closeCheck, costSheet, reconciliation } from "./store";
 
 // The mocks stand in for the service until its API lands, so they must keep
 // the rules the docs promise; otherwise the screens would show wrong numbers.
@@ -9,17 +9,6 @@ describe("example organization", () => {
     expect(allocate(1000, [3333, 3333, 3334])).toEqual([333, 333, 334]);
     const parts = allocate(41_870_000_001, [6000, 4000]);
     expect(parts.reduce((a, b) => a + b, 0)).toBe(41_870_000_001);
-  });
-
-  test("Mara's token sheet matches the Review and submit docs page", () => {
-    const db = createDb();
-    const mara = db.people.find((p) => p.id === MARA.id);
-    if (!mara) throw new Error("no Mara in the seed");
-    const sheet = tokenSheet(db, mara);
-    const drafts = sheet.entries.filter((e) => e.status === "draft");
-    expect(drafts).toHaveLength(5);
-    expect(sheet.total).toEqual({ nanos: 212_400_000_000, currency: "USD" });
-    expect(Math.round(sheet.on_tickets / 100)).toBe(67);
   });
 
   test("per bill, token entries plus residual equal the bill", () => {

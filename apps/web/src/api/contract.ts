@@ -164,82 +164,37 @@ export type CadencePeriod = Schemas["CadencePeriod"];
 export type CadenceView = Schemas["CadenceView"];
 export type CadenceInput = Schemas["CadenceInput"];
 
-export type TokenEntryStatus = "draft" | "submitted" | "approved" | "rejected" | "locked";
+/** One token entry as tables show it, with its splits (docs: Reference > Token entry). */
+export type EntryView = Schemas["EntryView"];
+/** One split of a token entry: its tags, list value and what placed it. */
+export type SplitView = Schemas["SplitView"];
+/** Where a token entry stands: draft, submitted, approved, rejected or locked. */
+export type TokenEntryStatus = Schemas["EntryStatus"];
+export type TokenCounts = Schemas["TokenCounts"];
+/** One page of the token entries table. */
+export type TokenEntriesPage = Schemas["TokenEntriesPage"];
+/** A person's token sheet: the review list, the cadence period and their past token sheets. */
+export type TokenSheet = Schemas["TokenSheet"];
+export type SheetSummary = Schemas["SheetSummary"];
+/** A controller asked everyone to submit before the close. */
+export type AskedToSubmit = Schemas["AskedToSubmit"];
+/** What a submit did. */
+export type Submitted = Schemas["Submitted"];
+/** One share of a token entry split by hand, in whole percent. */
+export type ShareInput = Schemas["ShareInput"];
+export type ApproveInput = Schemas["ApproveInput"];
+export type Decided = Schemas["Decided"];
+export type Reminded = Schemas["Reminded"];
 
 export type CostKind = "direct" | "project_overhead" | "organization_overhead";
 
 /** Billed, a list-price estimate, or an unknown model. Every figure says which. */
 export type ValueLabel = "billed" | "list_estimate" | "unknown_model";
 
-export interface TokenCounts {
-  input: number;
-  output: number;
-  cache_write: number;
-  cache_read: number;
-}
-
-export interface Split {
-  /** Share of the token entry in basis points; all splits add up to 10000. */
-  share: number;
-  tags: Tags;
-  value: Money | null;
-  cost_kind: CostKind;
-  cost_center: string;
-  cost_object: string;
-}
-
-export interface TokenEntry {
-  id: string;
-  period: PeriodId;
-  agent_harness: string;
-  agent_name: string | null;
-  model: string;
-  started_at: string;
-  ended_at: string;
-  tokens: TokenCounts;
-  list_value: Money | null;
-  billed_value: Money | null;
-  value_label: ValueLabel;
-  summary: string;
-  /** The person who answers for it. Null only when its service token belongs to nobody. */
-  agent_manager: string | null;
-  automatic: boolean;
-  status: TokenEntryStatus;
-  reject_reason: string | null;
-  /** How its ticket or project was found, such as `rule: ticket key in branch`. */
-  placed_by: string;
-  /** Candidate tickets when no rule found one. */
-  candidates: string[];
-  splits: Split[];
-  /** Posted after the close as an adjustment, marked late. */
-  late: boolean;
-}
-
-
 export interface CsvPreview<Row> {
   rows: Row[];
   /** Problems per row, by row number counted from 1. */
   problems: { row: number; message: string }[];
-}
-
-export interface TokenSheet {
-  person: string;
-  cadence: CadenceKind | null;
-  /** The cadence period this sheet is for. */
-  starts: string;
-  ends: string;
-  late: boolean;
-  /** Drafts and rejected token entries, the review list. */
-  entries: TokenEntry[];
-  total: Money;
-  /** Share of the sheet's cost on tickets, in basis points. */
-  on_tickets: number;
-}
-
-export interface SubmitResult {
-  entries: number;
-  total: Money;
-  on_tickets: number;
 }
 
 export type BillProvider =

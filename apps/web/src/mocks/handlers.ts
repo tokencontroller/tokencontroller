@@ -19,32 +19,25 @@ import type {
   Tags,
   TicketMapping,
   TicketSystem,
-  TokenEntryStatus,
 } from "@/api/contract";
 import { parseCsv } from "@/lib/csv";
-import { filterFromText } from "@/lib/format";
 import { enterpriseHandlers, mockEdition } from "./enterprise";
 import { customerRelationsHandlers } from "./customer-relations";
 import { reportsHandlers } from "./reports";
+import { tokenEntryHandlers } from "./token-entries";
 import { createDb, defaultRules, TODAY, type Db, type EntryRecord } from "./seed";
 import {
-  canSee,
   closeCheck,
+  costKind,
   costSheet,
   costSheetCsv,
   cur,
-  lateSheets,
   m,
-  matches,
   NANOS,
-  onTickets,
   reconciliation,
-  splitsOf,
   toAdjustment,
   toBill,
-  toEntry,
   toTicket,
-  tokenSheet,
   viewer,
 } from "./store";
 
@@ -191,21 +184,6 @@ function isClosed(db: Db, period: string): boolean {
   return db.periods.find((p) => p.id === period)?.status === "closed";
 }
 
-function retag(db: Db, entry: EntryRecord, tags: Tags): Tags {
-  // Setting the ticket fills project and the tags the project passes on.
-  const merged: Tags = { ...tags };
-  const ticket = merged.ticket ? db.tickets.find((t) => t.key === merged.ticket) : undefined;
-  if (ticket) {
-    const inherited = tagsFor(db, entry.agent_manager, ticket.key);
-    return { ...inherited, ...Object.fromEntries(Object.entries(merged).filter(([k]) => !["ticket", "project", "client"].includes(k))) };
-  }
-  if (merged.project && !merged.ticket) {
-    const project = db.projects.find((p) => p.name === merged.project);
-    if (project) Object.assign(merged, project.tags);
-  }
-  return Object.fromEntries(Object.entries(merged).filter(([, value]) => value));
-}
-
 /** The service's CSV reading: columns named after the token entry schema, nested ones with a dot. */
 function csvEntries(text: string): { rows: { line: number; entry: NewTokenEntry }[]; problems: { line: number; problem: string }[] } | string {
   const [header = [], ...rows] = parseCsv(text);
@@ -257,15 +235,15 @@ function addEntry(db: Db, me: Person, body: NewTokenEntry): StoredEntry {
     automatic: false,
     status: "draft",
     reject_reason: null,
-    placed_by: body.placed_by === "hand" ? "by hand" : body.ticket || body.project ? "by hand" : "none",
+    placed_by: body.placed_by === "hand" || body.ticket || body.project ? "by hand" : "no ticket",
     candidates: [],
     splits: [{ share: 10000, tags: tagsFor(db, me.id, body.ticket ?? body.project ?? "", extra) }],
     late: false,
     provider: body.provider ?? (body.agent_harness.toLowerCase().includes("codex") ? "openai" : "anthropic"),
   };
   db.entries.push(record);
-  const [split] = toEntry(db, record).splits;
-  return { id: record.id, status: "draft", currency: cur(db), cost_kind: split?.cost_kind ?? "organization_overhead", dropped_tags: dropped, list_value: (Number(record.list) / 1e9).toFixed(2), local_id: body.local_id ?? null };
+  const tags = record.splits[0]?.tags ?? {};
+  return { id: record.id, status: "draft", currency: cur(db), cost_kind: costKind(tags, db.tagMap.ladder), dropped_tags: dropped, list_value: (Number(record.list) / 1e9).toFixed(2), local_id: body.local_id ?? null };
 }
 
 function billCsv(db: Db, text: string) {
@@ -580,19 +558,6 @@ export const handlers = [
   })),
 
   // Token entries
-  http.get(`${API}/token-entries`, member(({ db, me, url }) => {
-    const period = url.searchParams.get("period") ?? TODAY.slice(0, 7);
-    const status = url.searchParams.get("status") as TokenEntryStatus | null;
-    const person = url.searchParams.get("person");
-    const filter = filterFromText(url.searchParams.get("filter") ?? "");
-    const rows = db.entries
-      .filter((e) => e.period === period && canSee(me, e))
-      .filter((e) => !status || e.status === status)
-      .filter((e) => !person || e.agent_manager === person)
-      .filter((e) => e.splits.some((s) => matches(s.tags, filter)))
-      .sort((a, b) => b.started_at.localeCompare(a.started_at));
-    return HttpResponse.json(rows.map((e) => toEntry(db, e)));
-  })),
   http.post(`${API}/token-entries`, member(async ({ db, me, request }) => {
     const body = (await request.json()) as NewTokenEntry | NewTokenEntry[];
     const stored = Array.isArray(body) ? body.map((entry) => addEntry(db, me, entry)) : addEntry(db, me, body);
@@ -610,72 +575,6 @@ export const handlers = [
     if (first) return error(400, "bad_request", `Line ${String(first.line)}: ${first.problem}. Nothing was saved.`);
     return HttpResponse.json({ token_entries: read.rows.map((row) => addEntry(db, me, row.entry)) }, { status: 201 });
   })),
-  http.patch(`${API}/token-entries/:id/tags`, member(async ({ db, me, params, request }) => {
-    const entry = db.entries.find((e) => e.id === params.id);
-    if (!entry || !canSee(me, entry)) return error(404, "not_found", "No such token entry.");
-    if (entry.status === "locked") return error(409, "locked", "Its period is closed. Post an adjustment instead.");
-    const { tags } = (await request.json()) as { tags: Tags };
-    entry.splits = [{ share: 10000, tags: retag(db, entry, tags) }];
-    entry.placed_by = "by hand";
-    entry.candidates = [];
-    // A fixed rejected entry goes back on the token sheet.
-    if (entry.status === "rejected" && entry.agent_manager === me.id) {
-      entry.status = "draft";
-      entry.reject_reason = null;
-    }
-    return HttpResponse.json(toEntry(db, entry));
-  })),
-  http.put(`${API}/token-entries/:id/splits`, member(async ({ db, me, params, request }) => {
-    const entry = db.entries.find((e) => e.id === params.id);
-    if (!entry || !canSee(me, entry)) return error(404, "not_found", "No such token entry.");
-    const { splits } = (await request.json()) as { splits: { share: number; tags: Tags }[] };
-    if (splits.reduce((s, x) => s + x.share, 0) !== 10000) return error(400, "invalid", "The shares must add up to 100%.");
-    entry.splits = splits.map((s) => ({ share: s.share, tags: retag(db, entry, s.tags) }));
-    entry.placed_by = "split by hand";
-    entry.candidates = [];
-    return HttpResponse.json(toEntry(db, entry));
-  })),
-  http.post(`${API}/token-entries/approve`, member(async ({ db, me, request }) => {
-    const { ids } = (await request.json()) as { ids: string[] };
-    let approved = 0;
-    for (const entry of db.entries) {
-      if (ids.includes(entry.id) && entry.status === "submitted" && canSee(me, entry)) {
-        entry.status = "approved";
-        approved++;
-      }
-    }
-    return HttpResponse.json({ approved });
-  }, PM)),
-  http.post(`${API}/token-entries/:id/reject`, member(async ({ db, me, params, request }) => {
-    const entry = db.entries.find((e) => e.id === params.id);
-    if (!entry || !canSee(me, entry)) return error(404, "not_found", "No such token entry.");
-    const { reason } = (await request.json()) as { reason: string };
-    if (!reason.trim()) return error(400, "invalid", "Give a reason.");
-    entry.status = "rejected";
-    entry.reject_reason = reason.trim();
-    return HttpResponse.json(toEntry(db, entry));
-  }, PM)),
-  http.get(`${API}/token-sheets/current`, member(({ db, me }) => HttpResponse.json(tokenSheet(db, me)))),
-  http.post(`${API}/token-sheets/submit`, member(({ db, me }) => {
-    const drafts = db.entries.filter((e) => e.agent_manager === me.id && e.status === "draft");
-    const rows = drafts.flatMap(splitsOf);
-    const total = rows.reduce((s, r) => s + (r.nanos ?? 0), 0);
-    for (const entry of drafts) {
-      if (isClosed(db, entry.period)) {
-        // After the close a sheet becomes an adjustment to that month, marked late.
-        entry.status = "locked";
-        entry.late = true;
-        const tags = entry.splits[0]?.tags ?? {};
-        const rung = db.tagMap.ladder.find((r) => tags[r]) ?? "organization";
-        db.adjustments.push({ id: nextId(db, "adj"), period: entry.period, rung, value: tags[rung] ?? "organization", amount: splitsOf(entry).reduce((s, r) => s + (r.nanos ?? 0), 0), reason: `Late token sheet from ${me.name}`, posted_by: me.id, posted_at: `${TODAY}T12:00:00Z`, late_sheet: true });
-      } else entry.status = "submitted";
-    }
-    return HttpResponse.json({ entries: drafts.length, total: m(total, cur(db)), on_tickets: onTickets(rows) });
-  })),
-  http.post(`${API}/token-sheets/remind`, member(async ({ db, request }) => {
-    const { period } = (await request.json()) as { period?: string };
-    return HttpResponse.json({ reminded: new Set(lateSheets(db, period).map((s) => s.person)).size });
-  }, CONTROLLER)),
 
   // Bills
   http.get(`${API}/bills`, member(({ db, url }) => {
@@ -856,6 +755,7 @@ export const handlers = [
     const files = { "organization.json": db.organization, "people.json": db.people, "token_entries.json": db.entries, "bills.json": db.bills, "rules.json": db.rules, "tickets.json": db.tickets, "periods.json": db.periods, "tags.json": { names: db.tagNames, map: db.tagMap } };
     return new HttpResponse(JSON.stringify(files, null, 2), { headers: { "content-type": "application/json" } });
   }, CONTROLLER)),
+  ...tokenEntryHandlers({ API, member, fail: error, now }),
   ...customerRelationsHandlers({ API, member, fail: error, now }),
   ...enterpriseHandlers({ API, member, fail: error, now }),
   ...reportsHandlers({ API, member, fail: error, now }),

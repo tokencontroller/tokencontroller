@@ -3,6 +3,7 @@ import type {
   AcceptInput,
   Adjustment,
   ApiTokenKind,
+  ApproveInput,
   Bill,
   BillConnection,
   CadenceInput,
@@ -30,15 +31,13 @@ import type {
   ReportChange,
   Rule,
   SaveInput,
-  SubmitResult,
+  ShareInput,
   TagMapChange,
   Tags,
   NewTicketSystem,
   TicketMapping,
   TokenBudgetInput,
-  TokenEntry,
   TokenEntryStatus,
-  TokenSheet,
 } from "./contract";
 import { filterToText } from "@/lib/format";
 
@@ -83,7 +82,9 @@ function controls(query: ReportControls) {
  * send as a CSV file (`format=csv`). Without that parameter it answers JSON.
  */
 async function json<T>(request: Promise<{ data?: T; error?: unknown; response: Response }>): Promise<Exclude<T, string>> {
-  return (await ok(request)) as Exclude<T, string>;
+  const data = await ok(request);
+  if (typeof data === "string") throw new Error("The service sent a file where a list was expected.");
+  return data as Exclude<T, string>;
 }
 
 /** A tag filter as the `filter` parameter, such as `client:acme,team:web`; none for the whole organization. */
@@ -145,23 +146,40 @@ export const api = {
   createTicket: (body: NewTicket) => ok(typed.POST("/api/v1/tickets", { body })),
 
   // Token entries, review and approval
-  tokenEntries: (query: { period: PeriodId; status?: TokenEntryStatus | ""; filter?: Filter; person?: string }) =>
-    call<TokenEntry[]>("GET", "/token-entries", {
-      query: { period: query.period, status: query.status, person: query.person, filter: filterToText(query.filter ?? {}) },
-    }),
+  /** The token entries table: submitted, approved and locked unless `status` names others. Never drafts. */
+  tokenEntries: (query: { period?: PeriodId; filter?: Filter; status?: TokenEntryStatus[]; limit?: number; offset?: number }) =>
+    json(
+      typed.GET("/api/v1/reports/token-entries", {
+        params: {
+          query: {
+            ...(query.period ? { period: query.period } : {}),
+            ...filterQuery(query.filter),
+            ...(query.status?.length ? { status: query.status.join(",") } : {}),
+            ...(query.limit === undefined ? {} : { limit: query.limit }),
+            ...(query.offset === undefined ? {} : { offset: query.offset }),
+          },
+        },
+      }),
+    ),
   addTokenEntry: (body: NewTokenEntry) => ok(typed.POST("/api/v1/token-entries", { body })),
   /** Reads a CSV file and shows the problem in each row; saves nothing. */
   previewImport: (csv: string) => ok(typed.POST("/api/v1/token-entries/csv/preview", { ...csvBody, body: csv })),
   /** Saves every row as a draft, or nothing when a row cannot be read. */
   importEntries: (csv: string) => ok(typed.POST("/api/v1/token-entries/csv", { ...csvBody, body: csv })),
-  setTags: (id: string, tags: Tags) => call<TokenEntry>("PATCH", `/token-entries/${enc(id)}/tags`, { body: { tags } }),
-  setSplits: (id: string, splits: { share: number; tags: Tags }[]) =>
-    call<TokenEntry>("PUT", `/token-entries/${enc(id)}/splits`, { body: { splits } }),
-  approve: (ids: string[]) => call<{ approved: number }>("POST", "/token-entries/approve", { body: { ids } }),
-  reject: (id: string, reason: string) => call<TokenEntry>("POST", `/token-entries/${enc(id)}/reject`, { body: { reason } }),
-  tokenSheet: () => call<TokenSheet>("GET", "/token-sheets/current"),
-  submit: () => call<SubmitResult>("POST", "/token-sheets/submit"),
-  askToSubmit: (period: PeriodId) => call<{ reminded: number }>("POST", "/token-sheets/remind", { body: { period } }),
+  /** Sets every tag of one of your own token entries by hand; it becomes one split again. */
+  setTags: (id: string, tags: Tags) => ok(typed.PATCH("/api/v1/token-entries/{id}/tags", { ...path(id), body: { tags } })),
+  /** Splits one of your own token entries by hand: 2 to 20 whole percents adding up to 100. */
+  setSplits: (id: string, splits: ShareInput[]) => ok(typed.PUT("/api/v1/token-entries/{id}/splits", { ...path(id), body: { splits } })),
+  /** Submitted token entries the caller may approve, within their filters. */
+  approvalQueue: (period: PeriodId, filter: Filter = {}) =>
+    json(typed.GET("/api/v1/token-entries/approval", { params: { query: { period, ...filterQuery(filter) } } })),
+  approve: (body: ApproveInput) => ok(typed.POST("/api/v1/token-entries/approve", { body })),
+  reject: (id: string, reason: string) => ok(typed.POST("/api/v1/token-entries/{id}/reject", { ...path(id), body: { reason } })),
+  tokenSheet: () => json(typed.GET("/api/v1/token-sheets/current")),
+  /** Submits your drafts here. With none it says there was nothing to report. */
+  submit: () => ok(typed.POST("/api/v1/token-sheets/submit", { body: {} })),
+  /** A controller asks everyone to submit their token sheets for a month before the close. */
+  askToSubmit: (period: PeriodId) => ok(typed.POST("/api/v1/token-sheets/remind", { body: { period } })),
 
   // Bills and reconciliation
   bills: (period: PeriodId) => call<Bill[]>("GET", "/bills", { query: { period } }),
@@ -200,7 +218,7 @@ export const api = {
 
   // Reports. Every report takes the same controls: period, status (approved
   // only, with approval on), another currency, and the share view.
-  savedReports: () => ok(typed.GET("/api/v1/reports/saved")),
+  savedReports: () => json(typed.GET("/api/v1/reports/saved")),
   saveReport: (body: SaveInput) => ok(typed.POST("/api/v1/reports/saved", { body })),
   removeReport: (id: string) => ok(typed.DELETE("/api/v1/reports/saved/{id}", path(id))),
   savedReport: (id: string, query: ReportControls) => json(typed.GET("/api/v1/reports/saved/{id}", { params: { path: { id }, query: controls(query) } })),

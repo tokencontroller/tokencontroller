@@ -49,7 +49,8 @@ export interface EntryRecord {
   reject_reason: string | null;
   placed_by: string;
   candidates: string[];
-  splits: { share: number; tags: Tags }[];
+  /** `unknown_ticket`: a ticket key that matched a pattern but that the ticket sync did not find. */
+  splits: { share: number; tags: Tags; unknown_ticket?: string | null }[];
   late: boolean;
   /** Which bill this entry's cost appears on. */
   provider: string;
@@ -398,9 +399,10 @@ function tokensFor(rand: () => number, cents: number): TokenCounts {
   };
 }
 
+/** What placed a split, as the service's review list shows it (the default rules' names). */
 function placedBy(target: string, harness: string): string {
-  if (!target) return "no rule matched";
-  if (projectOfTicket.has(target)) return harness === "Cursor" || harness === "Gemini CLI" ? "rule: ticket key in prompts" : "rule: ticket key in branch";
+  if (!target) return "no ticket";
+  if (projectOfTicket.has(target)) return harness === "Cursor" || harness === "Gemini CLI" ? "rule: ticket key in prompts or session title" : "rule: ticket key in branch";
   return "rule: repository";
 }
 
@@ -514,13 +516,19 @@ export function createDb(): Db {
     rejected.reject_reason = "This was the upload form itself. Please move it to CP-12.";
   }
 
+  // Mara's branch named KD-299, which the ticket sync never found: her review
+  // list shows the token entry as unknown ticket (docs: Ticket keys).
+  const unsynced = entries.find((e) => e.agent_manager === MARA.id && e.period === "2026-10" && e.status === "submitted" && Object.keys(e.splits[0]?.tags ?? {}).every((name) => ["person", "team", "department"].includes(name)));
+  const unsyncedSplit = unsynced?.splits[0];
+  if (unsyncedSplit) unsyncedSplit.unknown_ticket = "KD-299";
+
   // Mara's drafts for today, as the Review and submit docs page shows them.
   const today: [string, number, string, string, string[]][] = [
     ["09:12", 4187, "KD-214", "rule: ticket key in branch", []],
     ["11:46", 1210, "KD-214", "rule: ticket key in branch", []],
     ["13:05", 8830, "KD-231", "rule: ticket key in pull request title", []],
     ["15:20", 975, "storefront", "rule: repository", []],
-    ["16:41", 6038, "", "no ticket, 2 candidates", ["KD-231", "KD-240"]],
+    ["16:41", 6038, "", "no ticket", ["KD-231", "KD-240"]],
   ];
   const todaySummaries = ["Fixed checkout redirect loop", "Added a test for the redirect", "Saved address list at checkout", "Read up on the new payment API", "Address lookup edge cases"];
   today.forEach(([time, cents, target, by, candidates], index) => {
