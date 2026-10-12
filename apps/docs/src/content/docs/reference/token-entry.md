@@ -12,6 +12,8 @@ The fields of a token entry, as the token entries endpoint and CSV import take t
 | `agent_harness` | The product the agent ran on. Required. |
 | `agent_name` | A label for the agent, such as "review bot". Optional. |
 | `model` | The model that did the work. Required. |
+| `provider` | Who charges for the model calls: `anthropic`, `openai`, `google`, `aws_bedrock`, `gcp_vertex`, `azure_foundry`, `github`, `cursor` or `other`. Optional; without it, it follows from the model's name. Bills are matched per provider. |
+| `effort`, `speed` | The effort and speed settings the agent ran with, such as `high` and `fast`. Optional. The [agent harness report](/report/agent-harness) shows cost by them. |
 | `started_at`, `ended_at` | When the session started and ended. Required. |
 | `tokens` | Counts by kind: `input`, `output`, `cache_write`, `cache_read`. Required. |
 | `reported_cost` | The agent's own cost figure in US dollars, as a number or a decimal string such as `"0.031"`. Optional; without it the list value is computed. |

@@ -21,6 +21,8 @@ Send a token in the `Authorization` header, such as `Authorization: Bearer tc_re
 | Endpoint | What it does |
 | --- | --- |
 | `POST /token-entries` | Report a token entry. See [Token entries endpoint](/collect/token-entries). |
+| `POST /token-entries/csv/preview`, `POST /token-entries/csv` | Read a CSV file and show the problem in each row, then import it as drafts. See [CSV import](/collect/manual#csv). |
+| `POST /ingest/otlp/v1/logs`, `/v1/traces`, `/v1/metrics` | OpenTelemetry from agents, with the organization token. See [Telemetry](/collect/telemetry). |
 | `POST /bills` | Send a bill for a period. See [Bill schema](/reference/bill). |
 | `GET /reports/…` | Read reports. See [Reporting API](/report/reporting-api). |
 | `GET /status` | The state of each part of the service, without signing in. status.tokencontroller.com shows it. |

@@ -1,0 +1,98 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT job, last_started_at, last_finished_at, last_succeeded_at, last_error,\n                runs, failures_in_a_row\n         FROM job_runs ORDER BY job",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "job",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "job_runs",
+            "name": "job"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "last_started_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "job_runs",
+            "name": "last_started_at"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "last_finished_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "job_runs",
+            "name": "last_finished_at"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "last_succeeded_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "job_runs",
+            "name": "last_succeeded_at"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "last_error",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "job_runs",
+            "name": "last_error"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "runs",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "job_runs",
+            "name": "runs"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "failures_in_a_row",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "job_runs",
+            "name": "failures_in_a_row"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "8a05fe30a1e998b80dfc058df65af949cab4e48f482808309c076ac03cc5799a"
+}

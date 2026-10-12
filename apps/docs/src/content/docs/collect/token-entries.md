@@ -27,6 +27,25 @@ Authorization: Bearer tc_svc_…
 
 The service token decides the agent manager: the person who created it. Reported cost is optional; without it, Token Controller computes the list value from the model and the price table. Every field is described in the [token entry schema](/reference/token-entry).
 
+To send several token entries in one call, send a list of up to 1,000. Either all of them are saved or none.
+
+## The answer {#answer}
+
+`201 Created` with what was saved, one object per token entry, or a list for a list:
+
+```json
+{
+  "id": "0b6f6c1e-5d1c-4c62-9d0a-3f3a3c9f1a52",
+  "status": "submitted",
+  "list_value": "0.03",
+  "currency": "USD",
+  "cost_kind": "project_overhead",
+  "dropped_tags": []
+}
+```
+
+`list_value` is `null` for an unknown model until the price table knows it. `dropped_tags` names tags that are not on your organization's list; they were left out. A token entry the service cannot take gets `400` with the field and the problem, and nothing is saved. A token entry in a closed period gets `409`; a controller posts an [adjustment](/account/adjustments) instead.
+
 ## Tags {#placing}
 
 Name a ticket or a project in the call and add any tags on your organization's list, or let your rules set them. Tags named in the call win over every rule. When nothing places it, it is organization overhead with its person. See the [order](/attribute/rules#order).

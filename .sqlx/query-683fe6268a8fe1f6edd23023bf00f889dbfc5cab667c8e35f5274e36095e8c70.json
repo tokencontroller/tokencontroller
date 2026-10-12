@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT cost_center, ladder FROM tag_map_versions\n         WHERE organization_id = $1 ORDER BY version DESC LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "cost_center",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tag_map_versions",
+            "name": "cost_center"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "ladder",
+        "type_info": "TextArray",
+        "origin": {
+          "Table": {
+            "table": "tag_map_versions",
+            "name": "ladder"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "683fe6268a8fe1f6edd23023bf00f889dbfc5cab667c8e35f5274e36095e8c70"
+}

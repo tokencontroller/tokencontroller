@@ -1,0 +1,52 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT reporting_currency, cost_source, approval FROM organizations WHERE id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "reporting_currency",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "organizations",
+            "name": "reporting_currency"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "cost_source",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "organizations",
+            "name": "cost_source"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "approval",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "organizations",
+            "name": "approval"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "08664366de0c95ff3934e8b4223ab539f77ae034ecf9ce4837f8983878dd9d52"
+}
