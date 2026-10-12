@@ -39,6 +39,18 @@ export type Person = Schemas["MemberView"];
 export type Me = Schemas["Me"];
 export type SignUpRequest = Schemas["SignUpRequest"];
 
+/** A rule: when every condition holds, do the action (docs: Rules). */
+export type Rule = Schemas["Rule"];
+export type RuleCondition = Schemas["RuleCondition"];
+export type RuleAction = Schemas["RuleAction"];
+export type RuleTest = Schemas["RuleTest"];
+export type RuleSignal = Schemas["RuleSignal"];
+export type RuleKeySource = Schemas["RuleKeySource"];
+/** What to do when prompts name several tickets. */
+export type SeveralKeys = Schemas["SeveralKeys"];
+export type OrganizationRules = Schemas["OrganizationRules"];
+export type OrganizationRulesChange = Schemas["OrganizationRulesChange"];
+
 /** Who is signed in, with the whole organization the pages read settings from. */
 export interface Account {
   person: Person;
@@ -100,15 +112,6 @@ export type Issue = Schemas["IssueView"];
 export type IssueText = Schemas["IssueText"];
 export type AssistantQuestion = Schemas["QuestionView"];
 
-/** What to do when prompts name several tickets (docs: Rules). */
-export type SeveralKeys = "most_named" | "equal_split" | "first_named";
-
-/** The organization's rule settings (docs: Rules). Not in the service yet. */
-export interface RuleSettings {
-  /** Summary match on or off. */
-  summary_match: boolean;
-  several_keys: SeveralKeys;
-}
 
 // Cadence, as the Close and reports work defines it (docs: Account > Cadence).
 export type CadenceKind = "weekly" | "every_two_weeks" | "monthly" | "custom";
@@ -428,33 +431,5 @@ export interface Outlier {
   ratio: number;
 }
 
-export type RuleSignal =
-  | "branch"
-  | "pull_request_title"
-  | "prompts"
-  | "repository"
-  | "working_directory"
-  | "subagent_type";
-
-export interface Rule {
-  id: string;
-  scope: "organization" | "personal";
-  name: string;
-  signal: RuleSignal;
-  /** `ticket_key` finds a key by the project's pattern; the others compare text. */
-  match: "ticket_key" | "starts_with" | "contains" | "equals";
-  pattern: string;
-  /** Tags the rule sets. Empty for `ticket_key`, which sets the ticket it finds. */
-  sets: Tags;
-  built_in: boolean;
-}
-
-export interface NewRule {
-  name: string;
-  signal: RuleSignal;
-  match: Rule["match"];
-  pattern: string;
-  sets: Tags;
-}
 
 

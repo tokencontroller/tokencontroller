@@ -14,8 +14,8 @@ import type {
   Person,
   Plan,
   Project,
+  OrganizationRules,
   Rule,
-  RuleSettings,
   SavedReport,
   Tags,
   Ticket,
@@ -111,7 +111,6 @@ export interface Db {
   organization: Organization;
   /** Team plan billing; `enabled` false is a self-hosted instance. */
   billing: { enabled: boolean; plan: Plan; status: string | null; interval: Interval | null; current_period_end: string | null; cancel_at_period_end: boolean };
-  ruleSettings: RuleSettings;
   forecasts: boolean;
   session: string | null;
   /** The last magic link "sent", so the mock sign-in page can offer it. */
@@ -131,7 +130,9 @@ export interface Db {
   adjustments: AdjustmentRecord[];
   budgets: BudgetRecord[];
   reports: SavedReport[];
-  rules: Rule[];
+  rules: OrganizationRules;
+  /** Each person's own rules, by person ID. */
+  personalRules: Record<string, Rule[]>;
   tokens: ApiToken[];
   ticketSystems: TicketSystem[];
   /** Feedback reports, support and what the operators see. */
@@ -190,6 +191,16 @@ const who = (first: string): Person => {
   return found;
 };
 export const MARA = who("mara");
+
+/** The rules every organization starts with, as the service's core crate has them. */
+export function defaultRules(): Rule[] {
+  return [
+    { name: "ticket key in branch", when: [], then: { ticket_key_in: "branch" } },
+    { name: "ticket key in pull request title", when: [], then: { ticket_key_in: "pull_request_title" } },
+    { name: "ticket key in prompts or session title", when: [], then: { ticket_key_in: "prompts_or_session_title" } },
+    { name: "repository", when: [], then: "repository_project" },
+  ];
+}
 
 function project(n: number, name: string, pattern: string | null, tags: Tags, repositories: string[]): Project {
   return { id: uuid(2, n), name, ticket_key_pattern: pattern, tags, repositories, archived: false, created_at: "2026-05-04T10:00:00Z" };
@@ -588,7 +599,6 @@ export function createDb(): Db {
     );
   }
 
-  const rule = (id: string, name: string, signal: Rule["signal"], match: Rule["match"], pattern: string, sets: Tags, scope: Rule["scope"] = "organization", built_in = false): Rule => ({ id, scope, name, signal, match, pattern, sets, built_in });
   const nadia = who("nadia").id;
 
   const db: Db = {
@@ -603,7 +613,6 @@ export function createDb(): Db {
       created_at: "2026-05-04T08:00:00Z",
     },
     billing: { enabled: true, plan: "team", status: "active", interval: "year", current_period_end: "2027-05-04T08:00:00Z", cancel_at_period_end: false },
-    ruleSettings: { summary_match: true, several_keys: "most_named" },
     forecasts: true,
     session: null,
     pendingLink: null,
@@ -634,14 +643,17 @@ export function createDb(): Db {
       { id: "rp_2", name: "Code review cost by project", filter: { purpose: "code-review" }, group_by: "project" },
       { id: "rp_3", name: "Web team by project", filter: { team: "web" }, group_by: "project" },
     ],
-    rules: [
-      rule("r_1", "Ticket key in branch", "branch", "ticket_key", "", {}, "organization", true),
-      rule("r_2", "Ticket key in pull request title", "pull_request_title", "ticket_key", "", {}, "organization", true),
-      rule("r_3", "Ticket key in prompts or session title", "prompts", "ticket_key", "", {}, "organization", true),
-      rule("r_4", "Repository mapped to a project", "repository", "ticket_key", "", {}, "organization", true),
-      rule("r_5", "Review branches are code review", "branch", "starts_with", "review/", { purpose: "code-review" }),
-      rule(`r_6:${MARA.id}`, "Spike folder is learning", "working_directory", "contains", "/spikes/", { purpose: "learning" }, "personal"),
-    ],
+    rules: {
+      rules: [
+        ...defaultRules(),
+        { name: "Review branches are code review", when: [{ signal: "branch", test: { starts_with: "review/" } }], then: { set_tags: { purpose: "code-review" } } },
+      ],
+      several_keys: "most_often",
+      summary_match: true,
+    },
+    personalRules: {
+      [MARA.id]: [{ name: "Spike folder is learning", when: [{ signal: "working_directory", test: { contains: "/spikes/" } }], then: { set_tags: { purpose: "learning" } } }],
+    },
     tokens: [
       { id: "a0ce0000-0000-4000-8000-000000000001", kind: "service", name: "review bot (GitHub Action)", shown_prefix: "tc_svc_7d1e", person_id: who("priya").id, needs_owner: false, created_at: "2026-06-02T09:00:00Z", last_used_at: "2026-10-12T15:02:00Z" },
       { id: "a0ce0000-0000-4000-8000-000000000002", kind: "service", name: "release-notes bot", shown_prefix: "tc_svc_a93c", person_id: who("felix").id, needs_owner: true, created_at: "2026-05-14T11:00:00Z", last_used_at: "2026-10-09T17:04:00Z" },
