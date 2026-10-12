@@ -1,7 +1,7 @@
-//! The service's plug-in points for a build that adds its own areas, such as
-//! the hosted service's billing (ADR 0001). They sit next to the core
-//! crate's `Extension`, which holds the hooks that need no database; these
-//! get the shared state, so they can read and write it.
+//! The service's plug-in points for a build that adds areas of its own. They
+//! sit next to the core crate's `Extension` (ADR 0001), which holds the hooks
+//! that need no database; these get the shared state, so they can read and
+//! write it.
 //!
 //! The open build uses [`NoHooks`]: every hook keeps the open behavior.
 

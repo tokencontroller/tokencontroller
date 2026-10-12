@@ -1,6 +1,6 @@
 //! Team plan subscriptions through Stripe for the hosted service. Off unless
-//! the Stripe settings are set: then every endpoint here answers 404, and the
-//! member limit is the service's own.
+//! the Stripe settings are set. While off, every endpoint here answers 404 and
+//! the member limit is the service's own.
 //!
 //! An organization without an active subscription is on the free Solo plan:
 //! one person. The Team plan allows up to 150 members (docs: Plans and
@@ -74,7 +74,12 @@ pub async fn member_limit(
     if state.settings.stripe.is_none() {
         return Ok(None);
     }
-    Ok(Some(match plan(state, organization_id).await? {
+    Ok(Some(plan_limit(plan(state, organization_id).await?)))
+}
+
+/// The member limit of a plan, and what an invite past it is refused with.
+fn plan_limit(plan: Plan) -> MemberLimit {
+    match plan {
         Plan::Team => MemberLimit {
             max: i64::from(TEAM_PLAN_MEMBERS),
             message: "The Team plan stops at 150 members. More members come with the Enterprise plan."
@@ -85,7 +90,7 @@ pub async fn member_limit(
             message: "The Solo plan is for one person. Choose the Team plan under Billing to invite people."
                 .to_owned(),
         },
-    }))
+    }
 }
 
 /// The hosted plans billing knows about.
@@ -180,18 +185,15 @@ async fn get_billing(
     )
     .fetch_optional(&state.db)
     .await?;
-    let limit = match member_limit(&state, member.organization_id).await? {
-        Some(limit) => limit,
-        None => organizations::member_limit(&state, member.organization_id).await?,
+    let plan = match &row {
+        Some(row) if is_team(row.status.as_deref()) => Plan::Team,
+        _ => Plan::Solo,
     };
+    let member_limit = plan_limit(plan).max;
     let members = organizations::member_count(&state.db, member.organization_id).await?;
     let billing = match row {
         Some(row) => Billing {
-            plan: if is_team(row.status.as_deref()) {
-                Plan::Team
-            } else {
-                Plan::Solo
-            },
+            plan,
             status: row.status,
             interval: match row.billing_interval.as_deref() {
                 Some("month") => Some(Interval::Month),
@@ -201,16 +203,16 @@ async fn get_billing(
             current_period_end: row.current_period_end,
             cancel_at_period_end: row.cancel_at_period_end,
             members,
-            member_limit: limit.max,
+            member_limit,
         },
         None => Billing {
-            plan: Plan::Solo,
+            plan,
             status: None,
             interval: None,
             current_period_end: None,
             cancel_at_period_end: false,
             members,
-            member_limit: limit.max,
+            member_limit,
         },
     };
     Ok(Json(billing))

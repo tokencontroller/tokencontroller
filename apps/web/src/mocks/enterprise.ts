@@ -20,6 +20,8 @@ interface EnterpriseState {
 }
 
 const KEY = "tc-mock-enterprise";
+/** The member limit of the example license. */
+export const LICENSE_MEMBERS = 250;
 const ORIGIN = "https://tokencontroller.kestrel.example";
 
 function fresh(): EnterpriseState {
@@ -111,7 +113,7 @@ export function enterpriseHandlers({ API, member, fail, now }: { API: string; me
         edition: "enterprise",
         standing: "renewal_due",
         organization: "Kestrel Digital",
-        member_limit: 250,
+        member_limit: LICENSE_MEMBERS,
         support_ends: "2026-11-30",
         features_end: "2026-12-30",
         notice: "Your Enterprise plan license ends on 30 November 2026. Renew it to keep sign-in with your identity provider, the audit log, telemetry passthrough, cloud bill connectors and the member limit of 250.",

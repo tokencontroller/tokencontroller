@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button, buttonClass } from "@/components/ui/button";
 import { Kpi, KpiRow, Loading, MoneyText, Note, PageHeader, RowBar, Section, ShareBar } from "@/components/ui/display";
 import { addMonths, describeFilter, filterToText, formatPeriod } from "@/lib/format";
+import { additions } from "@/lib/additions";
 import { formatMoney, formatShare, fromDecimal, nanosOf, shareOf, sum } from "@/lib/money";
 import { refreshAll, useBilling, useFirstOpenPeriod, useMe, usePeriods, usePersonName } from "@/lib/queries";
 import { Field, FormError, Input } from "@/components/ui/form";
@@ -289,6 +290,7 @@ export function OverviewPage(): ReactNode {
   const me = useMe();
   const billing = useBilling();
   const isController = me.person.role === "controller";
+  const { OverviewNote } = additions.parts;
   return (
     <>
       <PageHeader title={me.person.name.trim() ? `Hello, ${me.person.name.trim().split(" ")[0] ?? ""}` : "Hello"} lead={`${me.organization.name} · ${formatPeriod(thisPeriod())}`} />
@@ -311,6 +313,7 @@ export function OverviewPage(): ReactNode {
           ) : null}
         </p>
       ) : null}
+      {OverviewNote ? <OverviewNote /> : null}
     </>
   );
 }

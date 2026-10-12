@@ -34,3 +34,17 @@ export async function mainMenu(page: Page): Promise<Locator> {
 export async function openFromMenu(page: Page, name: string): Promise<void> {
   await (await mainMenu(page)).getByRole("link", { name, exact: true }).click();
 }
+
+/**
+ * Invites people through the API until the organization is at its member
+ * limit, for screens that show the limit reached.
+ */
+export async function fillToMemberLimit(page: Page): Promise<void> {
+  await page.evaluate(async () => {
+    const limit = (await (await fetch("/api/v1/organization/member-limit")).json()) as { members: number; member_limit: number };
+    for (let n = limit.members; n < limit.member_limit; n += 1) {
+      const invited = await fetch("/api/v1/members", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email: `member${String(n)}@kestrel.example` }) });
+      if (!invited.ok) throw new Error(`invite ${String(n)} answered ${String(invited.status)}`);
+    }
+  });
+}

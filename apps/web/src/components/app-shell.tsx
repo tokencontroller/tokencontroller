@@ -4,7 +4,8 @@ import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useState, type ReactNode } from "react";
 import type { Role } from "@/api/contract";
 import { api } from "@/api/endpoints";
-import { useAdmin, useMe, useSupport } from "@/lib/queries";
+import { additions, joinMenu, type MenuEntry } from "@/lib/additions";
+import { useAdmin, useFeedback, useMe, useSupport } from "@/lib/queries";
 import { FeedbackDialog } from "./feedback-panel";
 import { SupportDialog } from "./support-dialog";
 import { hasRole, roleLabel } from "@/lib/roles";
@@ -64,16 +65,27 @@ function Logo() {
   );
 }
 
-type Panel = "feedback" | "support";
+/** The open panel: feedback, support, or the dialog of a build's menu entry, by its label. */
+type Panel = "feedback" | "support" | `menu:${string}`;
+
+/** The menu entries of the build's additions (src/additions) this person may see. */
+function useAddedMenu(): MenuEntry[] {
+  const me = useMe();
+  return additions.useMenu().filter((entry) => hasRole(me.person, entry.role));
+}
 
 function Nav({ onNavigate, onPanel }: { onNavigate?: () => void; onPanel: (panel: Panel) => void }) {
   const me = useMe();
   const path = useRouterState({ select: (s) => s.location.pathname });
+  // Help is the last of the app's groups; it finds its own items.
+  const menu = joinMenu([...groups, { title: "Help", items: [] }], useAddedMenu());
   return (
     <nav aria-label="Main" className="flex flex-col gap-5">
-      {groups.map((group) => {
+      {menu.map((group) => {
+        const added = group.added.map((entry) => <AddedItem key={entry.label} entry={entry} path={path} onNavigate={onNavigate} onPanel={onPanel} />);
+        if (group.title === "Help") return <Help key="help" path={path} onNavigate={onNavigate} onPanel={onPanel} added={added} />;
         const items = group.items.filter((item) => hasRole(me.person, item.role));
-        if (!items.length) return null;
+        if (!items.length && !added.length) return null;
         return (
           <div key={group.title || "home"}>
             {group.title ? <div className="mb-1 px-2 text-xs font-medium text-muted">{group.title}</div> : null}
@@ -93,11 +105,11 @@ function Nav({ onNavigate, onPanel }: { onNavigate?: () => void; onPanel: (panel
                   </li>
                 );
               })}
+              {added}
             </ul>
           </div>
         );
       })}
-      <Help path={path} onNavigate={onNavigate} onPanel={onPanel} />
     </nav>
   );
 }
@@ -105,25 +117,58 @@ function Nav({ onNavigate, onPanel }: { onNavigate?: () => void; onPanel: (panel
 const itemClass = (active: boolean) =>
   `flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-sm ${active ? "bg-accent-tint font-medium text-ink" : "text-ink-soft hover:bg-sand hover:text-ink"}`;
 
-/** Feedback, support where it is on, and the admin area for operators. */
-function Help({ path, onNavigate, onPanel }: { path: string; onNavigate?: (() => void) | undefined; onPanel: (panel: Panel) => void }) {
+/** One of the build's menu entries: a page, or a button that opens its dialog. */
+function AddedItem({ entry, path, onNavigate, onPanel }: { entry: MenuEntry; path: string; onNavigate?: (() => void) | undefined; onPanel: (panel: Panel) => void }) {
+  if ("to" in entry) {
+    const active = path.startsWith(entry.to);
+    return (
+      <li>
+        <Link to={entry.to} onClick={onNavigate} aria-current={active ? "page" : undefined} className={itemClass(active)}>
+          {entry.label}
+        </Link>
+      </li>
+    );
+  }
+  return (
+    <li>
+      <button type="button" className={itemClass(false)} onClick={() => { onNavigate?.(); onPanel(`menu:${entry.label}`); }}>
+        {entry.label}
+      </button>
+    </li>
+  );
+}
+
+/**
+ * Feedback where the service has it, support where it is on, the admin area
+ * for operators, then the build's entries for Help. The group hides when none
+ * of them shows.
+ */
+function Help({ path, onNavigate, onPanel, added }: { path: string; onNavigate?: (() => void) | undefined; onPanel: (panel: Panel) => void; added: ReactNode[] }) {
   const admin = useAdmin();
   const support = useSupport();
+  const feedback = useFeedback();
   const waiting = admin.data ? admin.data.support_escalated + admin.data.feedback_received : 0;
+  // Shown while the list loads, as before; only a 404 hides it.
+  const hasFeedback = feedback.data !== null;
+  if (!hasFeedback && !support.data && !admin.data && !added.length) return null;
   return (
     <div>
       <div className="mb-1 px-2 text-xs font-medium text-muted">Help</div>
       <ul className="flex flex-col gap-px">
-        <li>
-          <button type="button" className={itemClass(false)} onClick={() => { onNavigate?.(); onPanel("feedback"); }}>
-            Send feedback
-          </button>
-        </li>
-        <li>
-          <Link to="/feedback" onClick={onNavigate} aria-current={path === "/feedback" ? "page" : undefined} className={itemClass(path === "/feedback")}>
-            Your feedback
-          </Link>
-        </li>
+        {hasFeedback ? (
+          <>
+            <li>
+              <button type="button" className={itemClass(false)} onClick={() => { onNavigate?.(); onPanel("feedback"); }}>
+                Send feedback
+              </button>
+            </li>
+            <li>
+              <Link to="/feedback" onClick={onNavigate} aria-current={path === "/feedback" ? "page" : undefined} className={itemClass(path === "/feedback")}>
+                Your feedback
+              </Link>
+            </li>
+          </>
+        ) : null}
         {support.data ? (
           <li>
             <button type="button" className={itemClass(false)} onClick={() => { onNavigate?.(); onPanel("support"); }}>
@@ -139,6 +184,7 @@ function Help({ path, onNavigate, onPanel }: { path: string; onNavigate?: (() =>
             </Link>
           </li>
         ) : null}
+        {added}
       </ul>
     </div>
   );
@@ -175,6 +221,7 @@ export function AppShell({ children }: { children: ReactNode }): ReactNode {
   // The panels live here, not in the menu: on a phone the menu closes first.
   const [panel, setPanel] = useState<Panel | null>(null);
   const support = useSupport();
+  const added = useAddedMenu();
   return (
     <div className="min-h-dvh lg:grid lg:grid-cols-[240px_minmax(0,1fr)]">
       <aside className="sticky top-0 hidden h-dvh flex-col gap-6 overflow-y-auto border-r border-line bg-sheet px-3 py-5 lg:flex">
@@ -216,6 +263,7 @@ export function AppShell({ children }: { children: ReactNode }): ReactNode {
       </main>
       <FeedbackDialog open={panel === "feedback"} onOpenChange={(o) => setPanel(o ? "feedback" : null)} />
       {support.data ? <SupportDialog answerTo={support.data.answer_to} open={panel === "support"} onOpenChange={(o) => setPanel(o ? "support" : null)} /> : null}
+      {added.map((entry) => ("Panel" in entry ? <entry.Panel key={entry.label} open={panel === `menu:${entry.label}`} onOpenChange={(o) => setPanel(o ? `menu:${entry.label}` : null)} /> : null))}
     </div>
   );
 }

@@ -1,12 +1,12 @@
-import { useQuery } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import type { FeedbackStatus, Report } from "@/api/contract";
-import { api } from "@/api/endpoints";
 import { FeedbackButton, kindText } from "@/components/feedback-panel";
 import { Badge } from "@/components/ui/badge";
 import { buttonClass } from "@/components/ui/button";
 import { Empty, ErrorBox, Loading, PageHeader } from "@/components/ui/display";
 import { formatDate } from "@/lib/format";
+import { useFeedback } from "@/lib/queries";
+import { NotFoundPage } from "@/routes/not-found";
 
 export function statusText(report: Pick<Report, "status" | "fixed_in">): string {
   const text: Record<FeedbackStatus, string> = { received: "received", answered: "answered", fixed: report.fixed_in ? `fixed in version ${report.fixed_in}` : "fixed" };
@@ -18,9 +18,13 @@ export function ReportStatusBadge({ report }: { report: Pick<Report, "status" | 
   return <Badge tone={tone}>{statusText(report)}</Badge>;
 }
 
-/** "My feedback": the reports a member sent and the answers. The service mails a link here. */
+/**
+ * "My feedback": the reports a member sent and the answers. The service mails
+ * a link here. Where the service has no feedback reports, the page is not there.
+ */
 export function FeedbackPage(): ReactNode {
-  const reports = useQuery({ queryKey: ["feedback"], queryFn: api.feedback });
+  const reports = useFeedback();
+  if (reports.data === null) return <NotFoundPage />;
   return (
     <>
       <PageHeader

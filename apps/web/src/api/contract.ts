@@ -105,6 +105,7 @@ export type Interval = Schemas["Interval"];
 export type InviteView = Schemas["InviteView"];
 export type Invited = Schemas["Invited"];
 export type NewMember = Schemas["NewMember"];
+export type MemberLimit = Schemas["MemberLimitView"];
 export type MemberChange = Schemas["MemberChange"];
 export type OrganizationChange = Schemas["OrganizationChange"];
 

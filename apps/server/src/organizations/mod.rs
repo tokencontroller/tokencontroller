@@ -27,7 +27,7 @@ use crate::error::ApiError;
 use crate::tags;
 
 pub use audit::record_audit_event;
-pub use members::{MemberStatus, MemberView, clean_name, filters_of};
+pub use members::{MemberLimitView, MemberStatus, MemberView, clean_name, filters_of};
 pub use provisioning::{add_member, member_by_email, only_organization, remove_member};
 pub use role::{Role, UnknownRole};
 pub use rules::{OrganizationRules, change_rule_tags, organization_rules, personal_rules};
@@ -45,6 +45,7 @@ pub fn routes() -> OpenApiRouter<AppState> {
             settings::update_organization
         ))
         .routes(routes!(members::list_members, members::invite_member))
+        .routes(routes!(members::get_member_limit))
         .routes(routes!(members::update_member, members::remove_member))
         .routes(routes!(members::set_filters))
         .routes(routes!(members::resend_invite))

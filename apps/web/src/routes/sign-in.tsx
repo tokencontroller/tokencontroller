@@ -7,6 +7,7 @@ import { api } from "@/api/endpoints";
 import { Button, buttonClass } from "@/components/ui/button";
 import { ErrorBox, Loading } from "@/components/ui/display";
 import { Field, FormError, Input, Select } from "@/components/ui/form";
+import { additions } from "@/lib/additions";
 import { costSourceOrder, costSourceText } from "@/lib/cost-source";
 import { rememberSignUp, type SignUpChoices } from "@/lib/remember";
 
@@ -175,8 +176,10 @@ export function SignUpPage(): ReactNode {
       await navigate({ to: "/sign-in", search: { sent: form.email.trim() } });
     },
   });
+  const { SignUpNote } = additions.parts;
   return (
     <Frame title="Create your organization" lead="Solo is free forever for one person. No card needed.">
+      {SignUpNote ? <SignUpNote /> : null}
       <form
         onSubmit={(e) => {
           e.preventDefault();

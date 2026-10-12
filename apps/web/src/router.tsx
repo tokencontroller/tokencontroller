@@ -2,6 +2,7 @@ import { createRootRoute, createRoute, createRouter, Outlet, redirect } from "@t
 import { ApiError } from "@/api/client";
 import { AppShell } from "@/components/app-shell";
 import { ErrorBox } from "@/components/ui/display";
+import { addedRoutes } from "@/lib/additions";
 import { meQuery, queryClient } from "@/lib/queries";
 import { rememberNext, takeNext } from "@/lib/remember";
 import { hasRole } from "@/lib/roles";
@@ -80,6 +81,9 @@ const appRoute = createRoute({
     </div>
   ),
 });
+
+/** The parent of every page for signed-in members, also those a build adds. */
+export type AppRoute = typeof appRoute;
 
 /** Keeps a page to the roles the docs give it. */
 function requireRole(role: Role): () => Promise<void> {
@@ -191,6 +195,8 @@ const routeTree = rootRoute.addChildren([
     adminCustomerRoute,
     adminQuestionsRoute,
     adminNewsletterRoute,
+    // The pages of the build's additions (src/additions); none in the open build.
+    ...addedRoutes({ app: appRoute, requireRole }),
   ]),
 ]);
 

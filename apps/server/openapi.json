@@ -2967,6 +2967,26 @@
         }
       }
     },
+    "/api/v1/organization/member-limit": {
+      "get": {
+        "tags": [
+          "members"
+        ],
+        "summary": "The organization's member count and member limit.",
+        "operationId": "get_member_limit",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemberLimitView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/organization/rules": {
       "get": {
         "tags": [
@@ -9268,6 +9288,31 @@
                 "type": "null"
               }
             ]
+          }
+        }
+      },
+      "MemberLimitView": {
+        "type": "object",
+        "description": "How many members the organization has and may have (docs: Plans and\nlimits).",
+        "required": [
+          "members",
+          "member_limit",
+          "message"
+        ],
+        "properties": {
+          "member_limit": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The most members the organization may have: the plan's, the Enterprise\nplan license's or the instance's."
+          },
+          "members": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Everyone invited or joined who has not left. Every member counts the\nsame, whatever their role."
+          },
+          "message": {
+            "type": "string",
+            "description": "What an invite past the limit is refused with, such as \"This instance\nallows no more members.\""
           }
         }
       },

@@ -239,7 +239,8 @@ pub async fn serve(extension: Arc<dyn Extension>) -> anyhow::Result<()> {
     let settings = Arc::new(Settings::from_env()?);
     let hooks = Arc::new(Hooks::new(Arc::clone(&settings)));
     crate::serve_with_additions(extension, hooks, move |app| async move {
-        let hosted = Hosted::new(app, settings);
+        // `app` has these hooks already; `Hosted::new` would add a second set.
+        let hosted = Hosted { app, settings };
         start(&hosted);
         Ok(crate::Additions {
             api: api_routes(hosted),

@@ -86,3 +86,19 @@ test("a member writes to support, and an operator answers what was escalated", a
   await expect(messages.getByText("Token Controller support")).toBeVisible();
   await expect(messages.getByText("waiting to be sent")).toBeVisible();
 });
+
+// An Enterprise plan instance has no feedback reports: the service answers
+// 404, so the feedback entries leave the menu, as support does.
+test("where the service has no feedback reports, the menu offers none", async ({ page }) => {
+  await signIn(page, "mara");
+  await expect((await mainMenu(page)).getByRole("link", { name: "Your feedback" })).toBeVisible();
+  await page.evaluate(() => fetch("/api/v1/__mock/edition", { method: "POST", body: JSON.stringify({ edition: "enterprise" }) }));
+  await page.reload();
+  const menu = await mainMenu(page);
+  await expect(menu.getByRole("link", { name: "Token entries" })).toBeVisible();
+  await expect(menu.getByRole("button", { name: "Send feedback" })).toHaveCount(0);
+  await expect(menu.getByRole("link", { name: "Your feedback" })).toHaveCount(0);
+  await expect(menu.getByText("Help", { exact: true })).toHaveCount(0);
+  await page.goto("/feedback");
+  await expect(page.getByRole("heading", { name: "This page does not exist" })).toBeVisible();
+});

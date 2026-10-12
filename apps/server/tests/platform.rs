@@ -1609,6 +1609,12 @@ async fn solo_is_one_person_until_the_team_plan_is_paid(pool: PgPool) {
         .unwrap();
     assert_eq!(billing.json["plan"], "solo");
     assert_eq!(billing.json["member_limit"], 1);
+    // The People page reads the same limit from the public answer.
+    let limit = member_limit_of(&app, auth).await.unwrap();
+    assert_eq!(
+        limit.json,
+        json!({"members": 1, "member_limit": 1, "message": "The Solo plan is for one person. Choose the Team plan under Billing to invite people."})
+    );
 
     let invite = json!({"email": "m.ortner@kestrel.example"});
     let refused = send(
@@ -1654,6 +1660,8 @@ async fn solo_is_one_person_until_the_team_plan_is_paid(pool: PgPool) {
     assert_eq!(billing.json["plan"], "team");
     assert_eq!(billing.json["interval"], "month");
     assert_eq!(billing.json["member_limit"], 150);
+    let limit = member_limit_of(&app, auth).await.unwrap();
+    assert_eq!(limit.json["member_limit"], 150);
     let invited = send(&app, Method::POST, "/api/v1/members", auth, Some(invite))
         .await
         .unwrap();
@@ -2497,6 +2505,94 @@ async fn a_hook_sets_the_member_limit(pool: PgPool) {
     .await
     .unwrap();
     assert_eq!(invited.status, StatusCode::CREATED, "{}", invited.text);
+}
+
+/// An Enterprise plan license for 250 members.
+struct Licensed;
+
+impl tokencontroller_core::Extension for Licensed {
+    fn member_limit(&self) -> Option<u32> {
+        Some(250)
+    }
+}
+
+async fn member_limit_of(app: &Router, auth: Auth<'_>) -> TestResult<Answer> {
+    send(
+        app,
+        Method::GET,
+        "/api/v1/organization/member-limit",
+        auth,
+        None,
+    )
+    .await
+}
+
+#[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
+async fn every_member_reads_the_member_limit(pool: PgPool) {
+    let (_, controller) = organization(&pool, "Kestrel Digital", "n.berger@kestrel.example")
+        .await
+        .unwrap();
+
+    // The open build: the instance's own limit, and what an invite past it
+    // is refused with.
+    let open = member_limit_of(&app(&pool), Auth::Cookie(&controller))
+        .await
+        .unwrap();
+    assert_eq!(open.status, StatusCode::OK, "{}", open.text);
+    assert_eq!(
+        open.json,
+        json!({"members": 1, "member_limit": 150, "message": "This instance allows no more members."})
+    );
+
+    // Invited people count before they join. An agent manager reads it, and
+    // so does a read token.
+    let invited = send(
+        &app(&pool),
+        Method::POST,
+        "/api/v1/members",
+        Auth::Cookie(&controller),
+        Some(json!({"email": "m.ortner@kestrel.example", "name": "Mara Ortner"})),
+    )
+    .await
+    .unwrap();
+    assert_eq!(invited.status, StatusCode::CREATED, "{}", invited.text);
+    let mara = Uuid::parse_str(invited.json["member"]["id"].as_str().unwrap()).unwrap();
+    let mara = session_for(&pool, mara, "browser").await.unwrap();
+    let agent_manager = member_limit_of(&app(&pool), Auth::Cookie(&mara))
+        .await
+        .unwrap();
+    assert_eq!(agent_manager.json["members"], 2);
+    let read = send(
+        &app(&pool),
+        Method::POST,
+        "/api/v1/api-tokens",
+        Auth::Cookie(&controller),
+        Some(json!({"kind": "read", "name": "Power BI"})),
+    )
+    .await
+    .unwrap();
+    let read = read.json["token"].as_str().unwrap();
+    let by_token = member_limit_of(&app(&pool), Auth::Bearer(read))
+        .await
+        .unwrap();
+    assert_eq!(by_token.json["members"], 2);
+    let signed_out = member_limit_of(&app(&pool), Auth::None).await.unwrap();
+    assert_eq!(signed_out.status, StatusCode::UNAUTHORIZED);
+
+    // An Enterprise plan license sets the limit, and a build's hook comes
+    // before it.
+    let licensed = router(AppState::new(pool.clone(), config(), Arc::new(Licensed)));
+    let licensed = member_limit_of(&licensed, Auth::Cookie(&controller))
+        .await
+        .unwrap();
+    assert_eq!(licensed.json["member_limit"], 250);
+    let hooked = member_limit_of(&hooked_app(&pool), Auth::Cookie(&controller))
+        .await
+        .unwrap();
+    assert_eq!(
+        hooked.json,
+        json!({"members": 2, "member_limit": 1, "message": "This plan is for one person."})
+    );
 }
 
 #[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]

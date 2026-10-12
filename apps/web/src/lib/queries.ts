@@ -62,6 +62,16 @@ export function useSupport() {
   return useQuery({ queryKey: ["support"], queryFn: () => unlessMissing(api.support), staleTime: 5 * 60_000 });
 }
 
+/** The member's own feedback reports, or null where the service has no feedback reports. */
+export function useFeedback() {
+  return useQuery({ queryKey: ["feedback"], queryFn: () => unlessMissing(api.feedback) });
+}
+
+/** How many members the organization has and may have, and what an invite past the limit gets. */
+export function useMemberLimit() {
+  return useQuery({ queryKey: ["member-limit"], queryFn: api.memberLimit });
+}
+
 export function usePeople() {
   return useQuery({ queryKey: ["members"], queryFn: api.members });
 }

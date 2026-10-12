@@ -1,0 +1,12 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "paths": {
+      "@/additions": ["./index.ts"],
+      "@/additions/*": ["./*"],
+      "@/*": ["../src/*"]
+    }
+  },
+  "include": ["../src", "."],
+  "exclude": ["../src/additions"]
+}
