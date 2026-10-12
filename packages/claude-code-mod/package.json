@@ -1,0 +1,22 @@
+{
+  "name": "@tokencontroller/claude-code-mod",
+  "version": "1.0.0",
+  "private": true,
+  "description": "The Claude Code mod: records what Claude Code spends, turn by turn, and shows where it went. Installed from this repo's plugin marketplace, not from npm.",
+  "license": "MIT",
+  "author": "Jan Beck",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "lint": "biome check .",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test 'hooks/**/*.spec.ts'"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.15",
+    "@types/node": "^22",
+    "typescript": "7.0.2"
+  }
+}

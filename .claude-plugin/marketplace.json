@@ -1,0 +1,18 @@
+{
+  "name": "tokencontroller",
+  "owner": { "name": "Jan Beck", "url": "https://www.linkedin.com/in/jancbeck/" },
+  "metadata": {
+    "description": "Token Controller's plugins for Claude Code: cost accounting and management control for AI agents."
+  },
+  "plugins": [
+    {
+      "name": "token-controller",
+      "source": "./packages/claude-code-mod",
+      "description": "Records what Claude Code spends, turn by turn, and shows where it went: on which ticket, and how much of it is on tickets at all.",
+      "version": "1.0.0",
+      "license": "MIT",
+      "homepage": "https://docs.tokencontroller.com/collect/claude-code",
+      "category": "productivity"
+    }
+  ]
+}
