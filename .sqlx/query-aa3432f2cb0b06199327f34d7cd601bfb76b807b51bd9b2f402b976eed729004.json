@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO support_messages (conversation_id, author, body, links, mail_message_id)\n         VALUES ($1, $2, $3, $4, $5)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text",
+        "TextArray",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "aa3432f2cb0b06199327f34d7cd601bfb76b807b51bd9b2f402b976eed729004"
+}

@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT EXISTS (SELECT 1 FROM support_messages WHERE mail_message_id = $1) AS \"seen!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "seen!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "fd7f59b9a4be5caa425ccbbd3dbdc6274beeec39d5fc65abcc3e75b6008d4971"
+}

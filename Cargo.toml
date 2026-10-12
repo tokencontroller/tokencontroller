@@ -12,17 +12,27 @@ publish = false
 tokencontroller-core = { path = "crates/core" }
 anyhow = "1.0.104"
 axum = "0.8.9"
+hex = "0.4.3"
+hmac = "0.13.0"
+lettre = { version = "0.11.23", default-features = false, features = ["builder", "hostname", "smtp-transport", "tokio1", "tokio1-rustls", "rustls-native-certs", "ring"] }
+mail-parser = "0.11.9"
+rand = "0.10.3"
+reqwest = { version = "0.13.5", default-features = false, features = ["json", "rustls-no-provider"] }
+rustls = { version = "0.23.45", default-features = false, features = ["ring", "std"] }
+sha2 = "0.11.0"
+wiremock = "0.6.5"
 proptest = "1.12.0"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 sqlx = { version = "0.9.0", default-features = false, features = ["runtime-tokio", "tls-rustls", "postgres", "macros", "migrate", "uuid", "time"] }
 thiserror = "2.0.21"
-tokio = { version = "1.53.2", features = ["macros", "rt-multi-thread", "net", "signal", "time"] }
+uuid = { version = "1.28.0", features = ["v4"] }
+tokio = { version = "1.53.2", features = ["macros", "rt-multi-thread", "net", "signal", "sync", "time"] }
 tower = "0.5.3"
-tower-http = { version = "0.7.1", features = ["trace"] }
+tower-http = { version = "0.7.1", features = ["cors", "trace"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
-utoipa = "6.0.0"
+utoipa = { version = "6.0.0", features = ["time", "uuid"] }
 utoipa-axum = "0.3.0"
 
 # The strict harness (ADR 0003). Owned by the maintainer: changing this block
