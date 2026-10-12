@@ -10,7 +10,9 @@ The hosted service runs its own support inbox, site assistant and newsletter in 
 - Support answers and notices go over SMTP like all service mail. The newsletter goes through the Resend API from its own subdomain, never over SMTP, so a complaint about it cannot block a sign-in link.
 - Confirm and unsubscribe links in mail point at website pages with one button, so mail scanners that open every link confirm and unsubscribe nobody. Mail clients unsubscribe in one click through `List-Unsubscribe-Post` (RFC 8058).
 - The background loop runs every minute, and at once when mail arrives, under one Postgres advisory lock, so with several replicas no mail goes out twice.
-- The same loop deletes site assistant questions and raw support mail after 90 days, and support conversations two years after their last message, so the privacy policy's periods hold without anyone doing it by hand.
+- The same loop deletes site assistant questions, raw support mail and feedback screenshots after 90 days, support conversations two years after their last message, and feedback reports two years after their last change, so the privacy policy's periods hold without anyone doing it by hand.
+- Feedback reports from the web app's feedback button live in the same module and are always on. They go to the operators, or to the organization's controllers on an instance without operators. Diagnostics take only the fields the Security page lists; a report with any other field is refused.
+- The admin area (support, site assistant questions, newsletter issues, feedback reports, one record per organization) answers 404 to everyone but the operators, so it does not show that it exists.
 
 ## Why
 
