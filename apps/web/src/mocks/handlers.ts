@@ -23,6 +23,7 @@ import type {
 } from "@/api/contract";
 import { parseCsv } from "@/lib/csv";
 import { filterFromText } from "@/lib/format";
+import { enterpriseHandlers, mockEdition } from "./enterprise";
 import { customerRelationsHandlers } from "./customer-relations";
 import { createDb, defaultRules, TODAY, type Db, type EntryRecord } from "./seed";
 import {
@@ -391,7 +392,7 @@ export const handlers = [
     if (!person) return error(404, "not_found", "This invite link does not work any more. Ask for a new one.");
     return HttpResponse.json({ email: person.email, organization_name: db.organization.name });
   }),
-  http.get(`${API}/health`, () => HttpResponse.json({ status: "ok", database: "ok", version: "1.0.0", edition: "open" })),
+  http.get(`${API}/health`, () => HttpResponse.json({ status: "ok", database: "ok", version: "1.0.0", edition: mockEdition() })),
   // Connecting a computer: in the mocks every well-formed code is waiting.
   http.get(`${API}/__mock/last-link`, () => HttpResponse.json(load().pendingLink)),
   http.post(`${API}/__mock/reset`, () => {
@@ -410,7 +411,7 @@ export const handlers = [
     }
     return HttpResponse.json(db.organization);
   }, CONTROLLER)),
-  http.get(`${API}/billing`, member(({ db }) => (db.billing.enabled ? HttpResponse.json(billing(db)) : error(404, "not_found", "Billing is off on this instance.")))),
+  http.get(`${API}/billing`, member(({ db }) => (db.billing.enabled && mockEdition() === "open" ? HttpResponse.json(billing(db)) : error(404, "not_found", "Billing is off on this instance.")))),
   http.post(`${API}/billing/checkout`, member(async ({ db, request }) => {
     if (!db.billing.enabled) return error(404, "not_found", "Billing is off on this instance.");
     if (db.billing.plan === "team") return error(409, "conflict", "This organization is on the Team plan already.");
@@ -898,11 +899,12 @@ export const handlers = [
     system.last_sync_at = `${TODAY}T17:05:00Z`;
     return HttpResponse.json(system, { status: 202 });
   }, CONTROLLER)),
-  http.get(`${API}/export/raw`, member(({ db }) => {
+  http.get(`${API}/exports/raw`, member(({ db }) => {
     const files = { "organization.json": db.organization, "people.json": db.people, "token_entries.json": db.entries, "bills.json": db.bills, "rules.json": db.rules, "tickets.json": db.tickets, "periods.json": db.periods, "tags.json": { names: db.tagNames, map: db.tagMap } };
     return new HttpResponse(JSON.stringify(files, null, 2), { headers: { "content-type": "application/json" } });
   }, CONTROLLER)),
   ...customerRelationsHandlers({ API, member, fail: error, now }),
+  ...enterpriseHandlers({ API, member, fail: error, now }),
 ];
 
 /** Money helper for tests. */

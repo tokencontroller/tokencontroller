@@ -55,6 +55,16 @@ export function parseAmount(text: string, currency: string): Money | null {
   return money(sign === "-" ? -nanos : nanos, currency);
 }
 
+/**
+ * A decimal string from the service, such as `-41.87` or `1500.00`, as money.
+ * The service sends amounts as decimal strings with their currency beside them.
+ */
+export function fromDecimal(decimal: string, currency: string): Money {
+  const value = parseAmount(decimal, currency);
+  if (!value) throw new Error(`The service sent ${JSON.stringify(decimal)} as an amount.`);
+  return value;
+}
+
 const formatters = new Map<string, Intl.NumberFormat>();
 
 export function formatMoney(amount: Money, options: { signed?: boolean } = {}): string {

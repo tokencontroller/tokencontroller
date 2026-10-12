@@ -4,7 +4,7 @@ import { useState, type ReactNode, type SubmitEvent } from "react";
 import type { CostSource } from "@/api/contract";
 import { API_PREFIX, call } from "@/api/client";
 import { api } from "@/api/endpoints";
-import { Button } from "@/components/ui/button";
+import { Button, buttonClass } from "@/components/ui/button";
 import { ErrorBox, Loading } from "@/components/ui/display";
 import { Field, FormError, Input, Select } from "@/components/ui/form";
 import { costSourceOrder, costSourceText } from "@/lib/cost-source";
@@ -69,6 +69,26 @@ function CheckYourEmail({ email }: { email: string }) {
   );
 }
 
+/**
+ * Other ways to sign in, such as the Enterprise plan's identity provider.
+ * The open edition has none. Each button is a plain link: the service takes
+ * it from there and comes back to the start page.
+ */
+function Providers() {
+  const providers = useQuery({ queryKey: ["sign-in-providers"], queryFn: api.signInProviders, staleTime: Infinity, retry: false });
+  if (!providers.data?.length) return null;
+  return (
+    <div className="mt-4 space-y-2">
+      <p className="text-center text-xs text-muted">or</p>
+      {providers.data.map((p) => (
+        <a key={p.id} href={p.url} className={buttonClass("secondary", "md", "w-full")}>
+          {p.label}
+        </a>
+      ))}
+    </div>
+  );
+}
+
 export function SignInPage(): ReactNode {
   const { sent } = signInRoute.useSearch();
   const navigate = useNavigate();
@@ -93,6 +113,7 @@ export function SignInPage(): ReactNode {
           Email me a link
         </Button>
       </form>
+      <Providers />
       <p className="mt-5 text-center text-sm text-muted">
         New to Token Controller?{" "}
         <Link to="/signup" className="font-medium text-accent hover:underline">
