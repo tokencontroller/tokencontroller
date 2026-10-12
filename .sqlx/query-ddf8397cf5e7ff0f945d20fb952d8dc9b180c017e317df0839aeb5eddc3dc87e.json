@@ -1,0 +1,42 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, status FROM token_entries\n           WHERE organization_id = $1\n             AND (($2::text IS NOT NULL AND session_id = $2) OR ($3::text IS NOT NULL AND local_id = $3))\n           ORDER BY (session_id IS NOT DISTINCT FROM $2) DESC\n           LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "token_entries",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "status",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "token_entries",
+            "name": "status"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "ddf8397cf5e7ff0f945d20fb952d8dc9b180c017e317df0839aeb5eddc3dc87e"
+}

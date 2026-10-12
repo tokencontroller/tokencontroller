@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM messages WHERE organization_id = $1 AND session_id = $2 AND kind = 'stand_in'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "094c324033b49c5b798d0460a396d83a53e5866d3e1e959e0535b26a5929e842"
+}

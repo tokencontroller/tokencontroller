@@ -2292,6 +2292,30 @@ async fn merging_tag_values_reaches_every_record_and_rule(pool: PgPool) {
     )
     .await;
     assert_eq!(filters.status, StatusCode::OK, "{}", filters.text);
+    // A token entry that carries the drifted value.
+    let split: Uuid = sqlx::query_scalar(
+        "WITH entry AS (
+             INSERT INTO token_entries (organization_id, agent_harness, model, provider, started_at,
+                                        ended_at, status, on_token_sheet, door)
+             VALUES ($1, 'claude_code', 'claude-sonnet', 'anthropic', now(), now(), 'submitted',
+                     false, 'endpoint')
+             RETURNING id)
+         INSERT INTO splits (token_entry_id, position, method, placed_by)
+         SELECT id, 0, 'whole', 'by hand' FROM entry RETURNING id",
+    )
+    .bind(ids::ORGANIZATION)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO split_tags (split_id, organization_id, name, value, source)
+         VALUES ($1, $2, 'client', 'Acme Corp', 'sent')",
+    )
+    .bind(split)
+    .bind(ids::ORGANIZATION)
+    .execute(&pool)
+    .await
+    .unwrap();
 
     let merge = |name: &str, body: Value, auth: &str| {
         call(
@@ -2331,6 +2355,13 @@ async fn merging_tag_values_reaches_every_record_and_rule(pool: PgPool) {
         .collect();
     assert!(values.contains(&"acme"));
     assert!(!values.contains(&"Acme Corp"));
+    let entry_client: String =
+        sqlx::query_scalar("SELECT value FROM split_tags WHERE split_id = $1 AND name = 'client'")
+            .bind(split)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(entry_client, "acme");
 
     let me = call(Method::GET, "/api/v1/me/rules".to_owned(), &mara, None).await;
     assert_eq!(me.status, StatusCode::OK, "{}", me.text);

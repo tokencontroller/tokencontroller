@@ -1,0 +1,11 @@
+Your token sheet is late
+
+Your token sheet for {{period}} is not submitted yet. It holds {{token_entries}} token entries waiting for your review.
+
+Review them and submit while you still remember what the work was for:
+
+{{token_sheet_url}}
+
+Nothing is blocked and nothing is capped. This is the only reminder for this token sheet.
+
+Token Controller · {{host}}

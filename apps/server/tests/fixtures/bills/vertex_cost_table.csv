@@ -1,0 +1,16 @@
+Billing account name,Example Billing Account
+Billing account ID,01A2B3-C4D5E6-F7A8B9
+Invoice number,5012345678
+Invoice date,2026-10-02
+Currency,EUR
+Total amount due,112.60
+
+Billing account name,Billing account ID,Project name,Project ID,Service description,Service ID,SKU description,SKU ID,Credit type,Cost type,Usage start date,Usage end date,Usage amount,Usage unit,Unrounded cost,Cost
+Example Billing Account,01A2B3-C4D5E6-F7A8B9,Storefront,storefront-prod,Vertex AI,C7E2-9256-1C43,"Gemini 2.5 Pro Input Text Tokens, Global",F0D5-8B2A-11C7,,Usage,2026-09-01,2026-09-30,16098765,count,20.123456,20.12
+Example Billing Account,01A2B3-C4D5E6-F7A8B9,Storefront,storefront-prod,Vertex AI,C7E2-9256-1C43,Claude Sonnet 4.5 Output Tokens,A1B2-C3D4-E5F6,,Usage,2026-09-01,2026-09-30,2125000,count,31.876544,31.88
+Example Billing Account,01A2B3-C4D5E6-F7A8B9,Research,research-dev,Vertex AI,C7E2-9256-1C43,Claude Sonnet 4.5 Input Tokens,B2C3-D4E5-F6A7,,Usage,2026-09-02,2026-09-29,8000000,count,24.00,24.00
+Example Billing Account,01A2B3-C4D5E6-F7A8B9,Storefront,storefront-prod,Vertex AI,C7E2-9256-1C43,"Gemini 2.5 Pro Input Text Tokens, Global",F0D5-8B2A-11C7,Promotion,Usage,2026-09-01,2026-09-30,0,count,-5.00,-5.00
+Example Billing Account,01A2B3-C4D5E6-F7A8B9,Storefront,storefront-prod,Vertex AI,C7E2-9256-1C43,Claude Sonnet 4.5 Output Tokens,A1B2-C3D4-E5F6,Committed use discount,Usage,2026-09-01,2026-09-30,0,count,-1.50,-1.50
+Example Billing Account,01A2B3-C4D5E6-F7A8B9,Storefront,storefront-prod,Compute Engine,6F81-5844-456A,E2 Instance Core running in Frankfurt,9876-5432-10AB,,Usage,2026-09-01,2026-09-30,720,hour,30.10,30.10
+Example Billing Account,01A2B3-C4D5E6-F7A8B9,,,,,,,,Tax,,,,,12.00,12.00
+Example Billing Account,01A2B3-C4D5E6-F7A8B9,,,,,,,,Total,,,,,111.60,111.60

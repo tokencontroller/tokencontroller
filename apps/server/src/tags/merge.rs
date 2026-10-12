@@ -1,7 +1,6 @@
 //! Merging tag values (docs: Account > Tags): hand-typed values drift, so
 //! `Acme` and `acme-corp` become `acme` on every record that carries them.
-//! The token entries of open periods carry tags too; the area that stores
-//! them renames their values in [`rename_values`] as well.
+//! That includes the tags of token entries; closed periods never change.
 
 use axum::Json;
 use axum::extract::{Path, State};
@@ -102,7 +101,7 @@ pub(super) async fn merge_values(
 }
 
 /// Renames the values `from` of the tag name `name` to `into` on people,
-/// projects, tickets and people managers' filters.
+/// projects, tickets, people managers' filters and token entries.
 async fn rename_values(
     conn: &mut PgConnection,
     organization_id: Uuid,
@@ -161,6 +160,18 @@ async fn rename_values(
     sqlx::query!(
         r#"UPDATE people_manager_filters SET filter = jsonb_set(filter, ARRAY[$2], to_jsonb($3::text))
            WHERE organization_id = $1 AND filter ->> $2 = ANY($4)"#,
+        organization_id,
+        name,
+        into,
+        from
+    )
+    .execute(&mut *conn)
+    .await?;
+    // The tags of token entries (the ingest area's table). Closing a period
+    // will lock its token entries; until the close area stores closed
+    // periods, every period is open.
+    sqlx::query!(
+        "UPDATE split_tags SET value = $3 WHERE organization_id = $1 AND name = $2 AND value = ANY($4)",
         organization_id,
         name,
         into,

@@ -1,0 +1,122 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT m.organization_id, m.session_id, m.message_id, m.model, m.token_entry_id AS \"token_entry_id!\",\n                  m.input_tokens, m.output_tokens, m.cache_write_tokens, m.cache_read_tokens\n           FROM messages m JOIN token_entries e ON e.id = m.token_entry_id\n           WHERE m.list_value_nanos IS NULL AND m.reported_cost_nanos IS NULL\n             AND e.status <> 'locked'\n           ORDER BY m.organization_id, m.token_entry_id\n           LIMIT 100000",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "organization_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "messages",
+            "name": "organization_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "session_id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "messages",
+            "name": "session_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "message_id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "messages",
+            "name": "message_id"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "model",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "messages",
+            "name": "model"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "token_entry_id!",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "messages",
+            "name": "token_entry_id"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "input_tokens",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "messages",
+            "name": "input_tokens"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "output_tokens",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "messages",
+            "name": "output_tokens"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "cache_write_tokens",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "messages",
+            "name": "cache_write_tokens"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "cache_read_tokens",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "messages",
+            "name": "cache_read_tokens"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "d95cef5544f87275db61633115abc14a89194977a026b68c71af91fdb618a951"
+}
