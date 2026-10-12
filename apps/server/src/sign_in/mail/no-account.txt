@@ -1,0 +1,9 @@
+No account for this address
+
+Someone asked to sign in to Token Controller as {{email}}, but no organization has this address as a member. Ask your controller for an invite, or create your own organization:
+
+{{sign_up_url}}
+
+If you did not ask to sign in, ignore this email.
+
+Token Controller · {{host}}

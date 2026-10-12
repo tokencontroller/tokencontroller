@@ -10,21 +10,24 @@ publish = false
 
 [workspace.dependencies]
 tokencontroller-core = { path = "crates/core" }
+base64 = "0.22.1"
+getrandom = "0.4.3"
 anyhow = "1.0.104"
 axum = "0.8.9"
 hex = "0.4.3"
 hmac = "0.13.0"
 lettre = { version = "0.11.23", default-features = false, features = ["builder", "hostname", "smtp-transport", "tokio1", "tokio1-rustls", "rustls-native-certs", "ring"] }
 mail-parser = "0.11.9"
-reqwest = { version = "0.13.5", default-features = false, features = ["json", "rustls-no-provider"] }
+regex = "1.12.2"
+reqwest = { version = "0.13.5", default-features = false, features = ["json", "form", "query", "rustls-no-provider"] }
 rustls = { version = "0.23.45", default-features = false, features = ["ring", "std"] }
 sha2 = "0.11.0"
 proptest = "1.12.0"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
-sqlx = { version = "0.9.0", default-features = false, features = ["runtime-tokio", "tls-rustls", "postgres", "macros", "migrate", "uuid", "time"] }
+sqlx = { version = "0.9.0", default-features = false, features = ["runtime-tokio", "tls-rustls", "postgres", "macros", "migrate", "uuid", "time", "json"] }
 thiserror = "2.0.21"
-time = { version = "0.3.55", features = ["serde-well-known"] }
+time = { version = "0.3.55", features = ["serde", "serde-well-known", "formatting", "parsing", "macros"] }
 tokio = { version = "1.53.2", features = ["macros", "rt-multi-thread", "net", "signal", "sync", "time"] }
 tower = "0.5.3"
 tower-http = { version = "0.7.1", features = ["trace"] }
@@ -32,7 +35,7 @@ tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
 utoipa = { version = "6.0.0", features = ["time", "uuid"] }
 utoipa-axum = "0.3.0"
-uuid = { version = "1.28.0", features = ["v4"] }
+uuid = { version = "1.28.0", features = ["serde", "v4"] }
 wiremock = "0.6.5"
 
 # The strict harness (ADR 0003). Owned by the maintainer: changing this block

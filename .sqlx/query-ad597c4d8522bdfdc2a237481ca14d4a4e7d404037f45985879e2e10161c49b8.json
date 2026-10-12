@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE people SET joined_at = coalesce(joined_at, now()) WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ad597c4d8522bdfdc2a237481ca14d4a4e7d404037f45985879e2e10161c49b8"
+}

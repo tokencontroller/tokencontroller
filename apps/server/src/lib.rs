@@ -10,8 +10,10 @@
 //! See the layout table in the repository README for who owns which.
 
 pub mod api;
+pub mod change;
 pub mod config;
 pub mod error;
+pub mod mail;
 pub mod state;
 
 pub mod billing;
@@ -124,6 +126,22 @@ pub async fn seed() -> anyhow::Result<()> {
     seed::load(&db).await?;
     db.close().await;
     Ok(())
+}
+
+/// A sign-in link for a member, for instances without a mail server and for
+/// screenshots on staging. Needs the same settings as the service.
+///
+/// # Errors
+///
+/// Fails if the configuration is incomplete, Postgres cannot be reached, or
+/// the address belongs to no member.
+pub async fn sign_in_link(email: &str) -> anyhow::Result<String> {
+    init_tracing();
+    let config = Config::from_env()?;
+    let db = connect_and_migrate(&config.database_url).await?;
+    let link = sign_in::link_for_member(&db, &config, email).await?;
+    db.close().await;
+    Ok(link)
 }
 
 async fn connect_and_migrate(database_url: &str) -> anyhow::Result<PgPool> {

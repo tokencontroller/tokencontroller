@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE sign_in_links SET used_at = now(), person_id = $2 WHERE token_hash = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Bytea",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "748fad6163ec41d1ac3d66d4c1c2aa170e90ec311a924db036a0d859f3a2f9f1"
+}

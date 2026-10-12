@@ -16,6 +16,7 @@ use utoipa::OpenApi;
 use utoipa_axum::router::OpenApiRouter;
 
 use crate::AppState;
+use crate::sign_in::SecuritySchemes;
 
 /// The path every API endpoint sits under.
 pub const API_PREFIX: &str = "/api/v1";
@@ -27,7 +28,8 @@ pub const API_PREFIX: &str = "/api/v1";
         description = "The versioned REST API of Token Controller. Everything the web app does goes through it. See docs.tokencontroller.com/reference/api.",
         license(name = "AGPL-3.0-only", identifier = "AGPL-3.0-only"),
     ),
-    components(schemas(crate::error::ErrorBody))
+    components(schemas(crate::error::ErrorBody)),
+    modifiers(&SecuritySchemes)
 )]
 struct ApiDoc;
 
