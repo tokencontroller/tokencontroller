@@ -4,7 +4,7 @@
 //!
 //! The status endpoint turns signals into component states: sign-in mail
 //! from `mail_deliveries`, and background jobs from the job runner's
-//! heartbeats (the jobs area, ADR 0002) through [`job_state`]. It shows
+//! heartbeats in `job_runs` (the jobs area, ADR 0002) through [`job_state`]. It shows
 //! states and times only, never customer data, because it is public.
 //!
 //! Owner: the service platform. The status signals (token entries arriving,
@@ -161,7 +161,7 @@ async fn status(State(state): State<AppState>) -> (StatusCode, Json<ServiceStatu
         state: PartState::Operational,
         last_success_at: None,
     }];
-    components.extend(job_components());
+    components.extend(job_components(&state).await);
     let mail = sqlx::query!(
         r#"SELECT count(*) AS "total!", count(*) FILTER (WHERE NOT sent) AS "failed!"
            FROM mail_deliveries
@@ -195,15 +195,56 @@ async fn status(State(state): State<AppState>) -> (StatusCode, Json<ServiceStatu
     )
 }
 
-/// The background jobs, until the job runner runs them here: each shows
-/// as not running. Once it does, each component takes [`job_state`] of the
-/// job's heartbeat.
-fn job_components() -> impl Iterator<Item = Component> {
-    JOBS.into_iter().map(|id| Component {
+/// The background jobs, each from its heartbeat in the job runner's
+/// `job_runs` table through [`job_state`]. A job this instance does not run,
+/// such as the price refresh with `TC_PRICES_REFRESH=off`, shows as not
+/// running.
+async fn job_components(state: &AppState) -> Vec<Component> {
+    let jobs = crate::jobs::standard(&state.config);
+    let now = OffsetDateTime::now_utc();
+    match crate::jobs::runs(&state.db).await {
+        Ok(runs) => JOBS
+            .into_iter()
+            .map(|id| {
+                let every = jobs.iter().find(|job| job.name == id).map(|job| job.every);
+                job_component(id, every, runs.iter().find(|run| run.job == id), now)
+            })
+            .collect(),
+        Err(error) => {
+            tracing::warn!("could not read the job heartbeats: {error}");
+            JOBS.into_iter()
+                .map(|id| Component {
+                    id,
+                    state: PartState::Degraded,
+                    last_success_at: None,
+                })
+                .collect()
+        }
+    }
+}
+
+/// One job's component: `every` is how often this instance runs it, or
+/// `None` when it does not.
+fn job_component(
+    id: &'static str,
+    every: Option<Duration>,
+    run: Option<&crate::jobs::JobRun>,
+    now: OffsetDateTime,
+) -> Component {
+    let last_success_at = run.and_then(|run| run.last_succeeded_at);
+    let state = every.map_or(PartState::NotRunning, |every| {
+        job_state(
+            now,
+            last_success_at,
+            run.map_or(0, |run| run.failures_in_a_row),
+            every,
+        )
+    });
+    Component {
         id,
-        state: PartState::NotRunning,
-        last_success_at: None,
-    })
+        state,
+        last_success_at,
+    }
 }
 
 /// The state of a background job from its heartbeat: `every` is how often
@@ -292,12 +333,26 @@ mod tests {
 
     #[test]
     fn jobs_show_as_not_running_until_the_runner_runs_them() {
-        let jobs: Vec<Component> = job_components().collect();
-        assert_eq!(
-            jobs.iter().map(|job| job.id).collect::<Vec<_>>(),
-            JOBS.to_vec()
-        );
-        assert!(jobs.iter().all(|job| job.state == PartState::NotRunning));
+        let now = OffsetDateTime::now_utc();
+        let hour = Duration::from_hours(1);
+        let never = job_component("ticket-sync", Some(hour), None, now);
+        assert_eq!(never.state, PartState::NotRunning);
+        assert_eq!(never.last_success_at, None);
+        let ran = crate::jobs::JobRun {
+            job: "ticket-sync".to_owned(),
+            last_started_at: Some(now),
+            last_finished_at: Some(now),
+            last_succeeded_at: Some(now),
+            last_error: None,
+            runs: 1,
+            failures_in_a_row: 0,
+        };
+        let on_time = job_component("ticket-sync", Some(hour), Some(&ran), now);
+        assert_eq!(on_time.state, PartState::Operational);
+        assert_eq!(on_time.last_success_at, Some(now));
+        // Switched off on this instance: not running, whatever ran before.
+        let off = job_component("price-tables", None, Some(&ran), now);
+        assert_eq!(off.state, PartState::NotRunning);
     }
 
     #[test]

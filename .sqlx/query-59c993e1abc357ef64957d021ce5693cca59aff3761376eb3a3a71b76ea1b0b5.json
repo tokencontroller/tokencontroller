@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM ticket_system_projects\n         WHERE ticket_system_id = $1 AND NOT (external_project = ANY($2))",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "TextArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "59c993e1abc357ef64957d021ce5693cca59aff3761376eb3a3a71b76ea1b0b5"
+}

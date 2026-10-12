@@ -1,0 +1,52 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT external_project, project_id, synced_until FROM ticket_system_projects\n         WHERE ticket_system_id = $1 ORDER BY external_project",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "external_project",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "ticket_system_projects",
+            "name": "external_project"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "project_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "ticket_system_projects",
+            "name": "project_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "synced_until",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "ticket_system_projects",
+            "name": "synced_until"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "13ade0f4fd225baae2b0926353a54b22cfd468740e9b2a4af5ddd719be649888"
+}

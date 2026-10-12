@@ -24,7 +24,8 @@ use time::OffsetDateTime;
 use utoipa::ToSchema;
 use utoipa_axum::router::OpenApiRouter;
 
-use crate::AppState;
+use crate::integrations::{prices, ticket_systems};
+use crate::{AppState, Config};
 
 /// This area's routes, relative to `/api/v1`.
 #[must_use]
@@ -128,6 +129,30 @@ pub async fn request_now(db: &PgPool, job: &str) -> Result<(), sqlx::Error> {
     .execute(db)
     .await?;
     Ok(())
+}
+
+/// The jobs this instance runs, by the names status.tokencontroller.com
+/// shows: `ticket-sync`, and `price-tables` unless `TC_PRICES_REFRESH` is
+/// `off`.
+#[must_use]
+pub fn standard(config: &Config) -> Vec<Job> {
+    let mut jobs = vec![Job::new(
+        ticket_systems::JOB,
+        ticket_systems::JOB_EVERY,
+        ticket_systems::sync_due,
+    )];
+    if config.prices_refresh {
+        jobs.push(Job::new(prices::JOB, prices::JOB_EVERY, prices::run_job));
+    }
+    jobs
+}
+
+/// Runs the [`standard`] jobs in the background for as long as the service
+/// runs. Every replica does; the advisory locks keep each run to one.
+pub fn start(state: AppState) {
+    let jobs = standard(&state.config);
+    // Dropping the handle leaves the task running.
+    drop(spawn(state, jobs));
 }
 
 /// The advisory lock key for a job: the first eight bytes of the SHA-256 of

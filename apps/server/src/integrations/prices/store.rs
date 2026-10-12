@@ -1,12 +1,21 @@
 //! Price table versions in the database, and the daily refresh.
 
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
+use anyhow::Context as _;
 use sqlx::PgPool;
 use time::OffsetDateTime;
 
-use super::{ModelPrice, fetch, list_value, lookup, table_digest};
+use super::{LITELLM_URL, MODELS_DEV_URL, ModelPrice, fetch, list_value, lookup, table_digest};
+use crate::AppState;
 use crate::ingest::store::Pricing;
+
+/// The job that refreshes the price table.
+pub const JOB: &str = "price-tables";
+
+/// Prices refresh daily (docs: Reference > Price tables).
+pub const JOB_EVERY: Duration = Duration::from_hours(24);
 
 /// One stored version of the price table.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -166,4 +175,14 @@ pub async fn refresh(
     } else {
         Ok(format!("{note}; could not read: {}", failed.join("; ")))
     }
+}
+
+/// The `price-tables` job: [`refresh`] from `LiteLLM` and models.dev.
+///
+/// # Errors
+///
+/// As [`refresh`].
+pub async fn run_job(state: AppState) -> anyhow::Result<String> {
+    let client = crate::integrations::http::client().context("could not build the HTTP client")?;
+    refresh(&state.db, &client, LITELLM_URL, MODELS_DEV_URL).await
 }

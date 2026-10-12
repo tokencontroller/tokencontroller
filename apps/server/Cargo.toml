@@ -30,6 +30,7 @@ lettre.workspace = true
 mail-parser.workspace = true
 opentelemetry-proto.workspace = true
 prost.workspace = true
+regex.workspace = true
 reqwest.workspace = true
 rust_decimal.workspace = true
 rustls.workspace = true
