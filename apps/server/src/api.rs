@@ -11,6 +11,7 @@ use std::sync::Arc;
 use anyhow::Context as _;
 use axum::routing::get;
 use axum::{Json, Router};
+use tower_http::request_id::{MakeRequestUuid, PropagateRequestIdLayer, SetRequestIdLayer};
 use tower_http::trace::TraceLayer;
 use utoipa::OpenApi;
 use utoipa_axum::router::OpenApiRouter;
@@ -70,8 +71,27 @@ pub fn router(state: AppState) -> Router {
                 async move { Json(openapi) }
             }),
         )
-        .layer(TraceLayer::new_for_http())
+        .layer(PropagateRequestIdLayer::x_request_id())
+        .layer(TraceLayer::new_for_http().make_span_with(request_span))
+        .layer(SetRequestIdLayer::x_request_id(MakeRequestUuid))
         .with_state(state)
+}
+
+/// One log span per request, with its `x-request-id`, which the web app's
+/// feedback reports carry (docs: Security and privacy). The path goes
+/// without its query, which can hold a sign-in token.
+fn request_span<B>(request: &axum::http::Request<B>) -> tracing::Span {
+    let id = request
+        .headers()
+        .get("x-request-id")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default();
+    tracing::info_span!(
+        "request",
+        method = %request.method(),
+        path = request.uri().path(),
+        request_id = id
+    )
 }
 
 /// The OpenAPI document as pretty JSON, as served at

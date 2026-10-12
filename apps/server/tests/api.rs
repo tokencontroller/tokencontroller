@@ -95,3 +95,44 @@ async fn seed_data_loads_twice_without_error(pool: PgPool) {
     tokencontroller_server::seed::load(&pool).await.unwrap();
     tokencontroller_server::seed::load(&pool).await.unwrap();
 }
+
+#[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
+async fn the_web_app_sits_behind_the_whole_api(pool: PgPool) {
+    let dir = std::env::temp_dir().join(format!("tc-web-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("index.html"),
+        "<!doctype html><title>Token Controller</title>",
+    )
+    .unwrap();
+    let app = tokencontroller_server::web::with_web_app(
+        router(AppState::new(pool, test_config(), Arc::new(NoExtension))),
+        &dir,
+    );
+    let send = |path: &str| {
+        let request = Request::get(path).body(Body::empty()).unwrap();
+        app.clone().oneshot(request)
+    };
+
+    let health = send("/api/v1/health").await.unwrap();
+    assert_eq!(health.status(), StatusCode::OK);
+    // Every answer carries the request id that feedback reports quote.
+    let id = health
+        .headers()
+        .get("x-request-id")
+        .unwrap()
+        .to_str()
+        .unwrap();
+    assert!(uuid::Uuid::parse_str(id).is_ok(), "{id}");
+
+    let page = send("/close/2026-09").await.unwrap();
+    assert_eq!(page.status(), StatusCode::OK);
+    let body = page.into_body().collect().await.unwrap().to_bytes();
+    assert!(String::from_utf8_lossy(&body).contains("<title>Token Controller</title>"));
+
+    let missing = send("/api/v1/nothing-here").await.unwrap();
+    assert_eq!(missing.status(), StatusCode::NOT_FOUND);
+    let body = missing.into_body().collect().await.unwrap().to_bytes();
+    let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(body["error"], "not_found");
+}
