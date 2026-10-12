@@ -480,8 +480,14 @@ async fn upsert_entry_message(
              from_entry = true,
              counts = true,
              request_id = COALESCE(messages.request_id, EXCLUDED.request_id),
-             reported_cost_nanos = COALESCE(messages.reported_cost_nanos, EXCLUDED.reported_cost_nanos),
-             list_value_nanos = COALESCE(messages.list_value_nanos, EXCLUDED.list_value_nanos),
+             reported_cost_nanos = CASE WHEN messages.from_telemetry
+                 THEN COALESCE(messages.reported_cost_nanos, EXCLUDED.reported_cost_nanos)
+                 ELSE EXCLUDED.reported_cost_nanos END,
+             list_value_nanos = CASE WHEN messages.from_telemetry
+                 THEN COALESCE(messages.list_value_nanos, EXCLUDED.list_value_nanos)
+                 ELSE EXCLUDED.list_value_nanos END,
+             model = CASE WHEN messages.from_telemetry THEN messages.model ELSE EXCLUDED.model END,
+             occurred_at = CASE WHEN messages.from_telemetry THEN messages.occurred_at ELSE EXCLUDED.occurred_at END,
              split_position = EXCLUDED.split_position,
              input_tokens = CASE WHEN messages.from_telemetry THEN messages.input_tokens ELSE EXCLUDED.input_tokens END,
              output_tokens = CASE WHEN messages.from_telemetry THEN messages.output_tokens ELSE EXCLUDED.output_tokens END,
