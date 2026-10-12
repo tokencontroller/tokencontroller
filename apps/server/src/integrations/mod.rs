@@ -6,6 +6,12 @@
 //! this folder, and its migrations in `migrations/` named
 //! `<timestamp>_integrations_<what>.sql`.
 
+pub mod bills;
+pub mod decimal;
+pub mod http;
+pub mod prices;
+pub mod tickets;
+
 use utoipa_axum::router::OpenApiRouter;
 
 use crate::AppState;

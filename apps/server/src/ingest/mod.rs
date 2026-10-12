@@ -6,6 +6,9 @@
 //! this folder, and its migrations in `migrations/` named
 //! `<timestamp>_ingest_<what>.sql`.
 
+pub mod model;
+pub mod otlp;
+
 use utoipa_axum::router::OpenApiRouter;
 
 use crate::AppState;
