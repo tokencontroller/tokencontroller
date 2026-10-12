@@ -39,8 +39,10 @@ pub struct LateSheet {
     pub person_id: Uuid,
     pub person: String,
     pub email: String,
+    #[serde(with = "crate::close::period::day")]
     #[schema(value_type = String, format = Date)]
     pub period_start: Date,
+    #[serde(with = "crate::close::period::day")]
     #[schema(value_type = String, format = Date)]
     pub period_end: Date,
 }
@@ -143,8 +145,10 @@ pub async fn late_sheets(
 /// mod show it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, ToSchema)]
 pub struct CurrentSheet {
+    #[serde(with = "crate::close::period::day")]
     #[schema(value_type = String, format = Date)]
     pub period_start: Date,
+    #[serde(with = "crate::close::period::day")]
     #[schema(value_type = String, format = Date)]
     pub period_end: Date,
     /// Whether an earlier cadence period still waits for its token sheet.

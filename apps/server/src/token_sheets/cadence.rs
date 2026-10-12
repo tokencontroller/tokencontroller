@@ -65,8 +65,10 @@ pub struct Cadence {
 /// One stretch of a cadence: from `starts_on` up to and including `ends_on`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, ToSchema)]
 pub struct CadencePeriod {
+    #[serde(with = "crate::close::period::day")]
     #[schema(value_type = String, format = Date)]
     pub starts_on: Date,
+    #[serde(with = "crate::close::period::day")]
     #[schema(value_type = String, format = Date)]
     pub ends_on: Date,
 }

@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT DISTINCT agent_manager_id AS \"person!\" FROM token_entries\n               WHERE organization_id = $1 AND status = 'draft' AND agent_manager_id IS NOT NULL\n                 AND started_at >= $2 AND started_at < $3",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "person!",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "token_entries",
+            "name": "agent_manager_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Timestamptz",
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "4e1d62a6f1296a4877b769e0797ba8b6adc7d4cb0a1334b2a55f52c99a44672b"
+}

@@ -301,9 +301,10 @@ pub(crate) async fn reject(
     }
     let mut tx = state.db.begin().await?;
     let changed = sqlx::query!(
-        r#"UPDATE token_entries SET status = 'rejected'
+        r#"UPDATE token_entries SET status = 'rejected', rejected_reason = $2
            WHERE id = $1 AND status IN ('submitted', 'approved')"#,
         id,
+        reason,
     )
     .execute(&mut *tx)
     .await?

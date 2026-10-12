@@ -224,6 +224,72 @@ impl From<tokencontroller_core::MoneyError> for StoreError {
     }
 }
 
+/// What a person fixes on a token entry in the review list (docs:
+/// Attribute > Review and submit, fix).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Fix {
+    /// The token entry's tags, ticket and project included, set by hand.
+    /// It becomes one split again.
+    Tags(std::collections::BTreeMap<String, String>),
+    /// Its splits by share, each with its own tags.
+    Splits(Vec<crate::ingest::entry::NewSplit>),
+}
+
+/// Applies a fix: it replaces what was named on the token entry, and the
+/// token entry is placed again like any arrival, so the ticket brings its
+/// project and the other tags follow.
+///
+/// # Errors
+///
+/// [`StoreError::Locked`] when the token entry is in a closed period, or a
+/// database error.
+pub async fn fix(
+    conn: &mut sqlx::PgConnection,
+    organization_id: Uuid,
+    entry_id: Uuid,
+    fix: Fix,
+) -> Result<StoredEntry, StoreError> {
+    let row = sqlx::query!(
+        "SELECT status, local_id FROM token_entries
+         WHERE id = $1 AND organization_id = $2 FOR UPDATE",
+        entry_id,
+        organization_id
+    )
+    .fetch_one(&mut *conn)
+    .await?;
+    if row.status == "locked" {
+        return Err(StoreError::Locked { index: 0 });
+    }
+    let (tags, splits) = match fix {
+        Fix::Tags(tags) => (
+            Some(serde_json::to_value(tags).unwrap_or_default()),
+            Vec::new(),
+        ),
+        Fix::Splits(splits) => (None, splits),
+    };
+    sqlx::query!(
+        "UPDATE token_entries SET sent_tags = COALESCE($2, sent_tags), split_plan = $3,
+             placed_by = 'hand', updated_at = now()
+         WHERE id = $1",
+        entry_id,
+        tags,
+        serde_json::to_value(splits).unwrap_or_default()
+    )
+    .execute(&mut *conn)
+    .await?;
+    let context = place::org_context(conn, organization_id).await?;
+    let rebuilt = rebuild::rebuild(conn, organization_id, entry_id, &context).await?;
+    Ok(StoredEntry {
+        local_id: row.local_id,
+        id: entry_id,
+        status: rebuilt.status,
+        list_value: rebuilt.list_value,
+        currency: rebuilt.currency,
+        cost_kind: rebuilt.cost_kind,
+        dropped_tags: rebuilt.dropped_tags,
+    })
+}
+
 /// Token entries that arrived since `since`, for the status endpoint's
 /// "token entries arriving" signal.
 ///
@@ -255,14 +321,24 @@ fn to_u64(count: i64) -> u64 {
 /// and tags (docs: Attribute > Ticket keys). Runs after each ticket sync.
 /// Returns how many token entries were placed again.
 ///
+/// A key still unknown after a sync that ran after its token entry arrived
+/// becomes a missing ticket: the token entry shows it as unknown ticket,
+/// and rules and the summary match run again without it. A missing key
+/// whose ticket has synced since is dropped from the list, and the token
+/// entries placed without it are placed again.
+///
 /// # Errors
 ///
 /// Fails if a query fails.
 pub async fn place_unsynced(db: &sqlx::PgPool, organization_id: Uuid) -> Result<u64, StoreError> {
+    mark_missing_tickets(db, organization_id).await?;
     let entries = sqlx::query_scalar!(
         "SELECT DISTINCT s.token_entry_id FROM splits s
          JOIN token_entries e ON e.id = s.token_entry_id
-         WHERE e.organization_id = $1 AND s.ticket_not_synced AND e.status <> 'locked'
+         WHERE e.organization_id = $1 AND e.status <> 'locked'
+           AND (s.ticket_not_synced OR (s.unknown_ticket IS NOT NULL AND NOT EXISTS (
+               SELECT 1 FROM missing_tickets m
+               WHERE m.organization_id = $1 AND m.key = s.unknown_ticket)))
          LIMIT 10000",
         organization_id
     )
@@ -280,6 +356,35 @@ pub async fn place_unsynced(db: &sqlx::PgPool, organization_id: Uuid) -> Result<
     }
     tx.commit().await?;
     Ok(count)
+}
+
+/// Updates the organization's missing tickets after a sync. Every mapped
+/// project has synced the tickets changed before its `synced_until`, so a
+/// key of a token entry that arrived before the earliest of them and is
+/// still not among the tickets is missing.
+async fn mark_missing_tickets(db: &sqlx::PgPool, organization_id: Uuid) -> Result<(), StoreError> {
+    sqlx::query!(
+        "DELETE FROM missing_tickets m WHERE m.organization_id = $1 AND EXISTS (
+             SELECT 1 FROM tickets t WHERE t.organization_id = $1 AND t.key = m.key)",
+        organization_id
+    )
+    .execute(db)
+    .await?;
+    sqlx::query!(
+        "INSERT INTO missing_tickets (organization_id, key)
+         SELECT DISTINCT $1::uuid, st.value FROM splits s
+         JOIN token_entries e ON e.id = s.token_entry_id
+         JOIN split_tags st ON st.split_id = s.id AND st.name = 'ticket'
+         WHERE e.organization_id = $1 AND s.ticket_not_synced AND e.status <> 'locked'
+           AND e.created_at < (SELECT min(p.synced_until) FROM ticket_system_projects p
+                               WHERE p.organization_id = $1)
+           AND NOT EXISTS (SELECT 1 FROM tickets t WHERE t.organization_id = $1 AND t.key = st.value)
+         ON CONFLICT DO NOTHING",
+        organization_id
+    )
+    .execute(db)
+    .await?;
+    Ok(())
 }
 
 /// Prices the calls whose model the price table did not know, in token

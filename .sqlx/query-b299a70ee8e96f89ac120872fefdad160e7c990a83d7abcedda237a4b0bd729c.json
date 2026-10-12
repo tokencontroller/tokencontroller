@@ -1,0 +1,41 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT status, agent_manager_id FROM token_entries WHERE id = $1 AND organization_id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "status",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "token_entries",
+            "name": "status"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "agent_manager_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "token_entries",
+            "name": "agent_manager_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      true
+    ]
+  },
+  "hash": "b299a70ee8e96f89ac120872fefdad160e7c990a83d7abcedda237a4b0bd729c"
+}
