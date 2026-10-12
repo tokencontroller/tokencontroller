@@ -122,11 +122,15 @@ export function DataTable<Row>({
           {totals && rows.length ? (
             <tfoot className={`border-t-[3px] border-double border-ink font-medium ${st.body}`}>
               <tr className={st.row}>
-                {visible.map((c, i) => (
-                  <td key={c.key} data-label={i === 0 ? "" : c.header} className={`${c.wide ? "" : st.cell} whitespace-nowrap px-2 py-2.5 first:pl-4 last:pr-4 sm:first:pl-2 sm:last:pr-2 ${c.align === "right" ? "num" : ""} ${hide(c)}`}>
-                    {i === 0 ? totals.label : totals.values[c.key]}
-                  </td>
-                ))}
+                {visible.map((c, i) => {
+                  // Stacked on a phone, a total row shows only the cells that have a total.
+                  const empty = stack && i !== 0 && totals.values[c.key] === undefined;
+                  return (
+                    <td key={c.key} data-label={i === 0 ? "" : c.header} className={`${c.wide ? "" : st.cell} ${empty ? "max-sm:hidden" : ""} whitespace-nowrap px-2 py-2.5 first:pl-4 last:pr-4 sm:first:pl-2 sm:last:pr-2 ${c.align === "right" ? "num" : ""} ${hide(c)}`}>
+                      {i === 0 ? totals.label : totals.values[c.key]}
+                    </td>
+                  );
+                })}
               </tr>
             </tfoot>
           ) : null}
