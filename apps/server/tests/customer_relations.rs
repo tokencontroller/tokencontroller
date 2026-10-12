@@ -49,6 +49,7 @@ fn settings(fake: &MockServer) -> Settings {
         resend_api_key: Some("re_test".to_owned()),
         newsletter_from: Some("Token Controller <news@news.example.com>".to_owned()),
         site_url: Some(SITE.to_owned()),
+        onboarding_emails: false,
         anthropic_api_url: fake.uri(),
         resend_api_url: fake.uri(),
         docs_text_url: format!("{}/llms-full.txt", fake.uri()),
@@ -1751,5 +1752,124 @@ async fn operators_read_customers_over_mcp(pool: PgPool) {
             .as_str()
             .unwrap()
             .contains("unknown tool")
+    );
+}
+
+#[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
+async fn a_stalled_organization_gets_one_onboarding_email(pool: PgPool) {
+    let fake = fake_services(json!({})).await;
+    let (smtp, sent) = fake_smtp().await.unwrap();
+    let mut on = settings(&fake);
+    on.onboarding_emails = true;
+    let state = AppState::new(
+        pool.clone(),
+        config(on.clone(), Some(smtp)),
+        Arc::new(NoExtension),
+    );
+    let (kestrel, _, _) = organization(&pool, "Kestrel Digital", "ana@kestrel.example")
+        .await
+        .unwrap();
+    organization(&pool, "Brand New", "new@brand.example")
+        .await
+        .unwrap();
+    member(&pool, kestrel, "ben@kestrel.example", "agent_manager")
+        .await
+        .unwrap();
+    sqlx::query("UPDATE organizations SET created_at = now() - interval '4 days' WHERE id = $1")
+        .bind(kestrel)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let now = time::OffsetDateTime::now_utc();
+
+    let first = customer_relations::send_onboarding_emails(&state, now)
+        .await
+        .unwrap();
+    let again = customer_relations::send_onboarding_emails(&state, now)
+        .await
+        .unwrap();
+    assert_eq!((first, again), (1, 0));
+    let mails = sent.lock().unwrap().clone();
+    assert_eq!(
+        mails.len(),
+        1,
+        "one email, to the controller only: {mails:?}"
+    );
+    let mail = mails.first().unwrap();
+    assert!(mail.contains("ana@kestrel.example"));
+    assert!(mail.contains("Subject: Your first token entries"));
+    assert!(mail.contains("Kestrel Digital has no token entries yet"));
+    assert!(mail.contains("https://docs.tokencontroller.com/collect/telemetry"));
+    assert!(mail.contains("Reply-To:"));
+    assert!(mail.contains("Questions? Reply to this email."));
+
+    // The customer record shows it.
+    let ops = session_for(
+        &pool,
+        member(&pool, kestrel, "ops@example.com", "controller")
+            .await
+            .unwrap()
+            .0,
+    )
+    .await
+    .unwrap();
+    let (status, record, _) = call(
+        &state,
+        "GET",
+        &format!("/api/v1/admin/customers/{kestrel}"),
+        Some(&ops),
+        None,
+    )
+    .await
+    .unwrap();
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(record["journey"]["emails"][0]["step"], "token_entry");
+    assert_eq!(record["journey"]["first_token_entry"], Value::Null);
+
+    // When no controller gets it, the step is tried again on the next run.
+    sqlx::query("DELETE FROM onboarding_emails")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let down = AppState::new(
+        pool.clone(),
+        config(on, Some("smtp://127.0.0.1:1".to_owned())),
+        Arc::new(NoExtension),
+    );
+    let failed = customer_relations::send_onboarding_emails(&down, now)
+        .await
+        .unwrap();
+    assert_eq!(failed, 0);
+    let kept: i64 = sqlx::query_scalar("SELECT count(*) FROM onboarding_emails")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(kept, 0);
+
+    // Off by default.
+    let off = AppState::new(
+        pool.clone(),
+        config(settings(&fake), Some("smtp://127.0.0.1:1".to_owned())),
+        Arc::new(NoExtension),
+    );
+    customer_relations::send_onboarding_emails(&off, now)
+        .await
+        .unwrap();
+    let none: i64 = sqlx::query_scalar("SELECT count(*) FROM onboarding_emails")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(none, 0);
+
+    // The job runner checks every hour, and only when the setting is on.
+    let job = tokencontroller_server::jobs::standard(&state.config)
+        .into_iter()
+        .find(|job| job.name == "onboarding-emails")
+        .expect("the onboarding job runs when the setting is on");
+    assert_eq!(job.every, std::time::Duration::from_hours(1));
+    assert!(
+        tokencontroller_server::jobs::standard(&off.config)
+            .iter()
+            .all(|job| job.name != "onboarding-emails")
     );
 }

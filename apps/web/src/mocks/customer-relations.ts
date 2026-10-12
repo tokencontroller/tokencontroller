@@ -8,6 +8,7 @@ import type {
   AdminOverview,
   Conversation,
   ConversationView,
+  CustomerJourney,
   CustomerNote,
   CustomerRecord,
   CustomerSummary,
@@ -41,7 +42,17 @@ export interface ConversationRecord extends Conversation {
 interface OtherCustomer extends CustomerSummary {
   slug: string;
   reporting_currency: string;
+  journey: CustomerJourney;
 }
+
+/** The signed-in organization took every first step long ago. */
+const kestrelJourney: CustomerJourney = {
+  first_token_entry: "2026-05-04T09:12:00Z",
+  first_token_sheet: "2026-05-05T17:40:00Z",
+  first_bill: "2026-06-01T08:30:00Z",
+  first_close: "2026-06-03T10:00:00Z",
+  emails: [],
+};
 
 export interface CustomerRelations {
   operators: string[];
@@ -128,8 +139,8 @@ export function createCustomerRelations(people: Person[], organizationId: string
     ],
     notes: [{ id: "a0000000-0000-4000-8000-000000000001", customer_id: "c5000000-0000-4000-8000-000000000002", author_email: "a.operator@example.com", body: "Came through a LinkedIn post. Team plan since September.", created_at: "2026-10-01T10:00:00Z" }],
     others: [
-      { id: "c5000000-0000-4000-8000-000000000002", name: "Northwind Studio", slug: "northwind", reporting_currency: "EUR", plan: "team", members: 138, open_support: 1, open_feedback: 0, created_at: "2026-09-02T12:00:00Z" },
-      { id: "c5000000-0000-4000-8000-000000000003", name: "Harbor Labs", slug: "harbor", reporting_currency: "USD", plan: "solo", members: 1, open_support: 0, open_feedback: 0, created_at: "2026-10-08T07:30:00Z" },
+      { id: "c5000000-0000-4000-8000-000000000002", name: "Northwind Studio", slug: "northwind", reporting_currency: "EUR", plan: "team", members: 138, open_support: 1, open_feedback: 0, created_at: "2026-09-02T12:00:00Z", journey: { first_token_entry: "2026-09-02T12:40:00Z", first_token_sheet: "2026-09-03T16:05:00Z", first_bill: "2026-09-10T09:00:00Z", first_close: "2026-10-02T11:20:00Z", emails: [] } },
+      { id: "c5000000-0000-4000-8000-000000000003", name: "Harbor Labs", slug: "harbor", reporting_currency: "USD", plan: "solo", members: 1, open_support: 0, open_feedback: 0, created_at: "2026-10-08T07:30:00Z", journey: { first_token_entry: null, first_token_sheet: null, first_bill: null, first_close: null, emails: [{ step: "token_entry", sent_at: "2026-10-11T08:00:00Z" }] } },
     ],
     questions: [
       { id: "9a000000-0000-4000-8000-000000000001", question: "Does Token Controller read Cursor's team usage export?", answer: "The docs do not say. Cursor sessions arrive through the CLI; a bill from Cursor can be typed in or uploaded as CSV.", answered: false, page: "/integrations", links: [], created_at: "2026-10-11T20:15:00Z" },
@@ -335,12 +346,13 @@ export function customerRelationsHandlers({ API, member, fail, now }: { API: str
           members: db.people.map((p) => ({ id: p.id, name: p.name, email: p.email, role: p.role, invited_at: p.invited_at, joined_at: p.joined_at ?? null, removed_at: p.status === "removed" ? "2026-09-30T17:00:00Z" : null, newsletter: p.email === "p.shah@kestrel.example" ? "confirmed" : null })),
           support,
           feedback: db.cr.reports.map((r) => received(db, r)),
+          journey: kestrelJourney,
           notes,
         } satisfies CustomerRecord);
       }
       const other = db.cr.others.find((o) => o.id === id);
       if (!other) return notFound();
-      return HttpResponse.json({ customer: toSummary(other), slug: other.slug, reporting_currency: other.reporting_currency, subscription: null, members: [], support, feedback: [], notes } satisfies CustomerRecord);
+      return HttpResponse.json({ customer: toSummary(other), slug: other.slug, reporting_currency: other.reporting_currency, subscription: null, members: [], support, feedback: [], journey: other.journey, notes } satisfies CustomerRecord);
     })),
     http.post(`${API}/admin/customers/:id/notes`, operator(async ({ db, me, params, request }) => {
       const { text } = (await request.json()) as { text: string };

@@ -1,7 +1,8 @@
 //! The customer record: one page per organization in the admin area, the
 //! shared memory of everything customer relations does. It shows the plan,
 //! the members, every support conversation and feedback report, newsletter
-//! status, and notes the operators keep.
+//! status, its first steps with the onboarding emails, and notes the
+//! operators keep.
 //!
 //! Business contact data only (privacy policy: Customer relations).
 
@@ -16,6 +17,7 @@ use uuid::Uuid;
 
 use super::admin::{self, ConversationSummary, Operator, Scope};
 use super::feedback::{self, ReceivedReport};
+use super::onboarding::{self, Journey};
 use crate::AppState;
 use crate::billing::{self, Plan};
 use crate::error::{ApiError, ErrorBody};
@@ -90,6 +92,8 @@ pub struct CustomerRecord {
     /// Conversations with its members' addresses, closed ones too.
     pub support: Vec<ConversationSummary>,
     pub feedback: Vec<ReceivedReport>,
+    /// Its first steps and the onboarding emails it got.
+    pub journey: Journey,
     /// Newest first.
     pub notes: Vec<Note>,
 }
@@ -228,6 +232,9 @@ pub async fn record(state: &AppState, id: Uuid) -> Result<CustomerRecord, ApiErr
         members,
         support,
         feedback: feedback::received(&state.db, Scope::Organization(id), None, None).await?,
+        journey: onboarding::journey(&state.db, id)
+            .await?
+            .ok_or(ApiError::NotFound)?,
         notes: notes(&state.db, id).await?,
     })
 }

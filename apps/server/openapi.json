@@ -8235,6 +8235,7 @@
           "members",
           "support",
           "feedback",
+          "journey",
           "notes"
         ],
         "properties": {
@@ -8246,6 +8247,10 @@
             "items": {
               "$ref": "#/components/schemas/ReceivedReport"
             }
+          },
+          "journey": {
+            "$ref": "#/components/schemas/Journey",
+            "description": "Its first steps and the onboarding emails it got."
           },
           "members": {
             "type": "array",
@@ -8760,6 +8765,50 @@
           },
           "subject": {
             "type": "string"
+          }
+        }
+      },
+      "Journey": {
+        "type": "object",
+        "description": "How far an organization got with its first steps.",
+        "required": [
+          "emails"
+        ],
+        "properties": {
+          "emails": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SentEmail"
+            },
+            "description": "Oldest first."
+          },
+          "first_bill": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "first_close": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "first_token_entry": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "first_token_sheet": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
           }
         }
       },
@@ -10917,6 +10966,23 @@
           }
         }
       },
+      "SentEmail": {
+        "type": "object",
+        "description": "An onboarding email an organization's controllers got.",
+        "required": [
+          "step",
+          "sent_at"
+        ],
+        "properties": {
+          "sent_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "step": {
+            "$ref": "#/components/schemas/Step"
+          }
+        }
+      },
       "ServiceStatus": {
         "type": "object",
         "description": "The answer of the status endpoint.",
@@ -11206,6 +11272,16 @@
         "enum": [
           "all",
           "approved"
+        ]
+      },
+      "Step": {
+        "type": "string",
+        "description": "One of the four first steps, in order.",
+        "enum": [
+          "token_entry",
+          "token_sheet",
+          "bill",
+          "close"
         ]
       },
       "StoredEntries": {
