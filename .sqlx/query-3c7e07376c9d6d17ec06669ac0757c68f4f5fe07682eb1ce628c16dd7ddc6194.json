@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT DISTINCT ON (b.id)\n                  b.id, b.period, b.provider, b.cost_source, r.revision, r.currency,\n                  r.gross_nanos, r.discount_nanos, r.credit_nanos, r.net_nanos,\n                  r.exchange_rate_nanos, r.exchange_rate_given, r.source, r.lines, r.recorded_at\n           FROM bills b JOIN bill_revisions r ON r.bill_id = b.id\n           WHERE b.organization_id = $1 AND ($2::date IS NULL OR b.period = $2)\n           ORDER BY b.id, r.revision DESC",
+  "query": "SELECT DISTINCT ON (b.id)\n                  b.id, b.period, b.provider, b.cost_source, r.revision, r.currency,\n                  r.gross_nanos, r.discount_nanos, r.credit_nanos, r.net_nanos,\n                  r.exchange_rate_nanos, r.exchange_rate_given, r.source, r.lines, r.recorded_at,\n                  r.final\n           FROM bills b JOIN bill_revisions r ON r.bill_id = b.id\n           WHERE b.organization_id = $1 AND ($2::date IS NULL OR b.period = $2)\n           ORDER BY b.id, r.revision DESC",
   "describe": {
     "columns": [
       {
@@ -167,6 +167,17 @@
             "name": "recorded_at"
           }
         }
+      },
+      {
+        "ordinal": 15,
+        "name": "final",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "bill_revisions",
+            "name": "final"
+          }
+        }
       }
     ],
     "parameters": {
@@ -190,8 +201,9 @@
       false,
       false,
       false,
+      false,
       false
     ]
   },
-  "hash": "8e0e0dbdd6178acbc775e0a0c59930d86d8b154d4aeb5343e8fda16078d56dd3"
+  "hash": "3c7e07376c9d6d17ec06669ac0757c68f4f5fe07682eb1ce628c16dd7ddc6194"
 }

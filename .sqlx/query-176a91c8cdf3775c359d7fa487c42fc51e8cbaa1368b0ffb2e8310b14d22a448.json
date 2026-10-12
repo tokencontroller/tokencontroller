@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT revision, currency, gross_nanos, discount_nanos, credit_nanos, net_nanos,\n                  exchange_rate_nanos, exchange_rate_given, lines\n           FROM bill_revisions WHERE bill_id = $1 ORDER BY revision DESC LIMIT 1\n           FOR UPDATE",
+  "query": "SELECT revision, currency, gross_nanos, discount_nanos, credit_nanos, net_nanos,\n                  exchange_rate_nanos, exchange_rate_given, lines, final\n           FROM bill_revisions WHERE bill_id = $1 ORDER BY revision DESC LIMIT 1\n           FOR UPDATE",
   "describe": {
     "columns": [
       {
@@ -101,6 +101,17 @@
             "name": "lines"
           }
         }
+      },
+      {
+        "ordinal": 9,
+        "name": "final",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "bill_revisions",
+            "name": "final"
+          }
+        }
       }
     ],
     "parameters": {
@@ -117,8 +128,9 @@
       false,
       true,
       false,
+      false,
       false
     ]
   },
-  "hash": "7e721fac973b2a715017cfe493f19ef4b7b435bba85fec8fe18304e99521c9df"
+  "hash": "176a91c8cdf3775c359d7fa487c42fc51e8cbaa1368b0ffb2e8310b14d22a448"
 }

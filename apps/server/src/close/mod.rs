@@ -78,6 +78,9 @@ pub struct OpenItems {
     /// Providers whose token entries are on no bill yet. On a metered plan
     /// the period cannot close until their bill is in.
     pub providers_without_bill: Vec<String>,
+    /// Providers whose bill may still change, such as Anthropic Enterprise
+    /// before its figures are final. The period cannot close until it is.
+    pub bills_not_final: Vec<String>,
     /// Organization overhead: cost on no project that may belong on one.
     pub organization_overhead: String,
     pub organization_overhead_entries: usize,
@@ -319,6 +322,12 @@ async fn period_view(
     let open_items = OpenItems {
         bills: account.bills.len(),
         providers_without_bill: without_bill.keys().cloned().collect(),
+        bills_not_final: account
+            .bills
+            .iter()
+            .filter(|bill| !bill.view.is_final)
+            .map(|bill| bill.view.provider.clone())
+            .collect(),
         organization_overhead: format_amount(overhead_total),
         organization_overhead_entries: overhead.len(),
         late_token_sheets: late,
@@ -367,6 +376,12 @@ fn blockers(
         blockers.push(format!(
             "{} token entries are not approved yet. With approval on, every token entry must be approved before the close.",
             check.unapproved
+        ));
+    }
+    for bill in account.bills.iter().filter(|bill| !bill.view.is_final) {
+        blockers.push(format!(
+            "The bill from {} for {} is not final yet. The close waits until {} stops changing its figures.",
+            bill.view.provider, account.period, bill.view.provider
         ));
     }
     if account.metered {
