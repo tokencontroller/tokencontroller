@@ -41,6 +41,7 @@ pub struct CadenceView {
     /// For a custom cadence: the length of each cadence period in days.
     pub every_days: Option<u16>,
     /// The day the first cadence period starts.
+    #[serde(with = "crate::close::period::day")]
     #[schema(value_type = String, format = Date)]
     pub starts_on: Date,
     /// The cadence period running today.
@@ -62,6 +63,7 @@ pub struct CadenceInput {
     pub every_days: Option<u16>,
     /// The day the first cadence period starts. Left out: the Monday of
     /// this week.
+    #[serde(default, with = "crate::close::period::day::option")]
     #[schema(value_type = Option<String>, format = Date)]
     pub starts_on: Option<Date>,
 }

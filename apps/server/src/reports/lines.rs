@@ -148,6 +148,8 @@ pub struct CostLine {
     pub placed_by: String,
     /// Its ticket matched a pattern but is not known yet.
     pub ticket_not_synced: bool,
+    /// A missing ticket key: the split shows as unknown ticket.
+    pub unknown_ticket: Option<String>,
     /// Every tag of the split, with `person` always set.
     pub tags: Tags,
 }
@@ -224,7 +226,7 @@ pub async fn fetch(
         r#"SELECT s.id AS split_id, e.id AS entry_id, e.agent_manager_id, e.provider,
                   e.agent_harness, e.agent_name, e.model, e.effort, e.speed, e.started_at,
                   e.status, e.on_token_sheet, coalesce(e.summary, '') AS "summary!",
-                  s.list_value_nanos, s.billed_value_nanos, s.placed_by, s.ticket_not_synced, e.currency,
+                  s.list_value_nanos, s.billed_value_nanos, s.placed_by, s.ticket_not_synced, s.unknown_ticket, e.currency,
                   p.email AS "person_email?",
                   coalesce(
                       (SELECT jsonb_object_agg(t.name, t.value) FROM split_tags t WHERE t.split_id = s.id),
@@ -279,6 +281,7 @@ pub async fn fetch(
                     .map(|nanos| Money::from_nanos(nanos, currency)),
                 placed_by: row.placed_by,
                 ticket_not_synced: row.ticket_not_synced,
+                unknown_ticket: row.unknown_ticket,
                 tags,
             })
         })

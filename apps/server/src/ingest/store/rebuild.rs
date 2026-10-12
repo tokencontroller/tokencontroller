@@ -226,7 +226,26 @@ struct PlacedSplit {
     sources: BTreeMap<TagName, &'static str>,
     placed_by: PlacedBy,
     ticket_not_synced: bool,
+    /// A missing ticket key the split was placed without, or still names.
+    unknown_ticket: Option<String>,
     signals: serde_json::Value,
+}
+
+/// The missing ticket key to show on a split: the ticket it still names, or
+/// with no ticket, the first missing key its signals named.
+fn unknown_ticket(
+    organization: &tokencontroller_core::Organization,
+    tags: &Tags,
+    candidates: &BTreeSet<String>,
+) -> Option<String> {
+    let missing = |key: &TagValue| organization.missing_tickets.contains(key);
+    match tags.get(&TagName::ticket()) {
+        Some(ticket) => missing(ticket).then(|| ticket.as_str().to_owned()),
+        None => candidates
+            .iter()
+            .find(|key| TagValue::new(key).is_ok_and(|key| missing(&key)))
+            .cloned(),
+    }
 }
 
 /// Where a placed tag came from, as `split_tags.source` names it.
@@ -356,6 +375,7 @@ async fn place_pieces(
     let mut placed: Vec<PlacedSplit> = Vec::new();
     let mut dropped: BTreeSet<String> = BTreeSet::new();
     for piece in pieces {
+        let candidates = candidate_keys(&context.organization, &piece.named, &piece.signals);
         let placement = organization.place(
             &PlacementRequest {
                 person,
@@ -405,6 +425,7 @@ async fn place_pieces(
                 method: piece.method,
                 share_percent: piece.share_percent,
                 values,
+                unknown_ticket: unknown_ticket(&organization, &share.tags, &candidates),
                 tags: share.tags,
                 sources,
                 placed_by: share.placed_by,
@@ -432,8 +453,8 @@ async fn insert_split(
     let split_id = sqlx::query_scalar!(
         r#"INSERT INTO splits (token_entry_id, position, method, share_percent,
                input_tokens, output_tokens, cache_write_tokens, cache_read_tokens,
-               list_value_nanos, signals, placed_by, ticket_not_synced)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING id"#,
+               list_value_nanos, signals, placed_by, ticket_not_synced, unknown_ticket)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING id"#,
         entry_id,
         position,
         split.method,
@@ -445,7 +466,8 @@ async fn insert_split(
         split.values.list_value.map(Money::nanos),
         split.signals,
         split.placed_by.to_string(),
-        split.ticket_not_synced
+        split.ticket_not_synced,
+        split.unknown_ticket
     )
     .fetch_one(&mut *conn)
     .await?;

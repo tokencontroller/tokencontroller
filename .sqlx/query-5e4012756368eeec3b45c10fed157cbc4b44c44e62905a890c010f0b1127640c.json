@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO missing_tickets (organization_id, key)\n         SELECT DISTINCT $1::uuid, st.value FROM splits s\n         JOIN token_entries e ON e.id = s.token_entry_id\n         JOIN split_tags st ON st.split_id = s.id AND st.name = 'ticket'\n         WHERE e.organization_id = $1 AND s.ticket_not_synced AND e.status <> 'locked'\n           AND e.created_at < (SELECT min(p.synced_until) FROM ticket_system_projects p\n                               WHERE p.organization_id = $1)\n           AND NOT EXISTS (SELECT 1 FROM tickets t WHERE t.organization_id = $1 AND t.key = st.value)\n         ON CONFLICT DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "5e4012756368eeec3b45c10fed157cbc4b44c44e62905a890c010f0b1127640c"
+}

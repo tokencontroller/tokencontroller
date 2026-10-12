@@ -126,6 +126,7 @@ mod tests {
             billed_value: None,
             placed_by: "no ticket".to_owned(),
             ticket_not_synced: false,
+            unknown_ticket: None,
             tags: tags
                 .iter()
                 .map(|(n, v)| ((*n).to_owned(), (*v).to_owned()))
