@@ -266,6 +266,13 @@ pub(super) async fn invite_member(
     .await?;
     tx.commit().await?;
 
+    super::record_audit_event(
+        &state,
+        member.organization_id,
+        Some(member.person_id),
+        "member.invited",
+        Some(person_id),
+    );
     let invite_url = invite_url(&state.config, &code);
     send_invite(&state, member.person_id, person_id, &invite_url).await?;
     let invited = super::member(&state.db, member.organization_id, person_id).await?;
@@ -415,6 +422,13 @@ pub(super) async fn update_member(
     )
     .execute(&state.db)
     .await?;
+    super::record_audit_event(
+        &state,
+        member.organization_id,
+        Some(member.person_id),
+        "member.changed",
+        Some(id),
+    );
     Ok(Json(
         super::member(&state.db, member.organization_id, id).await?,
     ))
@@ -441,28 +455,11 @@ pub(super) async fn remove_member(
 ) -> Result<StatusCode, ApiError> {
     member.require_session()?;
     member.require_role(Role::Controller)?;
-    let current = super::member(&state.db, member.organization_id, id).await?;
-    if current.status == MemberStatus::Removed {
-        return Err(ApiError::NotFound);
-    }
-    if current.role == Role::Controller {
-        keep_a_controller(&state.db, member.organization_id, id).await?;
-    }
-    let mut tx = state.db.begin().await?;
-    sqlx::query!("UPDATE people SET removed_at = now() WHERE id = $1", id)
-        .execute(&mut *tx)
-        .await?;
-    sqlx::query!("DELETE FROM sessions WHERE person_id = $1", id)
-        .execute(&mut *tx)
-        .await?;
-    sqlx::query!("DELETE FROM invites WHERE person_id = $1", id)
-        .execute(&mut *tx)
-        .await?;
-    tx.commit().await?;
+    super::remove_member(&state, member.organization_id, id, Some(member.person_id)).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
-async fn keep_a_controller(
+pub(super) async fn keep_a_controller(
     db: &PgPool,
     organization_id: Uuid,
     leaving: Uuid,
@@ -543,6 +540,13 @@ pub(super) async fn set_filters(
         .await?;
     }
     tx.commit().await?;
+    super::record_audit_event(
+        &state,
+        member.organization_id,
+        Some(member.person_id),
+        "member.filters_changed",
+        Some(id),
+    );
     Ok(Json(
         super::member(&state.db, member.organization_id, id).await?,
     ))
@@ -579,7 +583,7 @@ pub(super) async fn show_invite(
     .ok_or(ApiError::NotFound)
 }
 
-fn clean_name(name: &str) -> Result<String, ApiError> {
+pub(super) fn clean_name(name: &str) -> Result<String, ApiError> {
     let name = name.trim();
     if name.chars().count() > 100 {
         return Err(ApiError::BadRequest(

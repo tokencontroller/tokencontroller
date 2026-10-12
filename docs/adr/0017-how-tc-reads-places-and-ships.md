@@ -23,7 +23,7 @@ This fills in ADR 0010 where the CLI needed details.
 
 ## Signing in
 
-`tc connect` uses a device sign-in like RFC 8628: the service gives a short code, the person confirms it in the browser while signed in, and `tc` receives a `tc_cli_…` token. That token belongs to one person on one machine, can be revoked under _Settings_, and may only submit that person's token sheet, read what placing needs and edit that person's rules. With a `tc_svc_…` service token, as in CI, `tc submit` reports automatic token entries instead of a token sheet.
+`tc connect` signs in with the same magic link as the web app: it asks the service for a link mail with `local_tool: true`, the person opens the link in a browser and presses Sign in, and `tc` polls until it receives a `tc_cli_…` token. Opening the link alone uses nothing, so mail scanners cannot sign a machine in. That token belongs to one person on one machine, can be revoked under _Settings_, reads what its person may read, and may change only that person's token sheet and rules: settings, members and API tokens need the web app. With a `tc_svc_…` service token, as in CI, `tc submit` reports automatic token entries instead of a token sheet.
 
 ## Shipping
 

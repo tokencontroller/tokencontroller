@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE organizations SET\n             rules = coalesce($2, rules),\n             several_keys = coalesce($3, several_keys),\n             summary_match = coalesce($4, summary_match)\n           WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Jsonb",
+        "Text",
+        "Bool"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f8756a568195ff9df232beca865b059a9ce7e5a89889c7f3114fd87f0fe38335"
+}

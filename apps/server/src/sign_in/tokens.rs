@@ -1,7 +1,8 @@
 //! API tokens (docs: Reference > HTTP API): service tokens for agents that
 //! report token entries, read tokens for reports, and the organization token
 //! for telemetry push. Created under Settings in the web app; the secret is
-//! shown once.
+//! shown once. The list also shows the CLI tokens `tc connect` made, so they
+//! can be revoked in the same place.
 
 use axum::Json;
 use axum::extract::{Path, State};
@@ -15,7 +16,7 @@ use super::caller::Member;
 use super::secret;
 use crate::AppState;
 use crate::error::ApiError;
-use crate::organizations::Role;
+use crate::organizations::{self, Role};
 
 /// What a token is for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
@@ -27,6 +28,9 @@ pub enum TokenKind {
     Read,
     /// `tc_org_`: telemetry push for the whole organization.
     Organization,
+    /// `tc_cli_`: the CLI token of one person on one machine. Only
+    /// `tc connect` makes them.
+    Cli,
 }
 
 impl TokenKind {
@@ -35,6 +39,7 @@ impl TokenKind {
             Self::Service => "service",
             Self::Read => "read",
             Self::Organization => "organization",
+            Self::Cli => "cli",
         }
     }
 
@@ -43,6 +48,7 @@ impl TokenKind {
             Self::Service => secret::SERVICE,
             Self::Read => secret::READ,
             Self::Organization => secret::ORGANIZATION,
+            Self::Cli => secret::CLI,
         }
     }
 
@@ -100,7 +106,8 @@ pub struct HandOver {
     pub person_id: Uuid,
 }
 
-/// Your API tokens, or every token in the organization for a controller.
+/// Your API tokens and CLI tokens, or every one in the organization for a
+/// controller.
 #[utoipa::path(
     get,
     path = "/api-tokens",
@@ -124,20 +131,42 @@ pub(super) async fn list(
     )
     .fetch_all(&state.db)
     .await?;
-    Ok(Json(
-        rows.into_iter()
-            .map(|row| ApiToken {
-                id: row.id,
-                kind: TokenKind::from_db(&row.kind),
-                name: row.name,
-                shown_prefix: row.shown_prefix,
-                person_id: row.person_id,
-                needs_owner: row.needs_owner,
-                created_at: row.created_at,
-                last_used_at: row.last_used_at,
-            })
-            .collect(),
-    ))
+    let cli_tokens = sqlx::query!(
+        r#"SELECT s.id, s.shown_prefix, s.person_id, s.created_at, s.last_seen_at
+           FROM sessions s JOIN people p ON p.id = s.person_id
+           WHERE p.organization_id = $1 AND s.client = 'local_tool' AND s.expires_at > now()
+             AND ($2 OR s.person_id = $3)"#,
+        member.organization_id,
+        everyone,
+        member.person_id
+    )
+    .fetch_all(&state.db)
+    .await?;
+    let mut tokens: Vec<ApiToken> = rows
+        .into_iter()
+        .map(|row| ApiToken {
+            id: row.id,
+            kind: TokenKind::from_db(&row.kind),
+            name: row.name,
+            shown_prefix: row.shown_prefix,
+            person_id: row.person_id,
+            needs_owner: row.needs_owner,
+            created_at: row.created_at,
+            last_used_at: row.last_used_at,
+        })
+        .chain(cli_tokens.into_iter().map(|row| ApiToken {
+            id: row.id,
+            kind: TokenKind::Cli,
+            name: "tc connect".to_owned(),
+            shown_prefix: row.shown_prefix.unwrap_or_else(|| secret::CLI.to_owned()),
+            person_id: row.person_id,
+            needs_owner: false,
+            created_at: row.created_at,
+            last_used_at: Some(row.last_seen_at),
+        }))
+        .collect();
+    tokens.sort_by_key(|token| token.created_at);
+    Ok(Json(tokens))
 }
 
 /// Create an API token. Anyone can create service and read tokens for
@@ -158,6 +187,11 @@ pub(super) async fn create(
     Json(request): Json<NewApiToken>,
 ) -> Result<(StatusCode, Json<CreatedApiToken>), ApiError> {
     member.require_session()?;
+    if request.kind == TokenKind::Cli {
+        return Err(ApiError::BadRequest(
+            "CLI tokens come from `tc connect`.".to_owned(),
+        ));
+    }
     if request.kind == TokenKind::Organization {
         member.require_role(Role::Controller)?;
     }
@@ -182,6 +216,13 @@ pub(super) async fn create(
     )
     .fetch_one(&state.db)
     .await?;
+    organizations::record_audit_event(
+        &state,
+        member.organization_id,
+        Some(member.person_id),
+        "api_token.created",
+        Some(row.id),
+    );
     Ok((
         StatusCode::CREATED,
         Json(CreatedApiToken {
@@ -200,7 +241,7 @@ pub(super) async fn create(
     ))
 }
 
-/// Revoke an API token: your own, or any as a controller.
+/// Revoke an API token or a CLI token: your own, or any as a controller.
 #[utoipa::path(
     delete,
     path = "/api-tokens/{id}",
@@ -229,8 +270,29 @@ pub(super) async fn revoke(
     .execute(&state.db)
     .await?;
     if revoked.rows_affected() == 0 {
-        return Err(ApiError::NotFound);
+        // A CLI token: ending its session signs that machine out.
+        let ended = sqlx::query!(
+            r#"DELETE FROM sessions s USING people p
+               WHERE s.id = $1 AND s.client = 'local_tool' AND p.id = s.person_id
+                 AND p.organization_id = $2 AND ($3 OR s.person_id = $4)"#,
+            id,
+            member.organization_id,
+            everyone,
+            member.person_id
+        )
+        .execute(&state.db)
+        .await?;
+        if ended.rows_affected() == 0 {
+            return Err(ApiError::NotFound);
+        }
     }
+    organizations::record_audit_event(
+        &state,
+        member.organization_id,
+        Some(member.person_id),
+        "api_token.revoked",
+        Some(id),
+    );
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -285,5 +347,12 @@ pub(super) async fn hand_over(
     if moved.rows_affected() == 0 {
         return Err(ApiError::NotFound);
     }
+    organizations::record_audit_event(
+        &state,
+        member.organization_id,
+        Some(member.person_id),
+        "api_token.handed_over",
+        Some(id),
+    );
     Ok(StatusCode::NO_CONTENT)
 }

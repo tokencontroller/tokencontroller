@@ -128,7 +128,12 @@ async fn organization(pool: &PgPool, name: &str, email: &str) -> TestResult<(Uui
 }
 
 async fn session_for(pool: &PgPool, person_id: Uuid, client: &str) -> TestResult<String> {
-    let session = secret::generate(secret::SESSION, KEY)?;
+    let prefix = if client == "local_tool" {
+        secret::CLI
+    } else {
+        secret::SESSION
+    };
+    let session = secret::generate(prefix, KEY)?;
     sqlx::query("INSERT INTO sessions (token_hash, person_id, client, expires_at) VALUES ($1, $2, $3, now() + interval '1 day')")
         .bind(&session.hash)
         .bind(person_id)
@@ -368,7 +373,7 @@ async fn an_expired_link_no_longer_works(pool: PgPool) {
 #[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
 async fn a_local_tool_collects_its_session_once(pool: PgPool) {
     let app = app(&pool);
-    organization(&pool, "Kestrel Digital", "n.berger@kestrel.example")
+    let (_, browser) = organization(&pool, "Kestrel Digital", "n.berger@kestrel.example")
         .await
         .unwrap();
     let sent = send(
@@ -425,7 +430,7 @@ async fn a_local_tool_collects_its_session_once(pool: PgPool) {
     .unwrap();
     assert_eq!(signed_in.status, StatusCode::OK);
     let session = signed_in.json["session_token"].as_str().unwrap().to_owned();
-    assert!(session.starts_with("tc_ses_"));
+    assert!(session.starts_with("tc_cli_"));
 
     let me = send(
         &app,
@@ -449,6 +454,27 @@ async fn a_local_tool_collects_its_session_once(pool: PgPool) {
     .await
     .unwrap();
     assert_eq!(as_cookie.status, StatusCode::UNAUTHORIZED);
+    // A CLI token edits its person's rules, never the organization.
+    let settings = send(
+        &app,
+        Method::PATCH,
+        "/api/v1/organization",
+        Auth::Bearer(&session),
+        Some(json!({"approval": true})),
+    )
+    .await
+    .unwrap();
+    assert_eq!(settings.status, StatusCode::FORBIDDEN);
+    let token = send(
+        &app,
+        Method::POST,
+        "/api/v1/api-tokens",
+        Auth::Bearer(&session),
+        Some(json!({"kind": "read"})),
+    )
+    .await
+    .unwrap();
+    assert_eq!(token.status, StatusCode::FORBIDDEN);
 
     let again = send(
         &app,
@@ -460,6 +486,54 @@ async fn a_local_tool_collects_its_session_once(pool: PgPool) {
     .await
     .unwrap();
     assert_eq!(again.status, StatusCode::GONE);
+
+    // Under Settings the CLI token sits next to the API tokens, and
+    // revoking it signs that machine out.
+    let tokens = send(
+        &app,
+        Method::GET,
+        "/api/v1/api-tokens",
+        Auth::Cookie(&browser),
+        None,
+    )
+    .await
+    .unwrap();
+    let listed = tokens.json.as_array().unwrap();
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0]["kind"], "cli");
+    let shown = listed[0]["shown_prefix"].as_str().unwrap();
+    assert!(session.starts_with(shown) && shown.len() == "tc_cli_xxxx".len());
+    let made = send(
+        &app,
+        Method::POST,
+        "/api/v1/api-tokens",
+        Auth::Cookie(&browser),
+        Some(json!({"kind": "cli"})),
+    )
+    .await
+    .unwrap();
+    assert_eq!(made.status, StatusCode::BAD_REQUEST);
+    let id = listed[0]["id"].as_str().unwrap();
+    let revoked = send(
+        &app,
+        Method::DELETE,
+        &format!("/api/v1/api-tokens/{id}"),
+        Auth::Cookie(&browser),
+        None,
+    )
+    .await
+    .unwrap();
+    assert_eq!(revoked.status, StatusCode::NO_CONTENT);
+    let me = send(
+        &app,
+        Method::GET,
+        "/api/v1/me",
+        Auth::Bearer(&session),
+        None,
+    )
+    .await
+    .unwrap();
+    assert_eq!(me.status, StatusCode::UNAUTHORIZED);
 }
 
 #[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
@@ -1662,4 +1736,499 @@ async fn billing_is_off_without_stripe_settings(pool: PgPool) {
     .await
     .unwrap();
     assert_eq!(invited.status, StatusCode::CREATED);
+}
+
+/// An Enterprise plan build as the tests see it: it keeps every audit
+/// event, has a controller notice and offers one sign-in provider.
+#[derive(Default)]
+struct Recorder {
+    events: std::sync::Mutex<Vec<tokencontroller_core::extension::AuditEvent>>,
+}
+
+impl tokencontroller_core::Extension for Recorder {
+    fn edition(&self) -> &'static str {
+        "enterprise"
+    }
+
+    fn sign_in_providers(&self) -> Vec<tokencontroller_core::extension::SignInProvider> {
+        vec![tokencontroller_core::extension::SignInProvider {
+            id: "oidc".to_owned(),
+            label: "Sign in with Okta".to_owned(),
+        }]
+    }
+
+    fn record_audit_event(&self, event: &tokencontroller_core::extension::AuditEvent) {
+        if let Ok(mut events) = self.events.lock() {
+            events.push(event.clone());
+        }
+    }
+
+    fn controller_notice(&self) -> Option<String> {
+        Some("The Enterprise plan renews in 30 days.".to_owned())
+    }
+}
+
+impl Recorder {
+    /// Each event as `action actor target`, with `-` for none.
+    fn log(&self) -> Vec<String> {
+        self.events
+            .lock()
+            .map(|events| {
+                events
+                    .iter()
+                    .map(|event| {
+                        format!(
+                            "{} {} {}",
+                            event.action,
+                            event.actor_id.as_deref().unwrap_or("-"),
+                            event.target_id.as_deref().unwrap_or("-")
+                        )
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+}
+
+#[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
+async fn identity_providers_add_remove_and_sign_in_members(pool: PgPool) {
+    use tokencontroller_server::organizations::{
+        add_member, member_by_email, only_organization, remove_member,
+    };
+    use tokencontroller_server::seed::ids;
+
+    assert_eq!(only_organization(&pool).await.unwrap(), None);
+    tokencontroller_server::seed::load(&pool).await.unwrap();
+    assert_eq!(
+        only_organization(&pool).await.unwrap(),
+        Some(ids::ORGANIZATION)
+    );
+    let recorder = Arc::new(Recorder::default());
+    let state = AppState::new(pool.clone(), config(false), recorder.clone());
+    let app = router(state.clone());
+    let org = ids::ORGANIZATION;
+
+    assert_eq!(
+        member_by_email(&pool, org, " M.Ortner@kestrel.example ")
+            .await
+            .unwrap(),
+        Some(ids::MARA)
+    );
+    assert_eq!(
+        member_by_email(&pool, org, "nobody@kestrel.example")
+            .await
+            .unwrap(),
+        None
+    );
+
+    // SCIM adds a person; adding them again changes nothing but the name.
+    let ana = add_member(&state, org, "a.weiss@kestrel.example", Some("Ana Weiss"))
+        .await
+        .unwrap();
+    assert_eq!(
+        add_member(&state, org, "A.Weiss@kestrel.example", None)
+            .await
+            .unwrap(),
+        ana
+    );
+    let member = tokencontroller_server::organizations::member(&pool, org, ana)
+        .await
+        .unwrap();
+    assert_eq!(member.name, "Ana Weiss");
+    assert_eq!(member.role.as_str(), "agent_manager");
+
+    // One account belongs to one organization.
+    let (_, _) = organization(&pool, "Globex", "g.boss@globex.example")
+        .await
+        .unwrap();
+    assert_eq!(only_organization(&pool).await.unwrap(), None);
+    assert!(
+        add_member(&state, org, "g.boss@globex.example", None)
+            .await
+            .is_err()
+    );
+
+    // Removed by the identity provider, then brought back with their role.
+    remove_member(&state, org, ana, None).await.unwrap();
+    assert_eq!(
+        member_by_email(&pool, org, "a.weiss@kestrel.example")
+            .await
+            .unwrap(),
+        None
+    );
+    assert!(remove_member(&state, org, ana, None).await.is_err());
+    assert_eq!(
+        add_member(&state, org, "a.weiss@kestrel.example", None)
+            .await
+            .unwrap(),
+        ana
+    );
+    // Nadia is the only controller.
+    assert!(remove_member(&state, org, ids::NADIA, None).await.is_err());
+
+    // OIDC signs Mara in with the same answer a magic link gives.
+    let signed_in = tokencontroller_server::sign_in::start_session(&state, ids::MARA)
+        .await
+        .unwrap();
+    assert_eq!(signed_in.status(), StatusCode::SEE_OTHER);
+    let session = cookie_token(signed_in.headers()).unwrap();
+    let me = send(
+        &app,
+        Method::GET,
+        "/api/v1/me",
+        Auth::Cookie(&session),
+        None,
+    )
+    .await
+    .unwrap();
+    assert_eq!(me.json["person"]["email"], "m.ortner@kestrel.example");
+    // The notice is for controllers only.
+    assert_eq!(me.json["controller_notice"], Value::Null);
+    assert!(
+        tokencontroller_server::sign_in::start_session(&state, Uuid::nil())
+            .await
+            .is_err()
+    );
+
+    // Who a request is signed in as, for the enterprise settings.
+    let mut headers = HeaderMap::new();
+    assert!(
+        tokencontroller_server::sign_in::signed_in(&state, &headers)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    headers.insert(
+        header::COOKIE,
+        format!("tc_session={session}").parse().unwrap(),
+    );
+    let caller = tokencontroller_server::sign_in::signed_in(&state, &headers)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(caller.person_id, ids::MARA);
+    headers.insert(header::ORIGIN, "https://evil.example".parse().unwrap());
+    assert!(
+        tokencontroller_server::sign_in::signed_in(&state, &headers)
+            .await
+            .unwrap()
+            .is_none()
+    );
+
+    let nadia = session_for(&pool, ids::NADIA, "browser").await.unwrap();
+    let me = send(&app, Method::GET, "/api/v1/me", Auth::Cookie(&nadia), None)
+        .await
+        .unwrap();
+    assert_eq!(
+        me.json["controller_notice"],
+        "The Enterprise plan renews in 30 days."
+    );
+    let removed = send(
+        &app,
+        Method::DELETE,
+        &format!("/api/v1/members/{ana}"),
+        Auth::Cookie(&nadia),
+        None,
+    )
+    .await
+    .unwrap();
+    assert_eq!(removed.status, StatusCode::NO_CONTENT);
+
+    let providers = send(
+        &app,
+        Method::GET,
+        "/api/v1/sign-in/providers",
+        Auth::None,
+        None,
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        providers.json,
+        json!([{"id": "oidc", "label": "Sign in with Okta", "url": "/api/v1/sign-in/providers/oidc"}])
+    );
+    let open = send(
+        &self::app(&pool),
+        Method::GET,
+        "/api/v1/sign-in/providers",
+        Auth::None,
+        None,
+    )
+    .await
+    .unwrap();
+    assert_eq!(open.json, json!([]));
+
+    assert_eq!(
+        recorder.log(),
+        [
+            format!("member.added - {ana}"),
+            format!("member.removed - {ana}"),
+            format!("member.restored - {ana}"),
+            format!("member.signed_in {} {}", ids::MARA, ids::MARA),
+            format!("member.removed {} {ana}", ids::NADIA),
+        ]
+    );
+}
+
+#[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
+async fn every_change_reaches_the_audit_log(pool: PgPool) {
+    let recorder = Arc::new(Recorder::default());
+    let app = router(AppState::new(pool.clone(), config(false), recorder.clone()));
+    let (_, nadia) = organization(&pool, "Kestrel Digital", "n.berger@kestrel.example")
+        .await
+        .unwrap();
+    let call = async |method: Method, path: &str, body: Value| {
+        let answer = send(&app, method, path, Auth::Cookie(&nadia), Some(body))
+            .await
+            .unwrap();
+        assert!(answer.status.is_success(), "{path}: {}", answer.text);
+        answer.json
+    };
+    call(
+        Method::PATCH,
+        "/api/v1/organization",
+        json!({"approval": true}),
+    )
+    .await;
+    call(Method::POST, "/api/v1/tags", json!({"name": "team"})).await;
+    call(
+        Method::PUT,
+        "/api/v1/tag-map",
+        json!({"cost_center": "team", "ladder": ["ticket", "project"]}),
+    )
+    .await;
+    let invited = call(
+        Method::POST,
+        "/api/v1/members",
+        json!({"email": "m.ortner@kestrel.example", "name": "Mara Ortner", "role": "agent_manager"}),
+    )
+    .await;
+    let mara = invited["member"]["id"].as_str().unwrap().to_owned();
+    call(
+        Method::PATCH,
+        &format!("/api/v1/members/{mara}"),
+        json!({"role": "people_manager"}),
+    )
+    .await;
+    call(
+        Method::PUT,
+        &format!("/api/v1/members/{mara}/filters"),
+        json!([{"team": "web"}]),
+    )
+    .await;
+    let token = call(
+        Method::POST,
+        "/api/v1/api-tokens",
+        json!({"kind": "service", "name": "CI"}),
+    )
+    .await;
+    let token_id = token["id"].as_str().unwrap().to_owned();
+    call(
+        Method::POST,
+        &format!("/api/v1/api-tokens/{token_id}/hand-over"),
+        json!({"person_id": mara}),
+    )
+    .await;
+    call(
+        Method::PUT,
+        "/api/v1/organization/rules",
+        json!({"several_keys": "first_named"}),
+    )
+    .await;
+    let revoked = send(
+        &app,
+        Method::DELETE,
+        &format!("/api/v1/api-tokens/{token_id}"),
+        Auth::Cookie(&nadia),
+        None,
+    )
+    .await
+    .unwrap();
+    assert_eq!(revoked.status, StatusCode::NO_CONTENT);
+    let removed_tag = send(
+        &app,
+        Method::DELETE,
+        "/api/v1/tags/team",
+        Auth::Cookie(&nadia),
+        None,
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        removed_tag.status,
+        StatusCode::CONFLICT,
+        "the tag map uses team"
+    );
+
+    let actions: Vec<String> = recorder
+        .log()
+        .iter()
+        .map(|line| line.split(' ').next().unwrap_or_default().to_owned())
+        .collect();
+    assert_eq!(
+        actions,
+        [
+            "organization.settings_changed",
+            "tag_name.added",
+            "tag_map.changed",
+            "member.invited",
+            "member.changed",
+            "member.filters_changed",
+            "api_token.created",
+            "api_token.handed_over",
+            "organization.rules_changed",
+            "api_token.revoked",
+        ]
+    );
+    // A new organization: its first sign-in creates it.
+    let link = link_for(&pool, "founder@acme.example").await.unwrap();
+    sqlx::query("UPDATE sign_in_links SET sign_up_organization_name = 'Acme' WHERE email = 'founder@acme.example'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let used = post_form(&app, "/api/v1/sign-in/link", &format!("token={link}"))
+        .await
+        .unwrap();
+    assert_eq!(used.status, StatusCode::SEE_OTHER);
+    let log = recorder.log();
+    let last: Vec<&str> = log
+        .iter()
+        .rev()
+        .take(2)
+        .map(|line| line.split(' ').next().unwrap_or_default())
+        .collect();
+    assert_eq!(last, ["member.signed_in", "organization.created"]);
+}
+
+#[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
+async fn rules_and_the_context_local_tools_read(pool: PgPool) {
+    use tokencontroller_server::seed::ids;
+    tokencontroller_server::seed::load(&pool).await.unwrap();
+    let app = app(&pool);
+    let mara = session_for(&pool, ids::MARA, "local_tool").await.unwrap();
+    let nadia = session_for(&pool, ids::NADIA, "browser").await.unwrap();
+
+    let context = send(
+        &app,
+        Method::GET,
+        "/api/v1/me/context",
+        Auth::Bearer(&mara),
+        None,
+    )
+    .await
+    .unwrap();
+    assert_eq!(context.status, StatusCode::OK, "{}", context.text);
+    let organization = &context.json["organization"];
+    assert_eq!(organization["name"], "Kestrel Digital");
+    assert_eq!(organization["currency"], "USD");
+    assert_eq!(organization["several_keys"], "most_often");
+    assert!(
+        organization["tag_names"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("team"))
+    );
+    assert_eq!(organization["rules"][0]["name"], "ticket key in branch");
+    assert_eq!(
+        organization["rules"][0]["then"],
+        json!({"ticket_key_in": "branch"})
+    );
+    assert_eq!(organization["rules"][3]["then"], "repository_project");
+    assert_eq!(context.json["person"]["email"], "m.ortner@kestrel.example");
+    assert_eq!(context.json["person"]["tags"]["team"], "web");
+    assert_eq!(context.json["rules"], json!([]));
+    let storefront = context.json["projects"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|project| project["name"] == "storefront")
+        .unwrap();
+    assert_eq!(storefront["ticket_key_pattern"], "^KD-\\d+");
+    assert_eq!(storefront["repositories"], json!(["kestrel/storefront"]));
+    assert_eq!(context.json["cadence"], Value::Null);
+    assert_eq!(context.json["rejected"], json!([]));
+
+    // Personal rules in the core shape.
+    let review = json!({
+        "name": "review branches",
+        "when": [{"signal": "branch", "test": {"starts_with": "review/"}}],
+        "then": {"set_tags": {"purpose": "code-review"}}
+    });
+    let put = |rules: Value| {
+        let app = app.clone();
+        let mara = mara.clone();
+        async move {
+            send(
+                &app,
+                Method::PUT,
+                "/api/v1/me/rules",
+                Auth::Bearer(&mara),
+                Some(json!({"rules": rules})),
+            )
+            .await
+            .unwrap()
+        }
+    };
+    let saved = put(json!([review])).await;
+    assert_eq!(saved.status, StatusCode::OK, "{}", saved.text);
+    assert_eq!(saved.json["rules"], json!([review]));
+    let unknown_tag =
+        put(json!([{"name": "colour", "then": {"set_tags": {"colour": "red"}}}])).await;
+    assert_eq!(unknown_tag.status, StatusCode::BAD_REQUEST);
+    let person =
+        put(json!([{"name": "me", "then": {"set_tags": {"person": "k.novak@kestrel.example"}}}]))
+            .await;
+    assert_eq!(person.status, StatusCode::BAD_REQUEST);
+    let not_a_rule = put(json!([{"name": "x", "then": "guess"}])).await;
+    assert!(not_a_rule.status.is_client_error());
+
+    let directory = tokencontroller_server::projects::directory(&pool, ids::ORGANIZATION)
+        .await
+        .unwrap();
+    let mara_rules = &directory.people
+        [&tokencontroller_core::TagValue::new("m.ortner@kestrel.example").unwrap()]
+        .rules;
+    assert_eq!(mara_rules.len(), 1);
+    assert_eq!(mara_rules[0].name, "review branches");
+
+    // Organization rules: controllers change them; an empty list switches
+    // every rule off.
+    let refused = send(
+        &app,
+        Method::PUT,
+        "/api/v1/organization/rules",
+        Auth::Bearer(&mara),
+        Some(json!({"rules": []})),
+    )
+    .await
+    .unwrap();
+    assert_eq!(refused.status, StatusCode::FORBIDDEN);
+    let changed = send(
+        &app,
+        Method::PUT,
+        "/api/v1/organization/rules",
+        Auth::Cookie(&nadia),
+        Some(json!({"rules": [], "several_keys": "equal_split", "summary_match": false})),
+    )
+    .await
+    .unwrap();
+    assert_eq!(changed.status, StatusCode::OK, "{}", changed.text);
+    let read = send(
+        &app,
+        Method::GET,
+        "/api/v1/organization/rules",
+        Auth::Bearer(&mara),
+        None,
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        read.json,
+        json!({"rules": [], "several_keys": "equal_split", "summary_match": false})
+    );
+    let rules = tokencontroller_server::organizations::organization_rules(&pool, ids::ORGANIZATION)
+        .await
+        .unwrap();
+    assert!(rules.rules.is_empty());
+    assert!(!rules.summary_match);
 }

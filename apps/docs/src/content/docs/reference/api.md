@@ -14,7 +14,7 @@ A versioned REST API under `/api/v1`. The full description is an OpenAPI documen
 | `tc_read_…` | Read tokens for reports. They see what their creator's role sees. |
 | `tc_org_…` | The organization token for telemetry push. |
 
-Send a token in the `Authorization` header, such as `Authorization: Bearer tc_read_…`. The web app signs in with a magic link and keeps a session cookie. `tc connect` signs in with a magic link too, and keeps a session token on the machine.
+Send a token in the `Authorization` header, such as `Authorization: Bearer tc_read_…`. The web app signs in with a magic link and keeps a session cookie. `tc connect` signs in with a magic link too, and keeps its `tc_cli_…` token on the machine.
 
 ## Main endpoints {#endpoints}
 
@@ -23,6 +23,7 @@ Send a token in the `Authorization` header, such as `Authorization: Bearer tc_re
 | `POST /token-entries` | Report a token entry. See [Token entries endpoint](/collect/token-entries). |
 | `POST /bills` | Send a bill for a period. See [Bill schema](/reference/bill). |
 | `GET /reports/…` | Read reports. See [Reporting API](/report/reporting-api). |
+| `GET /me/context` | What the CLI needs to place token entries like the service does: the organization's rules and tag names, your own rules and tags, and the projects with their ticket key patterns and repositories. `PUT /me/rules` replaces your own rules. |
 | `GET /status` | The state of each part of the service, without signing in. status.tokencontroller.com shows it. |
 
 Everything the web app does goes through this API.

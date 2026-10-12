@@ -7,6 +7,7 @@ use sqlx::PgPool;
 use sqlx::types::Json as JsonColumn;
 use tokencontroller_core::directory::{Directory, Person, Project, Ticket};
 use tokencontroller_core::pattern::TicketKeyPattern;
+use tokencontroller_core::rules::Rule;
 use tokencontroller_core::tags::TagValue;
 use uuid::Uuid;
 
@@ -16,7 +17,6 @@ use crate::tags::{self, Tags};
 /// Everyone, every project that is not archived and every ticket of an
 /// organization. A person's `person` tag value is their email address.
 /// Removed people stay in, because their service tokens may still report.
-/// Personal rules are left empty for the rules area to fill.
 ///
 /// # Errors
 ///
@@ -24,7 +24,8 @@ use crate::tags::{self, Tags};
 /// the checks on the way in prevent.
 pub async fn directory(db: &PgPool, organization_id: Uuid) -> Result<Directory, ApiError> {
     let people = sqlx::query!(
-        r#"SELECT email, tags AS "tags: JsonColumn<Tags>" FROM people WHERE organization_id = $1"#,
+        r#"SELECT email, tags AS "tags: JsonColumn<Tags>", rules AS "rules: JsonColumn<Vec<Rule>>"
+           FROM people WHERE organization_id = $1"#,
         organization_id
     )
     .fetch_all(db)
@@ -59,7 +60,7 @@ pub async fn directory(db: &PgPool, organization_id: Uuid) -> Result<Directory, 
             value(&person.email)?,
             Person {
                 tags: core_tags(&person.tags.0)?,
-                rules: Vec::new(),
+                rules: person.rules.0,
             },
         );
     }
