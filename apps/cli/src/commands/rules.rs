@@ -39,12 +39,11 @@ pub fn run(app: &mut App<'_>, action: Option<RulesAction>) -> Result<()> {
 }
 
 /// A rule in JSON: personal rules carry the number `tc rules remove` takes,
-/// and every rule its text as the list shows it.
+/// and every rule its `text` as the list shows it.
 #[derive(Debug, Serialize)]
 struct RuleView<'a> {
     #[serde(skip_serializing_if = "Option::is_none")]
     number: Option<usize>,
-    #[serde(rename = "rule")]
     text: String,
     #[serde(flatten)]
     rule: &'a Rule,

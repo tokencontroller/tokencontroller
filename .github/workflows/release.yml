@@ -1,4 +1,4 @@
-# Release (ADR 0015): a tag such as v1.0.0 builds tc for macOS, Linux and
+# Release (ADR 0017): a tag such as v1.0.0 builds tc for macOS, Linux and
 # Windows on Intel and ARM, publishes the archives and SHA256SUMS on the
 # GitHub release, writes the Homebrew formula to Formula/tc.rb, and writes the
 # winget manifest (submitted when the WINGET_TOKEN secret is set). A pull

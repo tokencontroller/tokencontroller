@@ -305,9 +305,8 @@ fn drafts_come_from_both_agents_with_no_service_connected() {
     assert_eq!(claude["tokens"]["input"], 1_000_000);
     assert_eq!(claude["tokens"]["cache_read"], 1_000_000);
     assert_eq!(claude["list_value"], "4.80");
-    assert_eq!(claude["cost"], "4.80");
     assert_eq!(claude["currency"], "USD");
-    assert_eq!(claude["tags"]["ticket"], "KD-214");
+    assert_eq!(claude["splits"][0]["tags"]["ticket"], "KD-214");
     assert_eq!(claude["placed_by"], "rule: ticket key in branch");
     assert_eq!(claude["candidates"], json!(["KD-260"]));
     assert_eq!(claude["summary"], "Fix checkout redirect loop");
@@ -318,7 +317,7 @@ fn drafts_come_from_both_agents_with_no_service_connected() {
     assert_eq!(codex["tokens"]["input"], 100_000);
     assert_eq!(codex["tokens"]["cache_read"], 100_000);
     assert_eq!(codex["list_value"], "0.64");
-    assert_eq!(codex["tags"]["ticket"], "OPS-7");
+    assert_eq!(codex["splits"][0]["tags"]["ticket"], "OPS-7");
 
     // Reading again changes nothing.
     assert_eq!(machine.json(&["review", "--json"]).unwrap(), review);
@@ -340,8 +339,14 @@ fn people_tag_split_and_export_by_hand() {
     let tagged = machine
         .json(&["tag", &codex, "purpose=learning", "ticket=OPS-9", "--json"])
         .unwrap();
-    assert_eq!(tagged["token_entry"]["tags"]["ticket"], "OPS-9");
-    assert_eq!(tagged["token_entry"]["tags"]["purpose"], "learning");
+    assert_eq!(
+        tagged["token_entry"]["splits"][0]["tags"]["ticket"],
+        "OPS-9"
+    );
+    assert_eq!(
+        tagged["token_entry"]["splits"][0]["tags"]["purpose"],
+        "learning"
+    );
     assert_eq!(tagged["token_entry"]["placed_by"], "hand");
 
     let split = machine
@@ -374,13 +379,13 @@ fn people_tag_split_and_export_by_hand() {
         .unwrap();
     assert_eq!(report["total"], "5.44");
     assert_eq!(report["rows"][0]["value"], "KD-214");
-    assert_eq!(report["rows"][0]["cost"], "2.88");
+    assert_eq!(report["rows"][0]["list_value"], "2.88");
 
     let day = machine
         .json(&["report", "--by", "day", "--since", "2026-10-01", "--json"])
         .unwrap();
     assert_eq!(day["rows"][0]["value"], "2026-10-11");
-    assert_eq!(day["rows"][0]["share"], 1);
+    assert_eq!(day["rows"][0]["list_value"], "5.44");
 }
 
 #[test]
@@ -404,7 +409,7 @@ fn the_mod_records_summaries_and_tags_line_by_line() {
     let review = machine.json(&["review", "--json"]).unwrap();
     let claude = &by_harness(&review)["claude-code"];
     assert_eq!(claude["summary"], "Fixed the redirect loop in checkout");
-    assert_eq!(claude["tags"]["ticket"], "KD-260");
+    assert_eq!(claude["splits"][0]["tags"]["ticket"], "KD-260");
     assert_eq!(claude["placed_by"], "hand");
     // Turn lines are not counted twice: the session file has the tokens.
     assert_eq!(claude["tokens"]["output"], 100_000);
@@ -429,14 +434,14 @@ fn rules_are_added_listed_and_removed_on_the_machine() {
     let rules = machine.json(&["rules", "--json"]).unwrap();
     assert_eq!(rules["rules"][0]["number"], 1);
     assert_eq!(
-        rules["rules"][0]["rule"],
+        rules["rules"][0]["text"],
         "directory contains ops → purpose=operations"
     );
     assert_eq!(rules["rules"][1]["when"]["test"], "matches");
 
     let review = machine.json(&["review", "--json"]).unwrap();
     assert_eq!(
-        by_harness(&review)["codex"]["tags"]["purpose"],
+        by_harness(&review)["codex"]["splits"][0]["tags"]["purpose"],
         "operations"
     );
 
@@ -471,11 +476,10 @@ fn mistakes_exit_with_one_and_say_what_to_do() {
 
     let status = machine.json(&["status", "--json"]).unwrap();
     assert_eq!(status["connected"], false);
-    assert_eq!(status["currency"], "USD");
-    assert_eq!(status["token_sheet"]["token_entries"], 2);
-    assert_eq!(status["token_sheet"]["cost"], "5.44");
-    assert_eq!(status["token_sheet"]["share_on_tickets"], 1);
-    assert_eq!(status["token_sheet"]["is_late"], false);
+    assert_eq!(status["today"]["currency"], "USD");
+    assert_eq!(status["drafts"], 2);
+    // With no service there is no cadence and so no token sheet period.
+    assert_eq!(status["token_sheet"], Value::Null);
 }
 
 #[test]
@@ -507,8 +511,8 @@ fn a_token_sheet_is_submitted_with_keys_but_never_prompts() {
         serde_json::from_str(&machine.tc_with(&["review", "--json"], &env, "").unwrap()).unwrap();
     let codex = &by_harness(&review)["codex"];
     // The organization rule and the project's own tags apply.
-    assert_eq!(codex["tags"]["purpose"], "operations");
-    assert_eq!(codex["tags"]["project"], "ops");
+    assert_eq!(codex["splits"][0]["tags"]["purpose"], "operations");
+    assert_eq!(codex["splits"][0]["tags"]["project"], "ops");
 
     let said = machine.tc_with(&["submit"], &env, "").unwrap();
     assert!(
@@ -555,23 +559,18 @@ fn the_github_action_reports_automatic_entries_with_its_tags_and_signals() {
         _ => (404, json!({"error": "no such route"})),
     }))
     .unwrap();
-    let env = [("TC_URL", service.url.as_str()), ("TC_TOKEN", "tc_svc_ci")];
-    let said = machine
-        .tc_with(
-            &[
-                "submit",
-                "--tag",
-                "purpose=code-review",
-                "--signal",
-                "pull_request=12",
-                "--signal",
-                "pull_request_title=KD-300: tidy the cart",
-            ],
-            &env,
-            "",
-        )
-        .unwrap();
-    assert!(said.starts_with("reported · 2 token entries"), "{said}");
+    let signals = json!({"repository": "kestrel/ops", "pull_request": 12, "pull_request_title": "KD-300: tidy the cart"}).to_string();
+    let env = [
+        ("TC_URL", service.url.as_str()),
+        ("TC_TOKEN", "tc_svc_ci"),
+        ("TC_TAGS", "purpose=code-review"),
+        ("TC_SIGNALS", signals.as_str()),
+    ];
+    let said: Value =
+        serde_json::from_str(&machine.tc_with(&["submit", "--json"], &env, "").unwrap()).unwrap();
+    assert_eq!(said["submitted"], 2);
+    assert_eq!(said["list_value"], "5.44");
+    assert_eq!(said["currency"], "USD");
     let posted: Vec<Seen> = service
         .seen()
         .into_iter()
@@ -595,6 +594,23 @@ fn the_github_action_reports_automatic_entries_with_its_tags_and_signals() {
         .run(&["submit", "--signal", "weather=sunny"], &env, "")
         .unwrap();
     assert_eq!(wrong.status.code(), Some(1));
+
+    // The same names as flags, for scripts.
+    let flagged = Machine::ready().unwrap();
+    let said = flagged
+        .tc_with(
+            &[
+                "submit",
+                "--tag",
+                "purpose=learning",
+                "--signal",
+                "pull_request=7",
+            ],
+            &env[..2],
+            "",
+        )
+        .unwrap();
+    assert!(said.starts_with("reported · 2 token entries"), "{said}");
 }
 
 #[test]
@@ -654,7 +670,7 @@ fn connect_signs_in_on_the_web_and_keeps_the_token() {
     assert_eq!(status["connected"], true);
     assert_eq!(status["organization"], "Kestrel Digital");
     assert_eq!(status["token_sheet"]["period_start"], "2026-10-05");
-    assert_eq!(status["token_sheet"]["due_at"], "2026-10-13T09:00:00Z");
+    assert_eq!(status["token_sheet"]["late"], false);
 }
 
 /// The sessions folder of an agent can be moved with its own variable.
@@ -690,10 +706,13 @@ fn the_classifier_reads_the_prompts_that_name_a_ticket_and_has_the_last_word() {
     let review = machine.json(&["review", "--json"]).unwrap();
     let entries = by_harness(&review);
     // Only the Codex session's ticket came from a prompt alone.
-    assert_eq!(entries["codex"]["tags"].get("ticket"), None);
+    assert_eq!(entries["codex"]["splits"][0]["tags"].get("ticket"), None);
     assert_eq!(entries["codex"]["placed_by"], "none");
     assert_eq!(entries["codex"]["candidates"], json!(["OPS-7"]));
-    assert_eq!(entries["claude-code"]["tags"]["ticket"], "KD-214");
+    assert_eq!(
+        entries["claude-code"]["splits"][0]["tags"]["ticket"],
+        "KD-214"
+    );
 
     let digest: Value = serde_json::from_str(&std::fs::read_to_string(&asked).unwrap()).unwrap();
     assert_eq!(digest["agent_harness"], "codex");

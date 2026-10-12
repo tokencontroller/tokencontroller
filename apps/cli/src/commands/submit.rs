@@ -11,7 +11,7 @@ use crate::amounts::decimal;
 use crate::app::App;
 use crate::entries::{CURRENCY, Entry};
 use crate::error::{Error, Result};
-use crate::output::{self, fraction, percent, utc};
+use crate::output::{self, percent, utc};
 use crate::store::{Status, StoredMessage};
 use crate::tokens::TokenKinds;
 
@@ -222,7 +222,7 @@ pub fn run(app: &mut App<'_>, tags: &[String], signals: &[String]) -> Result<()>
         if app.json {
             return output::json(
                 app.out,
-                &serde_json::json!({"submitted": 0, "cost": "0.00", "currency": CURRENCY.code(), "share_on_tickets": 0}),
+                &serde_json::json!({"submitted": 0, "list_value": "0.00", "currency": CURRENCY.code(), "share_on_tickets_percent": 0}),
             );
         }
         writeln!(
@@ -282,9 +282,9 @@ pub fn run(app: &mut App<'_>, tags: &[String], signals: &[String]) -> Result<()>
             app.out,
             &serde_json::json!({
                 "submitted": entries.len(),
-                "cost": decimal(total, CURRENCY),
+                "list_value": decimal(total, CURRENCY),
                 "currency": CURRENCY.code(),
-                "share_on_tickets": fraction(on_tickets, total),
+                "share_on_tickets_percent": share,
             }),
         );
     }

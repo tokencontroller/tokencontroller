@@ -1,5 +1,5 @@
 # cargo about: the licenses of every crate compiled into tc, for DEPENDENCIES.md
-# in each download (ADR 0015). The accepted list matches deny.toml.
+# in each download (ADR 0017). The accepted list matches deny.toml.
 accepted = [
     "MIT",
     "MIT-0",

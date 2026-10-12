@@ -4,7 +4,7 @@ The CLI, `tc`, is the one local program: it reads session files through the ccus
 
 There is no background process and no sync between a person's machines; each machine submits its own token entries.
 
-ADR 0015 replaces the ccusage adapter crates with readers of our own that follow ccusage's rules, and fills in the rest of how `tc` works.
+ADR 0017 replaces the ccusage adapter crates with readers of our own that follow ccusage's rules, and fills in the rest of how `tc` works.
 
 ## Why
 

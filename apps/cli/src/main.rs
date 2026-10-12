@@ -1,4 +1,4 @@
-//! `tc`, the Token Controller command line (ADR 0010, ADR 0015).
+//! `tc`, the Token Controller command line (ADR 0010, ADR 0017).
 //!
 //! It reads the session files of Claude Code and Codex on this machine, keeps
 //! draft token entries in a local `SQLite` file, places them with the rules,

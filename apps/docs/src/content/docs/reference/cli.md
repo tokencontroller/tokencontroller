@@ -52,5 +52,6 @@ With `--json` every command prints one JSON value and nothing else. Messages go 
 | --- | --- |
 | `TC_URL`, `TC_TOKEN` | The service and token to use instead of the ones `tc connect` saved. With a service token, `tc submit` reports automatic token entries. |
 | `TC_TICKET`, `TC_PROJECT`, `TC_TAGS` | A ticket, a project, or tags such as `team=web,purpose=code-review` for every token entry in this run. |
+| `TC_SIGNALS` | Signals for every token entry in this run, as JSON, such as `{"repository":"kestrel/storefront","pull_request":12}`. The names are those of `--signal`. |
 | `TC_HOME` | The folder for the settings file and the local database. |
 | `CLAUDE_CONFIG_DIR`, `CODEX_HOME` | Where Claude Code and Codex keep their session files, as the agents themselves read them. |

@@ -43,11 +43,32 @@ impl Run {
                 tags.insert(name.to_owned(), value.trim().to_owned());
             }
         }
-        Self {
-            tags,
-            signals: BTreeMap::new(),
-        }
+        let signals = std::env::var("TC_SIGNALS")
+            .ok()
+            .map(|text| parse_signals(&text))
+            .unwrap_or_default();
+        Self { tags, signals }
     }
+}
+
+/// `TC_SIGNALS` as the GitHub Action sets it: a JSON object such as
+/// `{"repository":"kestrel/storefront","pull_request":12}`. Names tc does
+/// not take are left out.
+pub fn parse_signals(text: &str) -> BTreeMap<String, String> {
+    let Ok(serde_json::Value::Object(object)) = serde_json::from_str(text) else {
+        return BTreeMap::new();
+    };
+    object
+        .into_iter()
+        .filter(|(name, _)| RUN_SIGNALS.contains(&name.as_str()))
+        .filter_map(|(name, value)| match value {
+            serde_json::Value::String(text) if !text.trim().is_empty() => {
+                Some((name, text.trim().to_owned()))
+            }
+            serde_json::Value::Number(number) => Some((name, number.to_string())),
+            _ => None,
+        })
+        .collect()
 }
 
 /// `team=web,purpose=code-review` → tags.
@@ -712,6 +733,16 @@ mod tests {
             Vec::new(),
         );
         assert_eq!(one(&store).model, "claude-opus-4-5");
+    }
+
+    #[test]
+    fn signals_read_like_the_action_writes_them() {
+        let signals = parse_signals(
+            r#"{"repository":"kestrel/storefront","pull_request":12,"pull_request_title":"KD-1: x","branch":"","weather":"sunny"}"#,
+        );
+        assert_eq!(signals.get("pull_request").map(String::as_str), Some("12"));
+        assert_eq!(signals.len(), 3);
+        assert!(parse_signals("not json").is_empty());
     }
 
     #[test]

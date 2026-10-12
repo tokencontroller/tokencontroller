@@ -11,15 +11,15 @@ This fills in ADR 0010 where the CLI needed details.
 
 ## Placing
 
-- The order is the one on the Rules page. Until the rules engine lands in `crates/core`, it runs in `apps/cli/src/placing.rs`; `tc` switches to the core engine when it does, with no change to the command line.
+- The order is the one on the Rules page. `tc` places with `apps/cli/src/placing.rs` while it moves to the rules engine in `crates/core` (ADR 0015), so the machine and the service place alike; the command line does not change with it.
 - Segments: a session splits exactly by message where the branch, the working directory or the subagent changes. Hand splits and equal splits divide by share with the largest-remainder method (ADR 0004).
 - List value on the machine is an estimate in USD, the price list's currency: the agent's reported cost where it has one, otherwise the tokens at a price snapshot taken from LiteLLM's list and built into the binary (`apps/cli/prices.json`). The service computes the list value that counts with its own price tables.
 
 ## Commands for other programs
 
 - Every command takes `--json` and then prints exactly one JSON value. Errors go to standard error. Exit code 1 is the caller's mistake (including a wrong command line), 2 an error from the service, 3 a local failure.
-- `tc record` takes what the Claude Code mod knows that the files do not: the summary and tags picked in the session, one JSON object per line. The mod's per-turn usage lines are taken and not counted again, since the session files hold the same turns.
-- `tc submit --tag NAME=VALUE --signal NAME=VALUE` is how the GitHub Action names its project, ticket and tags and passes the repository, branch and pull request of the job. `TC_URL`, `TC_TOKEN`, `TC_TICKET`, `TC_PROJECT` and `TC_TAGS` set the same for a whole run without touching the settings file. `TC_HOME` moves the settings file and the database.
+- `tc record` takes what the Claude Code mod knows that the files do not: the summary and the tags picked in the session, as one JSON object or one per line. Lines with a turn's usage are taken and not counted again, since the session files hold the same turns.
+- `tc submit --tag NAME=VALUE --signal NAME=VALUE` is how the GitHub Action names its project, ticket and tags and passes the repository, branch and pull request of the job. `TC_URL`, `TC_TOKEN`, `TC_TICKET`, `TC_PROJECT`, `TC_TAGS` and `TC_SIGNALS` set the same for a whole run without touching the settings file. `TC_HOME` moves the settings file and the database.
 
 ## Signing in
 

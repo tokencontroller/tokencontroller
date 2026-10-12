@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Release steps for tc that the release workflow runs (ADR 0015).
+"""Release steps for tc that the release workflow runs (ADR 0017).
 
     release.py check-version VERSION        the tag matches apps/cli/Cargo.toml
     release.py archive TARGET BINARY DEPENDENCIES OUT
