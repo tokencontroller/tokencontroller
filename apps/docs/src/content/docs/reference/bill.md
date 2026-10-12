@@ -16,3 +16,4 @@ The fields of a bill, as the bills endpoint and CSV upload take them.
 | `currency` | Such as `USD`. |
 | `exchange_rate` | To the organization's reporting currency, at the bill's date. Optional; Token Controller fills it in when left out. |
 | `revision` | Set by Token Controller when a provider restates a bill. Sending the same figures again changes nothing. |
+| `final` | Set by Token Controller: whether the provider will no longer change the figures. A bill sent, uploaded or typed in is final. A pulled bill can come in before it is, such as [Anthropic Enterprise](/integrations/anthropic-enterprise), and the close of its period waits for it. |

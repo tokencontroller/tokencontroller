@@ -565,6 +565,7 @@ pub(super) fn new_bill(
         source,
         lines: bill.lines().iter().map(line_json).collect(),
         recorded_by,
+        is_final: bill.is_final(),
     })
 }
 

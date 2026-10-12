@@ -3946,21 +3946,9 @@
         ],
         "summary": "The saved reports of the organization, by name.",
         "operationId": "list_saved",
-        "parameters": [
-          {
-            "name": "format",
-            "in": "query",
-            "description": "`csv` for the table as a CSV file instead of JSON.",
-            "required": false,
-            "schema": {
-              "type": "string"
-            },
-            "example": "csv"
-          }
-        ],
         "responses": {
           "200": {
-            "description": "Saved reports, as JSON or CSV",
+            "description": "Saved reports",
             "content": {
               "application/json": {
                 "schema": {
@@ -3968,11 +3956,6 @@
                   "items": {
                     "$ref": "#/components/schemas/SavedReport"
                   }
-                }
-              },
-              "text/csv": {
-                "schema": {
-                  "type": "string"
                 }
               }
             }
@@ -7404,6 +7387,7 @@
           "net",
           "exchange_rate_given",
           "source",
+          "final",
           "lines",
           "recorded_at"
         ],
@@ -7434,6 +7418,10 @@
           "exchange_rate_given": {
             "type": "boolean",
             "description": "Whether the rate came with the bill, rather than from the reference\nrates."
+          },
+          "final": {
+            "type": "boolean",
+            "description": "Whether the provider will no longer change these figures. The close\nof the period waits for a bill that is not final."
           },
           "gross": {
             "type": "string",
@@ -9763,6 +9751,7 @@
         "required": [
           "bills",
           "providers_without_bill",
+          "bills_not_final",
           "organization_overhead",
           "organization_overhead_entries",
           "late_token_sheets",
@@ -9776,6 +9765,13 @@
             "type": "integer",
             "description": "Bills in for the period.",
             "minimum": 0
+          },
+          "bills_not_final": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Providers whose bill may still change, such as Anthropic Enterprise\nbefore its figures are final. The period cannot close until it is."
           },
           "late_token_sheets": {
             "type": "integer",

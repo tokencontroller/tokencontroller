@@ -148,6 +148,9 @@ pub struct NewBill {
     pub lines: Vec<serde_json::Value>,
     /// The person who typed or sent it; `None` for a pull.
     pub recorded_by: Option<Uuid>,
+    /// Whether the provider will no longer change these figures. A pull can
+    /// bring a bill before it is final; every other source is final.
+    pub is_final: bool,
 }
 
 /// Why a bill was refused.
@@ -208,6 +211,10 @@ pub struct BillView {
     /// rates.
     pub exchange_rate_given: bool,
     pub source: BillSource,
+    /// Whether the provider will no longer change these figures. The close
+    /// of the period waits for a bill that is not final.
+    #[serde(rename = "final")]
+    pub is_final: bool,
     #[schema(value_type = Vec<Object>)]
     pub lines: Vec<serde_json::Value>,
     #[serde(with = "time::serde::rfc3339")]
@@ -242,16 +249,7 @@ pub async fn record_bill(
         return Ok(Err(BillError::NoOrganization));
     };
     let currency = bill.net.currency();
-    let (exchange_rate, given) = if let Some(rate) = bill.exchange_rate {
-        (Some(rate), true)
-    } else {
-        let rate = rates::between(db, currency, reporting, bill.period.last_day())
-            .await?
-            .ok()
-            .filter(|_| currency != reporting)
-            .map(rate_number);
-        (rate, false)
-    };
+    let (exchange_rate, given) = rate_for(db, &bill, reporting).await?;
 
     let mut tx = db.begin().await?;
     let bill_id = sqlx::query_scalar!(
@@ -270,7 +268,7 @@ pub async fn record_bill(
 
     let latest = sqlx::query!(
         r#"SELECT revision, currency, gross_nanos, discount_nanos, credit_nanos, net_nanos,
-                  exchange_rate_nanos, exchange_rate_given, lines
+                  exchange_rate_nanos, exchange_rate_given, lines, final
            FROM bill_revisions WHERE bill_id = $1 ORDER BY revision DESC LIMIT 1
            FOR UPDATE"#,
         bill_id,
@@ -288,13 +286,25 @@ pub async fn record_bill(
             && latest.lines == lines
             && (!given || latest.exchange_rate_nanos == exchange_rate.map(RateNumber::nanos));
         if same {
+            // The same figures, now final: the revision becomes final. A
+            // final bill never goes back.
+            let now_final = bill.is_final && !latest.r#final;
+            if now_final {
+                sqlx::query!(
+                    "UPDATE bill_revisions SET final = true WHERE bill_id = $1 AND revision = $2",
+                    bill_id,
+                    latest.revision,
+                )
+                .execute(&mut *tx)
+                .await?;
+            }
             tx.commit().await?;
             let view = latest_view(db, bill_id)
                 .await?
                 .ok_or(sqlx::Error::RowNotFound)?;
             return Ok(Ok(RecordedBill {
                 bill: view,
-                changed: false,
+                changed: now_final,
             }));
         }
     }
@@ -305,8 +315,8 @@ pub async fn record_bill(
     sqlx::query!(
         r#"INSERT INTO bill_revisions
                (bill_id, revision, currency, gross_nanos, discount_nanos, credit_nanos, net_nanos,
-                exchange_rate_nanos, exchange_rate_given, source, lines, recorded_by)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)"#,
+                exchange_rate_nanos, exchange_rate_given, source, lines, recorded_by, final)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)"#,
         bill_id,
         revision,
         currency.code(),
@@ -319,6 +329,7 @@ pub async fn record_bill(
         bill.source.as_str(),
         lines,
         bill.recorded_by,
+        bill.is_final,
     )
     .execute(&mut *tx)
     .await?;
@@ -330,6 +341,25 @@ pub async fn record_bill(
         bill: view,
         changed: true,
     }))
+}
+
+/// The bill's rate to the reporting currency, and whether it came with the
+/// bill. Without one it is the reference rate of the period's last day.
+async fn rate_for(
+    db: &PgPool,
+    bill: &NewBill,
+    reporting: Currency,
+) -> Result<(Option<RateNumber>, bool), sqlx::Error> {
+    if let Some(rate) = bill.exchange_rate {
+        return Ok((Some(rate), true));
+    }
+    let currency = bill.net.currency();
+    let rate = rates::between(db, currency, reporting, bill.period.last_day())
+        .await?
+        .ok()
+        .filter(|_| currency != reporting)
+        .map(rate_number);
+    Ok((rate, false))
 }
 
 fn check(bill: &NewBill) -> Result<(), BillError> {
@@ -409,7 +439,8 @@ pub async fn latest_bills(
         r#"SELECT DISTINCT ON (b.id)
                   b.id, b.period, b.provider, b.cost_source, r.revision, r.currency,
                   r.gross_nanos, r.discount_nanos, r.credit_nanos, r.net_nanos,
-                  r.exchange_rate_nanos, r.exchange_rate_given, r.source, r.lines, r.recorded_at
+                  r.exchange_rate_nanos, r.exchange_rate_given, r.source, r.lines, r.recorded_at,
+                  r.final
            FROM bills b JOIN bill_revisions r ON r.bill_id = b.id
            WHERE b.organization_id = $1 AND ($2::date IS NULL OR b.period = $2)
            ORDER BY b.id, r.revision DESC"#,
@@ -437,6 +468,7 @@ pub async fn latest_bills(
                 source: row.source,
                 lines: row.lines,
                 recorded_at: row.recorded_at,
+                is_final: row.r#final,
             })
         })
         .collect();
@@ -462,7 +494,8 @@ pub async fn revisions(
     let rows = sqlx::query!(
         r#"SELECT b.id, b.period, b.provider, b.cost_source, r.revision, r.currency,
                   r.gross_nanos, r.discount_nanos, r.credit_nanos, r.net_nanos,
-                  r.exchange_rate_nanos, r.exchange_rate_given, r.source, r.lines, r.recorded_at
+                  r.exchange_rate_nanos, r.exchange_rate_given, r.source, r.lines, r.recorded_at,
+                  r.final
            FROM bills b JOIN bill_revisions r ON r.bill_id = b.id
            WHERE b.organization_id = $1 AND b.id = $2
            ORDER BY r.revision"#,
@@ -490,6 +523,7 @@ pub async fn revisions(
                 source: row.source,
                 lines: row.lines,
                 recorded_at: row.recorded_at,
+                is_final: row.r#final,
             })
         })
         .collect())
@@ -519,6 +553,7 @@ struct RevisionRow {
     source: String,
     lines: serde_json::Value,
     recorded_at: OffsetDateTime,
+    is_final: bool,
 }
 
 fn view(row: RevisionRow) -> Option<BillView> {
@@ -541,6 +576,7 @@ fn view(row: RevisionRow) -> Option<BillView> {
             .map(|rate| rate.to_string()),
         exchange_rate_given: row.exchange_rate_given,
         source: BillSource::parse(&row.source)?,
+        is_final: row.is_final,
         lines: row.lines.as_array().cloned().unwrap_or_default(),
         recorded_at: row.recorded_at,
     })
@@ -626,6 +662,7 @@ impl BillInput {
             },
             lines: self.lines,
             recorded_by: Some(recorded_by),
+            is_final: true,
         })
     }
 }
@@ -688,6 +725,7 @@ const BILL_COLUMNS: &[crate::reports::csv::Column] = &[
     ("net", "/net"),
     ("exchange_rate", "/exchange_rate"),
     ("source", "/source"),
+    ("final", "/final"),
     ("recorded_at", "/recorded_at"),
 ];
 
@@ -773,6 +811,7 @@ mod tests {
             source: BillSource::Api,
             lines: Vec::new(),
             recorded_by: None,
+            is_final: true,
         }
     }
 
