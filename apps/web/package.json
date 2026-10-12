@@ -1,0 +1,47 @@
+{
+  "name": "@tokencontroller/web",
+  "private": true,
+  "type": "module",
+  "description": "The web app: a React single-page app on the versioned API (ADR 0009).",
+  "license": "AGPL-3.0-only",
+  "scripts": {
+    "generate": "node scripts/generate-api.mjs",
+    "dev": "pnpm generate && vite --port 5173",
+    "dev:mock": "pnpm generate && VITE_API_MOCK=1 vite --port 5173",
+    "lint": "pnpm generate && eslint .",
+    "typecheck": "pnpm generate && tsc -b --noEmit",
+    "test": "pnpm generate && vitest run",
+    "build": "pnpm generate && tsc -b --noEmit && vite build",
+    "build:mock": "pnpm generate && VITE_API_MOCK=1 vite build --outDir dist-mock",
+    "e2e": "playwright test"
+  },
+  "dependencies": {
+    "@base-ui/react": "1.9.0",
+    "@tanstack/react-query": "5.104.2",
+    "@tanstack/react-router": "1.170.42",
+    "openapi-fetch": "0.17.0",
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@playwright/test": "1.64.0",
+    "@tailwindcss/vite": "4.3.3",
+    "@testing-library/react": "16.3.3",
+    "@types/node": "^26.6.5",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "6.1.2",
+    "eslint": "10.12.0",
+    "eslint-plugin-react-hooks": "7.1.1",
+    "globals": "17.13.0",
+    "jsdom": "30.1.2",
+    "msw": "3.0.3",
+    "openapi-typescript": "7.13.0",
+    "tailwindcss": "4.3.3",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.71.1",
+    "vite": "8.3.4",
+    "vitest": "5.0.3"
+  }
+}
