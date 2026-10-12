@@ -27,7 +27,7 @@ Nothing shows while no Claude Code session is open. People who use other agents 
 
 ## What it records {#records}
 
-After every turn the mod takes Claude Code's own usage figures: tokens by kind, the model and the cost. Together they make the session's draft token entry. During the session the mod writes the summary with a small model call of its own, so the summary exists even if the session is closed abruptly. A session is split into segments when the branch or working directory changes; see [Sessions and subagents](/attribute/sessions).
+After every turn the mod has the CLI read Claude Code's own usage figures from its session files: tokens by kind and the model. Together they make the session's draft token entry. During the session the mod writes the summary with a small model call of its own, so the summary exists even if the session is closed abruptly. A session is split into segments when the branch or working directory changes; see [Sessions and subagents](/attribute/sessions).
 
 ## What it shows {#shows}
 
