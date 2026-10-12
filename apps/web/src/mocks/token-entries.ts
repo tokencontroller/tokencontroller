@@ -106,6 +106,7 @@ function views(db: Db, lines: Line[]): EntryView[] {
       currency,
       label: known ? "list-price estimate" : "unknown model",
       rejected_reason: entry.status === "rejected" ? entry.reject_reason : null,
+      candidates: entry.candidates,
       splits: group.map((line) => ({
         id: `${entry.id}-${String(line.index + 1)}`,
         list_value: line.list === null ? null : dec(line.list, currency),

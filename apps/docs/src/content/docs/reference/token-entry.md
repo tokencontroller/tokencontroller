@@ -27,4 +27,4 @@ The fields of a token entry, as the token entries endpoint and CSV import take t
 | `local_id` | The sender's own ID for the token entry, such as `claude-code:<session id>`. Optional. Sending it again replaces the earlier one. |
 | `placed_by` | What placed it: a rule's name, `hand`, `classifier` or `none`. Optional. |
 
-Set by Token Controller: agent manager, list value, billed value, inherited tags, splits, status.
+Set by Token Controller: agent manager, list value, billed value, inherited tags, splits, status, and candidate tickets: other tickets the session named that no split is placed on.

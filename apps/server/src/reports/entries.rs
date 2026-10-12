@@ -66,15 +66,20 @@ pub struct EntryView {
     /// `list-price estimate`, or `unknown model`.
     pub label: &'static str,
     pub splits: Vec<SplitView>,
+    /// Other tickets it could go on: ticket keys the session named, in the
+    /// branch, a title or the prompts, that no split landed on. The review
+    /// list offers them.
+    pub candidates: Vec<String>,
     /// Why a people manager sent it back.
     pub rejected_reason: Option<String>,
 }
 
-/// When each token entry ended and its tokens, every split together.
+/// When each token entry ended, its tokens, every split together, and its
+/// candidate tickets.
 async fn details(
     db: &PgPool,
     lines: &[CostLine],
-) -> Result<BTreeMap<Uuid, (OffsetDateTime, TokenCounts)>, sqlx::Error> {
+) -> Result<BTreeMap<Uuid, (OffsetDateTime, TokenCounts, Vec<String>)>, sqlx::Error> {
     let ids: Vec<Uuid> = lines
         .iter()
         .map(|line| line.entry_id)
@@ -83,7 +88,8 @@ async fn details(
         .collect();
     let count = |tokens: i64| u64::try_from(tokens).unwrap_or(0);
     Ok(sqlx::query!(
-        r#"SELECT id, ended_at, input_tokens, output_tokens, cache_write_tokens, cache_read_tokens
+        r#"SELECT id, ended_at, input_tokens, output_tokens, cache_write_tokens, cache_read_tokens,
+                  candidate_tickets
            FROM token_entries WHERE id = ANY($1)"#,
         &ids,
     )
@@ -97,7 +103,7 @@ async fn details(
             cache_write: count(row.cache_write_tokens),
             cache_read: count(row.cache_read_tokens),
         };
-        (row.id, (row.ended_at, tokens))
+        (row.id, (row.ended_at, tokens, row.candidate_tickets))
     })
     .collect())
 }
@@ -155,7 +161,7 @@ pub async fn entries(db: &PgPool, lines: Vec<CostLine>) -> Result<Vec<EntryView>
     .into_iter()
     .map(|row| (row.token_entry_id, row.reason))
     .collect();
-    let details = details(db, &lines).await?;
+    let mut details = details(db, &lines).await?;
     let shares = hand_shares(db, &lines).await?;
 
     let mut order: Vec<Uuid> = Vec::new();
@@ -177,10 +183,11 @@ pub async fn entries(db: &PgPool, lines: Vec<CostLine>) -> Result<Vec<EntryView>
                     splits.iter().map(|split| split.list_value).collect();
                 values.and_then(|values| Money::sum(values, currency).ok())
             });
-            let (ended_at, tokens) = details
-                .get(&id)
-                .copied()
-                .unwrap_or((first.started_at, TokenCounts::default()));
+            let (ended_at, tokens, candidates) = details.remove(&id).unwrap_or((
+                first.started_at,
+                TokenCounts::default(),
+                Vec::new(),
+            ));
             Some(EntryView {
                 id,
                 agent_harness: first.agent_harness.clone(),
@@ -205,6 +212,7 @@ pub async fn entries(db: &PgPool, lines: Vec<CostLine>) -> Result<Vec<EntryView>
                 } else {
                     "unknown model"
                 },
+                candidates,
                 rejected_reason: reasons.get(&id).cloned(),
                 splits: splits
                     .into_iter()

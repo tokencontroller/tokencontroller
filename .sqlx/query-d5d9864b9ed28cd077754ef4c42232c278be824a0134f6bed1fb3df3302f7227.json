@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, ended_at, input_tokens, output_tokens, cache_write_tokens, cache_read_tokens\n           FROM token_entries WHERE id = ANY($1)",
+  "query": "SELECT id, ended_at, input_tokens, output_tokens, cache_write_tokens, cache_read_tokens,\n                  candidate_tickets\n           FROM token_entries WHERE id = ANY($1)",
   "describe": {
     "columns": [
       {
@@ -68,6 +68,17 @@
             "name": "cache_read_tokens"
           }
         }
+      },
+      {
+        "ordinal": 6,
+        "name": "candidate_tickets",
+        "type_info": "TextArray",
+        "origin": {
+          "Table": {
+            "table": "token_entries",
+            "name": "candidate_tickets"
+          }
+        }
       }
     ],
     "parameters": {
@@ -81,8 +92,9 @@
       false,
       false,
       false,
+      false,
       false
     ]
   },
-  "hash": "245600d57ce05c9ce6c638c7a3ab10934337a9c3903850dcc643d2c48b127300"
+  "hash": "d5d9864b9ed28cd077754ef4c42232c278be824a0134f6bed1fb3df3302f7227"
 }

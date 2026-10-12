@@ -19,6 +19,8 @@ tc review
 
 The same list is in the Claude Code mod's pane and in the web app.
 
+_Candidates_ are other tickets the session named, in its branch, a title or your prompts, that it is not placed on. Pick one to place it there.
+
 ## Fix what is wrong {#fix}
 
 ```sh

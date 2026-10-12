@@ -287,13 +287,35 @@ pub(super) fn candidate_keys(
     named: &Tags,
     signals: &Signals,
 ) -> BTreeSet<String> {
-    let mut keys: BTreeSet<String> = signals.prompt_ticket_keys.iter().cloned().collect();
+    let mut keys: BTreeSet<String> = named_keys(organization, signals)
+        .iter()
+        .map(|key| key.as_str().to_owned())
+        .collect();
     if let Some(ticket) = named.get(&TagName::ticket()) {
         keys.insert(ticket.as_str().to_owned());
     }
-    if let Some(branch) = &signals.branch {
-        for found in organization.directory.find_ticket_keys(branch) {
-            keys.insert(found.key.as_str().to_owned());
+    keys
+}
+
+/// The ticket keys a session named, each once in the order found: keys the
+/// projects' patterns find in the branch, then keys the sender found in the
+/// titles and prompts.
+pub(super) fn named_keys(organization: &Organization, signals: &Signals) -> Vec<TagValue> {
+    let in_branch = signals
+        .branch
+        .as_deref()
+        .map(|branch| organization.directory.find_ticket_keys(branch))
+        .unwrap_or_default()
+        .into_iter()
+        .map(|found| found.key);
+    let sent = signals
+        .prompt_ticket_keys
+        .iter()
+        .filter_map(|key| TagValue::new(key).ok());
+    let mut keys: Vec<TagValue> = Vec::new();
+    for key in in_branch.chain(sent) {
+        if !keys.contains(&key) {
+            keys.push(key);
         }
     }
     keys

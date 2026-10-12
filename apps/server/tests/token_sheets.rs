@@ -616,6 +616,35 @@ async fn a_controller_asks_everyone_to_submit_before_the_close(pool: PgPool) {
 }
 
 #[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
+async fn the_review_list_offers_other_tickets_the_session_named(pool: PgPool) {
+    let kestrel = kestrel(&pool).await.unwrap();
+    let named =
+        json!({"signals": {"branch": "KD-214-cart-fix", "ticket_keys": ["KD-231", "KD-214"]}});
+    let (status, answer) = call(
+        &kestrel.app,
+        Method::POST,
+        "/api/v1/token-entries",
+        &kestrel.ana,
+        Some(session_entry("manual:4", &named)),
+    )
+    .await
+    .unwrap();
+    assert_eq!(status, StatusCode::CREATED, "{answer}");
+    let (_, sheet) = call(
+        &kestrel.app,
+        Method::GET,
+        "/api/v1/token-sheets/current",
+        &kestrel.ana,
+        None,
+    )
+    .await
+    .unwrap();
+    let entry = &sheet["token_entries"][0];
+    assert_eq!(entry["splits"][0]["tags"]["ticket"], "KD-214", "{sheet}");
+    assert_eq!(entry["candidates"], json!(["KD-231"]));
+}
+
+#[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
 async fn a_ticket_key_still_unknown_after_a_sync_shows_as_unknown_ticket(pool: PgPool) {
     let kestrel = kestrel(&pool).await.unwrap();
     let org = kestrel.organization_id;
