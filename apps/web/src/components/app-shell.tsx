@@ -5,9 +5,7 @@ import { useState, type ReactNode } from "react";
 import type { Role } from "@/api/contract";
 import { api } from "@/api/endpoints";
 import { additions, joinMenu, type MenuEntry } from "@/lib/additions";
-import { useAdmin, useFeedback, useMe, useSupport } from "@/lib/queries";
-import { FeedbackDialog } from "./feedback-panel";
-import { SupportDialog } from "./support-dialog";
+import { useMe } from "@/lib/queries";
 import { hasRole, roleLabel } from "@/lib/roles";
 import { displayName, initials } from "@/lib/format";
 import { LicenseNotice } from "./enterprise-settings";
@@ -65,8 +63,8 @@ function Logo() {
   );
 }
 
-/** The open panel: feedback, support, or the dialog of a build's menu entry, by its label. */
-type Panel = "feedback" | "support" | `menu:${string}`;
+/** The open panel: the dialog of a build's menu entry, by its label. */
+type Panel = `menu:${string}`;
 
 /** The menu entries of the build's additions (src/additions) this person may see. */
 function useAddedMenu(): MenuEntry[] {
@@ -77,13 +75,12 @@ function useAddedMenu(): MenuEntry[] {
 function Nav({ onNavigate, onPanel }: { onNavigate?: () => void; onPanel: (panel: Panel) => void }) {
   const me = useMe();
   const path = useRouterState({ select: (s) => s.location.pathname });
-  // Help is the last of the app's groups; it finds its own items.
+  // Help is the last of the app's groups; only a build's entries fill it.
   const menu = joinMenu([...groups, { title: "Help", items: [] }], useAddedMenu());
   return (
     <nav aria-label="Main" className="flex flex-col gap-5">
       {menu.map((group) => {
         const added = group.added.map((entry) => <AddedItem key={entry.label} entry={entry} path={path} onNavigate={onNavigate} onPanel={onPanel} />);
-        if (group.title === "Help") return <Help key="help" path={path} onNavigate={onNavigate} onPanel={onPanel} added={added} />;
         const items = group.items.filter((item) => hasRole(me.person, item.role));
         if (!items.length && !added.length) return null;
         return (
@@ -138,58 +135,6 @@ function AddedItem({ entry, path, onNavigate, onPanel }: { entry: MenuEntry; pat
   );
 }
 
-/**
- * Feedback where the service has it, support where it is on, the admin area
- * for operators, then the build's entries for Help. The group hides when none
- * of them shows.
- */
-function Help({ path, onNavigate, onPanel, added }: { path: string; onNavigate?: (() => void) | undefined; onPanel: (panel: Panel) => void; added: ReactNode[] }) {
-  const admin = useAdmin();
-  const support = useSupport();
-  const feedback = useFeedback();
-  const waiting = admin.data ? admin.data.support_escalated + admin.data.feedback_received : 0;
-  // Shown while the list loads, as before; only a 404 hides it.
-  const hasFeedback = feedback.data !== null;
-  if (!hasFeedback && !support.data && !admin.data && !added.length) return null;
-  return (
-    <div>
-      <div className="mb-1 px-2 text-xs font-medium text-muted">Help</div>
-      <ul className="flex flex-col gap-px">
-        {hasFeedback ? (
-          <>
-            <li>
-              <button type="button" className={itemClass(false)} onClick={() => { onNavigate?.(); onPanel("feedback"); }}>
-                Send feedback
-              </button>
-            </li>
-            <li>
-              <Link to="/feedback" onClick={onNavigate} aria-current={path === "/feedback" ? "page" : undefined} className={itemClass(path === "/feedback")}>
-                Your feedback
-              </Link>
-            </li>
-          </>
-        ) : null}
-        {support.data ? (
-          <li>
-            <button type="button" className={itemClass(false)} onClick={() => { onNavigate?.(); onPanel("support"); }}>
-              Support
-            </button>
-          </li>
-        ) : null}
-        {admin.data ? (
-          <li>
-            <Link to="/admin" onClick={onNavigate} aria-current={path.startsWith("/admin") ? "page" : undefined} className={itemClass(path.startsWith("/admin"))}>
-              Admin
-              {waiting ? <span className="rounded-full bg-exception px-1.5 text-xs font-medium leading-5 text-on-ink" aria-label={`${String(waiting)} waiting`}>{waiting}</span> : null}
-            </Link>
-          </li>
-        ) : null}
-        {added}
-      </ul>
-    </div>
-  );
-}
-
 function Account() {
   const me = useMe();
   const navigate = useNavigate();
@@ -220,7 +165,6 @@ export function AppShell({ children }: { children: ReactNode }): ReactNode {
   const [open, setOpen] = useState(false);
   // The panels live here, not in the menu: on a phone the menu closes first.
   const [panel, setPanel] = useState<Panel | null>(null);
-  const support = useSupport();
   const added = useAddedMenu();
   return (
     <div className="min-h-dvh lg:grid lg:grid-cols-[240px_minmax(0,1fr)]">
@@ -261,8 +205,6 @@ export function AppShell({ children }: { children: ReactNode }): ReactNode {
         <LicenseNotice />
         {children}
       </main>
-      <FeedbackDialog open={panel === "feedback"} onOpenChange={(o) => setPanel(o ? "feedback" : null)} />
-      {support.data ? <SupportDialog answerTo={support.data.answer_to} open={panel === "support"} onOpenChange={(o) => setPanel(o ? "support" : null)} /> : null}
       {added.map((entry) => ("Panel" in entry ? <entry.Panel key={entry.label} open={panel === `menu:${entry.label}`} onOpenChange={(o) => setPanel(o ? `menu:${entry.label}` : null)} /> : null))}
     </div>
   );

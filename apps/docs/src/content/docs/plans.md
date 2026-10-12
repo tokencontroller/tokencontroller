@@ -18,7 +18,7 @@ There are four ways to run Token Controller. Prices are per organization. Nothin
 | Solo | Free forever, hosted | One person, one organization, every feature. No card needed. |
 | Team plan | 200 EUR or 200 USD a month per organization, or 2,000 EUR or 2,000 USD a year | Up to 150 members. Roles, review, approval and reject, monthly close, ticket sync, hosting in the EU. |
 | Enterprise plan | Custom | For more than 150 members, for an isolated instance, or for features the Team plan does not have. An isolated hosted instance in the region you choose, OIDC and SCIM, an audit log, telemetry passthrough to your own collector, cloud bill connectors on request, a support SLA. |
-| Self-hosted | Free, AGPL-3.0 | The same Docker image and features as the Team plan, on your own Postgres in your own region. Community support on GitHub. With a support contract it becomes an Enterprise plan. |
+| Self-hosted | Free, AGPL-3.0 | The same product and features as the Team plan, from the same open code, on your own Postgres in your own region. The hosted service adds our billing, support and feedback. Community support on GitHub. With a support contract it becomes an Enterprise plan. |
 
 ## One account, one organization {#organizations}
 

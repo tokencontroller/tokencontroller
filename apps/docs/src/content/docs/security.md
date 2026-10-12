@@ -33,7 +33,7 @@ This is the full list. The summary and the tag values are the only text. The age
 
 ## What a feedback report contains {#feedback}
 
-The feedback button in the web app sends a bug, an idea or a question. You see the whole report before you send it.
+On the hosted service, the feedback button in the web app sends a bug, an idea or a question. You see the whole report before you send it. A self-hosted instance has no feedback button.
 
 | Part | What it holds |
 | --- | --- |
@@ -42,7 +42,7 @@ The feedback button in the web app sends a bug, an idea or a question. You see t
 | Screenshot | Only when you turn it on. You see it first and can blur any part of it. It is deleted after 90 days. |
 | Diagnostics | The page's path without anything after `?`, the app version, the browser, the screen size, the last error messages the app showed, and the IDs of the last requests. Never what a request contained. |
 
-On the hosted service a report goes to us and is stored in the EU with your organization. On a self-hosted instance it goes to the organization's controllers, or to the people in `TC_OPERATOR_EMAILS` when that is set. A report is deleted two years after its last change. Your reports and their answers are under Feedback in the web app. When one is answered or fixed, you get an email with a link, never the answer itself.
+A report goes to us and is stored in the EU. It is deleted two years after its last change. Your reports and their answers are under Feedback in the web app. When one is answered or fixed, you get an email with a link, never the answer itself.
 
 ## Telemetry {#telemetry}
 

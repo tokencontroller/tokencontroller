@@ -11,10 +11,8 @@ import type {
   BillCostSource,
   BillSource,
   CadenceView,
-  Interval,
   Organization,
   Person,
-  Plan,
   Project,
   OrganizationRules,
   Rule,
@@ -24,7 +22,6 @@ import type {
   TokenCounts,
   TokenEntryStatus,
 } from "@/api/contract";
-import { createCustomerRelations, type CustomerRelations } from "./customer-relations";
 
 export const TODAY = "2026-10-12";
 export const CURRENCY = "USD";
@@ -182,8 +179,6 @@ export interface TicketRecord extends Ticket {
 
 export interface Db {
   organization: Organization;
-  /** Team plan billing; `enabled` false is a self-hosted instance. */
-  billing: { enabled: boolean; plan: Plan; status: string | null; interval: Interval | null; current_period_end: string | null; cancel_at_period_end: boolean };
   /** Token forecasts: on unless a controller switched them off; `model` null is an instance without an embeddings model. */
   forecasts: { enabled: boolean; model: string | null; made: ForecastRecord[] };
   session: string | null;
@@ -210,8 +205,6 @@ export interface Db {
   personalRules: Record<string, Rule[]>;
   tokens: ApiToken[];
   ticketSystems: TicketSystem[];
-  /** Feedback reports, support and what the operators see. */
-  cr: CustomerRelations;
   nextId: number;
 }
 
@@ -734,7 +727,6 @@ export function createDb(): Db {
       sign_in_domains: ["kestrel.example"],
       created_at: "2026-05-04T08:00:00Z",
     },
-    billing: { enabled: true, plan: "team", status: "active", interval: "year", current_period_end: "2027-05-04T08:00:00Z", cancel_at_period_end: false },
     forecasts: { enabled: true, model: "text-embedding-3-small", made: forecasts },
     session: null,
     pendingLink: null,
@@ -805,7 +797,6 @@ export function createDb(): Db {
         status: "ok",
       },
     ],
-    cr: createCustomerRelations(people, ORGANIZATION_ID),
     nextId: 1000,
   };
   return db;

@@ -1,6 +1,6 @@
 # This repo builds and publishes the image; deployment lives in the private repo
 
-CI here runs on every push and pull request without secrets: format, lint, the harness checks, unit and golden tests, an image build, and end-to-end tests against the image started with the self-hosting compose file. A push to the default branch publishes the image to `ghcr.io/tokencontroller/tokencontroller` tagged with the commit; a release tag adds the version tags (`1.0.0`, `1.0`). Nothing here deploys anywhere. The private repo deploys the published image to the hosted service and to Enterprise plan instances, and holds the infrastructure files and secrets.
+CI here runs on every push and pull request without secrets: format, lint, the harness checks, unit and golden tests, an image build, and end-to-end tests against the image started with the self-hosting compose file. A push to the default branch publishes the image to `ghcr.io/tokencontroller/tokencontroller` tagged with the commit; a release tag adds the version tags (`1.0.0`, `1.0`). Nothing here deploys anywhere. The private repo builds the hosted and Enterprise images on top of the published image, deploys them to the hosted service and to Enterprise plan instances, and holds the infrastructure files and secrets.
 
 Pull requests merge automatically once CI is green.
 

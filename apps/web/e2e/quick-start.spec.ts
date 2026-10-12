@@ -32,8 +32,7 @@ test("a people manager creates an organization and puts in the first bill", asyn
   await expect(page.getByRole("table", { name: /Bills/ }).getByText("Cursor")).toBeVisible();
   await expect(page.getByRole("table", { name: /Bills/ }).getByText("€1,240.50").filter({ visible: true }).first()).toBeVisible();
 
-  // Inviting people takes the Team plan; Solo is for one person.
+  // Then the team: the founder invites people from People.
   await openFromMenu(page, "People");
-  await expect(page.getByText("Solo is for one person")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Invite a person" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Invite a person" })).toBeEnabled();
 });

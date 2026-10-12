@@ -1,6 +1,6 @@
 //! The service platform against a real Postgres database: sign-in,
 //! organizations, members, API tokens, tags, projects, tickets, status, the
-//! MCP server, billing and the seed data.
+//! MCP server, the plug-in points and the seed data.
 
 use std::sync::Arc;
 
@@ -11,8 +11,6 @@ use http_body_util::BodyExt as _;
 use serde_json::{Value, json};
 use sqlx::PgPool;
 use tokencontroller_core::NoExtension;
-use tokencontroller_server::billing::StripeConfig;
-use tokencontroller_server::hosted::{self, Hosted};
 use tokencontroller_server::sign_in::secret;
 use tokencontroller_server::{AppState, Config, router};
 use tower::ServiceExt as _;
@@ -21,7 +19,6 @@ use uuid::Uuid;
 type TestResult<T> = Result<T, Box<dyn std::error::Error>>;
 
 const KEY: &str = "0123456789abcdef0123456789abcdef";
-const WEBHOOK_SECRET: &str = "whsec_test";
 
 fn config() -> Config {
     Config {
@@ -37,19 +34,6 @@ fn config() -> Config {
 
 fn app(pool: &PgPool) -> Router {
     router(AppState::new(pool.clone(), config(), Arc::new(NoExtension)))
-}
-
-/// The hosted service with Team plan billing on.
-fn billing_app(pool: &PgPool) -> Router {
-    let settings = hosted::Settings {
-        stripe: Some(StripeConfig {
-            secret_key: "sk_test_unused".to_owned(),
-            webhook_secret: WEBHOOK_SECRET.to_owned(),
-        }),
-        ..hosted::Settings::default()
-    };
-    let app = AppState::new(pool.clone(), config(), Arc::new(NoExtension));
-    hosted::router(Hosted::new(app, Arc::new(settings)))
 }
 
 /// How a test request proves who it is.
@@ -1576,182 +1560,6 @@ async fn the_seed_is_the_docs_example_organization(pool: PgPool) {
     assert_eq!(values.json[0], json!({"value": "data", "records": 2}));
 }
 
-fn stripe_signature(body: &str, timestamp: i64) -> TestResult<String> {
-    use hmac::{Hmac, KeyInit as _, Mac as _};
-    let mut mac = Hmac::<sha2::Sha256>::new_from_slice(WEBHOOK_SECRET.as_bytes())?;
-    mac.update(format!("{timestamp}.{body}").as_bytes());
-    Ok(format!(
-        "t={timestamp},v1={}",
-        hex::encode(mac.finalize().into_bytes())
-    ))
-}
-
-async fn stripe_event(app: &Router, event: &Value) -> TestResult<StatusCode> {
-    let body = event.to_string();
-    let now = time::OffsetDateTime::now_utc().unix_timestamp();
-    let request = Request::post("/api/v1/billing/stripe-webhook")
-        .header(header::CONTENT_TYPE, "application/json")
-        .header("stripe-signature", stripe_signature(&body, now)?)
-        .body(Body::from(body))?;
-    Ok(answer(app, request).await?.status)
-}
-
-#[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
-async fn solo_is_one_person_until_the_team_plan_is_paid(pool: PgPool) {
-    let app = billing_app(&pool);
-    let (organization_id, controller) =
-        organization(&pool, "Kestrel Digital", "n.berger@kestrel.example")
-            .await
-            .unwrap();
-    let auth = Auth::Cookie(&controller);
-    let billing = send(&app, Method::GET, "/api/v1/billing", auth, None)
-        .await
-        .unwrap();
-    assert_eq!(billing.json["plan"], "solo");
-    assert_eq!(billing.json["member_limit"], 1);
-    // The People page reads the same limit from the public answer.
-    let limit = member_limit_of(&app, auth).await.unwrap();
-    assert_eq!(
-        limit.json,
-        json!({"members": 1, "member_limit": 1, "message": "The Solo plan is for one person. Choose the Team plan under Billing to invite people."})
-    );
-
-    let invite = json!({"email": "m.ortner@kestrel.example"});
-    let refused = send(
-        &app,
-        Method::POST,
-        "/api/v1/members",
-        auth,
-        Some(invite.clone()),
-    )
-    .await
-    .unwrap();
-    assert_eq!(refused.status, StatusCode::CONFLICT);
-    assert!(
-        refused.json["message"]
-            .as_str()
-            .unwrap()
-            .contains("Solo plan")
-    );
-
-    let completed = json!({
-        "type": "checkout.session.completed", "created": 1_760_000_000,
-        "data": {"object": {"client_reference_id": organization_id, "customer": "cus_1", "subscription": "sub_1"}}
-    });
-    assert_eq!(
-        stripe_event(&app, &completed).await.unwrap(),
-        StatusCode::NO_CONTENT
-    );
-    let active = json!({
-        "type": "customer.subscription.created", "created": 1_760_000_001,
-        "data": {"object": {
-            "id": "sub_1", "customer": "cus_1", "status": "active",
-            "metadata": {"organization_id": organization_id},
-            "items": {"data": [{"current_period_end": 1_762_600_000, "price": {"recurring": {"interval": "month"}}}]}
-        }}
-    });
-    assert_eq!(
-        stripe_event(&app, &active).await.unwrap(),
-        StatusCode::NO_CONTENT
-    );
-    let billing = send(&app, Method::GET, "/api/v1/billing", auth, None)
-        .await
-        .unwrap();
-    assert_eq!(billing.json["plan"], "team");
-    assert_eq!(billing.json["interval"], "month");
-    assert_eq!(billing.json["member_limit"], 150);
-    let limit = member_limit_of(&app, auth).await.unwrap();
-    assert_eq!(limit.json["member_limit"], 150);
-    let invited = send(&app, Method::POST, "/api/v1/members", auth, Some(invite))
-        .await
-        .unwrap();
-    assert_eq!(invited.status, StatusCode::CREATED);
-
-    // A late event older than what was applied changes nothing.
-    let late = json!({
-        "type": "customer.subscription.updated", "created": 1_759_000_000,
-        "data": {"object": {
-            "id": "sub_1", "customer": "cus_1", "status": "canceled",
-            "items": {"data": [{"price": {"recurring": {"interval": "month"}}}]}
-        }}
-    });
-    assert_eq!(
-        stripe_event(&app, &late).await.unwrap(),
-        StatusCode::NO_CONTENT
-    );
-    let billing = send(&app, Method::GET, "/api/v1/billing", auth, None)
-        .await
-        .unwrap();
-    assert_eq!(billing.json["plan"], "team");
-
-    let ended = json!({
-        "type": "customer.subscription.deleted", "created": 1_763_000_000,
-        "data": {"object": {
-            "id": "sub_1", "customer": "cus_1", "status": "canceled",
-            "items": {"data": [{"price": {"recurring": {"interval": "month"}}}]}
-        }}
-    });
-    assert_eq!(
-        stripe_event(&app, &ended).await.unwrap(),
-        StatusCode::NO_CONTENT
-    );
-    let billing = send(&app, Method::GET, "/api/v1/billing", auth, None)
-        .await
-        .unwrap();
-    assert_eq!(billing.json["plan"], "solo");
-
-    let unsigned = Request::post("/api/v1/billing/stripe-webhook")
-        .header("stripe-signature", "t=1,v1=00")
-        .body(Body::from(ended.to_string()))
-        .unwrap();
-    assert_eq!(
-        answer(&app, unsigned).await.unwrap().status,
-        StatusCode::BAD_REQUEST
-    );
-}
-
-#[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
-async fn billing_is_off_without_stripe_settings(pool: PgPool) {
-    let app = hosted::router(Hosted::new(
-        AppState::new(pool.clone(), config(), Arc::new(NoExtension)),
-        Arc::new(hosted::Settings::default()),
-    ));
-    let (_, controller) = organization(&pool, "Kestrel Digital", "n.berger@kestrel.example")
-        .await
-        .unwrap();
-    let billing = send(
-        &app,
-        Method::GET,
-        "/api/v1/billing",
-        Auth::Cookie(&controller),
-        None,
-    )
-    .await
-    .unwrap();
-    assert_eq!(billing.status, StatusCode::NOT_FOUND);
-    let webhook = send(
-        &app,
-        Method::POST,
-        "/api/v1/billing/stripe-webhook",
-        Auth::None,
-        Some(json!({})),
-    )
-    .await
-    .unwrap();
-    assert_eq!(webhook.status, StatusCode::NOT_FOUND);
-    // A self-hosted organization invites without a plan.
-    let invited = send(
-        &app,
-        Method::POST,
-        "/api/v1/members",
-        Auth::Cookie(&controller),
-        Some(json!({"email": "m.ortner@kestrel.example"})),
-    )
-    .await
-    .unwrap();
-    assert_eq!(invited.status, StatusCode::CREATED);
-}
-
 /// An Enterprise plan build as the tests see it: it keeps every audit
 /// event, has a controller notice and offers one sign-in provider.
 #[derive(Default)]
@@ -2411,7 +2219,7 @@ async fn merging_tag_values_reaches_every_record_and_rule(pool: PgPool) {
     assert_eq!(me.json["rules"][0]["then"], json!({"set_tags": {}}));
 }
 
-/// Hooks a build could add: a one-member limit, and one more MCP tool.
+/// Hooks a build could add: a one-member limit.
 struct TestHooks;
 
 impl tokencontroller_server::hooks::ServiceHooks for TestHooks {
@@ -2428,33 +2236,6 @@ impl tokencontroller_server::hooks::ServiceHooks for TestHooks {
                 max: 1,
                 message: "This plan is for one person.".to_owned(),
             }))
-        })
-    }
-
-    fn mcp_tools<'a>(
-        &'a self,
-        _state: &'a AppState,
-        _caller: &'a tokencontroller_server::sign_in::Caller,
-    ) -> tokencontroller_server::hooks::HookFuture<'a, Vec<Value>> {
-        Box::pin(async {
-            Ok(vec![json!({
-                "name": "plan",
-                "description": "The organization's plan.",
-                "inputSchema": {"type": "object", "properties": {}}
-            })])
-        })
-    }
-
-    fn call_mcp_tool<'a>(
-        &'a self,
-        _state: &'a AppState,
-        caller: &'a tokencontroller_server::sign_in::Caller,
-        name: &'a str,
-        _arguments: &'a Value,
-    ) -> tokencontroller_server::hooks::HookFuture<'a, Option<Value>> {
-        Box::pin(async move {
-            Ok((name == "plan")
-                .then(|| json!({"organization": caller.organization_id, "plan": "one"})))
         })
     }
 }
@@ -2596,48 +2377,6 @@ async fn every_member_reads_the_member_limit(pool: PgPool) {
 }
 
 #[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
-async fn a_hook_adds_mcp_tools(pool: PgPool) {
-    let (organization_id, controller) =
-        organization(&pool, "Kestrel Digital", "n.berger@kestrel.example")
-            .await
-            .unwrap();
-    let rpc = |method: &str, params: Value| json!({"jsonrpc": "2.0", "id": 1, "method": method, "params": params});
-    let mcp = |app: Router, body: Value| {
-        let controller = controller.clone();
-        async move {
-            send(
-                &app,
-                Method::POST,
-                "/api/v1/mcp",
-                Auth::Cookie(&controller),
-                Some(body),
-            )
-            .await
-            .unwrap()
-        }
-    };
-
-    let open = mcp(app(&pool), rpc("tools/list", json!({}))).await;
-    let hooked = mcp(hooked_app(&pool), rpc("tools/list", json!({}))).await;
-    let open_tools = open.json["result"]["tools"].as_array().unwrap().len();
-    let hooked_tools = hooked.json["result"]["tools"].as_array().unwrap();
-    assert_eq!(hooked_tools.len(), open_tools.checked_add(1).unwrap());
-    assert_eq!(hooked_tools.last().unwrap()["name"], "plan");
-
-    let called = mcp(
-        hooked_app(&pool),
-        rpc("tools/call", json!({"name": "plan", "arguments": {}})),
-    )
-    .await;
-    assert_eq!(
-        called.json["result"]["structuredContent"]["result"]["organization"],
-        organization_id.to_string()
-    );
-    let unknown = mcp(app(&pool), rpc("tools/call", json!({"name": "plan"}))).await;
-    assert_eq!(unknown.json["error"]["code"], -32602);
-}
-
-#[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
 async fn a_build_adds_api_routes_with_their_own_state(pool: PgPool) {
     #[derive(Clone)]
     struct Added {
@@ -2701,4 +2440,30 @@ async fn a_build_adds_api_routes_with_their_own_state(pool: PgPool) {
         .unwrap();
     assert!(document.json["paths"]["/api/v1/hello"]["get"].is_object());
     assert!(document.json["paths"]["/api/v1/members"].is_object());
+}
+
+/// A database that ran migrations which have since left this repo, such as
+/// the hosted service's billing table (ADR 0020), still starts.
+#[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
+async fn migrations_that_left_the_repo_do_not_stop_the_service(pool: PgPool) {
+    sqlx::query(
+        "INSERT INTO _sqlx_migrations (version, description, success, checksum, execution_time) \
+         VALUES (20261012010500, 'billing subscriptions', true, '\\x00', 0)",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    tokencontroller_server::MIGRATOR.run(&pool).await.unwrap();
+
+    // Without passing over them, the migrator would refuse the database.
+    let strict = sqlx::migrate!("./migrations");
+    let refused = strict.run(&pool).await.unwrap_err();
+    assert!(
+        matches!(
+            refused,
+            sqlx::migrate::MigrateError::VersionMissing(20_261_012_010_500)
+        ),
+        "{refused}"
+    );
 }

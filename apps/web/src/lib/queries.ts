@@ -1,5 +1,5 @@
 import { QueryClient, useQuery } from "@tanstack/react-query";
-import type { Account, Billing } from "@/api/contract";
+import type { Account } from "@/api/contract";
 import { api } from "@/api/endpoints";
 import { ApiError } from "@/api/client";
 import { displayName } from "@/lib/format";
@@ -30,41 +30,16 @@ export function useMe(): Account {
 }
 
 /**
- * The plan and member count, or null where billing is off (self-hosted).
- * `untilTeam` asks again every few seconds until the Team plan shows.
+ * Runs a call and turns a 404 into null: the service's way to say "not here".
+ * For a build's additions, whose endpoints a service without them does not have.
  */
-export function useBilling({ untilTeam = false }: { untilTeam?: boolean } = {}) {
-  return useQuery({
-    queryKey: ["billing"],
-    queryFn: (): Promise<Billing | null> => unlessMissing(api.billing),
-    staleTime: 5 * 60_000,
-    refetchInterval: (query) => (untilTeam && query.state.data?.plan === "solo" ? 3000 : false),
-  });
-}
-
-/** Runs a call and turns a 404 into null: the service's way to say "not here". */
-async function unlessMissing<T>(load: () => Promise<T>): Promise<T | null> {
+export async function unlessMissing<T>(load: () => Promise<T>): Promise<T | null> {
   try {
     return await load();
   } catch (error) {
     if (error instanceof ApiError && error.status === 404) return null;
     throw error;
   }
-}
-
-/** The admin area's counts, or null for everyone who is not an operator. */
-export function useAdmin() {
-  return useQuery({ queryKey: ["admin"], queryFn: () => unlessMissing(api.adminOverview), staleTime: 60_000 });
-}
-
-/** Where support answers, or null where support is off (most self-hosted instances). */
-export function useSupport() {
-  return useQuery({ queryKey: ["support"], queryFn: () => unlessMissing(api.support), staleTime: 5 * 60_000 });
-}
-
-/** The member's own feedback reports, or null where the service has no feedback reports. */
-export function useFeedback() {
-  return useQuery({ queryKey: ["feedback"], queryFn: () => unlessMissing(api.feedback) });
 }
 
 /** How many members the organization has and may have, and what an invite past the limit gets. */

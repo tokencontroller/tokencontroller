@@ -178,7 +178,7 @@ export function SignUpPage(): ReactNode {
   });
   const { SignUpNote } = additions.parts;
   return (
-    <Frame title="Create your organization" lead="Solo is free forever for one person. No card needed.">
+    <Frame title="Create your organization" lead="No card needed.">
       {SignUpNote ? <SignUpNote /> : null}
       <form
         onSubmit={(e) => {

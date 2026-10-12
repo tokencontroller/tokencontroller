@@ -24,7 +24,6 @@ import type {
 import { parseCsv } from "@/lib/csv";
 import { closeHandlers } from "./close";
 import { enterpriseHandlers, LICENSE_MEMBERS, mockEdition } from "./enterprise";
-import { customerRelationsHandlers } from "./customer-relations";
 import { reportsHandlers } from "./reports";
 import { tokenEntryHandlers } from "./token-entries";
 import { createDb, defaultRules, TODAY, type Db, type EntryRecord } from "./seed";
@@ -92,14 +91,6 @@ function member(handler: (ctx: Ctx) => Response | Promise<Response>, roles?: Rol
     save(db);
     return result;
   };
-}
-
-/**
- * Like `member`, for feedback, support and the admin area: the Enterprise plan
- * build serves none of them, so there they answer 404 as the service does.
- */
-function openEditionMember(handler: (ctx: Ctx) => Response | Promise<Response>): HttpResponseResolver {
-  return member((ctx) => (mockEdition() === "enterprise" ? error(404, "not_found", "not found") : handler(ctx)));
 }
 
 /** What the mock answers of a build's additions get, as the area files here do. */
@@ -260,7 +251,7 @@ function addEntry(db: Db, me: Person, body: NewTokenEntry): StoredEntry {
 const now = () => `${TODAY}T12:00:00Z`;
 
 function organizationOf(db: Db, name: string, email: string, founderName: string): Db {
-  // A new organization on Solo: one person who holds every role, no data yet.
+  // A new organization: one person who holds every role, no data yet.
   const founder: Person = {
     id: "f0d0e000-0000-4000-8000-000000000001",
     // Optional at sign-up; without it the start page asks once.
@@ -276,7 +267,6 @@ function organizationOf(db: Db, name: string, email: string, founderName: string
   return {
     ...db,
     organization: { ...db.organization, id: "0e000000-0000-4000-8000-000000000002", name, slug: name.toLowerCase().replace(/[^a-z0-9]+/g, "-"), cost_source: null, approval: false, sign_in_domains: [], created_at: now() },
-    billing: { enabled: true, plan: "solo", status: null, interval: null, current_period_end: null, cancel_at_period_end: false },
     people: [founder],
     invites: [],
     projects: [],
@@ -301,21 +291,10 @@ function organizationOf(db: Db, name: string, email: string, founderName: string
   };
 }
 
-/** As the service works it out: the plan's where billing is on, else the license's, else the instance's 150. */
+/** As the service works it out: the license's, else the instance's 150. */
 function memberLimit(db: Db): MemberLimit {
   const members = db.people.filter((p) => p.status !== "removed").length;
-  if (db.billing.enabled && mockEdition() === "open") {
-    return db.billing.plan === "team"
-      ? { members, member_limit: 150, message: "The Team plan stops at 150 members. More members come with the Enterprise plan." }
-      : { members, member_limit: 1, message: "The Solo plan is for one person. Choose the Team plan under Billing to invite people." };
-  }
   return { members, member_limit: mockEdition() === "enterprise" ? LICENSE_MEMBERS : 150, message: "This instance allows no more members." };
-}
-
-function billing(db: Db) {
-  const { members, member_limit } = memberLimit(db);
-  const b = db.billing;
-  return { plan: b.plan, status: b.status, interval: b.interval, current_period_end: b.current_period_end, cancel_at_period_end: b.cancel_at_period_end, members, member_limit };
 }
 
 function tagValues(db: Db, name: string) {
@@ -396,19 +375,6 @@ export const handlers = [
       if (["name", "approval", "cost_source", "reporting_currency", "sign_in_domains"].includes(key)) Object.assign(db.organization, { [key]: value });
     }
     return HttpResponse.json(db.organization);
-  }, CONTROLLER)),
-  http.get(`${API}/billing`, member(({ db }) => (db.billing.enabled && mockEdition() === "open" ? HttpResponse.json(billing(db)) : error(404, "not_found", "Billing is off on this instance.")))),
-  http.post(`${API}/billing/checkout`, member(async ({ db, request }) => {
-    if (!db.billing.enabled) return error(404, "not_found", "Billing is off on this instance.");
-    if (db.billing.plan === "team") return error(409, "conflict", "This organization is on the Team plan already.");
-    const { country } = (await request.json()) as { interval: string; country: string };
-    if (!/^[A-Z]{2}$/.test(country)) return error(400, "bad_request", `"${country}" is not a country code; use two letters such as AT or US.`);
-    return HttpResponse.json({ url: "https://checkout.stripe.com/c/pay/mock" });
-  }, CONTROLLER)),
-  http.post(`${API}/billing/portal`, member(({ db }) => {
-    if (!db.billing.enabled) return error(404, "not_found", "Billing is off on this instance.");
-    if (db.billing.plan !== "team") return error(409, "conflict", "There is no subscription to manage yet.");
-    return HttpResponse.json({ url: "https://billing.stripe.com/p/session/mock" });
   }, CONTROLLER)),
   http.get(`${API}/cadences`, member(({ db }) => HttpResponse.json(db.cadences))),
   http.put(`${API}/cadences`, member(async ({ db, me, request }) => {
@@ -687,7 +653,6 @@ export const handlers = [
   }, CONTROLLER)),
   ...tokenEntryHandlers({ API, member, fail: error, now }),
   ...closeHandlers({ API, member, fail: error, load, now }),
-  ...customerRelationsHandlers({ API, member: openEditionMember, fail: error, now }),
   ...enterpriseHandlers({ API, member, fail: error, now }),
   ...reportsHandlers({ API, member, fail: error, now }),
 ];

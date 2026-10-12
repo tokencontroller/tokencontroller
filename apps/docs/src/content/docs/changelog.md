@@ -24,4 +24,4 @@ First release.
 - [Approval](/account/approval), the [close](/account/close), [adjustments](/account/adjustments) and the [cost sheet](/report/cost-sheet).
 - [Reports](/report/reports) by person, team and any tag and by client, project and ticket, [tags](/account/tags) with a tag map for the cost center and the cost object, the [outliers](/report/outliers) report and the [agent harness](/report/agent-harness) report.
 - [CSV exports](/report/exports), the [reporting API](/report/reporting-api) and the [raw export](/report/raw-export).
-- The [self-hosted Docker image](/self-hosting), the same as the hosted Team plan.
+- The [self-hosted Docker image](/self-hosting): the same product as the hosted Team plan, from the same open code.

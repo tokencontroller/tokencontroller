@@ -1,6 +1,6 @@
 # One service program, one Docker image, one Postgres database
 
-The service is one Rust program in one Docker image. It serves the HTTP API, receives telemetry over OpenTelemetry (HTTP and protobuf), runs the background jobs (bill pulls, ticket sync, price refresh, reminders, summary match, forecasts) and serves the web app. All state lives in one Postgres database (15 or newer). The hosted Team plan, self-hosting and Enterprise plan instances run the same image, as the docs promise.
+The service is one Rust program in one Docker image. It serves the HTTP API, receives telemetry over OpenTelemetry (HTTP and protobuf), runs the background jobs (bill pulls, ticket sync, price refresh, reminders, summary match, forecasts) and serves the web app. All state lives in one Postgres database (15 or newer). The hosted Team plan, self-hosting and Enterprise plan instances run the same product. The hosted and Enterprise images are built on the open image and add their own parts through the plug-in points (ADR 0001, ADR 0020).
 
 ## Rules that follow
 
@@ -11,4 +11,4 @@ The service is one Rust program in one Docker image. It serves the HTTP API, rec
 
 ## Why
 
-Self-hosters get one container and one database to run and back up. One image for every edition means hosted and self-hosted behave the same and are tested once. The data is small (no transcripts), so one Postgres covers reporting too.
+Self-hosters get one container and one database to run and back up. One program for every edition means hosted and self-hosted run the same product code, tested once here. The data is small (no transcripts), so one Postgres covers reporting too.

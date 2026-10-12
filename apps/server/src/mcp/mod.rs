@@ -6,8 +6,7 @@
 //! Sign in with a read token (`tc_read_`) or a session. The tools see what
 //! that person's role sees.
 //!
-//! To add a tool, add it to [`tools`] and to [`call`]. A build can add its
-//! own tools through [`crate::hooks::ServiceHooks::mcp_tools`].
+//! To add a tool, add it to [`tools`] and to [`call`].
 //!
 //! Owner: the service platform work. Keep this area's code, routes and queries in
 //! this folder, and its migrations in `migrations/` named
@@ -132,14 +131,7 @@ async fn handle(
     match method {
         "initialize" => Ok(initialize(&params)),
         "ping" => Ok(json!({})),
-        "tools/list" => {
-            let mut all = tools();
-            let added = state.hooks.mcp_tools(state, caller).await?;
-            if let Some(list) = all.as_array_mut() {
-                list.extend(added);
-            }
-            Ok(json!({"tools": all}))
-        }
+        "tools/list" => Ok(json!({"tools": tools()})),
         "tools/call" => {
             let name = params
                 .get("name")
@@ -279,11 +271,7 @@ async fn call(
                 .unwrap_or(100);
             json!(projects::tickets(db, organization_id, project_id, query, limit).await?)
         }
-        other => state
-            .hooks
-            .call_mcp_tool(state, caller, other, arguments)
-            .await?
-            .ok_or_else(|| RpcError::invalid_params(format!("unknown tool {other}")))?,
+        other => return Err(RpcError::invalid_params(format!("unknown tool {other}"))),
     };
     Ok(value)
 }

@@ -20,17 +20,9 @@ import { ReviewPage } from "@/routes/review";
 import { RulesPage } from "@/routes/rules";
 import { SettingsPage } from "@/routes/settings";
 import { InvitePage, SignInPage, SignUpPage } from "@/routes/sign-in";
-import { BillingPage } from "@/routes/billing";
 import { TagsPage } from "@/routes/tags";
 import { TokenEntriesPage } from "@/routes/token-entries";
 import { NotFoundPage } from "@/routes/not-found";
-import { FeedbackPage } from "@/routes/feedback";
-import { AdminPage, AdminQuestionsPage } from "@/routes/admin";
-import { AdminConversationPage, AdminSupportPage, supportStates } from "@/routes/admin-support";
-import { AdminFeedbackPage, AdminReportPage, feedbackStatuses } from "@/routes/admin-feedback";
-import { AdminCustomerPage, AdminCustomersPage } from "@/routes/admin-customers";
-import { AdminNewsletterPage } from "@/routes/admin-newsletter";
-import type { FeedbackStatus } from "@/api/contract";
 
 const rootRoute = createRootRoute({ component: Outlet, notFoundComponent: NotFoundPage });
 
@@ -126,42 +118,6 @@ const tagsRoute = page("/tags", TagsPage, "controller");
 const rulesRoute = page("/rules", RulesPage);
 const peopleRoute = page("/people", PeoplePage, "people_manager");
 const settingsRoute = page("/settings", SettingsPage);
-// Stripe Checkout and the customer portal come back here (`?checkout=success`).
-const billingRoute = createRoute({
-  getParentRoute: () => appRoute,
-  path: "/billing",
-  beforeLoad: requireRole("controller"),
-  validateSearch: (search: Record<string, unknown>): { checkout?: string } => (typeof search.checkout === "string" ? { checkout: search.checkout } : {}),
-  component: BillingPage,
-});
-
-// Every member's feedback reports and the answers; the service mails links here.
-const feedbackRoute = page("/feedback", FeedbackPage);
-
-// The admin area. The service answers 404 to everyone who is not an operator
-// (except /admin/feedback for controllers on an instance without operators),
-// so the pages need no role of their own.
-const adminRoute = createRoute({ getParentRoute: () => appRoute, path: "/admin", component: AdminPage });
-const adminSupportRoute = createRoute({
-  getParentRoute: () => appRoute,
-  path: "/admin/support",
-  validateSearch: (search: Record<string, unknown>): { state?: string } =>
-    typeof search.state === "string" && (supportStates as readonly string[]).includes(search.state) ? { state: search.state } : {},
-  component: AdminSupportPage,
-});
-const adminConversationRoute = createRoute({ getParentRoute: () => appRoute, path: "/admin/support/$id", component: AdminConversationPage });
-const adminFeedbackRoute = createRoute({
-  getParentRoute: () => appRoute,
-  path: "/admin/feedback",
-  validateSearch: (search: Record<string, unknown>): { status?: FeedbackStatus } =>
-    feedbackStatuses.includes(search.status as FeedbackStatus) ? { status: search.status as FeedbackStatus } : {},
-  component: AdminFeedbackPage,
-});
-const adminReportRoute = createRoute({ getParentRoute: () => appRoute, path: "/admin/feedback/$id", component: AdminReportPage });
-const adminCustomersRoute = createRoute({ getParentRoute: () => appRoute, path: "/admin/customers", component: AdminCustomersPage });
-const adminCustomerRoute = createRoute({ getParentRoute: () => appRoute, path: "/admin/customers/$id", component: AdminCustomerPage });
-const adminQuestionsRoute = createRoute({ getParentRoute: () => appRoute, path: "/admin/questions", component: AdminQuestionsPage });
-const adminNewsletterRoute = createRoute({ getParentRoute: () => appRoute, path: "/admin/newsletter", component: AdminNewsletterPage });
 
 const routeTree = rootRoute.addChildren([
   signInRoute,
@@ -184,17 +140,6 @@ const routeTree = rootRoute.addChildren([
     rulesRoute,
     peopleRoute,
     settingsRoute,
-    billingRoute,
-    feedbackRoute,
-    adminRoute,
-    adminSupportRoute,
-    adminConversationRoute,
-    adminFeedbackRoute,
-    adminReportRoute,
-    adminCustomersRoute,
-    adminCustomerRoute,
-    adminQuestionsRoute,
-    adminNewsletterRoute,
     // The pages of the build's additions (src/additions); none in the open build.
     ...addedRoutes({ app: appRoute, requireRole }),
   ]),

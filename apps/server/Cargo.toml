@@ -27,7 +27,6 @@ getrandom.workspace = true
 hex.workspace = true
 hmac.workspace = true
 lettre.workspace = true
-mail-parser.workspace = true
 opentelemetry-proto.workspace = true
 prost.workspace = true
 regex.workspace = true

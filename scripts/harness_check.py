@@ -13,7 +13,8 @@
 4. The service only runs SQL that is checked at compile time (ADR 0005): no
    `sqlx::query(...)` and friends, no query builder, no SQL text handed to an
    executor.
-5. The number of tests never drops compared with the base branch.
+5. The number of tests never drops compared with the base branch, except
+   once for a pull request listed in `TEST_DROP_ALLOWANCES`.
 6. Harness files that already exist on the base branch only change with the
    `harness-change` label set by the maintainer. Adding new ones (a new golden
    case, a new workflow) needs no label.
@@ -58,6 +59,16 @@ HARNESS_PATHS = (
 )
 # Parts of Cargo.toml owned by the maintainer: the lint block and the profiles.
 CARGO_HARNESS_KEYS = (("workspace", "lints"), ("profile",))
+
+# One-time allowances for check 5. Each is for one pull request that moves
+# code out of this repo together with its tests: it names a file that pull
+# request deletes and how many tests may leave with the code. It applies only
+# with the harness-change label from the maintainer and only while the base
+# branch still holds that file, so it ends when the pull request merges.
+TEST_DROP_ALLOWANCES = (
+    # Billing and customer relations leave for the hosted service (ADR 0020).
+    ("apps/server/src/hosted.rs", 71),
+)
 
 # Config files that change what the compiler, Clippy or rustfmt check, by
 # file name, and the one place each may live (check 3).
@@ -359,6 +370,19 @@ def changed_harness_files(merge_base: str) -> list[str]:
     return changed
 
 
+def test_drop_allowed(merge_base: str) -> int:
+    """How many tests may leave in this pull request: the sum of the
+    allowances whose file the base still holds."""
+    allowed = 0
+    for path, tests in TEST_DROP_ALLOWANCES:
+        held = subprocess.run(
+            ["git", "cat-file", "-e", f"{merge_base}:{path}"], capture_output=True
+        ).returncode == 0
+        if held:
+            allowed += tests
+    return allowed
+
+
 def report(title: str, summary: list[str], failures: list[str], outputs: dict[str, str]) -> int:
     for line in summary:
         print(f"ok: {line}")
@@ -450,17 +474,25 @@ def main() -> int:
         merge_base = git("merge-base", base, "HEAD").strip()
         tests_before = count_tests(rust_files_at(merge_base))
         golden_before = golden_cases_at(merge_base)
+        approved_by = os.environ.get("HARNESS_LABEL_BY", "")
         if tests_now < tests_before:
-            failures.append(
-                f"The number of tests dropped from {tests_before} to {tests_now}."
-            )
+            allowed = test_drop_allowed(merge_base) if approved_by == MAINTAINER else 0
+            if tests_before - tests_now <= allowed:
+                summary.append(
+                    f"The number of tests dropped from {tests_before} to {tests_now}, "
+                    f"within this pull request's one-time allowance of {allowed}, "
+                    f"approved by {MAINTAINER}."
+                )
+            else:
+                failures.append(
+                    f"The number of tests dropped from {tests_before} to {tests_now}."
+                )
         if golden_now < golden_before:
             failures.append(
                 f"The number of golden cases dropped from {golden_before} to {golden_now}."
             )
 
         changed = changed_harness_files(merge_base)
-        approved_by = os.environ.get("HARNESS_LABEL_BY", "")
         if changed and approved_by != MAINTAINER:
             failures.append(
                 f"Harness files changed; this needs the {LABEL!r} label from {MAINTAINER}:\n  "

@@ -1,6 +1,6 @@
 // /llms-full.txt: every docs page as Markdown in one file, in sidebar order, then the glossary.
-// AI assistants read it, and the service's support answers and site assistant use it as their
-// only source (TC_DOCS_URL). Built from the same Markdown as the pages, so it never drifts.
+// AI assistants read it, and our support answers and site assistant use it as their only
+// source. Built from the same Markdown as the pages, so it never drifts.
 import type { APIRoute } from 'astro';
 import { docsInOrder, SITE } from '../llms';
 import glossary from '../../glossary.md?raw';
