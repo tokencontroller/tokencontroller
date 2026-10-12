@@ -57,7 +57,7 @@ These turn on the [Enterprise plan](/self-hosting/enterprise) features in the En
 | `TC_TELEMETRY_FORWARD_URL` | Your collector's OTLP HTTP endpoint, such as `https://otel.example.com:4318`. Every telemetry batch the service accepts goes there unchanged, before the service drops prompt text. |
 | `TC_TELEMETRY_FORWARD_HEADERS` | Headers for your collector, in the form `name=value,name2=value2`, the same as `OTEL_EXPORTER_OTLP_HEADERS`. |
 
-Each cloud bill connector is on when its settings are set. Once a day it fetches last month's bill and this month's so far, and a new fetch of the same period replaces the earlier one.
+Each cloud bill connector is on when its settings are set. Once a day it fetches last month's bill and this month's so far. A fetch with changed figures is a new revision of that bill. Clouds still restate the first days after a month ends, so last month's bill is [final](/reference/bill) from the 6th, and the [close](/account/close) of that month waits until then.
 
 | Variable | Meaning |
 | --- | --- |
