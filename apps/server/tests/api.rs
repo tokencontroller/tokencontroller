@@ -72,6 +72,24 @@ fn the_committed_openapi_document_is_current() {
     );
 }
 
+#[test]
+fn every_operation_has_its_own_id() {
+    // Clients generated from the document, such as the web app's, refuse
+    // two operations with the same id.
+    let document: serde_json::Value =
+        serde_json::from_str(&tokencontroller_server::openapi_json().unwrap()).unwrap();
+    let mut ids = Vec::new();
+    for operations in document["paths"].as_object().unwrap().values() {
+        for operation in operations.as_object().unwrap().values() {
+            ids.push(operation["operationId"].as_str().unwrap().to_owned());
+        }
+    }
+    let count = ids.len();
+    ids.sort();
+    ids.dedup();
+    assert_eq!(ids.len(), count, "two operations share an operationId");
+}
+
 #[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
 async fn seed_data_loads_twice_without_error(pool: PgPool) {
     tokencontroller_server::seed::load(&pool).await.unwrap();

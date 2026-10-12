@@ -98,6 +98,7 @@ pub(super) async fn sign_in(
 #[utoipa::path(
     post,
     path = "/sign-up",
+    operation_id = "sign_up_organization",
     tag = "sign-in",
     request_body = SignUpRequest,
     responses(
