@@ -28,7 +28,7 @@ Everything the web app does goes through this API.
 
 ## MCP server {#mcp}
 
-`/api/v1/mcp` is a Model Context Protocol server, so an AI agent can read your organization: its settings and tag map, members, projects, clients and tickets. It only reads, and it sees what the token's creator sees. Connect Claude Code with a read token:
+`/api/v1/mcp` is a Model Context Protocol server, so an AI agent can read your organization: its settings and tag map, members, projects, clients and tickets. It only reads, and it sees what the token's creator sees. The people who run the instance (`TC_OPERATOR_EMAILS`) also get tools for every organization's customer record, support waiting for a person, site assistant questions the docs did not answer, and unanswered feedback reports. Connect Claude Code with a read token:
 
 ```bash
 claude mcp add --transport http token-controller \

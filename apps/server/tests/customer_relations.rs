@@ -1629,3 +1629,126 @@ async fn members_write_to_support_from_the_app(pool: PgPool) {
     .unwrap();
     assert_eq!(status, StatusCode::NOT_FOUND);
 }
+
+#[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
+async fn operators_read_customers_over_mcp(pool: PgPool) {
+    let fake = fake_services(json!({})).await;
+    let state = AppState::new(
+        pool.clone(),
+        config(settings(&fake), None),
+        Arc::new(NoExtension),
+    );
+    let (_, _, ops) = organization(&pool, "Token Controller", "ops@example.com")
+        .await
+        .unwrap();
+    let (kestrel, _, ana) = organization(&pool, "Kestrel Digital", "ana@kestrel.example")
+        .await
+        .unwrap();
+    let rpc = |method: &str, params: Value| json!({"jsonrpc": "2.0", "id": 1, "method": method, "params": params});
+
+    let (_, listed, _) = call(
+        &state,
+        "POST",
+        "/api/v1/mcp",
+        Some(&ops),
+        Some(rpc("tools/list", json!({}))),
+    )
+    .await
+    .unwrap();
+    let names: Vec<&str> = listed["result"]["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|tool| tool["name"].as_str().unwrap())
+        .collect();
+    assert!(
+        names.contains(&"customers")
+            && names.contains(&"customer_record")
+            && names.contains(&"feedback_open")
+    );
+    let (_, theirs, _) = call(
+        &state,
+        "POST",
+        "/api/v1/mcp",
+        Some(&ana),
+        Some(rpc("tools/list", json!({}))),
+    )
+    .await
+    .unwrap();
+    assert!(
+        theirs["result"]["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|tool| tool["name"] != "customers"),
+        "customers see only their own organization's tools"
+    );
+
+    let (_, customers, _) = call(
+        &state,
+        "POST",
+        "/api/v1/mcp",
+        Some(&ops),
+        Some(rpc("tools/call", json!({"name": "customers"}))),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        customers["result"]["structuredContent"]["result"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
+    let (_, record, _) = call(&state, "POST", "/api/v1/mcp", Some(&ops), Some(rpc("tools/call", json!({"name": "customer_record", "arguments": {"organization_id": kestrel.to_string()}})))).await.unwrap();
+    assert_eq!(
+        record["result"]["structuredContent"]["result"]["customer"]["name"],
+        "Kestrel Digital"
+    );
+    let (_, bad, _) = call(
+        &state,
+        "POST",
+        "/api/v1/mcp",
+        Some(&ops),
+        Some(rpc(
+            "tools/call",
+            json!({"name": "customer_record", "arguments": {"organization_id": "kestrel"}}),
+        )),
+    )
+    .await
+    .unwrap();
+    assert_eq!(bad["error"]["code"], -32602);
+    for tool in ["support_waiting", "assistant_missed", "feedback_open"] {
+        let (_, answer, _) = call(
+            &state,
+            "POST",
+            "/api/v1/mcp",
+            Some(&ops),
+            Some(rpc("tools/call", json!({"name": tool}))),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            answer["result"]["structuredContent"]["result"],
+            json!([]),
+            "{tool}"
+        );
+    }
+
+    let (_, refused, _) = call(
+        &state,
+        "POST",
+        "/api/v1/mcp",
+        Some(&ana),
+        Some(rpc("tools/call", json!({"name": "customers"}))),
+    )
+    .await
+    .unwrap();
+    assert_eq!(refused["error"]["code"], -32602);
+    assert!(
+        refused["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("unknown tool")
+    );
+}
