@@ -10,6 +10,7 @@
 //! `<timestamp>_bills_<what>.sql`.
 
 pub mod amount;
+pub mod ecb;
 pub mod rates;
 pub mod reconciliation;
 

@@ -70,6 +70,7 @@ pub async fn serve(extension: Arc<dyn Extension>) -> anyhow::Result<()> {
     let db = connect_and_migrate(&config.database_url).await?;
 
     let state = AppState::new(db, config, extension);
+    bills::ecb::start(&state, state.config.prices_refresh);
     let app = router(state);
 
     let listener = tokio::net::TcpListener::bind(LISTEN_ADDRESS)
