@@ -743,7 +743,7 @@ export const handlers = [
   http.get(`${API}/api-tokens`, member(({ db, me }) => HttpResponse.json(db.tokens.filter((t) => me.role === "controller" || t.person_id === me.id)))),
   http.post(`${API}/api-tokens`, member(async ({ db, me, request }) => {
     const { kind, name } = (await request.json()) as { kind: ApiToken["kind"]; name?: string };
-    if (kind === "cli") return error(400, "bad_request", "CLI tokens come from `tc connect`.");
+    if (kind === "cli") return error(400, "bad_request", "A CLI token comes from tc connect on the computer it is for.");
     if (kind === "organization" && me.role !== "controller") return error(403, "forbidden", "Only a controller creates the organization token.");
     const prefix = ({ service: "tc_svc_", read: "tc_read_", organization: "tc_org_", cli: "tc_cli_" } satisfies Record<ApiToken["kind"], string>)[kind];
     const token = `${prefix}${Math.random().toString(36).slice(2, 10)}${Math.random().toString(36).slice(2, 18)}`;
