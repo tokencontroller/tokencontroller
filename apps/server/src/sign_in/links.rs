@@ -21,7 +21,7 @@ use super::caller::{Member, SESSION_COOKIE, bearer_token, session_cookie};
 use super::secret;
 use crate::error::ApiError;
 use crate::mail::{self, Mail, escape_html, render};
-use crate::organizations;
+use crate::organizations::{self, Role};
 use crate::{AppState, Config};
 
 /// How long a sign-in link works.
@@ -363,34 +363,119 @@ pub(super) async fn use_link(
 ) -> Result<Response, ApiError> {
     let mut tx = state.db.begin().await?;
     let used = consume_link(&mut tx, &state.config, &link.token).await?;
-    let response = match used {
-        Used::Gone => page(
-            StatusCode::GONE,
-            "This link no longer works",
-            &expired_text(&state.config),
+    let (response, signed_in) = match used {
+        Used::Gone => (
+            page(
+                StatusCode::GONE,
+                "This link no longer works",
+                &expired_text(&state.config),
+            ),
+            None,
         ),
-        Used::LocalTool => page(
-            StatusCode::OK,
-            "You are signed in",
-            "<p>Your command line tool is signed in. You can close this tab and go back to your terminal.</p>",
+        Used::LocalTool(signed_in) => (
+            page(
+                StatusCode::OK,
+                "You are signed in",
+                "<p>Your command line tool is signed in. You can close this tab and go back to your terminal.</p>",
+            ),
+            Some(signed_in),
         ),
-        Used::Browser { person_id } => {
-            let session = create_session(&mut tx, &state.config, person_id, false).await?;
-            let mut response = StatusCode::SEE_OTHER.into_response();
-            let headers = response.headers_mut();
-            headers.insert(LOCATION, HeaderValue::from_static("/"));
-            headers.insert(SET_COOKIE, session_cookie_header(&state.config, &session)?);
-            response
-        }
+        Used::Browser(signed_in) => (
+            browser_session(&mut tx, &state.config, signed_in.person_id).await?,
+            Some(signed_in),
+        ),
     };
     tx.commit().await?;
+    if let Some(signed_in) = signed_in {
+        record_sign_in(&state, signed_in);
+    }
+    Ok(response)
+}
+
+/// A new browser session for the person: sets the cookie and sends the
+/// browser on to the web app.
+async fn browser_session(
+    tx: &mut PgConnection,
+    config: &Config,
+    person_id: Uuid,
+) -> Result<Response, ApiError> {
+    let session = create_session(&mut *tx, config, person_id, false).await?;
+    let mut response = StatusCode::SEE_OTHER.into_response();
+    let headers = response.headers_mut();
+    headers.insert(LOCATION, HeaderValue::from_static("/"));
+    headers.insert(SET_COOKIE, session_cookie_header(config, &session)?);
+    Ok(response)
+}
+
+fn record_sign_in(state: &AppState, signed_in: SignedIn) {
+    let SignedIn {
+        organization_id,
+        person_id,
+        signed_up,
+    } = signed_in;
+    if signed_up {
+        organizations::record_audit_event(
+            state,
+            organization_id,
+            Some(person_id),
+            "organization.created",
+            Some(organization_id),
+        );
+    }
+    organizations::record_audit_event(
+        state,
+        organization_id,
+        Some(person_id),
+        "member.signed_in",
+        Some(person_id),
+    );
+}
+
+/// Signs a member in without a link, for a sign-in provider such as the
+/// Enterprise plan's OIDC: the same answer a used magic link gives, a
+/// session cookie and a redirect to the web app.
+///
+/// # Errors
+///
+/// [`ApiError::NotFound`] if there is no such person or they were removed,
+/// or a failed query.
+pub async fn start_session(state: &AppState, person_id: Uuid) -> Result<Response, ApiError> {
+    let mut tx = state.db.begin().await?;
+    let organization_id = sqlx::query_scalar!(
+        r#"UPDATE people SET joined_at = coalesce(joined_at, now())
+           WHERE id = $1 AND removed_at IS NULL
+           RETURNING organization_id"#,
+        person_id
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or(ApiError::NotFound)?;
+    let response = browser_session(&mut tx, &state.config, person_id).await?;
+    tx.commit().await?;
+    record_sign_in(
+        state,
+        SignedIn {
+            organization_id,
+            person_id,
+            signed_up: false,
+        },
+    );
     Ok(response)
 }
 
 enum Used {
     Gone,
-    Browser { person_id: Uuid },
-    LocalTool,
+    Browser(SignedIn),
+    LocalTool(SignedIn),
+}
+
+/// Who a used link signed in, and whether it also created their
+/// organization.
+#[derive(Clone, Copy)]
+struct SignedIn {
+    organization_id: Uuid,
+    person_id: Uuid,
+    signed_up: bool,
 }
 
 async fn consume_link(
@@ -412,26 +497,33 @@ async fn consume_link(
         return Ok(Used::Gone);
     };
 
-    let member = sqlx::query_scalar!(
-        "SELECT id FROM people WHERE email = $1 AND removed_at IS NULL",
+    let member = sqlx::query!(
+        "SELECT id, organization_id FROM people WHERE email = $1 AND removed_at IS NULL",
         link.email
     )
     .fetch_optional(&mut *tx)
     .await?;
-    let person_id = match (member, link.sign_up_organization_name) {
-        (Some(person_id), _) => {
+    let signed_in = match (member, link.sign_up_organization_name) {
+        (Some(member), _) => {
             sqlx::query!(
                 "UPDATE people SET joined_at = coalesce(joined_at, now()) WHERE id = $1",
-                person_id
+                member.id
             )
             .execute(&mut *tx)
             .await?;
-            person_id
+            SignedIn {
+                organization_id: member.organization_id,
+                person_id: member.id,
+                signed_up: false,
+            }
         }
         (None, Some(name)) => {
-            organizations::create(&mut *tx, &name, &link.email)
-                .await?
-                .person_id
+            let created = organizations::create(&mut *tx, &name, &link.email).await?;
+            SignedIn {
+                organization_id: created.organization_id,
+                person_id: created.person_id,
+                signed_up: true,
+            }
         }
         // The person was removed after the link went out.
         (None, None) => return Ok(Used::Gone),
@@ -440,15 +532,49 @@ async fn consume_link(
     sqlx::query!(
         "UPDATE sign_in_links SET used_at = now(), person_id = $2 WHERE token_hash = $1",
         hash,
-        person_id
+        signed_in.person_id
     )
     .execute(&mut *tx)
     .await?;
     Ok(if link.local_tool {
-        Used::LocalTool
+        Used::LocalTool(signed_in)
     } else {
-        Used::Browser { person_id }
+        Used::Browser(signed_in)
     })
+}
+
+/// A way to sign in besides the magic link, such as the Enterprise plan's
+/// OIDC.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct SignInProvider {
+    pub id: String,
+    /// The label on the sign-in button.
+    pub label: String,
+    /// Where the button goes.
+    pub url: String,
+}
+
+/// The ways to sign in besides the magic link, for the buttons on the
+/// sign-in page. Empty on the open edition.
+#[utoipa::path(
+    get,
+    path = "/sign-in/providers",
+    tag = "sign-in",
+    responses((status = OK, body = Vec<SignInProvider>)),
+)]
+pub(super) async fn providers(State(state): State<AppState>) -> Json<Vec<SignInProvider>> {
+    Json(
+        state
+            .extension
+            .sign_in_providers()
+            .into_iter()
+            .map(|provider| SignInProvider {
+                url: format!("/api/v1/sign-in/providers/{}", provider.id),
+                id: provider.id,
+                label: provider.label,
+            })
+            .collect(),
+    )
 }
 
 /// Collect a local tool's session once its link was used.
@@ -544,21 +670,23 @@ async fn create_session(
     person_id: Uuid,
     local_tool: bool,
 ) -> Result<secret::Secret, ApiError> {
-    let session = new_secret(secret::SESSION, config)?;
-    let (client, days) = if local_tool {
-        ("local_tool", LOCAL_TOOL_SESSION_DAYS)
+    let (prefix, client, days) = if local_tool {
+        (secret::CLI, "local_tool", LOCAL_TOOL_SESSION_DAYS)
     } else {
-        ("browser", BROWSER_SESSION_DAYS)
+        (secret::SESSION, "browser", BROWSER_SESSION_DAYS)
     };
+    let session = new_secret(prefix, config)?;
     let expires_at = OffsetDateTime::now_utc()
         .checked_add(Duration::days(days))
         .ok_or_else(|| ApiError::Internal(anyhow::anyhow!("session expiry out of range")))?;
     sqlx::query!(
-        "INSERT INTO sessions (token_hash, person_id, client, expires_at) VALUES ($1, $2, $3, $4)",
+        r#"INSERT INTO sessions (token_hash, person_id, client, expires_at, shown_prefix)
+           VALUES ($1, $2, $3, $4, $5)"#,
         session.hash,
         person_id,
         client,
-        expires_at
+        expires_at,
+        local_tool.then(|| session.shown_prefix())
     )
     .execute(&mut *tx)
     .await?;
@@ -596,7 +724,7 @@ pub(super) async fn sign_out(
     headers: HeaderMap,
 ) -> Result<Response, ApiError> {
     let token = bearer_token(&headers)
-        .filter(|token| token.starts_with(secret::SESSION))
+        .filter(|token| token.starts_with(secret::CLI))
         .or_else(|| session_cookie(&headers));
     if let Some(token) = token {
         let hash = secret::hash(token, &state.config.secret_key);
@@ -619,6 +747,9 @@ pub struct Me {
     pub organization: organizations::OrganizationSummary,
     /// `session` for a person, `read` for a read token.
     pub credential: super::CredentialKind,
+    /// For controllers only: a notice to show on every page, such as an
+    /// Enterprise plan renewal. `null` when there is none.
+    pub controller_notice: Option<String>,
 }
 
 /// The signed-in person and their organization.
@@ -637,10 +768,16 @@ pub(super) async fn me(
 ) -> Result<Json<Me>, ApiError> {
     let person = organizations::member(&state.db, member.organization_id, member.person_id).await?;
     let organization = organizations::summary(&state.db, member.organization_id).await?;
+    let controller_notice = if member.role == Role::Controller {
+        state.extension.controller_notice()
+    } else {
+        None
+    };
     Ok(Json(Me {
         person,
         organization,
         credential: member.credential.kind(),
+        controller_notice,
     }))
 }
 

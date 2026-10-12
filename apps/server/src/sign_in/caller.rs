@@ -1,7 +1,7 @@
 //! Who is calling: the extractors every handler uses.
 //!
 //! - [`Member`] is what most endpoints take: a signed-in person (browser
-//!   cookie or a local tool's `tc_ses_` token), or a `tc_read_` token on a
+//!   cookie or a `tc_cli_` token from `tc connect`), or a `tc_read_` token on a
 //!   read (GET). It answers 401 to anything else.
 //! - [`Caller`] also takes service tokens (`tc_svc_`) and the organization
 //!   token (`tc_org_`). A handler that takes it says which credentials it
@@ -32,7 +32,8 @@ pub const SESSION_COOKIE: &str = "tc_session";
 pub enum Credential {
     /// The browser's session cookie.
     BrowserSession,
-    /// A `tc_ses_` token held by a local tool such as the CLI.
+    /// A `tc_cli_` token from `tc connect`, held by a local tool such as
+    /// the CLI.
     LocalToolSession,
     Service {
         token_id: Uuid,
@@ -110,14 +111,20 @@ impl Caller {
         }
     }
 
-    /// Refuses everything but a signed-in person: changes to the
-    /// organization are made by people, not tokens.
+    /// Refuses everything but a person signed in to the web app: changes to
+    /// the organization are made by people in the browser, not by tokens,
+    /// and not by a CLI token either, which may only submit its person's
+    /// token sheet and edit their rules.
     ///
     /// # Errors
     ///
     /// [`ApiError::Forbidden`] for tokens.
     pub fn require_session(&self) -> Result<(), ApiError> {
-        self.require_credential(&[CredentialKind::Session])
+        if self.credential == Credential::BrowserSession {
+            Ok(())
+        } else {
+            Err(ApiError::Forbidden)
+        }
     }
 }
 
@@ -163,6 +170,25 @@ impl FromRequestParts<AppState> for Member {
         } else {
             Err(ApiError::Unauthorized)
         }
+    }
+}
+
+/// The person a request is signed in as, for code outside the handlers such
+/// as the Enterprise plan's settings: a browser or local tool session of a
+/// member who was not removed. `None` without one, for an API token, and
+/// for a browser request from another site.
+///
+/// # Errors
+///
+/// Fails if a query fails.
+pub async fn signed_in(state: &AppState, headers: &HeaderMap) -> Result<Option<Caller>, ApiError> {
+    if !same_origin(headers, &state.config.public_url) {
+        return Ok(None);
+    }
+    match authenticate(headers, state).await {
+        Ok(caller) if caller.credential.kind() == CredentialKind::Session => Ok(Some(caller)),
+        Ok(_) | Err(ApiError::Unauthorized) => Ok(None),
+        Err(error) => Err(error),
     }
 }
 
@@ -216,7 +242,7 @@ async fn authenticate(headers: &HeaderMap, state: &AppState) -> Result<Caller, A
         .find(|(prefix, _)| token.starts_with(prefix));
         return match kind {
             Some((_, kind)) => api_token(state, token, kind).await,
-            None if token.starts_with(secret::SESSION) => session(state, token, false).await,
+            None if token.starts_with(secret::CLI) => session(state, token, false).await,
             None => Err(ApiError::Unauthorized),
         };
     }

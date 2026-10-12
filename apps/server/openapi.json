@@ -762,7 +762,7 @@
         "tags": [
           "api-tokens"
         ],
-        "summary": "Your API tokens, or every token in the organization for a controller.",
+        "summary": "Your API tokens and CLI tokens, or every one in the organization for a\ncontroller.",
         "operationId": "list",
         "responses": {
           "200": {
@@ -822,7 +822,7 @@
         "tags": [
           "api-tokens"
         ],
-        "summary": "Revoke an API token: your own, or any as a controller.",
+        "summary": "Revoke an API token or a CLI token: your own, or any as a controller.",
         "operationId": "revoke",
         "parameters": [
           {
@@ -1571,6 +1571,74 @@
         }
       }
     },
+    "/api/v1/me/context": {
+      "get": {
+        "tags": [
+          "rules"
+        ],
+        "summary": "What a local tool needs to place token entries the way the service\ndoes: the organization's rules and tag names, your own rules and tags,\nand the projects with their ticket key patterns and repositories.",
+        "operationId": "context",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Context"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/me/rules": {
+      "put": {
+        "tags": [
+          "rules"
+        ],
+        "summary": "Replace your own rules. They run after the organization's.",
+        "operationId": "set_personal_rules",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PersonalRules"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PersonalRules"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/members": {
       "get": {
         "tags": [
@@ -2065,6 +2133,72 @@
         }
       }
     },
+    "/api/v1/organization/rules": {
+      "get": {
+        "tags": [
+          "rules"
+        ],
+        "summary": "The organization's rules and how they place token entries.",
+        "operationId": "get_organization_rules",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrganizationRules"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "rules"
+        ],
+        "summary": "Change the organization's rules. Controllers only.",
+        "operationId": "set_organization_rules",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OrganizationRulesChange"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrganizationRules"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/projects": {
       "get": {
         "tags": [
@@ -2436,6 +2570,29 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/sign-in/providers": {
+      "get": {
+        "tags": [
+          "sign-in"
+        ],
+        "summary": "The ways to sign in besides the magic link, for the buttons on the\nsign-in page. Empty on the open edition.",
+        "operationId": "providers",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/SignInProvider"
+                  }
                 }
               }
             }
@@ -3188,6 +3345,29 @@
           }
         }
       },
+      "Cadence": {
+        "type": "object",
+        "description": "One token sheet period.",
+        "required": [
+          "period_start",
+          "period_end",
+          "due_at"
+        ],
+        "properties": {
+          "due_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "period_end": {
+            "type": "string",
+            "description": "The last day, such as `2026-10-11`."
+          },
+          "period_start": {
+            "type": "string",
+            "description": "The first day, such as `2026-10-05`."
+          }
+        }
+      },
       "Check": {
         "type": "string",
         "description": "Whether one part of the service works.",
@@ -3283,6 +3463,141 @@
           "website": {
             "type": "string",
             "description": "Left empty by people. Forms that fill it are taken to be robots."
+          }
+        }
+      },
+      "Context": {
+        "type": "object",
+        "description": "Everything a local tool needs to place token entries the way the service\ndoes.",
+        "required": [
+          "organization",
+          "person",
+          "rules",
+          "projects",
+          "rejected"
+        ],
+        "properties": {
+          "cadence": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Cadence",
+                "description": "The person's next token sheet. `null` until the close area reports\nit."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "organization": {
+            "$ref": "#/components/schemas/ContextOrganization"
+          },
+          "person": {
+            "$ref": "#/components/schemas/ContextPerson"
+          },
+          "projects": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ContextProject"
+            },
+            "description": "Projects that are not archived."
+          },
+          "rejected": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Rejected"
+            },
+            "description": "Token entries sent from this person's machines that the service\nturned down. Empty until the close area reports them."
+          },
+          "rules": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            },
+            "description": "The person's own rules, in order."
+          }
+        }
+      },
+      "ContextOrganization": {
+        "type": "object",
+        "required": [
+          "name",
+          "currency",
+          "tag_names",
+          "several_keys",
+          "rules"
+        ],
+        "properties": {
+          "currency": {
+            "type": "string",
+            "description": "The reporting currency, such as `EUR`."
+          },
+          "name": {
+            "type": "string"
+          },
+          "rules": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            },
+            "description": "The organization's rules, in order; they run before the person's."
+          },
+          "several_keys": {
+            "type": "string"
+          },
+          "tag_names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The organization's tag names, built-in ones included."
+          }
+        }
+      },
+      "ContextPerson": {
+        "type": "object",
+        "required": [
+          "email",
+          "name",
+          "tags"
+        ],
+        "properties": {
+          "email": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "tags": {
+            "$ref": "#/components/schemas/BTreeMap",
+            "description": "Tags the person's token entries inherit, such as `{\"team\": \"web\"}`."
+          }
+        }
+      },
+      "ContextProject": {
+        "type": "object",
+        "required": [
+          "name",
+          "repositories",
+          "tags"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "repositories": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "tags": {
+            "$ref": "#/components/schemas/BTreeMap"
+          },
+          "ticket_key_pattern": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       },
@@ -3879,6 +4194,13 @@
           "credential"
         ],
         "properties": {
+          "controller_notice": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "For controllers only: a notice to show on every page, such as an\nEnterprise plan renewal. `null` when there is none."
+          },
           "credential": {
             "$ref": "#/components/schemas/CredentialKind",
             "description": "`session` for a person, `read` for a read token."
@@ -4356,6 +4678,61 @@
           }
         }
       },
+      "OrganizationRules": {
+        "type": "object",
+        "description": "The organization's rules and how they place token entries.",
+        "required": [
+          "rules",
+          "several_keys",
+          "summary_match"
+        ],
+        "properties": {
+          "rules": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            },
+            "description": "In order. The default rules until a controller changes them."
+          },
+          "several_keys": {
+            "type": "string",
+            "description": "What the \"ticket key in prompts\" rule does when prompts name several\ntickets: `most_often`, `equal_split` or `first_named`."
+          },
+          "summary_match": {
+            "type": "boolean",
+            "description": "Whether token entries no rule placed are matched to a ticket by\ntheir summary."
+          }
+        }
+      },
+      "OrganizationRulesChange": {
+        "type": "object",
+        "description": "A change to the organization's rules. Fields left out stay as they are.",
+        "properties": {
+          "rules": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "object"
+            },
+            "description": "Replaces the whole list, in order. An empty list switches every rule\noff."
+          },
+          "several_keys": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "summary_match": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
       "OrganizationSummary": {
         "type": "object",
         "description": "An organization's name and short name.",
@@ -4419,6 +4796,23 @@
           "down",
           "not_running"
         ]
+      },
+      "PersonalRules": {
+        "type": "object",
+        "description": "A person's own rules.",
+        "required": [
+          "rules"
+        ],
+        "properties": {
+          "rules": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            },
+            "description": "In order. They run after the organization's."
+          }
+        },
+        "additionalProperties": false
       },
       "Plan": {
         "type": "string",
@@ -4639,6 +5033,23 @@
           }
         }
       },
+      "Rejected": {
+        "type": "object",
+        "description": "A token entry the service turned down.",
+        "required": [
+          "local_id",
+          "reason"
+        ],
+        "properties": {
+          "local_id": {
+            "type": "string",
+            "description": "The ID the machine gave it, such as `claude-code:<session id>`."
+          },
+          "reason": {
+            "type": "string"
+          }
+        }
+      },
       "Reply": {
         "type": "object",
         "description": "An operator's answer.",
@@ -4809,6 +5220,28 @@
           },
           "version": {
             "type": "string"
+          }
+        }
+      },
+      "SignInProvider": {
+        "type": "object",
+        "description": "A way to sign in besides the magic link, such as the Enterprise plan's\nOIDC.",
+        "required": [
+          "id",
+          "label",
+          "url"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string",
+            "description": "The label on the sign-in button."
+          },
+          "url": {
+            "type": "string",
+            "description": "Where the button goes."
           }
         }
       },
@@ -5178,7 +5611,8 @@
         "enum": [
           "service",
           "read",
-          "organization"
+          "organization",
+          "cli"
         ]
       }
     },
@@ -5186,7 +5620,7 @@
       "bearer": {
         "type": "http",
         "scheme": "bearer",
-        "description": "A local tool's session (`tc_ses_`) or an API token: `tc_svc_` for services, `tc_read_` to read, `tc_org_` for the organization."
+        "description": "A CLI token from `tc connect` (`tc_cli_`) or an API token: `tc_svc_` for services, `tc_read_` to read, `tc_org_` for the organization."
       },
       "session": {
         "type": "apiKey",

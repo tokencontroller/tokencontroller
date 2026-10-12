@@ -24,7 +24,7 @@ This fills in ADR 0010 where the CLI needed details.
 
 ## Signing in
 
-`tc connect` signs in with a magic link, as the web app does (`POST /api/v1/sign-in` with `local_tool`). With an invite link it takes the address from the invite; for an instance address it asks for it. The person presses Sign in in the mail, and `tc` collects a session token (`tc_ses_…`) by polling and keeps it in its settings file. With a `tc_svc_…` service token, as in CI, `tc submit` reports automatic token entries instead of a token sheet.
+`tc connect` signs in with a magic link, as the web app does (`POST /api/v1/sign-in` with `local_tool`). With an invite link it takes the address from the invite; for an instance address it asks for it. The person presses Sign in in the mail, and `tc` collects a `tc_cli_…` token by polling and keeps it in its settings file. Opening the link alone uses nothing, so mail scanners cannot sign a machine in. That token belongs to one person on one machine, can be revoked under _Settings_, reads what its person may read, and may change only that person's token sheet and rules: settings, members and API tokens need the web app. With a `tc_svc_…` service token, as in CI, `tc submit` reports automatic token entries instead of a token sheet.
 
 ## Shipping
 
