@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use time::Date;
 use tokencontroller_core::{Currency, Money, MoneyError};
 
-use super::period::{CostSource, Period};
+use tokencontroller_core::{CostSource, Period};
 
 /// The provider a bill comes from, spelled as bills are stored.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]

@@ -13,8 +13,8 @@ use time::{Date, OffsetDateTime};
 use tokencontroller_core::{Currency, Money, MoneyError};
 
 use super::bill::BillError;
-use super::period::Period;
 use crate::integrations::decimal::money_from_decimal;
+use tokencontroller_core::Period;
 
 /// Pages a pull follows before it gives up on a provider that never stops.
 pub(super) const MAX_PAGES: usize = 200;

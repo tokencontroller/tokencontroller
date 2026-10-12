@@ -6,11 +6,11 @@ use time::OffsetDateTime;
 use tokencontroller_core::{Currency, Money};
 
 use super::bill::{BillLine, BillOrigin, BillProvider, PulledBill};
-use super::period::{CostSource, Period};
 use super::pull::{
     MAX_PAGES, PullError, get_json_and_headers, has_ended, period_end, period_start,
 };
 use crate::integrations::decimal::money_from_json_number;
+use tokencontroller_core::{CostSource, Period};
 
 /// Where the OpenAI API lives.
 pub const BASE_URL: &str = "https://api.openai.com";

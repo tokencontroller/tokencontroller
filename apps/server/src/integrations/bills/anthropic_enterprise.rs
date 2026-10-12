@@ -7,10 +7,10 @@ use time::{Date, OffsetDateTime, UtcOffset};
 use tokencontroller_core::{Currency, Money};
 
 use super::bill::{BillLine, BillOrigin, BillProvider, PulledBill};
-use super::period::{CostSource, Period};
 use super::pull::{
     MAX_PAGES, PullError, get_json, money_from_cents, period_end, period_start, rfc3339,
 };
+use tokencontroller_core::{CostSource, Period};
 
 /// Where the Enterprise Analytics API lives.
 pub const BASE_URL: &str = "https://api.anthropic.com";

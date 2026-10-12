@@ -14,8 +14,8 @@ use tokencontroller_core::{Currency, Money};
 use super::sheet::{Column, Header, Sheet, cell, preamble_entry, read_amount, read_day};
 use super::{BillError, CsvBillError};
 use crate::integrations::bills::bill::{BillLine, BillOrigin, BillProvider, PulledBill};
-use crate::integrations::bills::period::{CostSource, Period};
 use crate::integrations::decimal::money_from_json_number;
+use tokencontroller_core::{CostSource, Period};
 
 /// Rows looked at for the header, after any preamble.
 const HEADER_SEARCH_ROWS: usize = 50;

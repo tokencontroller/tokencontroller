@@ -14,7 +14,7 @@ use tokencontroller_core::{Currency, Money};
 
 use self::sheet::{Column, Header, Sheet, cell, read_amount, read_decimal};
 use super::bill::{BillError, BillFigures, BillOrigin, BillProvider, PulledBill};
-use super::period::{CostSource, Period};
+use tokencontroller_core::{CostSource, Period};
 
 pub use self::cloud::Cloud;
 

@@ -11,9 +11,9 @@ pub mod anthropic_enterprise;
 mod bill;
 pub mod csv;
 pub mod openai;
-mod period;
 mod pull;
 
 pub use bill::{BillError, BillFigures, BillLine, BillOrigin, BillProvider, PulledBill};
-pub use period::{CostSource, Period, PeriodError};
 pub use pull::PullError;
+pub use tokencontroller_core::period::PeriodError;
+pub use tokencontroller_core::{CostSource, Period};
