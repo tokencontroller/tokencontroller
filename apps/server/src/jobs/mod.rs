@@ -131,8 +131,9 @@ pub async fn request_now(db: &PgPool, job: &str) -> Result<(), sqlx::Error> {
     Ok(())
 }
 
-/// The jobs this instance runs, by name: `ticket-sync`, `price-tables` and `exchange-rates` unless
-/// `TC_PRICES_REFRESH` is `off`, and `onboarding-emails` when
+/// The jobs this instance runs, by name: `ticket-sync`, `bill-pulls` and
+/// `late-reminders`; `price-tables` and `exchange-rates` unless
+/// `TC_PRICES_REFRESH` is `off`; and `onboarding-emails` when
 /// `TC_ONBOARDING_EMAILS` is `on`.
 #[must_use]
 pub fn standard(config: &Config) -> Vec<Job> {
