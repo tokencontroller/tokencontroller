@@ -3,7 +3,8 @@
 //! all state in one Postgres database.
 //!
 //! The Enterprise plan build links this library and passes its own
-//! [`Extension`] to [`serve`]; the open build passes `NoExtension`.
+//! [`Extension`] to [`serve_with`], with its own routes; the open build
+//! passes `NoExtension` to [`serve`].
 //!
 //! Each area of the product has its own module folder, listed in [`api`].
 //! See the layout table in the repository README for who owns which.
@@ -58,6 +59,25 @@ pub static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
 /// Fails if the configuration is incomplete, Postgres cannot be reached, a
 /// migration fails or the port is taken.
 pub async fn serve(extension: Arc<dyn Extension>) -> anyhow::Result<()> {
+    serve_with(extension, |_state| async { Ok(axum::Router::new()) }).await
+}
+
+/// Like [`serve`], and also serves the routes `extra_routes` returns. The
+/// Enterprise plan build uses it to add its own endpoints (OIDC, SCIM) next
+/// to the open ones; it gets the shared state after migrations ran, so it can
+/// apply its own migrations to the same database first.
+///
+/// # Errors
+///
+/// As [`serve`], or whatever `extra_routes` returns.
+pub async fn serve_with<F, Fut>(
+    extension: Arc<dyn Extension>,
+    extra_routes: F,
+) -> anyhow::Result<()>
+where
+    F: FnOnce(AppState) -> Fut,
+    Fut: Future<Output = anyhow::Result<axum::Router>>,
+{
     init_tracing();
     let config = Config::from_env()?;
     tracing::info!(
@@ -70,7 +90,8 @@ pub async fn serve(extension: Arc<dyn Extension>) -> anyhow::Result<()> {
     let db = connect_and_migrate(&config.database_url).await?;
 
     let state = AppState::new(db, config, extension);
-    let app = router(state);
+    let extra = extra_routes(state.clone()).await?;
+    let app = router(state).merge(extra);
 
     let listener = tokio::net::TcpListener::bind(LISTEN_ADDRESS)
         .await
