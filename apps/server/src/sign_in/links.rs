@@ -54,8 +54,17 @@ pub struct SignUpRequest {
     pub email: String,
     /// Such as `Kestrel Digital`.
     pub organization_name: String,
+    /// Your own name, as your colleagues will see it. Can be set later.
+    #[serde(default)]
+    pub name: Option<String>,
     #[serde(default)]
     pub local_tool: bool,
+}
+
+/// What a sign-up link creates once it is used.
+struct SignUp {
+    organization_name: String,
+    person_name: Option<String>,
 }
 
 /// The same answer whether or not the address belongs to anyone.
@@ -112,15 +121,23 @@ pub(super) async fn sign_up(
     Json(request): Json<SignUpRequest>,
 ) -> Result<(StatusCode, Json<LinkSent>), ApiError> {
     let email = normalize_email(&request.email)?;
-    let name = organizations::validate_name(&request.organization_name)?;
-    let sent = request_link(&state, &email, Some(name), request.local_tool).await?;
+    let sign_up = SignUp {
+        organization_name: organizations::validate_name(&request.organization_name)?,
+        person_name: request
+            .name
+            .as_deref()
+            .map(organizations::clean_name)
+            .transpose()?
+            .filter(|name| !name.is_empty()),
+    };
+    let sent = request_link(&state, &email, Some(sign_up), request.local_tool).await?;
     Ok((StatusCode::ACCEPTED, Json(sent)))
 }
 
 async fn request_link(
     state: &AppState,
     email: &str,
-    sign_up_name: Option<String>,
+    sign_up: Option<SignUp>,
     local_tool: bool,
 ) -> Result<LinkSent, ApiError> {
     let recent = sqlx::query_scalar!(
@@ -149,19 +166,19 @@ async fn request_link(
         .as_ref()
         .is_some_and(|member| domain_allowed(email, &member.sign_in_domains));
     // A sign-up from an address that is already a member is a sign-in.
-    let sign_up_name = if member.is_some() { None } else { sign_up_name };
+    let sign_up = if member.is_some() { None } else { sign_up };
 
     let link = new_link(
         &state.db,
         &state.config,
         email,
-        sign_up_name.as_deref(),
+        sign_up.as_ref(),
         local_tool,
     )
     .await?;
     let poll_token = link.poll.map(|poll| poll.token);
 
-    if allowed || sign_up_name.is_some() {
+    if allowed || sign_up.is_some() {
         let url = link_url(&state.config, &link.secret.token);
         send_quietly(
             &state.db,
@@ -190,7 +207,7 @@ async fn new_link(
     db: &PgPool,
     config: &Config,
     email: &str,
-    sign_up_name: Option<&str>,
+    sign_up: Option<&SignUp>,
     local_tool: bool,
 ) -> Result<NewLink, ApiError> {
     let secret = new_secret(secret::LINK, config)?;
@@ -200,11 +217,13 @@ async fn new_link(
         None
     };
     sqlx::query!(
-        r#"INSERT INTO sign_in_links (token_hash, email, sign_up_organization_name, poll_hash, expires_at)
-           VALUES ($1, $2, $3, $4, now() + make_interval(mins => $5::bigint::int))"#,
+        r#"INSERT INTO sign_in_links
+             (token_hash, email, sign_up_organization_name, sign_up_person_name, poll_hash, expires_at)
+           VALUES ($1, $2, $3, $4, $5, now() + make_interval(mins => $6::bigint::int))"#,
         secret.hash,
         email,
-        sign_up_name,
+        sign_up.map(|sign_up| sign_up.organization_name.as_str()),
+        sign_up.and_then(|sign_up| sign_up.person_name.as_deref()),
         poll.as_ref().map(|poll| poll.hash.clone()),
         LINK_MINUTES
     )
@@ -283,6 +302,7 @@ async fn send_quietly(db: &PgPool, config: &Config, mail: Mail) {
 
 /// The token in a sign-in link.
 #[derive(Debug, Deserialize, utoipa::IntoParams, ToSchema)]
+#[into_params(parameter_in = Query)]
 pub struct LinkToken {
     pub token: String,
 }
@@ -485,7 +505,8 @@ async fn consume_link(
 ) -> Result<Used, ApiError> {
     let hash = secret::hash(token, &config.secret_key);
     let Some(link) = sqlx::query!(
-        r#"SELECT email, sign_up_organization_name, poll_hash IS NOT NULL AS "local_tool!"
+        r#"SELECT email, sign_up_organization_name, sign_up_person_name,
+                  poll_hash IS NOT NULL AS "local_tool!"
            FROM sign_in_links
            WHERE token_hash = $1 AND used_at IS NULL AND expires_at > now()
            FOR UPDATE"#,
@@ -519,6 +540,15 @@ async fn consume_link(
         }
         (None, Some(name)) => {
             let created = organizations::create(&mut *tx, &name, &link.email).await?;
+            if let Some(founder) = link.sign_up_person_name {
+                sqlx::query!(
+                    "UPDATE people SET name = $2 WHERE id = $1",
+                    created.person_id,
+                    founder
+                )
+                .execute(&mut *tx)
+                .await?;
+            }
             SignedIn {
                 organization_id: created.organization_id,
                 person_id: created.person_id,

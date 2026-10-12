@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, email, tags FROM people WHERE organization_id = $1",
+  "query": "SELECT id, rules AS \"rules: JsonColumn<Vec<Rule>>\" FROM people\n           WHERE organization_id = $1 AND rules <> '[]'::jsonb FOR UPDATE",
   "describe": {
     "columns": [
       {
@@ -16,23 +16,12 @@
       },
       {
         "ordinal": 1,
-        "name": "email",
-        "type_info": "Text",
-        "origin": {
-          "Table": {
-            "table": "people",
-            "name": "email"
-          }
-        }
-      },
-      {
-        "ordinal": 2,
-        "name": "tags",
+        "name": "rules: JsonColumn<Vec<Rule>>",
         "type_info": "Jsonb",
         "origin": {
           "Table": {
             "table": "people",
-            "name": "tags"
+            "name": "rules"
           }
         }
       }
@@ -44,9 +33,8 @@
     },
     "nullable": [
       false,
-      false,
       false
     ]
   },
-  "hash": "99cc6c203209f7f8e3150584acab7e2313bd918fcbc46debcfaad8d6e88cbec6"
+  "hash": "bde006a3c40a0ea80ed977199ab8ef80e36adba0da53ad326f7d71377969dca9"
 }

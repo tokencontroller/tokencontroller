@@ -11,6 +11,7 @@ mod audit;
 mod members;
 mod provisioning;
 mod role;
+mod rule_schema;
 mod rules;
 mod settings;
 
@@ -26,10 +27,10 @@ use crate::error::ApiError;
 use crate::tags;
 
 pub use audit::record_audit_event;
-pub use members::{MemberStatus, MemberView, filters_of};
+pub use members::{MemberStatus, MemberView, clean_name, filters_of};
 pub use provisioning::{add_member, member_by_email, only_organization, remove_member};
 pub use role::{Role, UnknownRole};
-pub use rules::{OrganizationRules, organization_rules, personal_rules};
+pub use rules::{OrganizationRules, change_rule_tags, organization_rules, personal_rules};
 pub use settings::{CostSource, Organization};
 
 /// The longest organization name.
@@ -52,7 +53,10 @@ pub fn routes() -> OpenApiRouter<AppState> {
             rules::get_organization_rules,
             rules::set_organization_rules
         ))
-        .routes(routes!(rules::set_personal_rules))
+        .routes(routes!(
+            rules::get_personal_rules,
+            rules::set_personal_rules
+        ))
         .routes(routes!(rules::context))
 }
 

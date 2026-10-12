@@ -583,7 +583,12 @@ pub(super) async fn show_invite(
     .ok_or(ApiError::NotFound)
 }
 
-pub(super) fn clean_name(name: &str) -> Result<String, ApiError> {
+/// Checks a person's name and trims it. It may be empty.
+///
+/// # Errors
+///
+/// [`ApiError::BadRequest`] when it is longer than 100 characters.
+pub fn clean_name(name: &str) -> Result<String, ApiError> {
     let name = name.trim();
     if name.chars().count() > 100 {
         return Err(ApiError::BadRequest(

@@ -169,7 +169,11 @@ async fn a_sign_up_link_creates_the_organization_and_signs_in(pool: PgPool) {
         Method::POST,
         "/api/v1/sign-up",
         Auth::None,
-        Some(json!({"email": "N.Berger@Kestrel.Example", "organization_name": "Kestrel Digital"})),
+        Some(json!({
+            "email": "N.Berger@Kestrel.Example",
+            "organization_name": "Kestrel Digital",
+            "name": " Nora Berger ",
+        })),
     )
     .await
     .unwrap();
@@ -236,6 +240,7 @@ async fn a_sign_up_link_creates_the_organization_and_signs_in(pool: PgPool) {
     .unwrap();
     assert_eq!(me.status, StatusCode::OK);
     assert_eq!(me.json["person"]["email"], "n.berger@kestrel.example");
+    assert_eq!(me.json["person"]["name"], "Nora Berger");
     assert_eq!(me.json["person"]["role"], "controller");
     assert_eq!(me.json["person"]["status"], "joined");
     assert_eq!(me.json["organization"]["name"], "Kestrel Digital");
@@ -2232,4 +2237,168 @@ async fn rules_and_the_context_local_tools_read(pool: PgPool) {
         .unwrap();
     assert!(rules.rules.is_empty());
     assert!(!rules.summary_match);
+}
+
+#[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
+async fn merging_tag_values_reaches_every_record_and_rule(pool: PgPool) {
+    use tokencontroller_server::seed::ids;
+    tokencontroller_server::seed::load(&pool).await.unwrap();
+    let app = app(&pool);
+    let mara = session_for(&pool, ids::MARA, "local_tool").await.unwrap();
+    let nadia = session_for(&pool, ids::NADIA, "browser").await.unwrap();
+    let call = |method: Method, path: String, auth: &str, body: Option<Value>| {
+        let app = app.clone();
+        let auth = auth.to_owned();
+        async move {
+            let auth = if auth.starts_with(secret::CLI) {
+                Auth::Bearer(&auth)
+            } else {
+                Auth::Cookie(&auth)
+            };
+            send(&app, method, &path, auth, body).await.unwrap()
+        }
+    };
+    let set_tags = |value: &str| json!({"set_tags": {"client": value}});
+
+    // Hand-typed drift: "Acme Corp" next to the seed's "acme".
+    let mine = call(
+        Method::PUT,
+        "/api/v1/me/rules".to_owned(),
+        &mara,
+        Some(json!({"rules": [{"name": "acme work", "then": set_tags("Acme Corp")}]})),
+    )
+    .await;
+    assert_eq!(mine.status, StatusCode::OK, "{}", mine.text);
+    let theirs = call(
+        Method::PUT,
+        "/api/v1/organization/rules".to_owned(),
+        &nadia,
+        Some(json!({"rules": [{"name": "acme repo", "then": set_tags("Acme Corp")}]})),
+    )
+    .await;
+    assert_eq!(theirs.status, StatusCode::OK, "{}", theirs.text);
+    let tagged = call(
+        Method::PATCH,
+        format!("/api/v1/members/{}", ids::MARA),
+        &nadia,
+        Some(json!({"tags": {"team": "web", "client": "Acme Corp"}})),
+    )
+    .await;
+    assert_eq!(tagged.status, StatusCode::OK, "{}", tagged.text);
+    let filters = call(
+        Method::PUT,
+        format!("/api/v1/members/{}/filters", ids::KAI),
+        &nadia,
+        Some(json!([{"client": "acme"}, {"client": "Acme Corp"}])),
+    )
+    .await;
+    assert_eq!(filters.status, StatusCode::OK, "{}", filters.text);
+    // A token entry that carries the drifted value.
+    let split: Uuid = sqlx::query_scalar(
+        "WITH entry AS (
+             INSERT INTO token_entries (organization_id, agent_harness, model, provider, started_at,
+                                        ended_at, status, on_token_sheet, door)
+             VALUES ($1, 'claude_code', 'claude-sonnet', 'anthropic', now(), now(), 'submitted',
+                     false, 'endpoint')
+             RETURNING id)
+         INSERT INTO splits (token_entry_id, position, method, placed_by)
+         SELECT id, 0, 'whole', 'by hand' FROM entry RETURNING id",
+    )
+    .bind(ids::ORGANIZATION)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO split_tags (split_id, organization_id, name, value, source)
+         VALUES ($1, $2, 'client', 'Acme Corp', 'sent')",
+    )
+    .bind(split)
+    .bind(ids::ORGANIZATION)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let merge = |name: &str, body: Value, auth: &str| {
+        call(
+            Method::POST,
+            format!("/api/v1/tags/{name}/merge"),
+            auth,
+            Some(body),
+        )
+    };
+    let body = json!({"from": ["Acme Corp"], "into": "acme"});
+    assert_eq!(
+        merge("client", body.clone(), &mara).await.status,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        merge("ticket", body.clone(), &nadia).await.status,
+        StatusCode::BAD_REQUEST
+    );
+    assert_eq!(
+        merge("colour", body.clone(), &nadia).await.status,
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        merge("client", json!({"from": [], "into": "acme"}), &nadia)
+            .await
+            .status,
+        StatusCode::BAD_REQUEST
+    );
+    let merged = merge("client", body, &nadia).await;
+    assert_eq!(merged.status, StatusCode::OK, "{}", merged.text);
+    let values: Vec<&str> = merged
+        .json
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|value| value["value"].as_str().unwrap())
+        .collect();
+    assert!(values.contains(&"acme"));
+    assert!(!values.contains(&"Acme Corp"));
+    let entry_client: String =
+        sqlx::query_scalar("SELECT value FROM split_tags WHERE split_id = $1 AND name = 'client'")
+            .bind(split)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(entry_client, "acme");
+
+    let me = call(Method::GET, "/api/v1/me/rules".to_owned(), &mara, None).await;
+    assert_eq!(me.status, StatusCode::OK, "{}", me.text);
+    assert_eq!(me.json["rules"][0]["then"], set_tags("acme"));
+    let organization = call(
+        Method::GET,
+        "/api/v1/organization/rules".to_owned(),
+        &nadia,
+        None,
+    )
+    .await;
+    assert_eq!(organization.json["rules"][0]["then"], set_tags("acme"));
+    let members = call(Method::GET, "/api/v1/members".to_owned(), &nadia, None).await;
+    let member = |id: Uuid| {
+        members
+            .json
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|member| member["id"] == id.to_string())
+            .unwrap()
+            .clone()
+    };
+    assert_eq!(member(ids::MARA)["tags"]["client"], "acme");
+    // Kai's two filters became one.
+    assert_eq!(member(ids::KAI)["filters"], json!([{"client": "acme"}]));
+
+    // Removing the tag name takes it out of the rules too.
+    let removed = call(
+        Method::DELETE,
+        "/api/v1/tags/client".to_owned(),
+        &nadia,
+        None,
+    )
+    .await;
+    assert_eq!(removed.status, StatusCode::NO_CONTENT, "{}", removed.text);
+    let me = call(Method::GET, "/api/v1/me/rules".to_owned(), &mara, None).await;
+    assert_eq!(me.json["rules"][0]["then"], json!({"set_tags": {}}));
 }

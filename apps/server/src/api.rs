@@ -6,11 +6,13 @@
 //! `#[utoipa::path]` in its area module and register it there with
 //! `routes!`, so the OpenAPI document always lists it.
 
+use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::Context as _;
 use axum::routing::get;
 use axum::{Json, Router};
+use tower_http::request_id::{MakeRequestUuid, PropagateRequestIdLayer, SetRequestIdLayer};
 use tower_http::trace::TraceLayer;
 use utoipa::OpenApi;
 use utoipa_axum::router::OpenApiRouter;
@@ -58,20 +60,44 @@ fn api() -> OpenApiRouter<AppState> {
     OpenApiRouter::with_openapi(ApiDoc::openapi()).nest(API_PREFIX, area_routes())
 }
 
-/// The whole HTTP service, ready to serve.
+/// The whole HTTP service, ready to serve: the API, and the web app on
+/// every other path when the image carries it.
 pub fn router(state: AppState) -> Router {
     let (api_router, openapi) = api().split_for_parts();
     let openapi = Arc::new(openapi);
-    api_router
-        .route(
-            "/api/v1/openapi.json",
-            get(move || {
-                let openapi = Arc::clone(&openapi);
-                async move { Json(openapi) }
-            }),
-        )
-        .layer(TraceLayer::new_for_http())
+    let router = api_router.route(
+        "/api/v1/openapi.json",
+        get(move || {
+            let openapi = Arc::clone(&openapi);
+            async move { Json(openapi) }
+        }),
+    );
+    let router = match crate::web::routes(Path::new(crate::web::WEB_DIR)) {
+        Some(web) => router.merge(web),
+        None => router,
+    };
+    router
+        .layer(PropagateRequestIdLayer::x_request_id())
+        .layer(TraceLayer::new_for_http().make_span_with(request_span))
+        .layer(SetRequestIdLayer::x_request_id(MakeRequestUuid))
         .with_state(state)
+}
+
+/// One log span per request, with its `x-request-id`, which the web app's
+/// feedback reports carry (docs: Security and privacy). The path goes
+/// without its query, which can hold a sign-in token.
+fn request_span<B>(request: &axum::http::Request<B>) -> tracing::Span {
+    let id = request
+        .headers()
+        .get("x-request-id")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default();
+    tracing::info_span!(
+        "request",
+        method = %request.method(),
+        path = request.uri().path(),
+        request_id = id
+    )
 }
 
 /// The OpenAPI document as pretty JSON, as served at

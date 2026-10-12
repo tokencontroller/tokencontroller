@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE people_manager_filters SET filter = jsonb_set(filter, ARRAY[$2], to_jsonb($3::text))\n           WHERE organization_id = $1 AND filter ->> $2 = ANY($4)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text",
+        "TextArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "b4b25296383659d69d64614b983a9107f5f015a04a88fed59c52504d574d4486"
+}

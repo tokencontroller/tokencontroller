@@ -91,8 +91,55 @@ fn every_operation_has_its_own_id() {
     assert_eq!(ids.len(), count, "two operations share an operationId");
 }
 
+#[test]
+fn path_parameters_are_in_their_path() {
+    // A query parameter declared `in: path` makes generated clients put it
+    // in the URL path, where the service never reads it.
+    let document: serde_json::Value =
+        serde_json::from_str(&tokencontroller_server::openapi_json().unwrap()).unwrap();
+    for (path, operations) in document["paths"].as_object().unwrap() {
+        for operation in operations.as_object().unwrap().values() {
+            let Some(parameters) = operation["parameters"].as_array() else {
+                continue;
+            };
+            for parameter in parameters {
+                let name = parameter["name"].as_str().unwrap();
+                if parameter["in"] == "path" {
+                    assert!(
+                        path.contains(&format!("{{{name}}}")),
+                        "{path} declares `{name}` in the path"
+                    );
+                }
+            }
+        }
+    }
+}
+
 #[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
 async fn seed_data_loads_twice_without_error(pool: PgPool) {
     tokencontroller_server::seed::load(&pool).await.unwrap();
     tokencontroller_server::seed::load(&pool).await.unwrap();
+}
+
+#[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
+async fn every_answer_carries_a_request_id(pool: PgPool) {
+    let app = router(AppState::new(pool, test_config(), Arc::new(NoExtension)));
+    let request = Request::get("/api/v1/health").body(Body::empty()).unwrap();
+    let response = app.clone().oneshot(request).await.unwrap();
+    // Feedback reports quote this id (docs: Security and privacy).
+    let id = response
+        .headers()
+        .get("x-request-id")
+        .unwrap()
+        .to_str()
+        .unwrap();
+    assert!(uuid::Uuid::parse_str(id).is_ok(), "{id}");
+
+    // An id the caller already sent is kept.
+    let request = Request::get("/api/v1/health")
+        .header("x-request-id", "abc-123")
+        .body(Body::empty())
+        .unwrap();
+    let response = app.oneshot(request).await.unwrap();
+    assert_eq!(response.headers().get("x-request-id").unwrap(), "abc-123");
 }

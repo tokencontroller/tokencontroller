@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE split_tags SET value = $3 WHERE organization_id = $1 AND name = $2 AND value = ANY($4)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text",
+        "TextArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c495d9c6bcf4cd3f4d2e67a0e83875447abc6e65cd97f9cc3b3a2122d7884635"
+}

@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM people_manager_filters f USING people_manager_filters g\n           WHERE f.organization_id = $1 AND g.person_id = f.person_id AND g.id <> f.id\n             AND f.filter ->> $2 = ANY($4)\n             AND jsonb_set(f.filter, ARRAY[$2], to_jsonb($3::text)) =\n                 CASE WHEN g.filter ->> $2 = ANY($4)\n                      THEN jsonb_set(g.filter, ARRAY[$2], to_jsonb($3::text))\n                      ELSE g.filter END\n             AND (g.filter ->> $2 IS NULL OR g.filter ->> $2 <> ALL($4) OR g.id < f.id)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text",
+        "TextArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "8dbc92d1a53e75308e6a6041d0540e74c22871680a3b7b031f99c85c34700649"
+}

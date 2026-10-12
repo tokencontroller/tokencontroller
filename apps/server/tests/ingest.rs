@@ -467,6 +467,47 @@ async fn the_core_places_a_ticket_in_the_branch_with_its_project_and_tags(pool: 
 }
 
 #[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
+async fn the_organizations_and_the_persons_own_rules_place_token_entries(pool: PgPool) {
+    let (organization, person) = organization(&pool).await.unwrap();
+    sqlx::query("INSERT INTO tag_names (organization_id, name) VALUES ($1, 'purpose')")
+        .bind(organization)
+        .execute(&pool)
+        .await
+        .unwrap();
+    // The organization switched every rule off; Mara has one of her own.
+    sqlx::query("UPDATE organizations SET rules = '[]' WHERE id = $1")
+        .bind(organization)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE people SET rules = $2 WHERE id = $1")
+        .bind(person)
+        .bind(serde_json::json!([{
+            "name": "review branches",
+            "when": [{ "signal": "branch", "test": { "starts_with": "review/" } }],
+            "then": { "set_tags": { "purpose": "code-review" } }
+        }]))
+        .execute(&pool)
+        .await
+        .unwrap();
+    let sent = entry(&serde_json::json!({
+        "signals": { "branch": "review/KD-214-cart-total" },
+    }))
+    .unwrap();
+    let stored = submit(&pool, organization, person, vec![sent], Door::TokenSheet)
+        .await
+        .unwrap();
+    assert_eq!(
+        split_tags(&pool, stored[0].id).await.unwrap(),
+        vec![vec![
+            tag("person", "mara@kestrel.example", "person"),
+            tag("purpose", "code-review", "rule"),
+            tag("team", "web", "inherited"),
+        ]]
+    );
+}
+
+#[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
 async fn telemetry_lands_on_the_project_of_its_repository(pool: PgPool) {
     let (organization, _) = organization(&pool).await.unwrap();
     let mut first = call("s7", "msg_1", datetime!(2026-10-05 09:00 UTC), 10);

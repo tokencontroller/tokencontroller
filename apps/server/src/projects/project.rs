@@ -70,6 +70,7 @@ pub struct ProjectChange {
 
 /// Which projects to list.
 #[derive(Debug, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 pub struct ProjectFilter {
     /// Include archived projects.
     #[serde(default)]
