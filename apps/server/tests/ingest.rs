@@ -466,6 +466,66 @@ async fn the_core_places_a_ticket_in_the_branch_with_its_project_and_tags(pool: 
     assert_eq!(placed_by, "rule: ticket key in branch");
 }
 
+async fn candidates_of(pool: &PgPool, entry: Uuid) -> Result<Vec<String>, sqlx::Error> {
+    sqlx::query_scalar("SELECT candidate_tickets FROM token_entries WHERE id = $1")
+        .bind(entry)
+        .fetch_one(pool)
+        .await
+}
+
+#[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
+async fn other_tickets_the_session_named_are_kept_as_candidates(pool: PgPool) {
+    let (organization, person) = organization(&pool).await.unwrap();
+    // The ticket sync did not find KD-999, and OPS-1 matches no project.
+    sqlx::query("INSERT INTO missing_tickets (organization_id, key) VALUES ($1, 'KD-999')")
+        .bind(organization)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let named = |ticket: Option<&str>| {
+        let mut value = serde_json::json!({
+            "local_id": "claude-code:s7",
+            "signals": {
+                "branch": "feature/KD-214-cart-total",
+                "ticket_keys": ["KD-231", "KD-999", "KD-214", "OPS-1", "KD-240", "KD-231"],
+            },
+        });
+        if let (Some(ticket), Some(object)) = (ticket, value.as_object_mut()) {
+            object.insert("ticket".to_owned(), ticket.into());
+        }
+        entry(&value)
+    };
+    let stored = submit(
+        &pool,
+        organization,
+        person,
+        vec![named(None).unwrap()],
+        Door::TokenSheet,
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        candidates_of(&pool, stored[0].id).await.unwrap(),
+        ["KD-231", "KD-240"]
+    );
+
+    // Placed on KD-231 by hand, the branch's ticket becomes a candidate.
+    let again = submit(
+        &pool,
+        organization,
+        person,
+        vec![named(Some("KD-231")).unwrap()],
+        Door::TokenSheet,
+    )
+    .await
+    .unwrap();
+    assert_eq!(again[0].id, stored[0].id);
+    assert_eq!(
+        candidates_of(&pool, again[0].id).await.unwrap(),
+        ["KD-214", "KD-240"]
+    );
+}
+
 #[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
 async fn the_organizations_and_the_persons_own_rules_place_token_entries(pool: PgPool) {
     let (organization, person) = organization(&pool).await.unwrap();

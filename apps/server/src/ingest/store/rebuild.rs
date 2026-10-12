@@ -14,7 +14,7 @@ use tokencontroller_core::{
 };
 use uuid::Uuid;
 
-use super::place::{OrgContext, candidate_keys, signals, tags_from, with_tickets};
+use super::place::{OrgContext, candidate_keys, named_keys, signals, tags_from, with_tickets};
 use super::{StoreError, to_i64, to_u64};
 use crate::ingest::entry::{self, NewSplit};
 
@@ -349,6 +349,37 @@ fn add_values(sum: &mut Values, more: &Values) -> Result<(), StoreError> {
     Ok(())
 }
 
+/// A token entry's pieces after placing.
+struct Placed {
+    splits: Vec<PlacedSplit>,
+    /// Tag names that were sent but are not on the organization's list.
+    dropped_tags: Vec<String>,
+    /// Tickets the session named that no split landed on.
+    candidates: Vec<String>,
+}
+
+/// The tickets among `named` that placing could use but that no split
+/// landed on, each once in the order named. The review list offers them.
+fn candidates(
+    organization: &Organization,
+    named: Vec<TagValue>,
+    splits: &[PlacedSplit],
+) -> Vec<String> {
+    let chosen: BTreeSet<&TagValue> = splits
+        .iter()
+        .filter_map(|split| split.tags.get(&TagName::ticket()))
+        .collect();
+    let mut keys: Vec<String> = Vec::new();
+    for key in named {
+        let usable = !organization.missing_tickets.contains(&key)
+            && organization.directory.is_ticket_key(&key);
+        if usable && !chosen.contains(&key) && !keys.iter().any(|kept| kept == key.as_str()) {
+            keys.push(key.as_str().to_owned());
+        }
+    }
+    keys
+}
+
 /// Places every piece with the core and joins pieces that end up with the
 /// same tags into one split.
 async fn place_pieces(
@@ -357,7 +388,7 @@ async fn place_pieces(
     entry: &EntryRow,
     pieces: Vec<Piece>,
     context: &OrgContext,
-) -> Result<(Vec<PlacedSplit>, Vec<String>), StoreError> {
+) -> Result<Placed, StoreError> {
     let person = entry
         .agent_manager_id
         .and_then(|id| context.people.get(&id));
@@ -371,6 +402,10 @@ async fn place_pieces(
     }
     let organization = with_tickets(conn, organization_id, context, &keys).await?;
     let configured = tags_from(&entry.telemetry).retain(|name| organization.allows(name));
+    let named: Vec<TagValue> = pieces
+        .iter()
+        .flat_map(|piece| named_keys(&organization, &piece.signals))
+        .collect();
 
     let mut placed: Vec<PlacedSplit> = Vec::new();
     let mut dropped: BTreeSet<String> = BTreeSet::new();
@@ -434,7 +469,11 @@ async fn place_pieces(
             });
         }
     }
-    Ok((placed, dropped.into_iter().collect()))
+    Ok(Placed {
+        candidates: candidates(&organization, named, &placed),
+        splits: placed,
+        dropped_tags: dropped.into_iter().collect(),
+    })
 }
 
 async fn insert_split(
@@ -500,14 +539,13 @@ pub(super) async fn rebuild(
     let (messages, total) = write_totals(conn, entry_id, &entry).await?;
     let values = split_values(&entry.plan, &messages, &total, entry.currency)?;
     let pieces = pieces(&entry, values);
-    let (placed, dropped_tags) =
-        place_pieces(conn, organization_id, &entry, pieces, context).await?;
+    let placed = place_pieces(conn, organization_id, &entry, pieces, context).await?;
 
     sqlx::query!("DELETE FROM splits WHERE token_entry_id = $1", entry_id)
         .execute(&mut *conn)
         .await?;
     let mut largest: Option<(u64, CostKind)> = None;
-    for (position, split) in placed.iter().enumerate() {
+    for (position, split) in placed.splits.iter().enumerate() {
         let kind = context.organization.tag_map.cost_kind(&split.tags);
         let weight = split.values.tokens.total().unwrap_or_default();
         if largest.is_none_or(|(heaviest, _)| weight > heaviest) {
@@ -515,13 +553,20 @@ pub(super) async fn rebuild(
         }
         insert_split(conn, organization_id, entry_id, position, split).await?;
     }
+    sqlx::query!(
+        "UPDATE token_entries SET candidate_tickets = $2 WHERE id = $1",
+        entry_id,
+        &placed.candidates
+    )
+    .execute(&mut *conn)
+    .await?;
 
     Ok(Rebuilt {
         status: entry.status,
         list_value: total.list_value,
         currency: entry.currency,
         cost_kind: largest.map_or(CostKind::OrganizationOverhead, |(_, kind)| kind),
-        dropped_tags,
+        dropped_tags: placed.dropped_tags,
     })
 }
 

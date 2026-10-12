@@ -508,6 +508,7 @@ function entryViews(db: Db, lines: Line[]): TokenBudgetEntry[] {
         currency,
         label: known ? "list-price estimate" : "unknown model",
         splits: splits.map((line) => ({ id: `${entry.id}-${String(line.index)}`, list_value: line.value === null ? null : dec(line.value, currency), tags: line.tags, placed_by: entry.placed_by, unknown_ticket: null })),
+        candidates: entry.candidates,
         rejected_reason: entry.reject_reason,
       },
     ];
