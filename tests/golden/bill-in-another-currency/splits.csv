@@ -1,0 +1,6 @@
+entry,tags,amount,placed_by,notes
+1,person=anna;project=portal;ticket=HAL-1,333.33,rule: ticket key in branch,
+2,person=felix;project=portal;ticket=HAL-2,333.33,rule: ticket key in branch,
+3,person=anna;project=portal,166.50,rule: repository,
+4,person=felix,100.00,no ticket,
+5,person=felix;project=portal;ticket=HAL-2,41.20,rule: ticket key in branch,

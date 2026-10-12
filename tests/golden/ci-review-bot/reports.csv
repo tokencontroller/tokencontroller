@@ -1,0 +1,7 @@
+filter,group_by,value,amount
+ticket=KD-214,person,mara,41.87
+ticket=KD-214,person,tom,3.40
+ticket=KD-214,purpose,,41.87
+ticket=KD-214,purpose,code-review,3.40
+person=tom,project,intranet,0.80
+person=tom,project,storefront,6.75

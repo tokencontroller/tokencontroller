@@ -3,7 +3,9 @@
 //!
 //! One block per bill holds a line per cost object and cost kind, the
 //! residual, and the bill's gross, discount, credit and net. Adjustments
-//! follow, then the organization total. Amounts are converted into the
+//! follow, then the organization total. Seat plans and subscriptions have no
+//! bill, so their usage is not on the cost sheet: reports show it as
+//! estimates. Amounts are converted into the
 //! reporting currency at each bill's exchange rate so that a block's lines
 //! still add up to its converted gross, and are shown in the currency's
 //! minor unit so that the shown lines add up to the shown totals.
@@ -40,12 +42,6 @@ pub enum CostSheetError {
         adjustment_period: Period,
         period: Period,
     },
-    #[error("{block} has no bill and is in {from}; it needs an exchange rate to {to}")]
-    NoExchangeRate {
-        block: String,
-        from: Currency,
-        to: Currency,
-    },
 }
 
 /// A signed correction a controller posts to a closed period.
@@ -64,18 +60,10 @@ pub struct Adjustment {
     pub late: bool,
 }
 
-/// The splits charged on one bill, or the splits of a cost source without a
-/// bill.
+/// The splits charged on one bill.
 #[derive(Debug, Clone)]
 pub struct BlockRequest<'a> {
-    /// The bill, or `None` on a seat plan, where there is nothing to
-    /// reconcile and every figure is an estimate.
-    pub bill: Option<&'a Bill>,
-    /// The block's name when there is no bill, such as `claude-team-seats`.
-    pub name: &'a str,
-    /// The rate from the splits' currency to the reporting currency, for a
-    /// block without a bill. The rate of the period's last day.
-    pub rate: Option<ExchangeRate>,
+    pub bill: &'a Bill,
     /// The splits that count: with approval on, approved ones only.
     pub splits: Vec<&'a Split>,
 }
@@ -123,25 +111,9 @@ pub struct BillTotals {
 /// One bill's part of the cost sheet.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Block {
-    /// The bill's ID, or the block's name when there is no bill.
-    pub name: String,
+    pub bill_id: String,
     pub lines: Vec<Line>,
-    pub bill: Option<BillTotals>,
-}
-
-impl Block {
-    /// What the block adds to the organization total: the bill's net, or
-    /// the lines without a bill.
-    ///
-    /// # Errors
-    ///
-    /// [`MoneyError::Overflow`].
-    pub fn total(&self, currency: Currency) -> Result<Money, MoneyError> {
-        match &self.bill {
-            Some(bill) => Ok(bill.net),
-            None => Money::sum(self.lines.iter().map(|line| line.amount), currency),
-        }
-    }
+    pub bill: BillTotals,
 }
 
 /// An adjustment on the cost sheet, with the cost kind its tags give.
@@ -161,7 +133,7 @@ pub struct CostSheet {
     pub columns: Vec<TagName>,
     pub blocks: Vec<Block>,
     pub adjustments: Vec<AdjustmentLine>,
-    /// Every block's total and every adjustment.
+    /// Every bill's net and every adjustment.
     pub total: Money,
 }
 
@@ -200,7 +172,7 @@ impl CostSheet {
             .collect::<Result<Vec<_>, _>>()?;
         let mut total = Money::zero(currency);
         for block in &blocks {
-            total = total.checked_add(block.total(currency)?)?;
+            total = total.checked_add(block.bill.net)?;
         }
         for adjustment in request.adjustments {
             total = total.checked_add(adjustment.amount)?;
@@ -226,7 +198,7 @@ impl CostSheet {
     /// The cost sheet as CSV, one row per line, with amounts in the minor
     /// unit. Within a block the shown lines and residual add up to the shown
     /// gross, net is gross minus discount minus credit, and the total row is
-    /// the sum of the shown nets, lines without a bill and adjustments.
+    /// the sum of the shown nets and adjustments.
     ///
     /// # Errors
     ///
@@ -265,7 +237,7 @@ impl CostSheet {
 struct Csv<'a> {
     sheet: &'a CostSheet,
     rows: Vec<Vec<String>>,
-    /// The sum of the shown nets, lines without a bill and adjustments.
+    /// The sum of the shown nets and adjustments.
     shown_total: i64,
 }
 
@@ -297,20 +269,29 @@ impl Csv<'_> {
         self.rows.push(row);
     }
 
-    fn summary(&mut self, bill: &str, line: &str, minor: i64) {
-        let cells = self
-            .sheet
+    /// The number of rung and column cells in a row.
+    fn tag_cells(&self) -> usize {
+        self.sheet
             .rungs
             .len()
-            .saturating_add(self.sheet.columns.len());
-        self.row(bill, line, "", vec![String::new(); cells], minor, "");
+            .saturating_add(self.sheet.columns.len())
+    }
+
+    fn summary(&mut self, bill: &str, line: &str, minor: i64) {
+        self.row(
+            bill,
+            line,
+            "",
+            vec![String::new(); self.tag_cells()],
+            minor,
+            "",
+        );
     }
 
     fn block(&mut self, block: &Block) -> Result<(), MoneyError> {
+        let bill = &block.bill;
         let mut amounts: Vec<Money> = block.lines.iter().map(|line| line.amount).collect();
-        if let Some(bill) = &block.bill {
-            amounts.push(bill.residual);
-        }
+        amounts.push(bill.residual);
         let shown = Money::round_all_to_minor_units(&amounts, self.sheet.currency)?;
         for (line, minor) in block.lines.iter().zip(&shown) {
             let tags = line
@@ -325,7 +306,7 @@ impl Csv<'_> {
                 Figure::Billed | Figure::ListPrice => "",
             };
             self.row(
-                &block.name,
+                &block.bill_id,
                 "cost",
                 line.cost_kind.label(),
                 tags,
@@ -337,9 +318,6 @@ impl Csv<'_> {
             .iter()
             .try_fold(0_i64, |sum, minor| sum.checked_add(*minor))
             .ok_or(MoneyError::Overflow)?;
-        let Some(bill) = &block.bill else {
-            return self.add_to_total(block_sum);
-        };
         let residual = shown.last().copied().unwrap_or_default();
         let discount = bill.discount.round_to_minor_units();
         let credit = bill.credit.round_to_minor_units();
@@ -347,11 +325,11 @@ impl Csv<'_> {
             .checked_sub(discount)
             .and_then(|net| net.checked_sub(credit))
             .ok_or(MoneyError::Overflow)?;
-        self.summary(&block.name, "residual", residual);
-        self.summary(&block.name, "gross", block_sum);
-        self.summary(&block.name, "discount", discount);
-        self.summary(&block.name, "credit", credit);
-        self.summary(&block.name, "net", net);
+        self.summary(&block.bill_id, "residual", residual);
+        self.summary(&block.bill_id, "gross", block_sum);
+        self.summary(&block.bill_id, "discount", discount);
+        self.summary(&block.bill_id, "credit", credit);
+        self.summary(&block.bill_id, "net", net);
         self.add_to_total(net)
     }
 
@@ -421,12 +399,17 @@ fn build_block(
     columns: &[TagName],
 ) -> Result<Block, CostSheetError> {
     let currency = request.reporting_currency;
-    // (amount in the splits' currency, any unknown model)
+    let bill = block.bill;
+    if bill.period != request.period {
+        return Err(CostSheetError::BillForOtherPeriod {
+            bill: bill.id.clone(),
+            bill_period: bill.period,
+            period: request.period,
+        });
+    }
+    // (amount in the bill's currency, any unknown model)
     let mut lines: BTreeMap<LineKey, (Money, bool)> = BTreeMap::new();
-    let mut split_currency: Option<Currency> = block.bill.map(Bill::currency);
     for split in &block.splits {
-        let value = split.value.list;
-        let source = *split_currency.get_or_insert(value.currency());
         let key: LineKey = (
             request.tag_map.cost_kind(&split.tags),
             rungs
@@ -438,39 +421,17 @@ fn build_block(
                 .map(|column| split.tags.get(column).cloned())
                 .collect(),
         );
-        let line = lines.entry(key).or_insert((Money::zero(source), false));
-        line.0 = line.0.checked_add(value)?;
+        let line = lines
+            .entry(key)
+            .or_insert((Money::zero(bill.currency()), false));
+        line.0 = line.0.checked_add(split.value.list)?;
         line.1 |= !split.value.is_complete();
     }
-    let source = split_currency.unwrap_or(currency);
-
-    let (rate, reconciliation) = match block.bill {
-        Some(bill) => {
-            if bill.period != request.period {
-                return Err(CostSheetError::BillForOtherPeriod {
-                    bill: bill.id.clone(),
-                    bill_period: bill.period,
-                    period: request.period,
-                });
-            }
-            let reconciliation = bill.reconcile(lines.values().map(|(amount, _)| *amount))?;
-            (bill.rate_to(currency)?, Some(reconciliation))
-        }
-        None if source == currency => (ExchangeRate::identity(currency), None),
-        None => (
-            block.rate.ok_or_else(|| CostSheetError::NoExchangeRate {
-                block: block.name.to_owned(),
-                from: source,
-                to: currency,
-            })?,
-            None,
-        ),
-    };
+    let reconciliation = bill.reconcile(lines.values().map(|(amount, _)| *amount))?;
+    let rate = bill.rate_to(currency)?;
 
     let mut amounts: Vec<Money> = lines.values().map(|(amount, _)| *amount).collect();
-    if let Some(reconciliation) = &reconciliation {
-        amounts.push(reconciliation.residual);
-    }
+    amounts.push(reconciliation.residual);
     let converted = rate.convert_all(&amounts)?;
     let lines: Vec<Line> = lines
         .into_iter()
@@ -482,37 +443,27 @@ fn build_block(
             amount: *amount,
             figure: if unknown {
                 Figure::UnknownModel
-            } else if block.bill.is_none() {
-                Figure::Estimate
             } else {
                 Figure::ListPrice
             },
         })
         .collect();
-    let bill = match (block.bill, reconciliation) {
-        (Some(bill), Some(reconciliation)) => {
-            let gross = Money::sum(converted.iter().copied(), currency)?;
-            let discount = rate.convert(bill.discount)?;
-            let credit = rate.convert(bill.credit)?;
-            Some(BillTotals {
-                revision: bill.revision,
-                residual: converted.last().copied().unwrap_or(Money::zero(currency)),
-                gross,
-                discount,
-                credit,
-                net: gross.checked_sub(discount)?.checked_sub(credit)?,
-                reconciliation,
-                rate,
-            })
-        }
-        _ => None,
-    };
+    let gross = Money::sum(converted.iter().copied(), currency)?;
+    let discount = rate.convert(bill.discount)?;
+    let credit = rate.convert(bill.credit)?;
     Ok(Block {
-        name: block
-            .bill
-            .map_or_else(|| block.name.to_owned(), |bill| bill.id.clone()),
+        bill_id: bill.id.clone(),
         lines,
-        bill,
+        bill: BillTotals {
+            revision: bill.revision,
+            residual: converted.last().copied().unwrap_or(Money::zero(currency)),
+            gross,
+            discount,
+            credit,
+            net: gross.checked_sub(discount)?.checked_sub(credit)?,
+            reconciliation,
+            rate,
+        },
     })
 }
 
@@ -615,9 +566,7 @@ mod tests {
         let sheet = CostSheet::build(&request(
             &tag_map,
             vec![BlockRequest {
-                bill: Some(&bill),
-                name: "",
-                rate: None,
+                bill: &bill,
                 splits: splits.iter().collect(),
             }],
             &[],
@@ -627,7 +576,7 @@ mod tests {
         assert_eq!(sheet.columns, vec![TagName::new("team").unwrap()]);
         let block = sheet.blocks.first().unwrap();
         assert_eq!(block.lines.len(), 3);
-        let totals = block.bill.as_ref().unwrap();
+        let totals = &block.bill;
         assert_eq!(totals.reconciliation.explained, usd("124.10"));
         assert_eq!(totals.residual, usd("25.90"));
         assert_eq!(totals.gross, usd("150"));
@@ -662,9 +611,7 @@ mod tests {
         let mut request = request(
             &tag_map,
             vec![BlockRequest {
-                bill: Some(&bill),
-                name: "",
-                rate: None,
+                bill: &bill,
                 splits: thirds.iter().collect(),
             }],
             &[],
@@ -673,7 +620,7 @@ mod tests {
         request.reporting_currency = Currency::EUR;
         let sheet = CostSheet::build(&request).unwrap();
         let block = sheet.blocks.first().unwrap();
-        let totals = block.bill.as_ref().unwrap();
+        let totals = &block.bill;
         assert_eq!(totals.residual, Money::zero(Currency::EUR));
         let lines = Money::sum(block.lines.iter().map(|line| line.amount), Currency::EUR).unwrap();
         assert_eq!(lines, totals.gross);
@@ -698,66 +645,6 @@ mod tests {
     }
 
     #[test]
-    fn a_seat_plan_has_estimates_and_no_bill() {
-        let splits = splits();
-        let tag_map = TagMap::default();
-        let rate = ExchangeRate::new(Currency::USD, Currency::EUR, "0.5").unwrap();
-        let blocks = || {
-            vec![BlockRequest {
-                bill: None,
-                name: "claude-team-seats",
-                rate: Some(rate),
-                splits: splits.iter().collect(),
-            }]
-        };
-        let mut request = request(&tag_map, blocks(), &[], &[]);
-        request.reporting_currency = Currency::EUR;
-        let sheet = CostSheet::build(&request).unwrap();
-        let block = sheet.blocks.first().unwrap();
-        assert_eq!(block.name, "claude-team-seats");
-        assert!(block.bill.is_none());
-        assert!(
-            block
-                .lines
-                .iter()
-                .all(|line| line.figure == Figure::Estimate)
-        );
-        assert_eq!(sheet.total, Money::parse("62.05", Currency::EUR).unwrap());
-        let csv = sheet.to_csv().unwrap();
-        assert!(
-            csv.contains("claude-team-seats,cost,direct,storefront,KD-214,26.99,estimate\n"),
-            "{csv}"
-        );
-        assert!(csv.ends_with(",total,,,,62.05,\n"), "{csv}");
-
-        let mut no_rate = blocks();
-        if let Some(block) = no_rate.first_mut() {
-            block.rate = None;
-        }
-        let mut request = self::request(&tag_map, no_rate, &[], &[]);
-        request.reporting_currency = Currency::EUR;
-        assert!(matches!(
-            CostSheet::build(&request),
-            Err(CostSheetError::NoExchangeRate { .. })
-        ));
-        let same_currency = self::request(
-            &tag_map,
-            vec![BlockRequest {
-                bill: None,
-                name: "seats",
-                rate: None,
-                splits: splits.iter().collect(),
-            }],
-            &[],
-            &[],
-        );
-        assert_eq!(
-            CostSheet::build(&same_currency).unwrap().total,
-            usd("124.10")
-        );
-    }
-
-    #[test]
     fn unknown_models_are_noted_on_their_line() {
         let mut unknown = split(&["person=mara", "ticket=KD-1"], "1");
         unknown
@@ -770,9 +657,7 @@ mod tests {
         let sheet = CostSheet::build(&request(
             &tag_map,
             vec![BlockRequest {
-                bill: Some(&bill),
-                name: "",
-                rate: None,
+                bill: &bill,
                 splits: vec![&unknown, &known],
             }],
             &[],
@@ -819,9 +704,7 @@ mod tests {
         let sheet = CostSheet::build(&request(
             &tag_map,
             vec![BlockRequest {
-                bill: Some(&bill),
-                name: "",
-                rate: None,
+                bill: &bill,
                 splits: splits.iter().collect(),
             }],
             &adjustments,
@@ -858,9 +741,7 @@ mod tests {
             CostSheet::build(&request(
                 &tag_map,
                 vec![BlockRequest {
-                    bill: Some(&bill),
-                    name: "",
-                    rate: None,
+                    bill: &bill,
                     splits: Vec::new(),
                 }],
                 &[],
@@ -883,9 +764,7 @@ mod tests {
         let sheet = CostSheet::build(&request(
             &tag_map,
             vec![BlockRequest {
-                bill: Some(&bill),
-                name: "",
-                rate: None,
+                bill: &bill,
                 splits: thirds.iter().collect(),
             }],
             &[],

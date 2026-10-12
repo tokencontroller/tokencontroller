@@ -1,0 +1,8 @@
+bill,line,cost_kind,project,ticket,person,amount,note
+openai-2026-10,cost,direct,storefront,KD-231,felix,8.00,
+openai-2026-10,residual,,,,,2.00,
+openai-2026-10,gross,,,,,10.00,
+openai-2026-10,discount,,,,,0.00,
+openai-2026-10,credit,,,,,0.00,
+openai-2026-10,net,,,,,10.00,
+,total,,,,,10.00,
