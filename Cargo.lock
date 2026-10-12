@@ -2202,6 +2202,7 @@ name = "tokencontroller-core"
 version = "1.0.0"
 dependencies = [
  "proptest",
+ "regex",
  "serde",
  "serde_json",
  "thiserror",
