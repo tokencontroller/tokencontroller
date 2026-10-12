@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE token_budgets\n           SET name = $3, filter = $4, period = $5, every_month = $6, amount_nanos = $7,\n               set_by = $8, set_at = now()\n           WHERE id = $1 AND organization_id = $2 AND removed_at IS NULL",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Jsonb",
+        "Date",
+        "Bool",
+        "Int8",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "2508c3eee10c2f5439eea00588c7b22b017b31e4664a86c5c9ce9c2904aa8c8c"
+}

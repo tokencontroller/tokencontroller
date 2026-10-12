@@ -1,0 +1,106 @@
+{
+  "type": "doc",
+  "version": 1,
+  "content": [
+    {
+      "type": "heading",
+      "attrs": { "level": 2 },
+      "content": [{ "type": "text", "text": "Guest checkout fails" }]
+    },
+    {
+      "type": "paragraph",
+      "content": [
+        { "type": "text", "text": "When a guest pays with a " },
+        { "type": "text", "text": "saved card", "marks": [{ "type": "strong" }] },
+        { "type": "text", "text": " the order stays pending." }
+      ]
+    },
+    {
+      "type": "orderedList",
+      "attrs": { "order": 1 },
+      "content": [
+        {
+          "type": "listItem",
+          "content": [
+            { "type": "paragraph", "content": [{ "type": "text", "text": "Open the cart" }] }
+          ]
+        },
+        {
+          "type": "listItem",
+          "content": [
+            {
+              "type": "paragraph",
+              "content": [
+                { "type": "text", "text": "Pay as guest " },
+                {
+                  "type": "mention",
+                  "attrs": { "id": "5b10a2844c20165700ede21g", "text": "@Mia Krystof", "accessLevel": "" }
+                },
+                { "type": "text", "text": " " },
+                { "type": "emoji", "attrs": { "shortName": ":thumbsup:", "id": "1f44d", "text": "👍" } }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "content": [
+        { "type": "text", "text": "See " },
+        { "type": "inlineCard", "attrs": { "url": "https://acme.atlassian.net/browse/KD-200" } }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "content": [
+        { "type": "text", "text": "Status: " },
+        {
+          "type": "status",
+          "attrs": { "text": "BLOCKED", "color": "red", "localId": "4e9d1f2a-6c0b-4a7e-9a31-2f8c5d7b1e60", "style": "" }
+        }
+      ]
+    },
+    {
+      "type": "codeBlock",
+      "attrs": { "language": "rust" },
+      "content": [{ "type": "text", "text": "fn pay() {}" }]
+    },
+    {
+      "type": "table",
+      "attrs": { "isNumberColumnEnabled": false, "layout": "default" },
+      "content": [
+        {
+          "type": "tableRow",
+          "content": [
+            {
+              "type": "tableHeader",
+              "attrs": {},
+              "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "Card" }] }]
+            },
+            {
+              "type": "tableHeader",
+              "attrs": {},
+              "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "Result" }] }]
+            }
+          ]
+        },
+        {
+          "type": "tableRow",
+          "content": [
+            {
+              "type": "tableCell",
+              "attrs": {},
+              "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "Visa" }] }]
+            },
+            {
+              "type": "tableCell",
+              "attrs": {},
+              "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "pending" }] }]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

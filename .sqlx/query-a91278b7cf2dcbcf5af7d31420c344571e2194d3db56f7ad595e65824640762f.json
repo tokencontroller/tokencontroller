@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO late_sheet_reminders (organization_id, person_id, starts_on)\n             VALUES ($1, $2, $3) ON CONFLICT DO NOTHING RETURNING person_id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "person_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "late_sheet_reminders",
+            "name": "person_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Date"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "a91278b7cf2dcbcf5af7d31420c344571e2194d3db56f7ad595e65824640762f"
+}

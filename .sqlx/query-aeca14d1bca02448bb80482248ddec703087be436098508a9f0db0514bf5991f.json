@@ -1,0 +1,53 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT kind, site, sealed_credentials FROM ticket_systems\n         WHERE organization_id = $1 AND id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "kind",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "ticket_systems",
+            "name": "kind"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "site",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "ticket_systems",
+            "name": "site"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "sealed_credentials",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "ticket_systems",
+            "name": "sealed_credentials"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "aeca14d1bca02448bb80482248ddec703087be436098508a9f0db0514bf5991f"
+}

@@ -1,0 +1,5 @@
+owner,name,when,then
+organization,reviews,branch starts_with review/,set purpose=code-review
+organization,research spikes,branch contains spike,set purpose=research
+organization,operations,ticket starts_with OPS-,set purpose=operations
+mara,my spikes,branch starts_with spike/,set purpose=learning

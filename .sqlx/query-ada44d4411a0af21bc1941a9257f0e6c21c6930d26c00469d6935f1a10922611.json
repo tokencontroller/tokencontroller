@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO adjustments\n                       (organization_id, period, amount_nanos, currency, tags, reason, late,\n                        token_entry_id, split_id)\n                   VALUES ($1, $2, $3, $4, $5, $6, true, $7, $8)\n                   ON CONFLICT (split_id) WHERE late DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Date",
+        "Int8",
+        "Text",
+        "Jsonb",
+        "Text",
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ada44d4411a0af21bc1941a9257f0e6c21c6930d26c00469d6935f1a10922611"
+}

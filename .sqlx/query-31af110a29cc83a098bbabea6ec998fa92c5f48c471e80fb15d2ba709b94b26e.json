@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE bill_connections SET\n                 last_pull_at = CASE WHEN $2::text IS NULL THEN now() ELSE last_pull_at END,\n                 last_error = $2,\n                 pull_requested_at = CASE WHEN $3 THEN now() ELSE pull_requested_at END\n             WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Bool"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "31af110a29cc83a098bbabea6ec998fa92c5f48c471e80fb15d2ba709b94b26e"
+}

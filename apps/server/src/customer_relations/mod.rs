@@ -1,5 +1,5 @@
-//! The feedback button's endpoint, the newsletter with double opt-in, and the
-//! support inbox.
+//! Customer relations: the support inbox, the site assistant, the newsletter,
+//! feedback reports and the operators' admin area.
 //!
 //! Owner: the customer relations work. Keep this area's code, routes and queries in
 //! this folder, and its migrations in `migrations/` named
@@ -8,25 +8,39 @@
 //! Everything here is off until its settings are set (see [`Settings`]), so
 //! a self-hosted instance runs none of it:
 //!
-//! - The support inbox takes mail from the mail worker (`/inbound/mail`) and
-//!   the website's contact form (`/contact`). The support answerer answers
+//! - The support inbox takes mail from the mail worker (`/inbound/mail`),
+//!   the website's contact form (`/contact`) and members in the app
+//!   (`/support/messages`). The support answerer answers
 //!   from the docs within minutes and hands what the docs cannot answer to
 //!   the operators, with a proposed answer.
 //! - The site assistant (`/assistant/questions`) answers website visitors
 //!   from the docs.
 //! - The newsletter (`/newsletter/...`) has double opt-in and one-click
 //!   unsubscribe, and goes out through Resend.
+//! - Feedback reports (`/feedback`) come from the web app's feedback button
+//!   and are on whenever the service runs.
+//! - The admin area (`/admin/...`) is for the operators (`TC_OPERATOR_EMAILS`):
+//!   support, the assistant's questions, the newsletter, feedback reports and
+//!   one customer record per organization.
+//! - Onboarding emails (`TC_ONBOARDING_EMAILS`) go to a new organization's
+//!   controllers when it stalls at one of its first steps. The job runner
+//!   sends them (`onboarding-emails`), not this loop.
 //!
 //! The background loop also deletes what is kept long enough (`retention`).
 
+mod admin;
 mod assistant;
 mod claude;
+mod customers;
+mod feedback;
 mod inbox;
 mod mail;
 mod newsletter;
+mod onboarding;
 mod retention;
 mod settings;
 mod support;
+mod tools;
 mod web;
 
 use std::sync::OnceLock;
@@ -38,7 +52,13 @@ use tokio::sync::Notify;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
+pub use admin::is_operator;
+pub use onboarding::{
+    JOB as ONBOARDING_JOB, JOB_EVERY as ONBOARDING_JOB_EVERY, run_job as run_onboarding_job,
+    send_due as send_onboarding_emails,
+};
 pub use settings::{Settings, SettingsError};
+pub use tools::{call_operator_tool, operator_tools};
 
 use crate::AppState;
 
@@ -74,6 +94,31 @@ pub fn routes() -> OpenApiRouter<AppState> {
             "/newsletter/unsubscribe",
             options(newsletter::unsubscribe_preflight),
         )
+        .merge(
+            OpenApiRouter::new()
+                .routes(routes!(feedback::send_report))
+                .layer(DefaultBodyLimit::max(feedback::MAX_REQUEST_BYTES)),
+        )
+        .routes(routes!(feedback::my_reports))
+        .routes(routes!(inbox::support))
+        .routes(routes!(inbox::support_message))
+        .routes(routes!(feedback::screenshot))
+        .routes(routes!(admin::overview))
+        .routes(routes!(admin::list_support))
+        .routes(routes!(admin::get_support))
+        .routes(routes!(admin::reply))
+        .routes(routes!(admin::close))
+        .routes(routes!(admin::list_questions))
+        .routes(routes!(admin::newsletter))
+        .routes(routes!(admin::create_issue))
+        .routes(routes!(admin::update_issue))
+        .routes(routes!(admin::send_issue))
+        .routes(routes!(feedback::list_received))
+        .routes(routes!(feedback::get_received))
+        .routes(routes!(feedback::update_received))
+        .routes(routes!(customers::list_customers))
+        .routes(routes!(customers::get_customer))
+        .routes(routes!(customers::add_note))
 }
 
 fn waker() -> &'static Notify {
@@ -123,6 +168,9 @@ pub async fn run_once(state: &AppState) {
 async fn run_locked(state: &AppState) {
     if let Err(error) = retention::forget(&state.db).await {
         tracing::error!("deleting old support and assistant data failed: {error:#}");
+    }
+    if let Err(error) = feedback::notify(state).await {
+        tracing::error!("sending feedback notices failed: {error:#}");
     }
     let settings = &state.config.customer_relations;
     if settings.support_from.is_some() {

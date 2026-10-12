@@ -1,0 +1,6 @@
+setting,value
+reporting_currency,USD
+cost_source,api_key
+tag_names,team;purpose
+period,2026-10
+columns,team;purpose

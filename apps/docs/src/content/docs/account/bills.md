@@ -15,7 +15,7 @@ A bill is a provider's figure for one period's metered usage: gross, discount, c
 | Bedrock, Vertex, Foundry | The cloud's export as [CSV](/integrations/csv), or a connector on an Enterprise plan contract |
 | Anything else | CSV upload, typed in by hand, or the bills endpoint of the [HTTP API](/reference/api) |
 
-A provider can restate a bill. Each bill keeps its revisions. A bill in another currency than your reporting currency keeps its original amount and the exchange rate of its date.
+A connected provider is pulled once a day, for the current and the previous period; _Pull now_ pulls at once. A provider can restate a bill. Each bill keeps its revisions, and a pull or upload with the same figures changes nothing. A bill in another currency than your reporting currency keeps its original amount and the exchange rate of its date.
 
 ## Reconciliation {#reconciliation}
 

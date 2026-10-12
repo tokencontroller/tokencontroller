@@ -1,0 +1,3 @@
+bill,provider,cost_source,period,currency,gross,discount,credit,net,rate,revision
+anthropic-enterprise-2026-10,anthropic,usage_at_api_rates,2026-10,USD,1000.00,100.00,25.00,875.00,0.8613,1
+openai-2026-10,openai,api_key,2026-10,USD,50.00,0,0,50.00,0.86,1

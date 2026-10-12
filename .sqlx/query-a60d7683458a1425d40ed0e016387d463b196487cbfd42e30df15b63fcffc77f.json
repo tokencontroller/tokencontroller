@@ -1,0 +1,35 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO messages (organization_id, session_id, message_id, agent_harness, model,\n                   occurred_at, input_tokens, output_tokens, cache_write_tokens, cache_read_tokens,\n                   reported_cost_nanos, list_value_nanos, kind, from_telemetry, counts)\n               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, true, true)\n               ON CONFLICT (organization_id, session_id, message_id) DO UPDATE SET\n                   from_telemetry = true,\n                   reported_cost_nanos = COALESCE(messages.reported_cost_nanos, EXCLUDED.reported_cost_nanos)\n               RETURNING (xmax = 0) AS \"inserted!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "inserted!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Timestamptz",
+        "Int8",
+        "Int8",
+        "Int8",
+        "Int8",
+        "Int8",
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "a60d7683458a1425d40ed0e016387d463b196487cbfd42e30df15b63fcffc77f"
+}

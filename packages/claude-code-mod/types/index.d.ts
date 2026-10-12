@@ -1,31 +1,38 @@
 // The values the Token Controller mod keeps for a session. What tc says is
 // mirrored here so the band and the pane draw without calling tc.
 
+export type AskedToSubmit = { period: string; askedBy: string | null }
+
 export type Sheet = {
+  isConnected: boolean
   organization: string | null
   currency: string
-  tokenEntries: number
-  cost: number
+  today: number
   shareOnTickets: number | null
-  dueAt: string | null
   isLate: boolean
+  askedToSubmit: AskedToSubmit | null
 }
+
+export type Split = { share: number | null; tags: Record<string, string> }
 
 export type ReviewRow = {
   number: number
   sessionId: string | null
   startedAt: string | null
-  cost: number
-  tags: Record<string, string>
-  by: string
+  cost: number | null
   summary: string
+  isRejected: boolean
+  rejectedReason: string | null
+  placedBy: string | null
+  candidates: string[]
+  splits: Split[]
 }
 
-export type ReportRow = { value: string; cost: number; share: number | null }
+export type ReportRow = { value: string | null; cost: number; share: number | null }
 
 export type Report = { by: string; currency: string; rows: ReportRow[]; total: number }
 
-export type Rule = { number: number; rule: string }
+export type Rule = { number: number; text: string }
 
 export type Tab = 'review' | 'report' | 'rules'
 
@@ -41,10 +48,11 @@ declare module 'claude-code' {
       editing: number | null
       notice: string | null
       problem: string | null
+      /** Where tc placed this session, for the band. */
       ticket: string | null
-      keys: string[]
+      /** The tags the person set by hand this session, ticket included. */
+      handTags: Record<string, string>
       summary: string | null
-      cost: number | null
     }
   }
 }

@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE token_entries SET status = 'rejected', rejected_reason = $2\n           WHERE id = $1 AND status IN ('submitted', 'approved')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0c64d3f7d9d3054cc06dfac1136c40a634dfe8e9f66765f0bc3d2046e297cc0c"
+}

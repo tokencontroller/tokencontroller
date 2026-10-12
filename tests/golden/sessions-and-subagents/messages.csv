@@ -1,0 +1,11 @@
+entry,message,at,model,input,output,cache_write,cache_read,reported_cost,billed_cost,signals
+1,m1,2026-10-14T09:00:00Z,anthropic/claude-sonnet-4-5,1000000,,,,,,
+1,m2,2026-10-14T09:10:00Z,anthropic/claude-sonnet-4-5,,100000,,,,,
+1,m2,2026-10-14T09:10:00Z,anthropic/claude-sonnet-4-5,,100000,,,,,
+1,m3,2026-10-14T09:20:00Z,anthropic/claude-sonnet-4-5,500000,,,,,,subagent_type=Explore
+1,m4,2026-10-14T09:40:00Z,anthropic/claude-sonnet-4-5,2000000,,,,,,branch=review/KD-240;working_directory=/work/storefront-review;subagent_type=code-reviewer
+1,m5,2026-10-14T10:00:00Z,anthropic/claude-sonnet-4-5,1000000,,,,,,branch=main;prompt_keys=KD-231 KD-240
+1,m6,2026-10-14T10:10:00Z,anthropic/claude-sonnet-4-5,1000000,,,,,,branch=main;subagent_type=code-reviewer
+1,m7,2026-10-14T10:30:00Z,anthropic/claude-sonnet-4-5,1000000,,,,,,branch=KD-214-saved-card
+2,m1,2026-10-15T09:00:00Z,anthropic/claude-sonnet-4-5,1000000,,,,,,
+2,m2,2026-10-15T09:30:00Z,anthropic/claude-sonnet-4-5,2000000,,,,,,working_directory=/work/intranet;repository=kestrel/intranet

@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT coalesce(jsonb_agg(to_jsonb(ts) || jsonb_build_object(\n               'token_entry_ids', coalesce((\n                   SELECT jsonb_agg(se.token_entry_id ORDER BY se.token_entry_id)\n                   FROM token_sheet_entries se WHERE se.token_sheet_id = ts.id\n               ), '[]'::jsonb)\n           ) ORDER BY ts.starts_on, ts.person_id), '[]'::jsonb) AS \"rows!\"\n           FROM token_sheets ts WHERE ts.organization_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "rows!",
+        "type_info": "Jsonb",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "799e14c7538c48a50d76342a393dc5c58471cb84e1e2d694f6e8ecbc500b6354"
+}

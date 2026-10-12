@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT reporting_currency FROM closed_periods WHERE organization_id = $1 AND period = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "reporting_currency",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "closed_periods",
+            "name": "reporting_currency"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Date"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "664a0148b6446ba297b61ea8285fb13b81a30911fa1b5796d9be5df23351af61"
+}

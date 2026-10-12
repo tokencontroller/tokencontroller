@@ -1,0 +1,42 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT s.token_entry_id, s.millionths\n           FROM summary_embeddings s JOIN token_entries e ON e.id = s.token_entry_id\n           WHERE s.organization_id = $1 AND s.model = $2 AND e.status = 'locked'\n           ORDER BY e.started_at DESC, e.id\n           LIMIT $3",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "token_entry_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "summary_embeddings",
+            "name": "token_entry_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "millionths",
+        "type_info": "Int4Array",
+        "origin": {
+          "Table": {
+            "table": "summary_embeddings",
+            "name": "millionths"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "3c787d9ed5643fe8124fcbac08079c45a6365e2ea6eb62e57f0de6913832ad01"
+}

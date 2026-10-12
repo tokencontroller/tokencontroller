@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM onboarding_emails WHERE organization_id = $1 AND step = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "cb1b932b2a09a49a1ada7794a61fe482e920bdad2216ac0a20bc7777f97cdc2e"
+}

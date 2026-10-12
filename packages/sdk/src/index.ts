@@ -5,4 +5,12 @@ export {
   TokenController,
   TokenControllerError,
 } from './client.ts'
-export { problems, type Signals, type TokenEntry, type Tokens } from './token-entry.ts'
+export {
+  type Amount,
+  type Message,
+  problems,
+  type Signals,
+  type Split,
+  type TokenEntry,
+  type Tokens,
+} from './token-entry.ts'

@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT COALESCE((\n             SELECT last_started_at IS NULL\n                 OR COALESCE(requested_at >= last_started_at, false)\n                 OR last_started_at <= now() - make_interval(secs => $2::bigint / 1000.0)\n             FROM job_runs WHERE job = $1\n           ), true) AS \"due!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "due!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "7d93a0ec6114e7fc53178b2054fce8c7b288537c767dfada0109b4f7836d3ab2"
+}

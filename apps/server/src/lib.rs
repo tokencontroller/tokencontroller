@@ -10,8 +10,10 @@
 //! See the layout table in the repository README for who owns which.
 
 pub mod api;
+pub mod change;
 pub mod config;
 pub mod error;
+pub mod mail;
 pub mod state;
 
 pub mod billing;
@@ -31,6 +33,7 @@ pub mod sign_in;
 pub mod status;
 pub mod tags;
 pub mod token_sheets;
+pub mod web;
 
 use std::io::IsTerminal as _;
 use std::sync::Arc;
@@ -91,6 +94,7 @@ where
 
     let state = AppState::new(db, config, extension);
     customer_relations::start(state.clone());
+    jobs::start(state.clone());
     let extra = extra_routes(state.clone()).await?;
     let app = router(state).merge(extra);
 
@@ -124,6 +128,23 @@ pub async fn seed() -> anyhow::Result<()> {
     seed::load(&db).await?;
     db.close().await;
     Ok(())
+}
+
+/// A sign-in link for a member, for instances without a mail server and for
+/// screenshots on staging. Needs the same settings as the service.
+///
+/// # Errors
+///
+/// Fails if the configuration is incomplete, Postgres cannot be reached, or
+/// the address belongs to no member.
+pub async fn sign_in_link(email: &str) -> anyhow::Result<String> {
+    // No log output: the link is the only thing on stdout, so scripts can
+    // read it.
+    let config = Config::from_env()?;
+    let db = connect_and_migrate(&config.database_url).await?;
+    let link = sign_in::link_for_member(&db, &config, email).await?;
+    db.close().await;
+    Ok(link)
 }
 
 async fn connect_and_migrate(database_url: &str) -> anyhow::Result<PgPool> {

@@ -15,8 +15,11 @@ export interface TokenEntry {
   ended_at: string
   /** Counts by kind. At least one kind is required. */
   tokens: Tokens
-  /** The agent's own cost figure. Without it the list value is computed. */
-  reported_cost?: number
+  /**
+   * The agent's own cost figure in US dollars, as a number or a decimal
+   * string such as `"0.031"`. Without it the list value is computed.
+   */
+  reported_cost?: Amount
   /** What the session did, from one line to a short report. */
   summary?: string
   /** The ticket it belongs to. Wins over every rule. */
@@ -27,8 +30,45 @@ export interface TokenEntry {
   tags?: Record<string, string>
   /** What the agent saw; rules place the token entry with these. */
   signals?: Signals
-  /** Joins the token entry to telemetry. */
+  /** Joins the token entry to telemetry. Sending an entry again with the same one updates it. */
   session_id?: string
+  /**
+   * The session's model calls. With them, a session telemetry also reported
+   * is counted exactly once, call by call. Their tokens add up to `tokens`.
+   */
+  messages?: Message[]
+  /** How the entry is split: by `message_ids` (segments) or by `share_percent` (by hand). */
+  splits?: Split[]
+  /** Your own ID for the entry, such as `claude-code:<session id>`. Sending it again replaces the earlier one. */
+  local_id?: string
+  /** What placed it: a rule's name, `hand`, `classifier` or `none`. */
+  placed_by?: string
+}
+
+/** US dollars, as a number or a decimal string such as `"0.031"`. */
+export type Amount = number | string
+
+/** One model call of a session. */
+export interface Message {
+  /** The agent harness's ID for the call, unique within the session. */
+  message_id: string
+  /** The provider's request ID, when known. */
+  request_id?: string
+  /** The model of this call, when it differs from the entry's. */
+  model?: string
+  /** When the call was made, as an ISO 8601 timestamp. */
+  at: string
+  tokens: Tokens
+  /** The agent's own cost figure for this call. */
+  reported_cost?: Amount
+}
+
+/** One part of a token entry with its own tags: a segment by messages, or a share by hand. */
+export interface Split {
+  message_ids?: string[]
+  share_percent?: number
+  tags?: Record<string, string>
+  signals?: Signals
 }
 
 /** Token counts by kind. Whole, non-negative numbers. */
@@ -93,20 +133,102 @@ export function problems(entry: TokenEntry): string[] {
       found.push('tokens needs at least one kind')
     }
   }
-  if (
-    entry.reported_cost !== undefined &&
-    !(Number.isFinite(entry.reported_cost) && entry.reported_cost >= 0)
-  ) {
-    found.push('reported_cost must be a number, 0 or more')
+  if (entry.reported_cost !== undefined && !isAmount(entry.reported_cost)) {
+    found.push('reported_cost must be an amount, 0 or more')
   }
-  if (entry.tags !== undefined) {
-    for (const [name, value] of Object.entries(entry.tags)) {
-      if (typeof value !== 'string') found.push(`tags.${name} must be one text value`)
+  found.push(...tagProblems('tags', entry.tags))
+  for (const field of ['ticket', 'project'] as const) {
+    const tag = entry.tags?.[field]
+    if (entry[field] !== undefined && tag !== undefined && entry[field] !== tag) {
+      found.push(`${field} and tags.${field} differ: send one`)
     }
   }
   const pr = entry.signals?.pull_request
   if (pr !== undefined && !(Number.isSafeInteger(pr) && pr > 0)) {
     found.push('signals.pull_request must be a pull request number')
+  }
+  found.push(...messageProblems(entry), ...splitProblems(entry))
+  return found
+}
+
+const DECIMAL = /^\d+(\.\d+)?$/
+
+function isAmount(amount: Amount): boolean {
+  return typeof amount === 'string'
+    ? DECIMAL.test(amount.trim())
+    : Number.isFinite(amount) && amount >= 0
+}
+
+const TAG_NAME = /^[a-z][a-z0-9_-]*$/
+
+function tagProblems(where: string, tags: Record<string, string> | undefined): string[] {
+  const found: string[] = []
+  for (const [name, value] of Object.entries(tags ?? {})) {
+    if (!TAG_NAME.test(name)) {
+      found.push(`${where}.${name}: a tag name is lowercase letters, digits, _ or -`)
+    } else if (name === 'person') {
+      found.push(`${where}.person is set from the token that sends the entry`)
+    }
+    if (typeof value !== 'string' || value.trim() === '') {
+      found.push(`${where}.${name} must be one text value`)
+    }
+  }
+  return found
+}
+
+function messageProblems(entry: TokenEntry): string[] {
+  const messages = entry.messages ?? []
+  if (messages.length === 0) return []
+  const found: string[] = []
+  if (entry.session_id === undefined) found.push('messages need the session_id they belong to')
+  const seen = new Set<string>()
+  const sum = { input: 0, output: 0, cache_write: 0, cache_read: 0 }
+  for (const message of messages) {
+    if (seen.has(message.message_id)) found.push(`message ${message.message_id} appears twice`)
+    seen.add(message.message_id)
+    if (Number.isNaN(Date.parse(message.at))) {
+      found.push(`message ${message.message_id}: at is not a timestamp`)
+    }
+    if (message.reported_cost !== undefined && !isAmount(message.reported_cost)) {
+      found.push(`message ${message.message_id}: reported_cost must be an amount, 0 or more`)
+    }
+    for (const kind of TOKEN_KINDS) sum[kind] += message.tokens?.[kind] ?? 0
+  }
+  if (TOKEN_KINDS.some(kind => sum[kind] !== (entry.tokens?.[kind] ?? 0))) {
+    found.push("tokens must equal the sum of the messages' tokens")
+  }
+  return found
+}
+
+function splitProblems(entry: TokenEntry): string[] {
+  const splits = entry.splits ?? []
+  if (splits.length === 0) return []
+  const found = splits.flatMap((split, i) => tagProblems(`splits[${i}].tags`, split.tags))
+  const byMessage = splits.every(
+    s => (s.message_ids?.length ?? 0) > 0 && s.share_percent === undefined,
+  )
+  const byShare = splits.every(
+    s => (s.message_ids?.length ?? 0) === 0 && s.share_percent !== undefined,
+  )
+  if (byMessage) {
+    const ids = splits.flatMap(split => split.message_ids ?? [])
+    const messages = new Set((entry.messages ?? []).map(message => message.message_id))
+    if (
+      new Set(ids).size !== ids.length ||
+      ids.length !== messages.size ||
+      ids.some(id => !messages.has(id))
+    ) {
+      found.push('splits by message must hold every message of the entry exactly once')
+    }
+  } else if (byShare) {
+    const shares = splits.map(split => split.share_percent ?? 0)
+    if (shares.some(share => !Number.isInteger(share) || share <= 0)) {
+      found.push('a split share is a whole percent above 0')
+    } else if (shares.reduce((a, b) => a + b, 0) !== 100) {
+      found.push('split shares must add up to 100 percent')
+    }
+  } else {
+    found.push('splits are either all by message_ids or all by share_percent')
   }
   return found
 }

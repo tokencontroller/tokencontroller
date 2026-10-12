@@ -1,0 +1,77 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH RECURSIVE chain AS (\n               SELECT id, parent_id FROM tickets WHERE organization_id = $1 AND key = ANY($2)\n               UNION\n               SELECT t.id, t.parent_id FROM tickets t JOIN chain c ON t.id = c.parent_id\n               WHERE t.organization_id = $1\n           )\n           SELECT t.key, t.title, t.tags, p.name AS \"project?\", parent.key AS \"parent?\"\n           FROM tickets t\n           JOIN chain c ON c.id = t.id\n           LEFT JOIN projects p ON p.id = t.project_id\n           LEFT JOIN tickets parent ON parent.id = t.parent_id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "key",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tickets",
+            "name": "key"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "title",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tickets",
+            "name": "title"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "tags",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "tickets",
+            "name": "tags"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "project?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "projects",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "parent?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tickets",
+            "name": "key"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "fcb5dd15289d9e34103cd72fccfa9a1bda2e2557ecfd9a8085ec10ea9f473c22"
+}

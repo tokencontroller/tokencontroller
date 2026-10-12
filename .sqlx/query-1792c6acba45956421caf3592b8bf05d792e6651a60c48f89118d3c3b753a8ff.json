@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT coalesce(jsonb_agg(to_jsonb(p) || jsonb_build_object(\n               'repositories', coalesce((\n                   SELECT jsonb_agg(r.repository ORDER BY r.repository)\n                   FROM project_repositories r WHERE r.project_id = p.id\n               ), '[]'::jsonb)\n           ) ORDER BY p.name, p.id), '[]'::jsonb) AS \"rows!\"\n           FROM projects p WHERE p.organization_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "rows!",
+        "type_info": "Jsonb",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "1792c6acba45956421caf3592b8bf05d792e6651a60c48f89118d3c3b753a8ff"
+}

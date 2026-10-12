@@ -1,0 +1,2 @@
+owner,name,when,then
+organization,reviews,subagent_type is code-reviewer,set purpose=code-review

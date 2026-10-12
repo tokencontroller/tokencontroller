@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM missing_tickets m WHERE m.organization_id = $1 AND EXISTS (\n             SELECT 1 FROM tickets t WHERE t.organization_id = $1 AND t.key = m.key)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "4c392a89d458577c6266f96de4ad0a790a890e59b06e1d38b6609ea45413739a"
+}
