@@ -1,0 +1,33 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO ticket_systems\n             (organization_id, kind, site, sealed_credentials, key_hint, created_by, sync_requested_at)\n         VALUES ($1, $2, $3, $4, $5, $6, now()) RETURNING id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "ticket_systems",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "f5c770c52c3ebbd42f1cd1dd0e692ac5c9c01a7a962f496602b261e6a2e88827"
+}

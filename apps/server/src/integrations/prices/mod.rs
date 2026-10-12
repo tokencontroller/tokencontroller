@@ -30,7 +30,10 @@ pub use fetch::{Fetched, LITELLM_URL, MODELS_DEV_URL, fetch};
 pub use litellm::parse_litellm;
 pub use models_dev::parse_models_dev;
 pub use names::lookup;
-pub use store::{PriceTableVersion, Refreshed, current, current_pricing, refresh, save, version};
+pub use store::{
+    JOB, JOB_EVERY, PriceTableVersion, Refreshed, current, current_pricing, refresh, run_job, save,
+    version,
+};
 pub use table::{merge, table_digest};
 pub use value::list_value;
 

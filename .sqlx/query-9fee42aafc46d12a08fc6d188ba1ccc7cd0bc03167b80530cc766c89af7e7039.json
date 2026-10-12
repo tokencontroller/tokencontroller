@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE projects SET ticket_key_pattern = $3\n             WHERE organization_id = $1 AND id = $2 AND ticket_key_pattern IS NULL",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "9fee42aafc46d12a08fc6d188ba1ccc7cd0bc03167b80530cc766c89af7e7039"
+}

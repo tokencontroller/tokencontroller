@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE ticket_system_projects\n             SET synced_until = $3::timestamptz - interval '5 minutes'\n             WHERE ticket_system_id = $1 AND external_project = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "3f2aa55bdf5d33876b33f5f65bf4ed43b4f64bc749209540088a5b7741188e6c"
+}

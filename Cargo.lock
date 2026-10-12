@@ -2922,6 +2922,7 @@ dependencies = [
  "mail-parser",
  "opentelemetry-proto",
  "prost",
+ "regex",
  "reqwest",
  "rust_decimal",
  "rustls",

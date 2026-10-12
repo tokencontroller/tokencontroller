@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT DISTINCT s.token_entry_id FROM splits s\n         JOIN token_entries e ON e.id = s.token_entry_id\n         WHERE e.organization_id = $1 AND s.ticket_not_synced AND e.status <> 'locked'\n         LIMIT 10000",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "token_entry_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "splits",
+            "name": "token_entry_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "be3f1c5e18c547d81b5b09b7e16dfe7cb16febb875a2232041ee270cb9575246"
+}

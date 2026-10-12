@@ -250,6 +250,38 @@ fn to_u64(count: i64) -> u64 {
     u64::try_from(count).unwrap_or_default()
 }
 
+/// Places again the token entries of open periods that named a ticket
+/// before it synced, so a ticket that has synced since fills in its project
+/// and tags (docs: Attribute > Ticket keys). Runs after each ticket sync.
+/// Returns how many token entries were placed again.
+///
+/// # Errors
+///
+/// Fails if a query fails.
+pub async fn place_unsynced(db: &sqlx::PgPool, organization_id: Uuid) -> Result<u64, StoreError> {
+    let entries = sqlx::query_scalar!(
+        "SELECT DISTINCT s.token_entry_id FROM splits s
+         JOIN token_entries e ON e.id = s.token_entry_id
+         WHERE e.organization_id = $1 AND s.ticket_not_synced AND e.status <> 'locked'
+         LIMIT 10000",
+        organization_id
+    )
+    .fetch_all(db)
+    .await?;
+    if entries.is_empty() {
+        return Ok(0);
+    }
+    let mut tx = db.begin().await?;
+    let context = place::org_context(&mut tx, organization_id).await?;
+    let mut count = 0_u64;
+    for entry_id in entries {
+        rebuild::rebuild(&mut tx, organization_id, entry_id, &context).await?;
+        count = count.saturating_add(1);
+    }
+    tx.commit().await?;
+    Ok(count)
+}
+
 /// Prices the calls whose model the price table did not know, in token
 /// entries of open periods, and rebuilds those token entries. Runs after a
 /// price table refresh made a new version. Returns how many token entries

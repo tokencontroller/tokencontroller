@@ -3150,6 +3150,262 @@
         }
       }
     },
+    "/api/v1/ticket-systems": {
+      "get": {
+        "tags": [
+          "integrations"
+        ],
+        "summary": "The ticket systems the organization connected.",
+        "operationId": "list_ticket_systems",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TicketSystemView"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "integrations"
+        ],
+        "summary": "Connect a ticket system with an API token. Controllers only. The first\nsync starts right away; whoever connects a ticket system answers for\nthat data flow.",
+        "operationId": "connect_ticket_system",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewTicketSystem"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TicketSystemView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The address or the token is not usable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/ticket-systems/{id}": {
+      "delete": {
+        "tags": [
+          "integrations"
+        ],
+        "summary": "Disconnect a ticket system. Controllers only. Its tickets stay, and stop\nsyncing.",
+        "operationId": "disconnect_ticket_system",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The ticket system",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Disconnected"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/ticket-systems/{id}/mappings": {
+      "put": {
+        "tags": [
+          "integrations"
+        ],
+        "summary": "Set which projects of the ticket system feed which Token Controller\nprojects, replacing the earlier mapping. Controllers only. A project\nwithout a ticket key pattern gets the one its tickets use, and a sync\nstarts right away.",
+        "operationId": "set_mappings",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The ticket system",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/Mapping"
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TicketSystemView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A project is unknown or mapped twice",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/ticket-systems/{id}/projects": {
+      "get": {
+        "tags": [
+          "integrations"
+        ],
+        "summary": "The projects the ticket system shows the token, to map. Controllers\nonly.",
+        "operationId": "external_projects",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The ticket system",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ExternalProject"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The ticket system refused the token or could not be read",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/ticket-systems/{id}/sync": {
+      "post": {
+        "tags": [
+          "integrations"
+        ],
+        "summary": "Sync a ticket system now, without waiting for its 15 minutes. Controllers\nonly.",
+        "operationId": "sync_now",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The ticket system",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "The sync starts within a minute",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TicketSystemView"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/tickets": {
       "get": {
         "tags": [
@@ -3750,6 +4006,14 @@
           }
         }
       },
+      "ConnectionStatus": {
+        "type": "string",
+        "description": "How a connection's last pull or sync went.",
+        "enum": [
+          "ok",
+          "failing"
+        ]
+      },
       "ContactMessage": {
         "type": "object",
         "description": "A message through the contact form.",
@@ -4340,6 +4604,24 @@
           }
         }
       },
+      "ExternalProject": {
+        "type": "object",
+        "description": "A project in a ticket system, to map onto a Token Controller project.",
+        "required": [
+          "key",
+          "name"
+        ],
+        "properties": {
+          "key": {
+            "type": "string",
+            "description": "What [`fetch_updated`] takes: the Jira Cloud project key (`KD`), the\nAzure DevOps project ID, or the `GitHub` repository as `owner/name`."
+          },
+          "name": {
+            "type": "string",
+            "description": "The name people see."
+          }
+        }
+      },
       "HandOver": {
         "type": "object",
         "description": "Move a service token to another person, who becomes the agent manager\nof its future token entries.",
@@ -4530,6 +4812,31 @@
         "properties": {
           "token": {
             "type": "string"
+          }
+        }
+      },
+      "Mapping": {
+        "type": "object",
+        "description": "One project of a ticket system mapped to a Token Controller project.",
+        "required": [
+          "external",
+          "project"
+        ],
+        "properties": {
+          "external": {
+            "type": "string",
+            "description": "The ticket system's project: the Jira project key, the Azure DevOps\nproject ID or the GitHub repository as `owner/name`, as\n`GET /ticket-systems/{id}/projects` lists them."
+          },
+          "external_name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Its name. Optional when mapping; the key stands in."
+          },
+          "project": {
+            "type": "string",
+            "description": "The Token Controller project, by name."
           }
         }
       },
@@ -4945,6 +5252,35 @@
               "string",
               "null"
             ]
+          }
+        }
+      },
+      "NewTicketSystem": {
+        "type": "object",
+        "description": "A ticket system to connect.",
+        "required": [
+          "kind",
+          "site",
+          "token"
+        ],
+        "properties": {
+          "email": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "For Jira Cloud: the email of the Atlassian account the token belongs\nto. Jira Cloud signs in with both."
+          },
+          "kind": {
+            "$ref": "#/components/schemas/TicketSystem"
+          },
+          "site": {
+            "type": "string",
+            "description": "The Jira Cloud site, such as `https://acme.atlassian.net`, the Azure\nDevOps organization, such as `https://dev.azure.com/acme`, or\n`https://api.github.com`."
+          },
+          "token": {
+            "type": "string",
+            "description": "An API token from the ticket system."
           }
         }
       },
@@ -6290,6 +6626,69 @@
           "azure_devops",
           "github_issues"
         ]
+      },
+      "TicketSystem": {
+        "type": "string",
+        "description": "The ticket systems tickets sync from.",
+        "enum": [
+          "jira",
+          "azure_devops",
+          "github_issues"
+        ]
+      },
+      "TicketSystemView": {
+        "type": "object",
+        "description": "A connected ticket system, as the web app shows it. The token is never\nsent back.",
+        "required": [
+          "id",
+          "kind",
+          "site",
+          "key_hint",
+          "mappings",
+          "status"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "key_hint": {
+            "type": "string",
+            "description": "The token's last characters, to tell tokens apart."
+          },
+          "kind": {
+            "$ref": "#/components/schemas/TicketSystem"
+          },
+          "last_sync_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "When the last sync succeeded."
+          },
+          "mappings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Mapping"
+            },
+            "description": "Which of its projects feed which Token Controller project."
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why the last sync failed."
+          },
+          "site": {
+            "type": "string",
+            "description": "The Jira Cloud site, the Azure DevOps organization or the GitHub API."
+          },
+          "status": {
+            "$ref": "#/components/schemas/ConnectionStatus"
+          }
+        }
       },
       "Token": {
         "type": "object",

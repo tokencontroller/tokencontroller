@@ -25,13 +25,32 @@ use utoipa::ToSchema;
 pub enum TicketSystem {
     #[serde(rename = "jira")]
     Jira,
-    #[serde(rename = "azure-devops")]
+    #[serde(rename = "azure_devops")]
     AzureDevOps,
-    #[serde(rename = "github-issues")]
+    #[serde(rename = "github_issues")]
     GitHubIssues,
 }
 
 impl TicketSystem {
+    /// How the API and the database write it: `jira`, `azure_devops` or
+    /// `github_issues`.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Jira => "jira",
+            Self::AzureDevOps => "azure_devops",
+            Self::GitHubIssues => "github_issues",
+        }
+    }
+
+    /// The system [`as_str`](Self::as_str) names.
+    #[must_use]
+    pub fn from_name(name: &str) -> Option<Self> {
+        [Self::Jira, Self::AzureDevOps, Self::GitHubIssues]
+            .into_iter()
+            .find(|system| system.as_str() == name)
+    }
+
     /// The name people know the system by, as used in messages.
     #[must_use]
     pub const fn name(self) -> &'static str {
@@ -252,9 +271,17 @@ mod tests {
             TicketSystem::GitHubIssues,
         ])
         .unwrap();
-        assert_eq!(names, r#"["jira","azure-devops","github-issues"]"#);
-        let back: TicketSystem = serde_json::from_str(r#""github-issues""#).unwrap();
+        assert_eq!(names, r#"["jira","azure_devops","github_issues"]"#);
+        let back: TicketSystem = serde_json::from_str(r#""github_issues""#).unwrap();
         assert_eq!(back, TicketSystem::GitHubIssues);
+        for system in [
+            TicketSystem::Jira,
+            TicketSystem::AzureDevOps,
+            TicketSystem::GitHubIssues,
+        ] {
+            assert_eq!(TicketSystem::from_name(system.as_str()), Some(system));
+        }
+        assert_eq!(TicketSystem::from_name("azure-devops"), None);
         assert_eq!(TicketSystem::AzureDevOps.name(), "Azure DevOps");
     }
 
