@@ -52,7 +52,7 @@ pub struct ApprovalQuery {
 }
 
 /// The time range of a period, or of all time.
-fn range(period: Option<Period>) -> Result<(OffsetDateTime, OffsetDateTime), ApiError> {
+pub(crate) fn range(period: Option<Period>) -> Result<(OffsetDateTime, OffsetDateTime), ApiError> {
     match period {
         Some(period) => Ok((
             period.starts_at(),

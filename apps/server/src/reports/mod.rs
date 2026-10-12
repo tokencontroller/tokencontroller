@@ -5,18 +5,32 @@
 //! this folder, and its migrations in `migrations/` named
 //! `<timestamp>_reports_<what>.sql`.
 
+pub mod cost;
+pub mod csv;
 pub mod entries;
 pub mod filter;
 pub mod lines;
+pub mod saved;
 pub mod scope;
-pub mod csv;
+pub mod share;
+pub mod table;
 
 use utoipa_axum::router::OpenApiRouter;
+use utoipa_axum::routes;
 
 use crate::AppState;
+use crate::sign_in::Credential;
+
+/// The credentials that may read reports: a signed-in person, the CLI and
+/// read tokens. Service tokens only report token entries.
+pub const READERS: &[Credential] = &[Credential::Session, Credential::Cli, Credential::Read];
 
 /// This area's routes, relative to `/api/v1`.
 #[must_use]
 pub fn routes() -> OpenApiRouter<AppState> {
     OpenApiRouter::new()
+        .routes(routes!(cost::cost_report))
+        .routes(routes!(cost::agent_harness_report))
+        .merge(saved::routes())
+        .merge(table::routes())
 }
