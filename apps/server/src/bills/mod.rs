@@ -17,6 +17,7 @@ pub mod reconciliation;
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
+use axum::response::Response;
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use time::OffsetDateTime;
@@ -669,7 +670,26 @@ pub struct BillsQuery {
     /// Only this period, such as `2026-09`.
     #[param(value_type = Option<String>, example = "2026-09")]
     pub period: Option<Period>,
+    /// `csv` for the table as a CSV file instead of JSON.
+    #[param(example = "csv")]
+    pub format: Option<String>,
 }
+
+/// The columns of the bills table and its CSV file.
+const BILL_COLUMNS: &[crate::reports::csv::Column] = &[
+    ("period", "/period"),
+    ("provider", "/provider"),
+    ("cost_source", "/cost_source"),
+    ("revision", "/revision"),
+    ("currency", "/currency"),
+    ("gross", "/gross"),
+    ("discount", "/discount"),
+    ("credit", "/credit"),
+    ("net", "/net"),
+    ("exchange_rate", "/exchange_rate"),
+    ("source", "/source"),
+    ("recorded_at", "/recorded_at"),
+];
 
 /// The latest revision of every bill, newest period first.
 #[utoipa::path(
@@ -678,7 +698,7 @@ pub struct BillsQuery {
     tag = "bills",
     params(BillsQuery),
     responses(
-        (status = OK, description = "The bills", body = Vec<BillView>),
+        (status = OK, description = "The bills, as JSON or CSV", content((Vec<BillView> = "application/json"), (String = "text/csv"))),
         (status = FORBIDDEN, description = "Only a controller can read bills", body = crate::error::ErrorBody),
     ),
 )]
@@ -686,11 +706,19 @@ pub(crate) async fn list_bills(
     State(state): State<AppState>,
     caller: Caller,
     Query(query): Query<BillsQuery>,
-) -> Result<Json<Vec<BillView>>, ApiError> {
+) -> Result<Response, ApiError> {
     caller.require_role(Role::Controller)?;
-    Ok(Json(
-        latest_bills(&state.db, caller.organization_id, query.period).await?,
-    ))
+    let bills = latest_bills(&state.db, caller.organization_id, query.period).await?;
+    let filename = query.period.map_or_else(
+        || "bills.csv".to_owned(),
+        |period| format!("bills-{period}.csv"),
+    );
+    crate::reports::csv::table(
+        &bills,
+        BILL_COLUMNS,
+        crate::reports::csv::wants_csv(query.format.as_deref()),
+        &filename,
+    )
 }
 
 /// Every revision of one bill, oldest first.
@@ -698,9 +726,9 @@ pub(crate) async fn list_bills(
     get,
     path = "/bills/{id}",
     tag = "bills",
-    params(("id" = Uuid, Path, description = "The bill")),
+    params(("id" = Uuid, Path, description = "The bill"), crate::reports::csv::FormatQuery),
     responses(
-        (status = OK, description = "The bill's revisions", body = Vec<BillView>),
+        (status = OK, description = "The bill's revisions, as JSON or CSV", content((Vec<BillView> = "application/json"), (String = "text/csv"))),
         (status = NOT_FOUND, description = "No such bill", body = crate::error::ErrorBody),
     ),
 )]
@@ -708,13 +736,20 @@ pub(crate) async fn get_bill(
     State(state): State<AppState>,
     caller: Caller,
     Path(id): Path<Uuid>,
-) -> Result<Json<Vec<BillView>>, ApiError> {
+    Query(query): Query<crate::reports::csv::FormatQuery>,
+) -> Result<Response, ApiError> {
     caller.require_role(Role::Controller)?;
     let revisions = revisions(&state.db, caller.organization_id, id).await?;
-    if revisions.is_empty() {
+    let Some(first) = revisions.first() else {
         return Err(ApiError::NotFound);
-    }
-    Ok(Json(revisions))
+    };
+    let filename = format!(
+        "bill-{}-{}-{}.csv",
+        first.period,
+        first.provider,
+        first.cost_source.as_str()
+    );
+    crate::reports::csv::table(&revisions, BILL_COLUMNS, query.wants_csv(), &filename)
 }
 
 #[cfg(test)]

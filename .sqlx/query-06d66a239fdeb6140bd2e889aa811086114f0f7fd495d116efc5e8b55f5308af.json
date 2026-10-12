@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT organization_id, period FROM cost_sheet_links\n           WHERE secret_hash = encode(sha256(convert_to($1, 'UTF8')), 'hex') AND revoked_at IS NULL",
+  "query": "SELECT l.organization_id, l.period, o.name AS organization\n           FROM cost_sheet_links l JOIN organizations o ON o.id = l.organization_id\n           WHERE l.secret_hash = encode(sha256(convert_to($1, 'UTF8')), 'hex') AND l.revoked_at IS NULL",
   "describe": {
     "columns": [
       {
@@ -24,6 +24,17 @@
             "name": "period"
           }
         }
+      },
+      {
+        "ordinal": 2,
+        "name": "organization",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "organizations",
+            "name": "name"
+          }
+        }
       }
     ],
     "parameters": {
@@ -33,8 +44,9 @@
     },
     "nullable": [
       false,
+      false,
       false
     ]
   },
-  "hash": "08e53b5243e90c8f5464bff727d4ee336015df07c8b0153cd2f9f76fa338479b"
+  "hash": "06d66a239fdeb6140bd2e889aa811086114f0f7fd495d116efc5e8b55f5308af"
 }

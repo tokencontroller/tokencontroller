@@ -195,12 +195,14 @@ async fn close_check(
     get,
     path = "/periods",
     tag = "close",
-    responses((status = OK, description = "The periods", body = Vec<PeriodSummary>)),
+    params(crate::reports::csv::FormatQuery),
+    responses((status = OK, description = "The periods, as JSON or CSV", content((Vec<PeriodSummary> = "application/json"), (String = "text/csv")))),
 )]
 pub(crate) async fn list_periods(
     State(state): State<AppState>,
     caller: Caller,
-) -> Result<Json<Vec<PeriodSummary>>, ApiError> {
+    Query(query): Query<crate::reports::csv::FormatQuery>,
+) -> Result<Response, ApiError> {
     caller.require_role(Role::PeopleManager)?;
     let organization_id = caller.organization_id;
     let now = OffsetDateTime::now_utc();
@@ -237,8 +239,17 @@ pub(crate) async fn list_periods(
         period = next;
     }
     periods.reverse();
-    Ok(Json(periods))
+    crate::reports::csv::table(&periods, PERIOD_COLUMNS, query.wants_csv(), "periods.csv")
 }
+
+/// The columns of the periods table and its CSV file.
+const PERIOD_COLUMNS: &[crate::reports::csv::Column] = &[
+    ("period", "/period"),
+    ("ended", "/ended"),
+    ("closed", "/closed"),
+    ("closed_at", "/closed_at"),
+    ("closed_by", "/closed_by"),
+];
 
 /// One period and what is still open in it.
 #[utoipa::path(
@@ -728,15 +739,37 @@ pub async fn sheet_response(
     period: Period,
     query: &SheetQuery,
 ) -> Result<Response, ApiError> {
+    match sheet_or_csv(db, organization_id, period, query).await? {
+        Ok(sheet) => Ok(Json(sheet).into_response()),
+        Err(csv) => Ok(csv),
+    }
+}
+
+/// The cost sheet as JSON, or as a CSV download (the `Err` side) when the
+/// query asks for CSV.
+///
+/// # Errors
+///
+/// [`ApiError`] for a missing exchange rate or a database failure.
+pub async fn sheet_or_csv(
+    db: &PgPool,
+    organization_id: Uuid,
+    period: Period,
+    query: &SheetQuery,
+) -> Result<Result<CostSheet, Response>, ApiError> {
     let (account, people) = sheet_account(db, organization_id, period).await?;
     let columns = query.column_names();
     if query.wants_csv() {
         let text = cost_sheet::to_csv(&account, &columns, &people.emails)?;
         let filename = format!("cost-sheet-{period}.csv");
-        return crate::reports::csv::download(&text, &filename);
+        return Ok(Err(crate::reports::csv::download(&text, &filename)?));
     }
-    let sheet = cost_sheet::compute(&account, &columns, &people.names, &people.emails)?;
-    Ok(Json(sheet).into_response())
+    Ok(Ok(cost_sheet::compute(
+        &account,
+        &columns,
+        &people.names,
+        &people.emails,
+    )?))
 }
 
 /// The cost sheet of a period: final once it is closed, a preview while it

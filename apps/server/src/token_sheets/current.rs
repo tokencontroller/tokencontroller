@@ -7,7 +7,8 @@
 use std::collections::BTreeMap;
 
 use axum::Json;
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
+use axum::response::{IntoResponse as _, Response};
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use time::{Date, OffsetDateTime};
@@ -234,12 +235,14 @@ async fn own_lines(db: &PgPool, caller: &Caller) -> Result<Vec<CostLine>, ApiErr
     get,
     path = "/token-sheets/current",
     tag = "token_sheets",
-    responses((status = OK, description = "Your token sheet", body = TokenSheet)),
+    params(crate::reports::csv::FormatQuery),
+    responses((status = OK, description = "Your token sheet, or its token entries as CSV", content((TokenSheet = "application/json"), (String = "text/csv")))),
 )]
 pub(crate) async fn current(
     State(state): State<AppState>,
     caller: Caller,
-) -> Result<Json<TokenSheet>, ApiError> {
+    Query(query): Query<crate::reports::csv::FormatQuery>,
+) -> Result<Response, ApiError> {
     let db = &state.db;
     let today = OffsetDateTime::now_utc().date();
     let person = sqlx::query!(
@@ -262,6 +265,9 @@ pub(crate) async fn current(
     );
     let total_money = Money::from_nanos(i64::try_from(total).unwrap_or(i64::MAX), Currency::USD);
     let token_entries = entries::entries(db, waiting).await?;
+    if query.wants_csv() {
+        return Ok(entries::to_csv(&token_entries).into_download("token-sheet.csv"));
+    }
     Ok(Json(TokenSheet {
         person: if person.name.trim().is_empty() {
             person.email
@@ -282,7 +288,8 @@ pub(crate) async fn current(
         currency: Currency::USD.code(),
         share_on_tickets: basis_points(ticketed, total),
         token_sheets: sheets(db, caller.organization_id, caller.person_id).await?,
-    }))
+    })
+    .into_response())
 }
 
 /// Tags to set on a token entry by hand.

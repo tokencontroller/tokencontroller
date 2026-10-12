@@ -5,7 +5,7 @@
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
-use axum::response::Response;
+use axum::response::{IntoResponse as _, Response};
 use serde::Serialize;
 use time::OffsetDateTime;
 use utoipa::ToSchema;
@@ -13,11 +13,13 @@ use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 use uuid::Uuid;
 
+use super::cost_sheet::CostSheet;
 use super::period::{Period, PeriodDates};
-use super::{SheetQuery, parse_period, sheet_response};
+use super::{SheetQuery, parse_period, sheet_or_csv};
 use crate::AppState;
 use crate::error::ApiError;
 use crate::organizations::Role;
+use crate::reports::csv::{self, Column, FormatQuery};
 use crate::sign_in::Caller;
 
 pub(super) fn routes() -> OpenApiRouter<AppState> {
@@ -110,14 +112,15 @@ pub(crate) async fn create_link(
     get,
     path = "/periods/{period}/cost-sheet/links",
     tag = "close",
-    params(("period" = String, Path, description = "The period, such as 2026-09")),
-    responses((status = OK, description = "The links, newest first", body = Vec<CostSheetLink>)),
+    params(("period" = String, Path, description = "The period, such as 2026-09"), FormatQuery),
+    responses((status = OK, description = "The links, newest first, as JSON or CSV", content((Vec<CostSheetLink> = "application/json"), (String = "text/csv")))),
 )]
 pub(crate) async fn list_links(
     State(state): State<AppState>,
     caller: Caller,
     Path(period): Path<String>,
-) -> Result<Json<Vec<CostSheetLink>>, ApiError> {
+    Query(query): Query<FormatQuery>,
+) -> Result<Response, ApiError> {
     caller.require_role(Role::Controller)?;
     let period = parse_period(&period)?;
     let rows = sqlx::query!(
@@ -130,19 +133,29 @@ pub(crate) async fn list_links(
     )
     .fetch_all(&state.db)
     .await?;
-    Ok(Json(
-        rows.into_iter()
-            .map(|row| CostSheetLink {
-                id: row.id,
-                period: period.to_string(),
-                url: None,
-                created_by: row.created_by,
-                created_at: row.created_at,
-                revoked_at: row.revoked_at,
-            })
-            .collect(),
-    ))
+    let links: Vec<CostSheetLink> = rows
+        .into_iter()
+        .map(|row| CostSheetLink {
+            id: row.id,
+            period: period.to_string(),
+            url: None,
+            created_by: row.created_by,
+            created_at: row.created_at,
+            revoked_at: row.revoked_at,
+        })
+        .collect();
+    let filename = format!("cost-sheet-links-{period}.csv");
+    csv::table(&links, LINK_COLUMNS, query.wants_csv(), &filename)
 }
+
+/// The columns of the links table and its CSV file. The address is shown
+/// once, when the link is made, so it is never a column.
+const LINK_COLUMNS: &[Column] = &[
+    ("period", "/period"),
+    ("created_by", "/created_by"),
+    ("created_at", "/created_at"),
+    ("revoked_at", "/revoked_at"),
+];
 
 /// Revoke a link: it stops working at once.
 #[utoipa::path(
@@ -184,7 +197,7 @@ pub(crate) async fn revoke_link(
     tag = "close",
     params(("secret" = String, Path, description = "The secret part of the link"), SheetQuery),
     responses(
-        (status = OK, description = "The cost sheet, as JSON or CSV", content((super::cost_sheet::CostSheet = "application/json"), (String = "text/csv"))),
+        (status = OK, description = "The cost sheet with the organization's name, as JSON or CSV", content((SharedCostSheet = "application/json"), (String = "text/csv"))),
         (status = NOT_FOUND, description = "No such link, or it was revoked", body = crate::error::ErrorBody),
     ),
 )]
@@ -197,15 +210,33 @@ pub(crate) async fn shared_cost_sheet(
         return Err(ApiError::NotFound);
     }
     let link = sqlx::query!(
-        r#"SELECT organization_id, period FROM cost_sheet_links
-           WHERE secret_hash = encode(sha256(convert_to($1, 'UTF8')), 'hex') AND revoked_at IS NULL"#,
+        r#"SELECT l.organization_id, l.period, o.name AS organization
+           FROM cost_sheet_links l JOIN organizations o ON o.id = l.organization_id
+           WHERE l.secret_hash = encode(sha256(convert_to($1, 'UTF8')), 'hex') AND l.revoked_at IS NULL"#,
         secret,
     )
     .fetch_optional(&state.db)
     .await?
     .ok_or(ApiError::NotFound)?;
     let period = Period::of_date(link.period);
-    sheet_response(&state.db, link.organization_id, period, &query).await
+    match sheet_or_csv(&state.db, link.organization_id, period, &query).await? {
+        Ok(sheet) => Ok(Json(SharedCostSheet {
+            organization: link.organization,
+            sheet,
+        })
+        .into_response()),
+        Err(csv) => Ok(csv),
+    }
+}
+
+/// A cost sheet behind a link: finance sees whose it is, since they are not
+/// signed in.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct SharedCostSheet {
+    /// The organization's name.
+    pub organization: String,
+    #[serde(flatten)]
+    pub sheet: CostSheet,
 }
 
 #[cfg(test)]

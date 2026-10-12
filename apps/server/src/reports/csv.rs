@@ -1,10 +1,101 @@
 //! CSV files: every table in the web app downloads as one, holding exactly
-//! what the table shows. Money is written in the currency's minor unit,
-//! rounded only here (ADR 0004).
+//! what the table shows (docs: Report > Exports). The same GET answers CSV
+//! with `?format=csv`. Money is written as the API writes it: a decimal
+//! string in the currency's minor unit, rounded by the core (ADR 0004).
 
 use axum::http::{HeaderValue, header};
 use axum::response::{IntoResponse, Response};
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use tokencontroller_core::Money;
+use utoipa::IntoParams;
+
+/// `?format=csv` on a table's GET, for tables that take no other query.
+#[derive(Debug, Clone, Default, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
+pub struct FormatQuery {
+    /// `csv` for the table as a CSV file instead of JSON.
+    #[param(example = "csv")]
+    pub format: Option<String>,
+}
+
+impl FormatQuery {
+    /// Whether the caller asked for CSV.
+    #[must_use]
+    pub fn wants_csv(&self) -> bool {
+        wants_csv(self.format.as_deref())
+    }
+}
+
+/// Whether a `format` query asks for CSV.
+#[must_use]
+pub fn wants_csv(format: Option<&str>) -> bool {
+    format == Some("csv")
+}
+
+/// One column of a table: its header and where its cell sits in a row's
+/// JSON, as a JSON pointer such as `/net` or `/bill/provider`.
+pub type Column = (&'static str, &'static str);
+
+/// A file with one line per row, each row as the API sends it in JSON. Text
+/// and numbers are written as they are, `true` and `false` as `yes` and
+/// `no`, a missing value as an empty cell, tags as `team: web; client:
+/// acme`, and a list as its items joined by `; `.
+///
+/// # Errors
+///
+/// A row that cannot be turned into JSON.
+pub fn from_rows<T: Serialize>(columns: &[Column], rows: &[T]) -> Result<Csv, serde_json::Error> {
+    let mut csv = Csv::new(columns.iter().map(|(name, _)| *name));
+    for row in rows {
+        let row = serde_json::to_value(row)?;
+        csv.row(
+            columns
+                .iter()
+                .map(|(_, pointer)| row.pointer(pointer).map_or_else(String::new, cell)),
+        );
+    }
+    Ok(csv)
+}
+
+/// A table's rows as JSON, or as a CSV file named `filename` when the
+/// caller asked for CSV.
+///
+/// # Errors
+///
+/// [`crate::error::ApiError::Internal`] for a row that cannot be turned
+/// into JSON.
+pub fn table<T: Serialize>(
+    rows: &[T],
+    columns: &[Column],
+    csv: bool,
+    filename: &str,
+) -> Result<Response, crate::error::ApiError> {
+    if csv {
+        Ok(from_rows(columns, rows)
+            .map_err(|error| crate::error::ApiError::Internal(error.into()))?
+            .into_download(filename))
+    } else {
+        Ok(axum::Json(rows).into_response())
+    }
+}
+
+/// One JSON value as a cell.
+fn cell(value: &Value) -> String {
+    match value {
+        Value::Null => String::new(),
+        Value::Bool(true) => "yes".to_owned(),
+        Value::Bool(false) => "no".to_owned(),
+        Value::Number(number) => number.to_string(),
+        Value::String(text) => text.clone(),
+        Value::Array(items) => items.iter().map(cell).collect::<Vec<_>>().join("; "),
+        Value::Object(fields) => fields
+            .iter()
+            .map(|(name, value)| format!("{name}: {}", cell(value)))
+            .collect::<Vec<_>>()
+            .join("; "),
+    }
+}
 
 /// A CSV file built row by row, RFC 4180 style, with a header row.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -154,6 +245,43 @@ pub fn money_cell(amount: Money) -> String {
 mod tests {
     use super::*;
     use tokencontroller_core::Currency;
+
+    #[test]
+    fn rows_from_json_follow_the_columns() {
+        let rows = [
+            serde_json::json!({"bill": {"provider": "anthropic"}, "net": "12.50", "closed": true,
+                "tags": {"client": "acme", "team": "web"}, "rate": null, "count": 3}),
+            serde_json::json!({"bill": {"provider": "openai"}, "net": "-1.00", "closed": false,
+                "tags": {}, "rate": "0.9214", "count": 0, "lines": ["a", "b"]}),
+        ];
+        let csv = from_rows(
+            &[
+                ("provider", "/bill/provider"),
+                ("net", "/net"),
+                ("closed", "/closed"),
+                ("tags", "/tags"),
+                ("rate", "/rate"),
+                ("count", "/count"),
+                ("lines", "/lines"),
+            ],
+            &rows,
+        )
+        .unwrap();
+        assert_eq!(
+            csv.into_text(),
+            "provider,net,closed,tags,rate,count,lines\r\n\
+             anthropic,12.50,yes,client: acme; team: web,,3,\r\n\
+             openai,-1.00,no,,0.9214,0,a; b\r\n"
+        );
+    }
+
+    #[test]
+    fn only_csv_asks_for_csv() {
+        assert!(wants_csv(Some("csv")));
+        assert!(!wants_csv(Some("json")));
+        assert!(!wants_csv(None));
+        assert!(!FormatQuery::default().wants_csv());
+    }
 
     #[test]
     fn writes_a_header_and_rows() {
