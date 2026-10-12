@@ -29,7 +29,6 @@ import type {
   Outlier,
   Period,
   PeriodId,
-  Project,
   ProjectChange,
   Reconciliation,
   ReportChange,
@@ -40,10 +39,8 @@ import type {
   SavedReport,
   SubmitResult,
   TagMapChange,
-  TagName,
   Tags,
   NewTicketSystem,
-  Ticket,
   TicketMapping,
   TokenBudget,
   TokenEntry,
@@ -63,7 +60,8 @@ export const api = {
   // Sign-in. The link in the mail opens a page of the service, which signs
   // the browser in and sends it to the start page.
   signIn: (email: string) => ok(typed.POST("/api/v1/sign-in", { body: { email } })),
-  signUp: (email: string, organization_name: string) => ok(typed.POST("/api/v1/sign-up", { body: { email, organization_name } })),
+  signUp: (email: string, organization_name: string, name: string) =>
+    ok(typed.POST("/api/v1/sign-up", { body: { email, organization_name, ...(name ? { name } : {}) } })),
   signOut: () => ok(typed.POST("/api/v1/sign-out")),
   invite: (code: string) => ok(typed.GET("/api/v1/invites/{code}", { params: { path: { code } } })),
   health: () => ok(typed.GET("/api/v1/health")),
@@ -96,18 +94,18 @@ export const api = {
   removeTagName: (name: string) => ok(typed.DELETE("/api/v1/tags/{name}", { params: { path: { name } } })),
   tagValues: (name: string) => ok(typed.GET("/api/v1/tags/{name}/values", { params: { path: { name } } })),
   mergeTagValues: (name: string, from: string[], into: string) =>
-    call<TagName>("POST", `/tags/${enc(name)}/merge`, { body: { from, into } }),
+    ok(typed.POST("/api/v1/tags/{name}/merge", { params: { path: { name } }, body: { from, into } })),
   tagMap: () => ok(typed.GET("/api/v1/tag-map")),
   setTagMap: (body: TagMapChange) => ok(typed.PUT("/api/v1/tag-map", { body })),
 
-  // Projects, clients and tickets. Their list filters go as a query string.
-  projects: (archived = false) => call<Project[]>("GET", "/projects", { query: { archived: archived || undefined } }),
+  // Projects, clients and tickets
+  projects: (archived = false) => ok(typed.GET("/api/v1/projects", { params: { query: archived ? { archived } : {} } })),
   createProject: (body: NewProject) => ok(typed.POST("/api/v1/projects", { body })),
   updateProject: (id: string, body: ProjectChange) => ok(typed.PATCH("/api/v1/projects/{id}", { ...path(id), body })),
   archiveProject: (id: string) => ok(typed.DELETE("/api/v1/projects/{id}", path(id))),
   clients: () => ok(typed.GET("/api/v1/clients")),
   tickets: (query: { project_id?: string; parent_id?: string; q?: string } = {}) =>
-    call<Ticket[]>("GET", "/tickets", { query: { ...query, limit: 500 } }),
+    ok(typed.GET("/api/v1/tickets", { params: { query: { ...query, limit: 500 } } })),
   createTicket: (body: NewTicket) => ok(typed.POST("/api/v1/tickets", { body })),
 
   // Token entries, review and approval

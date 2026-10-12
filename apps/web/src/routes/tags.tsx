@@ -156,7 +156,7 @@ function TagNameRow({ tag, onMerge, onRemove }: { tag: TagName; onMerge: (tag: M
         {values.length ? `${shown.join(", ")}${values.length > 6 ? ` and ${String(values.length - 6)} more` : ""}` : "no values yet"}
       </div>
       <div className="flex gap-1">
-        {values.length > 1 && tag.name !== "person" ? <Button size="sm" variant="ghost" onClick={() => onMerge({ name: tag.name, values })}>Merge values</Button> : null}
+        {values.length > 1 && !tag.built_in ? <Button size="sm" variant="ghost" onClick={() => onMerge({ name: tag.name, values })}>Merge values</Button> : null}
         {!tag.built_in ? <Button size="sm" variant="ghost" onClick={() => onRemove(tag.name)}>Remove</Button> : null}
       </div>
     </li>

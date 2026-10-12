@@ -14,7 +14,7 @@ test("a people manager creates an organization and puts in the first bill", asyn
   await expect(page.getByRole("heading", { name: "Check your email" })).toBeVisible();
   await page.getByRole("button", { name: "Open the sign-in link" }).click();
   await expect(page.getByRole("heading", { name: "Hello", exact: true })).toBeVisible();
-  // Sign-up asks for no name; the start page does, once.
+  // The name is optional at sign-up; left out, the start page asks once.
   await page.getByLabel("Your name").fill("Ada Brandt");
   await page.getByRole("button", { name: "Save" }).click();
   await expect(page.getByRole("heading", { name: "Hello, Ada" })).toBeVisible();

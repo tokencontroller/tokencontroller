@@ -37,6 +37,7 @@ export type Organization = Schemas["Organization"];
 export type Person = Schemas["MemberView"];
 
 export type Me = Schemas["Me"];
+export type SignUpRequest = Schemas["SignUpRequest"];
 
 /** Who is signed in, with the whole organization the pages read settings from. */
 export interface Account {

@@ -13,6 +13,7 @@ import type {
   Person,
   Role,
   RuleSignal,
+  SignUpRequest,
   Tags,
   TicketMapping,
   TicketSystem,
@@ -262,12 +263,12 @@ function billCsv(db: Db, text: string) {
 
 const now = () => `${TODAY}T12:00:00Z`;
 
-function organizationOf(db: Db, name: string, email: string): Db {
+function organizationOf(db: Db, name: string, email: string, founderName: string): Db {
   // A new organization on Solo: one person who holds every role, no data yet.
   const founder: Person = {
     id: "f0d0e000-0000-4000-8000-000000000001",
-    // The service asks for no name at sign-up.
-    name: "",
+    // Optional at sign-up; without it the start page asks once.
+    name: founderName,
     email,
     role: "controller",
     tags: {},
@@ -334,9 +335,9 @@ export const handlers = [
     return HttpResponse.json({ poll_token: null }, { status: 202 });
   }),
   http.post(`${API}/sign-up`, async ({ request }) => {
-    const body = (await request.json()) as { email: string; organization_name: string };
+    const body = (await request.json()) as SignUpRequest;
     if (!body.organization_name.trim()) return error(400, "bad_request", "Give the organization a name.");
-    save(organizationOf(createDb(), body.organization_name.trim(), body.email.trim()));
+    save(organizationOf(createDb(), body.organization_name.trim(), body.email.trim(), body.name?.trim() ?? ""));
     return HttpResponse.json({ poll_token: null }, { status: 202 });
   }),
   // The button on the link page: signs the browser in, then 303 to the start page.
@@ -482,14 +483,21 @@ export const handlers = [
   http.post(`${API}/tags/:name/merge`, member(async ({ db, params, request }) => {
     const { from, into } = (await request.json()) as { from: string[]; into: string };
     const name = String(params.name);
+    if (["person", "ticket", "project"].includes(name)) return error(400, "bad_request", `"${name}" is built in: its values are members, projects and tickets, which cannot be merged.`);
+    if (!into.trim() || into.length > 200 || /[\r\n]/.test(into)) return error(400, "bad_request", "The merged value must have 1 to 200 characters and no line breaks.");
+    // As the service: people, projects, tickets, people managers' filters, rules and token entries.
+    const rename = (tags: Tags) => {
+      const value = tags[name];
+      if (value && from.includes(value)) tags[name] = into;
+    };
     for (const entry of db.entries) {
       if (isClosed(db, entry.period)) continue;
-      for (const split of entry.splits) {
-        const value = split.tags[name];
-        if (value && from.includes(value)) split.tags[name] = into;
-      }
+      for (const split of entry.splits) rename(split.tags);
     }
-    return HttpResponse.json({ name, built_in: ["person", "ticket", "project"].includes(name) });
+    for (const record of [...db.people, ...db.projects, ...db.tickets]) rename(record.tags);
+    for (const person of db.people) person.filters.forEach(rename);
+    for (const rule of db.rules) rename(rule.sets);
+    return HttpResponse.json(tagValues(db, name));
   }, CONTROLLER)),
   http.get(`${API}/tag-map`, member(({ db }) => HttpResponse.json(db.tagMap))),
   http.put(`${API}/tag-map`, member(async ({ db, request }) => {

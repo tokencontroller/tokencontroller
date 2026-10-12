@@ -144,12 +144,12 @@ const currencies = ["USD", "EUR", "GBP", "CHF"];
 
 export function SignUpPage(): ReactNode {
   const navigate = useNavigate();
-  const [form, setForm] = useState({ organization: "", email: "" });
+  const [form, setForm] = useState({ organization: "", email: "", name: "" });
   const [choices, setChoices] = useState<SignUpChoices>({ manages: "people", cost_source: "usage_at_api_rates", reporting_currency: "USD" });
   const signUp = useMutation({
-    mutationFn: () => api.signUp(form.email.trim(), form.organization.trim()),
+    mutationFn: () => api.signUp(form.email.trim(), form.organization.trim(), form.name.trim()),
     onSuccess: async () => {
-      // The service takes the name and the email; the rest is set once signed in.
+      // The service takes the names and the email; the rest is set once signed in.
       rememberSignUp(choices);
       await navigate({ to: "/sign-in", search: { sent: form.email.trim() } });
     },
@@ -168,6 +168,9 @@ export function SignUpPage(): ReactNode {
         </Field>
         <Field label="Work email">
           <Input type="email" required autoComplete="email" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} />
+        </Field>
+        <Field label="Your name" hint="As your colleagues will see it. You can also add it later.">
+          <Input autoComplete="name" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
         </Field>
         <fieldset>
           <legend className="mb-1 text-[13px] font-medium text-ink-soft">Do you manage agents, or do you manage people?</legend>
