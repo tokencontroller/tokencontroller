@@ -23,7 +23,6 @@ hex.workspace = true
 hmac.workspace = true
 lettre.workspace = true
 mail-parser.workspace = true
-rand.workspace = true
 reqwest.workspace = true
 rustls.workspace = true
 serde.workspace = true

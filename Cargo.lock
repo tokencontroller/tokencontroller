@@ -393,6 +393,9 @@ name = "deranged"
 version = "0.5.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7cd812cc2bc1d69d4764bd80df88b4317eaef9e773c75226407d9bc0876b211c"
+dependencies = [
+ "serde_core",
+]
 
 [[package]]
 name = "digest"
@@ -2202,6 +2205,7 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror",
+ "time",
 ]
 
 [[package]]
@@ -2215,7 +2219,6 @@ dependencies = [
  "http-body-util",
  "lettre",
  "mail-parser",
- "rand",
  "reqwest",
  "rustls",
  "serde",
