@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT o.sign_in_domains\n           FROM people p JOIN organizations o ON o.id = p.organization_id\n           WHERE p.email = $1 AND p.removed_at IS NULL",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "sign_in_domains",
+        "type_info": "TextArray",
+        "origin": {
+          "Table": {
+            "table": "organizations",
+            "name": "sign_in_domains"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "b3998267b4c253e210ae1815bcd051def34dbacc9b07a8d483aa3450fbf1dae0"
+}

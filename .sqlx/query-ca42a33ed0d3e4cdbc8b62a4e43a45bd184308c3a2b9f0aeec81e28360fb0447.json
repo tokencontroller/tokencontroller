@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT slug, sign_in_domains FROM organizations WHERE id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "slug",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "organizations",
+            "name": "slug"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "sign_in_domains",
+        "type_info": "TextArray",
+        "origin": {
+          "Table": {
+            "table": "organizations",
+            "name": "sign_in_domains"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "ca42a33ed0d3e4cdbc8b62a4e43a45bd184308c3a2b9f0aeec81e28360fb0447"
+}

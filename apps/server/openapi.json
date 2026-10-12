@@ -10,6 +10,153 @@
     "version": "1.0.0"
   },
   "paths": {
+    "/api/v1/api-tokens": {
+      "get": {
+        "tags": [
+          "api-tokens"
+        ],
+        "summary": "Your API tokens, or every token in the organization for a controller.",
+        "operationId": "list",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ApiToken"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "api-tokens"
+        ],
+        "summary": "Create an API token. Anyone can create service and read tokens for\nthemselves; only a controller creates the organization token.",
+        "operationId": "create",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewApiToken"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreatedApiToken"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/api-tokens/{id}": {
+      "delete": {
+        "tags": [
+          "api-tokens"
+        ],
+        "summary": "Revoke an API token: your own, or any as a controller.",
+        "operationId": "revoke",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Revoked"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/api-tokens/{id}/hand-over": {
+      "post": {
+        "tags": [
+          "api-tokens"
+        ],
+        "summary": "Hand a service token over to another member, for example when its\ncreator leaves. Only future token entries follow. Its owner or a\ncontroller can do this.",
+        "operationId": "hand_over",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HandOver"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Handed over"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/assistant/questions": {
       "post": {
         "tags": [
@@ -75,6 +222,194 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/billing": {
+      "get": {
+        "tags": [
+          "billing"
+        ],
+        "summary": "The organization's plan and members. Only on the hosted service.",
+        "operationId": "get_billing",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Billing"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Billing is off on this instance",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/billing/checkout": {
+      "post": {
+        "tags": [
+          "billing"
+        ],
+        "summary": "Open Stripe Checkout for the Team plan. Controllers only. No trial: the\ncard is charged from day one.",
+        "operationId": "checkout",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CheckoutRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StripeRedirect"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Billing is off on this instance",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Already on the Team plan",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/billing/portal": {
+      "post": {
+        "tags": [
+          "billing"
+        ],
+        "summary": "Open Stripe's customer portal: switch between monthly and yearly,\ncancel, change the card or the invoice address, see invoices.\nControllers only.",
+        "operationId": "portal",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StripeRedirect"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Billing is off on this instance",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The organization never paid for the Team plan",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/billing/stripe-webhook": {
+      "post": {
+        "tags": [
+          "billing"
+        ],
+        "summary": "Stripe's webhook. Answers 400 to anything not signed with the webhook\nsecret.",
+        "operationId": "receive",
+        "requestBody": {
+          "description": "A Stripe event",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "string"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Received"
+          },
+          "400": {
+            "description": "Not signed by Stripe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Billing is off on this instance",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/clients": {
+      "get": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "The clients: values of the `client` tag on projects, with their\nprojects. Cost per client is a filter on this tag.",
+        "operationId": "list_clients",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Client"
+                  }
                 }
               }
             }
@@ -270,6 +605,403 @@
         }
       }
     },
+    "/api/v1/invites/{code}": {
+      "get": {
+        "tags": [
+          "members"
+        ],
+        "summary": "What an invite link is for, before the person signs in: the page fills\nin the email and asks for a sign-in link.",
+        "operationId": "show_invite",
+        "parameters": [
+          {
+            "name": "code",
+            "in": "path",
+            "description": "The part after /i/ in the invite link",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InviteView"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/mcp": {
+      "post": {
+        "tags": [
+          "mcp"
+        ],
+        "summary": "The MCP endpoint. Send JSON-RPC messages with a read token or a session.",
+        "operationId": "mcp",
+        "requestBody": {
+          "description": "A JSON-RPC 2.0 message of the Model Context Protocol",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The JSON-RPC answer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "A notification was received"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/me": {
+      "get": {
+        "tags": [
+          "sign-in"
+        ],
+        "summary": "The signed-in person and their organization.",
+        "operationId": "me",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Me"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/members": {
+      "get": {
+        "tags": [
+          "members"
+        ],
+        "summary": "Everyone in the organization.",
+        "operationId": "list_members",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/MemberView"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "members"
+        ],
+        "summary": "Invite someone by email. They get a link that signs them in. Controllers\nonly.",
+        "operationId": "invite_member",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewMember"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Invited"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Already a member, or the plan's member limit is reached",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/members/{id}": {
+      "delete": {
+        "tags": [
+          "members"
+        ],
+        "summary": "Remove a member. They can no longer sign in; their past token entries\nkeep them as agent manager, and their service tokens wait for a new\nowner. Controllers only.",
+        "operationId": "remove_member",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Removed"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The organization would have no controller",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "members"
+        ],
+        "summary": "Change a member's name, role or tags. Controllers only.",
+        "operationId": "update_member",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MemberChange"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemberView"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The organization would have no controller",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/members/{id}/filters": {
+      "put": {
+        "tags": [
+          "members"
+        ],
+        "summary": "Assign a people manager the filters they read and approve, such as\n`{\"team\": \"web\"}` and `{\"client\": \"acme\"}`. Replaces their filters.\nControllers only.",
+        "operationId": "set_filters",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/BTreeMap"
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemberView"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/members/{id}/invite": {
+      "post": {
+        "tags": [
+          "members"
+        ],
+        "summary": "Send the invite mail again to someone who has not signed in yet.\nControllers only.",
+        "operationId": "resend_invite",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Invited"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "They already signed in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/newsletter/confirm": {
       "post": {
         "tags": [
@@ -413,10 +1145,1028 @@
           }
         }
       }
+    },
+    "/api/v1/organization": {
+      "get": {
+        "tags": [
+          "organization"
+        ],
+        "summary": "The organization's settings.",
+        "operationId": "get_organization",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Organization"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "organization"
+        ],
+        "summary": "Change the organization's settings. Controllers only.",
+        "operationId": "update_organization",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OrganizationChange"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Organization"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/projects": {
+      "get": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "The organization's projects.",
+        "operationId": "list_projects",
+        "parameters": [
+          {
+            "name": "archived",
+            "in": "path",
+            "description": "Include archived projects.",
+            "required": true,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Project"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "Create a project. People managers and controllers.",
+        "operationId": "create_project",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewProject"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Project"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The name or a repository is taken",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/projects/{id}": {
+      "delete": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "Archive a project. Its tickets and past token entries stay; its\nrepositories are freed for other projects. People managers and\ncontrollers.",
+        "operationId": "archive_project",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Archived"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "Change a project. People managers and controllers.",
+        "operationId": "update_project",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProjectChange"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Project"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/sign-in": {
+      "post": {
+        "tags": [
+          "sign-in"
+        ],
+        "summary": "Send a sign-in link to a member.",
+        "description": "Always answers 202, so nobody learns whether an address is a member. An\naddress that belongs to no organization gets a mail that says so.",
+        "operationId": "sign_in",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SignInRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "A mail is on its way",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LinkSent"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Not an email address",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many links for this address",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/sign-in/link": {
+      "get": {
+        "tags": [
+          "sign-in"
+        ],
+        "summary": "The page a sign-in link opens: a \"Sign in\" button that posts the link.",
+        "operationId": "link_page",
+        "parameters": [
+          {
+            "name": "token",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The page with the Sign in button",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "The link was used, has expired or never existed",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "sign-in"
+        ],
+        "summary": "Use a sign-in link: the form on the link's page posts here.",
+        "description": "A browser gets its session cookie and goes to the web app. A local tool's\nlink only marks the link used; the tool collects its session with\n`POST /sign-in/poll`.",
+        "operationId": "use_link",
+        "requestBody": {
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "$ref": "#/components/schemas/LinkToken"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "A local tool is signed in",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "303": {
+            "description": "Signed in; on to the web app"
+          },
+          "410": {
+            "description": "The link was used, has expired or never existed",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/sign-in/poll": {
+      "post": {
+        "tags": [
+          "sign-in"
+        ],
+        "summary": "Collect a local tool's session after the person used the link.",
+        "operationId": "poll",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PollRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Signed in. The session token comes only once",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PollAnswer"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "The link was not used yet; ask again in a few seconds",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PollAnswer"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such poll token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "The link expired, or the session was already collected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/sign-out": {
+      "post": {
+        "tags": [
+          "sign-in"
+        ],
+        "summary": "Sign out: ends the session in the cookie or the bearer token.",
+        "operationId": "sign_out",
+        "responses": {
+          "204": {
+            "description": "Signed out"
+          }
+        }
+      }
+    },
+    "/api/v1/sign-up": {
+      "post": {
+        "tags": [
+          "sign-in"
+        ],
+        "summary": "Create an organization and send its first controller a sign-in link.",
+        "description": "The organization exists once the link is used. An address that is\nalready a member gets an ordinary sign-in link instead: one account\nbelongs to one organization.",
+        "operationId": "sign_up_organization",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SignUpRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "A mail is on its way",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LinkSent"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Not an email address, or no name",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many links for this address",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/status": {
+      "get": {
+        "tags": [
+          "status"
+        ],
+        "summary": "The state of every part status.tokencontroller.com shows.",
+        "operationId": "status",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceStatus"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The database does not answer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceStatus"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tag-map": {
+      "get": {
+        "tags": [
+          "tags"
+        ],
+        "summary": "The tag map in force.",
+        "operationId": "get_tag_map",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TagMap"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "tags"
+        ],
+        "summary": "Change the tag map. A new version is kept; closed periods keep theirs.\nControllers only.",
+        "operationId": "set_tag_map",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TagMapChange"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TagMap"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tags": {
+      "get": {
+        "tags": [
+          "tags"
+        ],
+        "summary": "The organization's tag names.",
+        "operationId": "list_tag_names",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TagName"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "tags"
+        ],
+        "summary": "Add a tag name, such as `team` or `client`. Controllers only.",
+        "operationId": "add_tag_name",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewTagName"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TagName"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tags/{name}": {
+      "delete": {
+        "tags": [
+          "tags"
+        ],
+        "summary": "Remove a tag name. People, projects and tickets lose its values; token\nentries keep theirs. Controllers only; not while the tag map uses it.",
+        "operationId": "remove_tag_name",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Removed"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tags/{name}/values": {
+      "get": {
+        "tags": [
+          "tags"
+        ],
+        "summary": "The values of one tag name on people, projects and tickets. For the\nbuilt-in names: the members' emails, the projects and the ticket keys.",
+        "operationId": "tag_values",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TagValue"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tickets": {
+      "get": {
+        "tags": [
+          "tickets"
+        ],
+        "summary": "The organization's tickets, by key.",
+        "operationId": "list_tickets",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "parent_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "q",
+            "in": "path",
+            "description": "Part of the key or the title.",
+            "required": true,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "limit",
+            "in": "path",
+            "description": "At most 500; default 100.",
+            "required": true,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Ticket"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "tickets"
+        ],
+        "summary": "Create a ticket by hand, for work no ticket system knows. Any member.",
+        "operationId": "create_ticket",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewTicket"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Ticket"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A ticket with this key exists",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tickets/{id}": {
+      "get": {
+        "tags": [
+          "tickets"
+        ],
+        "summary": "One ticket.",
+        "operationId": "get_ticket",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Ticket"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "tickets"
+        ],
+        "summary": "Change a ticket. People managers and controllers; for tickets created by\nhand, any member.",
+        "operationId": "update_ticket",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TicketChange"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Ticket"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
     "schemas": {
+      "ApiToken": {
+        "type": "object",
+        "description": "An API token as lists show it, without its secret.",
+        "required": [
+          "id",
+          "kind",
+          "name",
+          "shown_prefix",
+          "person_id",
+          "needs_owner",
+          "created_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/TokenKind"
+          },
+          "last_used_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "name": {
+            "type": "string",
+            "description": "A label, such as `review bot`."
+          },
+          "needs_owner": {
+            "type": "boolean",
+            "description": "The person left the organization. A service token in this state\nneeds a new owner; its token entries show as an error until then."
+          },
+          "person_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The person it belongs to: for a service token, the agent manager of\neverything it reports."
+          },
+          "shown_prefix": {
+            "type": "string",
+            "description": "The start of the token, such as `tc_svc_3f9a`."
+          }
+        }
+      },
       "AssistantAnswer": {
         "type": "object",
         "description": "The assistant's answer.",
@@ -443,6 +2193,66 @@
           }
         }
       },
+      "BTreeMap": {
+        "type": "object",
+        "additionalProperties": {
+          "type": "string"
+        },
+        "propertyNames": {
+          "type": "string"
+        }
+      },
+      "Billing": {
+        "type": "object",
+        "description": "The organization's plan.",
+        "required": [
+          "plan",
+          "cancel_at_period_end",
+          "members",
+          "member_limit"
+        ],
+        "properties": {
+          "cancel_at_period_end": {
+            "type": "boolean"
+          },
+          "current_period_end": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "When the current period ends: the next charge, or the end of the\nTeam plan if it was cancelled."
+          },
+          "interval": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Interval"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "member_limit": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "members": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "plan": {
+            "$ref": "#/components/schemas/Plan"
+          },
+          "status": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Stripe's subscription status, such as `active` or `past_due`."
+          }
+        }
+      },
       "Check": {
         "type": "string",
         "description": "Whether one part of the service works.",
@@ -450,6 +2260,69 @@
           "ok",
           "failing"
         ]
+      },
+      "CheckoutRequest": {
+        "type": "object",
+        "description": "Start paying for the Team plan.",
+        "required": [
+          "interval",
+          "country"
+        ],
+        "properties": {
+          "country": {
+            "type": "string",
+            "description": "The billing country as an ISO 3166 code, such as `AT`. Customers in\nthe EU pay in EUR, everyone else in USD."
+          },
+          "interval": {
+            "$ref": "#/components/schemas/Interval"
+          }
+        }
+      },
+      "Client": {
+        "type": "object",
+        "description": "A client: a value of the `client` tag on projects.",
+        "required": [
+          "name",
+          "projects"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Such as `acme`."
+          },
+          "projects": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Its projects."
+          }
+        }
+      },
+      "Component": {
+        "type": "object",
+        "description": "One part of the service, as status.tokencontroller.com lists them.",
+        "required": [
+          "id",
+          "state"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "`service`, `bill-pulls`, `ticket-sync`, `price-tables` or\n`sign-in-email`."
+          },
+          "last_success_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "For a job: when it last succeeded."
+          },
+          "state": {
+            "$ref": "#/components/schemas/PartState"
+          }
+        }
       },
       "ContactMessage": {
         "type": "object",
@@ -477,6 +2350,48 @@
             "description": "Left empty by people. Forms that fill it are taken to be robots."
           }
         }
+      },
+      "CostSource": {
+        "type": "string",
+        "description": "How a provider charges the organization. It decides what the close\nreconciles against (docs: Account > Bills).",
+        "enum": [
+          "subscription",
+          "seat",
+          "usage_at_api_rates",
+          "api_key",
+          "cloud_marketplace",
+          "reseller"
+        ]
+      },
+      "CreatedApiToken": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/ApiToken"
+          },
+          {
+            "type": "object",
+            "required": [
+              "token"
+            ],
+            "properties": {
+              "token": {
+                "type": "string",
+                "description": "The token itself. Store it now; it is never shown again."
+              }
+            }
+          }
+        ],
+        "description": "A token just created: the only time its secret is shown."
+      },
+      "CredentialKind": {
+        "type": "string",
+        "description": "The kinds of [`Credential`], for [`Caller::require_credential`].",
+        "enum": [
+          "session",
+          "service",
+          "read",
+          "organization"
+        ]
       },
       "Done": {
         "type": "object",
@@ -509,6 +2424,19 @@
           }
         }
       },
+      "HandOver": {
+        "type": "object",
+        "description": "Move a service token to another person, who becomes the agent manager\nof its future token entries.",
+        "required": [
+          "person_id"
+        ],
+        "properties": {
+          "person_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
       "Health": {
         "type": "object",
         "description": "The answer of the health endpoint.",
@@ -537,6 +2465,580 @@
           }
         }
       },
+      "Interval": {
+        "type": "string",
+        "description": "Monthly or yearly.",
+        "enum": [
+          "month",
+          "year"
+        ]
+      },
+      "InviteView": {
+        "type": "object",
+        "description": "What an invite link shows before sign-in.",
+        "required": [
+          "organization_name",
+          "email"
+        ],
+        "properties": {
+          "email": {
+            "type": "string",
+            "description": "The address the invite went to; sign in with it."
+          },
+          "organization_name": {
+            "type": "string"
+          }
+        }
+      },
+      "Invited": {
+        "type": "object",
+        "description": "A member who was just invited, and the link they got by mail.",
+        "required": [
+          "member",
+          "invite_url"
+        ],
+        "properties": {
+          "invite_url": {
+            "type": "string",
+            "description": "Opens sign-in with the email filled in; `tc connect` takes it too."
+          },
+          "member": {
+            "$ref": "#/components/schemas/MemberView"
+          }
+        }
+      },
+      "LinkSent": {
+        "type": "object",
+        "description": "The same answer whether or not the address belongs to anyone.",
+        "properties": {
+          "poll_token": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "For a local tool: pass it to `POST /sign-in/poll`."
+          }
+        }
+      },
+      "LinkToken": {
+        "type": "object",
+        "description": "The token in a sign-in link.",
+        "required": [
+          "token"
+        ],
+        "properties": {
+          "token": {
+            "type": "string"
+          }
+        }
+      },
+      "Me": {
+        "type": "object",
+        "description": "Who is signed in.",
+        "required": [
+          "person",
+          "organization",
+          "credential"
+        ],
+        "properties": {
+          "credential": {
+            "$ref": "#/components/schemas/CredentialKind",
+            "description": "`session` for a person, `read` for a read token."
+          },
+          "organization": {
+            "$ref": "#/components/schemas/OrganizationSummary"
+          },
+          "person": {
+            "$ref": "#/components/schemas/MemberView"
+          }
+        }
+      },
+      "MemberChange": {
+        "type": "object",
+        "description": "A change to a member. Fields left out stay as they are. Tags replace the\nmember's tags; only their future token entries follow.",
+        "properties": {
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "role": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Role"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "tags": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BTreeMap"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "MemberStatus": {
+        "type": "string",
+        "description": "Where a member stands.",
+        "enum": [
+          "invited",
+          "joined",
+          "removed"
+        ]
+      },
+      "MemberView": {
+        "type": "object",
+        "description": "A member as the API shows them.",
+        "required": [
+          "id",
+          "email",
+          "name",
+          "role",
+          "tags",
+          "filters",
+          "status",
+          "invited_at"
+        ],
+        "properties": {
+          "email": {
+            "type": "string"
+          },
+          "filters": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BTreeMap"
+            },
+            "description": "For a people manager: the filters they read and approve, such as\n`{\"team\": \"web\"}` or `{\"client\": \"acme\"}`."
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "invited_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "joined_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "name": {
+            "type": "string"
+          },
+          "role": {
+            "$ref": "#/components/schemas/Role"
+          },
+          "status": {
+            "$ref": "#/components/schemas/MemberStatus"
+          },
+          "tags": {
+            "$ref": "#/components/schemas/BTreeMap",
+            "description": "Tags their new token entries inherit, such as `{\"team\": \"web\"}`."
+          }
+        }
+      },
+      "NewApiToken": {
+        "type": "object",
+        "description": "A new token.",
+        "required": [
+          "kind"
+        ],
+        "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/TokenKind"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "NewMember": {
+        "type": "object",
+        "description": "Invite someone by email.",
+        "required": [
+          "email"
+        ],
+        "properties": {
+          "email": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "role": {
+            "$ref": "#/components/schemas/Role",
+            "description": "Default: agent manager."
+          },
+          "tags": {
+            "$ref": "#/components/schemas/BTreeMap"
+          }
+        }
+      },
+      "NewProject": {
+        "type": "object",
+        "description": "A new project.",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "repositories": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "tags": {
+            "$ref": "#/components/schemas/BTreeMap"
+          },
+          "ticket_key_pattern": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "NewTagName": {
+        "type": "object",
+        "description": "A new tag name.",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "NewTicket": {
+        "type": "object",
+        "description": "A ticket created by hand.",
+        "required": [
+          "key"
+        ],
+        "properties": {
+          "assignee_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "key": {
+            "type": "string"
+          },
+          "parent_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "project_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Without it, the project whose ticket key pattern matches the key."
+          },
+          "tags": {
+            "$ref": "#/components/schemas/BTreeMap"
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "Organization": {
+        "type": "object",
+        "description": "An organization and its settings.",
+        "required": [
+          "id",
+          "name",
+          "slug",
+          "reporting_currency",
+          "approval",
+          "sign_in_domains",
+          "created_at"
+        ],
+        "properties": {
+          "approval": {
+            "type": "boolean",
+            "description": "Whether people managers approve token entries before the close."
+          },
+          "cost_source": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/CostSource",
+                "description": "How the provider charges; `null` until a controller picks one."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "reporting_currency": {
+            "type": "string",
+            "description": "The one currency the organization computes in, such as `EUR`."
+          },
+          "sign_in_domains": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Email domains magic-link sign-in is limited to; empty means any."
+          },
+          "slug": {
+            "type": "string",
+            "description": "Used in invite links."
+          }
+        }
+      },
+      "OrganizationChange": {
+        "type": "object",
+        "description": "A change to the settings. Fields left out stay as they are.",
+        "properties": {
+          "approval": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "cost_source": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/CostSource",
+                "description": "`null` sets it back to \"none yet\"."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reporting_currency": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sign_in_domains": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "OrganizationSummary": {
+        "type": "object",
+        "description": "An organization's name and short name.",
+        "required": [
+          "id",
+          "name",
+          "slug"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string",
+            "description": "Used in invite links, such as `kestrel` in `/i/kestrel-4f2a9c1e7b03`."
+          }
+        }
+      },
+      "PartState": {
+        "type": "string",
+        "description": "The state of one part, in the words of status.tokencontroller.com.",
+        "enum": [
+          "operational",
+          "degraded",
+          "down",
+          "not_running"
+        ]
+      },
+      "Plan": {
+        "type": "string",
+        "description": "The hosted plans billing knows about.",
+        "enum": [
+          "solo",
+          "team"
+        ]
+      },
+      "PollAnswer": {
+        "type": "object",
+        "description": "The answer to a poll.",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "session_token": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Once, with `signed_in`: use it as `Authorization: Bearer`."
+          },
+          "status": {
+            "$ref": "#/components/schemas/PollStatus",
+            "description": "`waiting` until the person used the link, then `signed_in`."
+          }
+        }
+      },
+      "PollRequest": {
+        "type": "object",
+        "description": "Collect a local tool's session once its link was used.",
+        "required": [
+          "poll_token"
+        ],
+        "properties": {
+          "poll_token": {
+            "type": "string"
+          }
+        }
+      },
+      "PollStatus": {
+        "type": "string",
+        "enum": [
+          "waiting",
+          "signed_in"
+        ]
+      },
+      "Project": {
+        "type": "object",
+        "description": "A project: a body of work made of tickets.",
+        "required": [
+          "id",
+          "name",
+          "tags",
+          "repositories",
+          "archived",
+          "created_at"
+        ],
+        "properties": {
+          "archived": {
+            "type": "boolean"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string",
+            "description": "The value of the `project` tag, such as `storefront`."
+          },
+          "repositories": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Repositories whose sessions land on it, such as `kestrel/storefront`."
+          },
+          "tags": {
+            "$ref": "#/components/schemas/BTreeMap",
+            "description": "Tags its token entries inherit, such as `{\"client\": \"acme\"}`."
+          },
+          "ticket_key_pattern": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "A regular expression for its ticket keys, such as `^KD-\\d+`."
+          }
+        }
+      },
+      "ProjectChange": {
+        "type": "object",
+        "description": "A change to a project. Fields left out stay as they are. Changes reach\nonly future token entries.",
+        "properties": {
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "repositories": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "Replaces the project's repositories."
+          },
+          "tags": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BTreeMap",
+                "description": "Replaces the project's tags."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "ticket_key_pattern": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`null` removes the pattern."
+          }
+        }
+      },
       "Question": {
         "type": "object",
         "description": "A visitor's question.",
@@ -554,6 +3056,55 @@
           "question": {
             "type": "string",
             "description": "The question, at most 500 characters."
+          }
+        }
+      },
+      "Role": {
+        "type": "string",
+        "description": "What a member can see and do.",
+        "enum": [
+          "agent_manager",
+          "people_manager",
+          "controller"
+        ]
+      },
+      "ServiceStatus": {
+        "type": "object",
+        "description": "The answer of the status endpoint.",
+        "required": [
+          "status",
+          "version",
+          "components"
+        ],
+        "properties": {
+          "components": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Component"
+            }
+          },
+          "status": {
+            "$ref": "#/components/schemas/PartState",
+            "description": "The worst state of any running part."
+          },
+          "version": {
+            "type": "string"
+          }
+        }
+      },
+      "SignInRequest": {
+        "type": "object",
+        "description": "Ask for a sign-in link.",
+        "required": [
+          "email"
+        ],
+        "properties": {
+          "email": {
+            "type": "string"
+          },
+          "local_tool": {
+            "type": "boolean",
+            "description": "`true` for a local tool such as `tc connect`: the answer then carries\na poll token to collect the session with."
           }
         }
       },
@@ -576,6 +3127,252 @@
           }
         }
       },
+      "SignUpRequest": {
+        "type": "object",
+        "description": "Create an organization: the link signs in its first controller.",
+        "required": [
+          "email",
+          "organization_name"
+        ],
+        "properties": {
+          "email": {
+            "type": "string"
+          },
+          "local_tool": {
+            "type": "boolean"
+          },
+          "organization_name": {
+            "type": "string",
+            "description": "Such as `Kestrel Digital`."
+          }
+        }
+      },
+      "StripeRedirect": {
+        "type": "object",
+        "description": "A Stripe page to send the controller to.",
+        "required": [
+          "url"
+        ],
+        "properties": {
+          "url": {
+            "type": "string"
+          }
+        }
+      },
+      "TagMap": {
+        "type": "object",
+        "description": "One version of the tag map (docs: Account > Tags and the tag map).",
+        "required": [
+          "version",
+          "cost_center",
+          "ladder",
+          "created_at"
+        ],
+        "properties": {
+          "cost_center": {
+            "type": "string",
+            "description": "The tag name that fills the cost center. Default `person`."
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "ladder": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The tag names that fill the cost object, most specific first. The\norganization is the last rung and is not listed. Default `ticket`,\n`project`."
+          },
+          "version": {
+            "type": "integer",
+            "format": "int32",
+            "description": "This version, counted from 1. The highest is in force; a closed\nperiod keeps the version it closed with."
+          }
+        }
+      },
+      "TagMapChange": {
+        "type": "object",
+        "description": "A change to the tag map.",
+        "required": [
+          "cost_center",
+          "ladder"
+        ],
+        "properties": {
+          "cost_center": {
+            "type": "string"
+          },
+          "ladder": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "TagName": {
+        "type": "object",
+        "description": "A tag name on the organization's list.",
+        "required": [
+          "name",
+          "built_in"
+        ],
+        "properties": {
+          "built_in": {
+            "type": "boolean",
+            "description": "`person`, `ticket` and `project` are built in and cannot be removed."
+          },
+          "name": {
+            "type": "string",
+            "description": "Such as `team`."
+          }
+        }
+      },
+      "TagValue": {
+        "type": "object",
+        "description": "One value of a tag name and how many records carry it.",
+        "required": [
+          "value",
+          "records"
+        ],
+        "properties": {
+          "records": {
+            "type": "integer",
+            "format": "int64",
+            "description": "People, projects and tickets that carry it."
+          },
+          "value": {
+            "type": "string"
+          }
+        }
+      },
+      "Ticket": {
+        "type": "object",
+        "description": "A ticket: any unit of work.",
+        "required": [
+          "id",
+          "key",
+          "source",
+          "tags",
+          "updated_at"
+        ],
+        "properties": {
+          "assignee_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "The person it is assigned to. Being assignee costs nothing."
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "key": {
+            "type": "string",
+            "description": "The value of the `ticket` tag, such as `KD-214`."
+          },
+          "parent_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "The ticket it sits in, such as a story's epic."
+          },
+          "project_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "source": {
+            "$ref": "#/components/schemas/TicketSource"
+          },
+          "tags": {
+            "$ref": "#/components/schemas/BTreeMap",
+            "description": "Tags its token entries inherit, beyond its project's."
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "TicketChange": {
+        "type": "object",
+        "description": "A change to a ticket. Fields left out stay as they are; `null` clears.\nThe title and description of a synced ticket come from its ticket system.",
+        "properties": {
+          "assignee_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "parent_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "project_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "tags": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BTreeMap",
+                "description": "Replaces the ticket's tags."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "TicketSource": {
+        "type": "string",
+        "description": "Where a ticket comes from.",
+        "enum": [
+          "manual",
+          "jira",
+          "azure_devops",
+          "github_issues"
+        ]
+      },
       "Token": {
         "type": "object",
         "description": "The token from a confirm or unsubscribe link.",
@@ -587,6 +3384,28 @@
             "type": "string"
           }
         }
+      },
+      "TokenKind": {
+        "type": "string",
+        "description": "What a token is for.",
+        "enum": [
+          "service",
+          "read",
+          "organization"
+        ]
+      }
+    },
+    "securitySchemes": {
+      "bearer": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "A local tool's session (`tc_ses_`) or an API token: `tc_svc_` for services, `tc_read_` to read, `tc_org_` for the organization."
+      },
+      "session": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "tc_session",
+        "description": "The web app's session, set when a magic link is used in the browser."
       }
     }
   }

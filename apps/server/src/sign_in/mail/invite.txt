@@ -1,0 +1,13 @@
+Join {{organization}}
+
+{{inviter}} invited you to {{organization}} on Token Controller as {{email}}, with the role {{role}}. Token Controller shows what your AI agents cost and which work they were for.
+
+Accept the invite:
+
+{{invite_url}}
+
+The same link connects the command line tool: tc connect {{invite_url}}
+
+If you did not expect this invite, ignore this email.
+
+Token Controller · {{host}}

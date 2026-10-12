@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT filter AS \"filter: JsonColumn<Tags>\" FROM people_manager_filters\n           WHERE person_id = $1 ORDER BY created_at, filter::text",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "filter: JsonColumn<Tags>",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "people_manager_filters",
+            "name": "filter"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "26360ac57d7fdd41eff3bb34ae0461b140a57e5ee9973b1eb759c1e6bc782e77"
+}
