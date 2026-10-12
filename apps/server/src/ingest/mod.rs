@@ -11,6 +11,7 @@ pub mod entry;
 pub mod model;
 pub mod otlp;
 pub mod provider;
+pub mod store;
 
 use utoipa_axum::router::OpenApiRouter;
 
