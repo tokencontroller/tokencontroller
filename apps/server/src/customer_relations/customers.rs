@@ -94,7 +94,10 @@ pub struct CustomerRecord {
     pub notes: Vec<Note>,
 }
 
-async fn summaries(state: &AppState, only: Option<Uuid>) -> Result<Vec<CustomerSummary>, ApiError> {
+pub(super) async fn summaries(
+    state: &AppState,
+    only: Option<Uuid>,
+) -> Result<Vec<CustomerSummary>, ApiError> {
     let rows = sqlx::query!(
         r#"SELECT o.id, o.name, o.created_at, b.status AS "status?",
              (SELECT count(*) FROM people p

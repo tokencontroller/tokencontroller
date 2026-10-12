@@ -75,6 +75,20 @@ pub struct Reviewer {
     pub scope: Scope,
 }
 
+/// Whether the person runs this instance: their address is in
+/// `TC_OPERATOR_EMAILS`.
+///
+/// # Errors
+///
+/// When the database fails.
+pub async fn is_operator(state: &AppState, person_id: Uuid) -> Result<bool, ApiError> {
+    let operators = &state.config.customer_relations.operator_emails;
+    if operators.is_empty() {
+        return Ok(false);
+    }
+    Ok(operators.contains(&email_of(&state.db, person_id).await?))
+}
+
 async fn email_of(db: &PgPool, person_id: Uuid) -> Result<String, sqlx::Error> {
     sqlx::query_scalar!("SELECT email FROM people WHERE id = $1", person_id)
         .fetch_one(db)
@@ -533,17 +547,25 @@ pub async fn list_questions(
     _operator: Operator,
     Query(filter): Query<QuestionFilter>,
 ) -> Result<Json<Vec<QuestionView>>, ApiError> {
-    let questions = sqlx::query_as!(
+    Ok(Json(questions(&state.db, filter.answered).await?))
+}
+
+/// The site assistant's questions, newest first; with `answered`, only
+/// those the docs did or did not answer.
+pub(super) async fn questions(
+    db: &PgPool,
+    answered: Option<bool>,
+) -> Result<Vec<QuestionView>, sqlx::Error> {
+    sqlx::query_as!(
         QuestionView,
         "SELECT id, question, page, answer, answered, links, created_at FROM assistant_questions
          WHERE $1::boolean IS NULL OR answered = $1
          ORDER BY created_at DESC, id LIMIT $2",
-        filter.answered,
+        answered,
         LIST_LIMIT,
     )
-    .fetch_all(&state.db)
-    .await?;
-    Ok(Json(questions))
+    .fetch_all(db)
+    .await
 }
 
 // --- Newsletter ---

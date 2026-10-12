@@ -36,6 +36,7 @@ mod newsletter;
 mod retention;
 mod settings;
 mod support;
+mod tools;
 mod web;
 
 use std::sync::OnceLock;
@@ -47,7 +48,9 @@ use tokio::sync::Notify;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
+pub use admin::is_operator;
 pub use settings::{Settings, SettingsError};
+pub use tools::{call_operator_tool, operator_tools};
 
 use crate::AppState;
 
