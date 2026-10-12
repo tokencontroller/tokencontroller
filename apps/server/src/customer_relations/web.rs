@@ -64,7 +64,7 @@ pub fn cors(settings: &Settings, request: &HeaderMap, mut response: Response) ->
     headers.insert(VARY, HeaderValue::from_static("Origin"));
     let origin = request.get(ORIGIN).and_then(|origin| origin.to_str().ok());
     if let (Some(origin), Some(site)) = (origin, settings.site_url.as_deref())
-        && origin == site
+        && is_site(origin, site)
         && let Ok(value) = HeaderValue::from_str(origin)
     {
         headers.insert(ACCESS_CONTROL_ALLOW_ORIGIN, value);
@@ -79,6 +79,14 @@ pub fn cors(settings: &Settings, request: &HeaderMap, mut response: Response) ->
         headers.insert(ACCESS_CONTROL_MAX_AGE, HeaderValue::from_static("86400"));
     }
     response
+}
+
+/// Whether `origin` is the website, with or without `www.` in front.
+fn is_site(origin: &str, site: &str) -> bool {
+    origin == site
+        || site
+            .split_once("://")
+            .is_some_and(|(scheme, host)| origin == format!("{scheme}://www.{host}"))
 }
 
 /// The answer to a browser's preflight request.
@@ -171,7 +179,21 @@ mod tests {
             allowed.headers()[ACCESS_CONTROL_ALLOW_ORIGIN],
             "https://example.com"
         );
+        let www = preflight(&site(), &origin("https://www.example.com"));
+        assert_eq!(
+            www.headers()[ACCESS_CONTROL_ALLOW_ORIGIN],
+            "https://www.example.com"
+        );
         let other = preflight(&site(), &origin("https://evil.example"));
+        assert!(other.headers().get(ACCESS_CONTROL_ALLOW_ORIGIN).is_none());
+        let lookalike = preflight(&site(), &origin("https://www.example.com.evil.example"));
+        assert!(
+            lookalike
+                .headers()
+                .get(ACCESS_CONTROL_ALLOW_ORIGIN)
+                .is_none()
+        );
+        let other = preflight(&site(), &origin("https://wwwexample.com"));
         assert!(other.headers().get(ACCESS_CONTROL_ALLOW_ORIGIN).is_none());
         let off = preflight(&Settings::default(), &origin("https://example.com"));
         assert!(off.headers().get(ACCESS_CONTROL_ALLOW_ORIGIN).is_none());
