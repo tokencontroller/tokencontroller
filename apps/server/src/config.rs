@@ -21,6 +21,10 @@ pub enum ConfigError {
     PricesRefresh(String),
     #[error(transparent)]
     CustomerRelations(#[from] crate::customer_relations::SettingsError),
+    #[error(
+        "TC_STRIPE_SECRET_KEY and TC_STRIPE_WEBHOOK_SECRET go together: set both for Team plan billing, or neither"
+    )]
+    StripeHalfSet,
 }
 
 /// The service's settings.
@@ -35,11 +39,27 @@ pub struct Config {
     pub secret_key: String,
     /// `TC_SMTP_URL`: the mail server for magic links and reminders.
     pub smtp_url: Option<String>,
+    /// `TC_SMTP_FROM`: the sender of every mail, such as
+    /// `Token Controller <mail@tokencontroller.com>`. Without it, mail comes
+    /// from `noreply@` the host of `TC_PUBLIC_URL`.
+    pub smtp_from: Option<String>,
     /// `TC_PRICES_REFRESH`: the daily price table refresh, on unless `off`.
     pub prices_refresh: bool,
     /// The support inbox, site assistant and newsletter settings, all off
     /// unless set.
     pub customer_relations: crate::customer_relations::Settings,
+    /// Team plan billing through Stripe, only on the hosted service. `None`
+    /// keeps billing off, as on every self-hosted instance.
+    pub stripe: Option<StripeConfig>,
+}
+
+/// `TC_STRIPE_SECRET_KEY` and `TC_STRIPE_WEBHOOK_SECRET`.
+#[derive(Clone, PartialEq, Eq)]
+pub struct StripeConfig {
+    /// The API key the service calls Stripe with.
+    pub secret_key: String,
+    /// The signing secret of the webhook endpoint.
+    pub webhook_secret: String,
 }
 
 impl Config {
@@ -84,14 +104,27 @@ impl Config {
         };
 
         let customer_relations = crate::customer_relations::Settings::from_lookup(&lookup)?;
+        let stripe = match (
+            read("TC_STRIPE_SECRET_KEY"),
+            read("TC_STRIPE_WEBHOOK_SECRET"),
+        ) {
+            (Some(secret_key), Some(webhook_secret)) => Some(StripeConfig {
+                secret_key,
+                webhook_secret,
+            }),
+            (None, None) => None,
+            _ => return Err(ConfigError::StripeHalfSet),
+        };
 
         Ok(Self {
             database_url,
             public_url,
             secret_key,
             smtp_url: read("TC_SMTP_URL"),
+            smtp_from: read("TC_SMTP_FROM"),
             prices_refresh,
             customer_relations,
+            stripe,
         })
     }
 }
@@ -104,8 +137,10 @@ impl fmt::Debug for Config {
             .field("public_url", &self.public_url)
             .field("secret_key", &"<hidden>")
             .field("smtp_url", &self.smtp_url.as_ref().map(|_| "<hidden>"))
+            .field("smtp_from", &self.smtp_from)
             .field("prices_refresh", &self.prices_refresh)
             .field("customer_relations", &self.customer_relations)
+            .field("stripe", &self.stripe.as_ref().map(|_| "<hidden>"))
             .finish()
     }
 }
@@ -138,7 +173,21 @@ mod tests {
         let config = config(&minimal()).unwrap();
         assert_eq!(config.public_url, "https://tc.example.com");
         assert_eq!(config.smtp_url, None);
+        assert_eq!(config.smtp_from, None);
         assert!(config.prices_refresh);
+        assert!(config.stripe.is_none());
+    }
+
+    #[test]
+    fn stripe_needs_both_settings() {
+        let mut pairs = minimal();
+        pairs.push(("TC_STRIPE_SECRET_KEY", "sk_test_123"));
+        assert_eq!(config(&pairs), Err(ConfigError::StripeHalfSet));
+
+        pairs.push(("TC_STRIPE_WEBHOOK_SECRET", "whsec_456"));
+        let stripe = config(&pairs).unwrap().stripe.unwrap();
+        assert_eq!(stripe.secret_key, "sk_test_123");
+        assert_eq!(stripe.webhook_secret, "whsec_456");
     }
 
     #[test]
@@ -183,9 +232,13 @@ mod tests {
     fn debug_output_hides_secrets() {
         let mut pairs = minimal();
         pairs.push(("TC_SMTP_URL", "smtp://user:pass@mail.example.com:587"));
+        pairs.push(("TC_STRIPE_SECRET_KEY", "sk_test_hidden"));
+        pairs.push(("TC_STRIPE_WEBHOOK_SECRET", "whsec_hidden"));
         let shown = format!("{:?}", config(&pairs).unwrap());
         assert!(!shown.contains(KEY));
         assert!(!shown.contains("pass@"));
         assert!(!shown.contains("secret@"));
+        assert!(!shown.contains("sk_test_hidden"));
+        assert!(!shown.contains("whsec_hidden"));
     }
 }

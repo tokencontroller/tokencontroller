@@ -8,6 +8,7 @@ const event = (body: unknown) => () => JSON.stringify(body)
 test('a pull request job gives the number, title and head branch', () => {
   const signals = readJobSignals(
     {
+      GITHUB_SERVER_URL: 'https://github.com',
       GITHUB_REPOSITORY: 'kestrel/storefront',
       GITHUB_HEAD_REF: 'kd-214-checkout',
       GITHUB_REF: 'refs/pull/88/merge',
@@ -16,7 +17,7 @@ test('a pull request job gives the number, title and head branch', () => {
     event({ pull_request: { number: 88, title: 'KD-214 Faster checkout', head: { ref: 'x' } } }),
   )
   assert.deepEqual(signals, {
-    repository: 'kestrel/storefront',
+    repository: 'github.com/kestrel/storefront',
     branch: 'kd-214-checkout',
     pull_request: 88,
     pull_request_title: 'KD-214 Faster checkout',
@@ -56,4 +57,12 @@ test('a push or schedule job gives the branch alone', () => {
 test('an unreadable event file is ignored', () => {
   const signals = readJobSignals({ GITHUB_EVENT_PATH: '/event.json' }, () => 'not json')
   assert.equal(signals.pull_request, undefined)
+})
+
+test('a repository on GitHub Enterprise Server carries its own host', () => {
+  const signals = readJobSignals(
+    { GITHUB_SERVER_URL: 'https://git.kestrel.example', GITHUB_REPOSITORY: 'web/storefront' },
+    () => '{}',
+  )
+  assert.equal(signals.repository, 'git.kestrel.example/web/storefront')
 })

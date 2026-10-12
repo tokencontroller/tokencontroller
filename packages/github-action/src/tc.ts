@@ -38,39 +38,56 @@ export function checksumOf(listing: string, file: string): string | undefined {
   return undefined
 }
 
+/** The tc call that reads this job's session files and reports them. */
+export const SUBMIT_ARGS = ['submit', '--json'] as const
+
 /**
- * The tc call that reads this job's session files and reports them. Tags
- * named here win over every rule (docs: Collect, GitHub Action).
+ * The environment tc runs with. The token and address, then the project,
+ * ticket and tags that win over every rule (docs: Collect, GitHub Action),
+ * and the job's signals, so a review lands on its pull request's ticket. The
+ * pull request title only goes to tc, which keeps the ticket keys in it.
  */
-export function submitArgs(inputs: Inputs, signals: JobSignals): string[] {
-  const args = ['submit']
-  const tags: Array<[string, string | undefined]> = [
-    ['project', inputs.project],
-    ['ticket', inputs.ticket],
-    ...Object.entries(inputs.tags),
-  ]
-  for (const [name, value] of tags) {
-    if (value !== undefined) args.push('--tag', `${name}=${value}`)
+export function tcEnv(
+  inputs: Inputs,
+  signals: JobSignals,
+  base: Record<string, string | undefined>,
+): Record<string, string | undefined> {
+  const env: Record<string, string | undefined> = {
+    ...base,
+    TC_TOKEN: inputs.token,
+    TC_URL: inputs.url,
+    NO_COLOR: '1',
   }
-  const found: Array<[string, string | number | undefined]> = [
-    ['repository', signals.repository],
-    ['branch', signals.branch],
-    ['pull_request', signals.pull_request],
-    ['pull_request_title', signals.pull_request_title],
-  ]
-  for (const [name, value] of found) {
-    if (value !== undefined) args.push('--signal', `${name}=${value}`)
-  }
-  return args
+  if (inputs.project !== undefined) env.TC_PROJECT = inputs.project
+  if (inputs.ticket !== undefined) env.TC_TICKET = inputs.ticket
+  const tags = Object.entries(inputs.tags)
+  if (tags.length > 0) env.TC_TAGS = tags.map(([name, value]) => `${name}=${value}`).join(',')
+  const known = Object.fromEntries(Object.entries(signals).filter(([, v]) => v !== undefined))
+  if (Object.keys(known).length > 0) env.TC_SIGNALS = JSON.stringify(known)
+  return env
 }
 
-/** How many token entries tc said it reported, from its last line. */
-export function reportedCount(output: string): number | undefined {
-  const match = /(\d+) token entr(?:y|ies)/.exec(output)
-  return match?.[1] === undefined ? undefined : Number(match[1])
+/** What `tc submit --json` reported. */
+export interface Submitted {
+  count: number
+  listValue: string | undefined
+  currency: string | undefined
 }
 
-/** The environment tc runs with: the token and address, and nothing to ask. */
-export function tcEnv(inputs: Inputs, base: Record<string, string | undefined>) {
-  return { ...base, TC_TOKEN: inputs.token, TC_URL: inputs.url, NO_COLOR: '1' }
+export function readSubmitted(stdout: string): Submitted {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(stdout)
+  } catch {
+    throw new Error(`tc answered with something other than JSON: ${stdout.trim().slice(0, 200)}`)
+  }
+  const top = (typeof parsed === 'object' && parsed !== null ? parsed : {}) as Record<
+    string,
+    unknown
+  >
+  return {
+    count: typeof top.submitted === 'number' ? top.submitted : 0,
+    listValue: typeof top.list_value === 'string' ? top.list_value : undefined,
+    currency: typeof top.currency === 'string' ? top.currency : undefined,
+  }
 }

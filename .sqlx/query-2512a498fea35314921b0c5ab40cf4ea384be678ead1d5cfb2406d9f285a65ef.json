@@ -1,0 +1,62 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT job, last_success_at, last_failure_at, expected_every_seconds FROM job_heartbeats",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "job",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "job_heartbeats",
+            "name": "job"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "last_success_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "job_heartbeats",
+            "name": "last_success_at"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "last_failure_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "job_heartbeats",
+            "name": "last_failure_at"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "expected_every_seconds",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "job_heartbeats",
+            "name": "expected_every_seconds"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "2512a498fea35314921b0c5ab40cf4ea384be678ead1d5cfb2406d9f285a65ef"
+}

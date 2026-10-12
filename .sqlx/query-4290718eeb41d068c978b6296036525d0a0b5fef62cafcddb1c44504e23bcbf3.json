@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO invites (code, organization_id, person_id, created_by)\n           VALUES ($1, $2, $3, $4) ON CONFLICT (code) DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Uuid",
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "4290718eeb41d068c978b6296036525d0a0b5fef62cafcddb1c44504e23bcbf3"
+}

@@ -29,8 +29,10 @@ fn config(settings: Settings, smtp_url: Option<String>) -> Config {
         public_url: "https://app.example".to_owned(),
         secret_key: "0123456789abcdef0123456789abcdef".to_owned(),
         smtp_url,
+        smtp_from: None,
         prices_refresh: false,
         customer_relations: settings,
+        stripe: None,
     }
 }
 

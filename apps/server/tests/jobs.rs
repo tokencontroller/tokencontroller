@@ -16,8 +16,10 @@ fn state(pool: PgPool) -> AppState {
         public_url: "http://localhost:8080".to_owned(),
         secret_key: "0123456789abcdef0123456789abcdef".to_owned(),
         smtp_url: None,
+        smtp_from: None,
         prices_refresh: false,
         customer_relations: tokencontroller_server::customer_relations::Settings::default(),
+        stripe: None,
     };
     AppState::new(pool, config, Arc::new(NoExtension))
 }

@@ -1,0 +1,76 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT t.key, t.title, t.tags AS \"tags: JsonColumn<Tags>\",\n                  p.name AS \"project?\", parent.key AS \"parent?\"\n           FROM tickets t\n           LEFT JOIN projects p ON p.id = t.project_id\n           LEFT JOIN tickets parent ON parent.id = t.parent_id\n           WHERE t.organization_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "key",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tickets",
+            "name": "key"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "title",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tickets",
+            "name": "title"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "tags: JsonColumn<Tags>",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "tickets",
+            "name": "tags"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "project?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "projects",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "parent?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tickets",
+            "name": "key"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "2b701799ef69f0eda2d117e58c245f5aac81914cf6c28eb2a02c8309a3d65740"
+}

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { assetFor, checksumOf, releaseUrl, reportedCount, submitArgs } from './tc.ts'
+import { assetFor, checksumOf, readSubmitted, releaseUrl, tcEnv } from './tc.ts'
 
 test('picks the release asset for each runner', () => {
   assert.equal(assetFor('linux', 'x64'), 'tc-x86_64-unknown-linux-gnu.tar.gz')
@@ -25,43 +25,38 @@ test('finds a checksum in SHA256SUMS', () => {
   assert.equal(checksumOf(listing, 'tc-aarch64-pc-windows-msvc.zip'), undefined)
 })
 
-test('passes tags and job signals to tc submit', () => {
-  const args = submitArgs(
-    {
-      token: 'tc_svc_abc',
-      url: 'https://app.tokencontroller.com',
-      project: 'storefront',
-      ticket: 'KD-214',
-      tags: { purpose: 'code-review' },
-    },
-    {
-      repository: 'kestrel/storefront',
-      branch: 'kd-214-checkout',
-      pull_request: 88,
-      pull_request_title: 'KD-214 Faster checkout',
-    },
-  )
-  assert.deepEqual(args, [
-    'submit',
-    '--tag',
-    'project=storefront',
-    '--tag',
-    'ticket=KD-214',
-    '--tag',
-    'purpose=code-review',
-    '--signal',
-    'repository=kestrel/storefront',
-    '--signal',
-    'branch=kd-214-checkout',
-    '--signal',
-    'pull_request=88',
-    '--signal',
-    'pull_request_title=KD-214 Faster checkout',
-  ])
+const INPUTS = {
+  token: 'tc_svc_abc',
+  url: 'https://app.tokencontroller.com',
+  project: 'storefront',
+  ticket: 'KD-214',
+  tags: { purpose: 'code-review', team: 'web' },
+}
+
+const SIGNALS = {
+  repository: 'github.com/kestrel/storefront',
+  branch: 'kd-214-checkout',
+  pull_request: 88,
+  pull_request_title: 'KD-214 Faster checkout',
+}
+
+test('hands the token, the tags and the job signals to tc through its environment', () => {
+  const env = tcEnv(INPUTS, SIGNALS, { PATH: '/usr/bin', TC_TOKEN: 'old' })
+  assert.deepEqual(env, {
+    PATH: '/usr/bin',
+    TC_TOKEN: 'tc_svc_abc',
+    TC_URL: 'https://app.tokencontroller.com',
+    NO_COLOR: '1',
+    TC_PROJECT: 'storefront',
+    TC_TICKET: 'KD-214',
+    TC_TAGS: 'purpose=code-review,team=web',
+    TC_SIGNALS:
+      '{"repository":"github.com/kestrel/storefront","branch":"kd-214-checkout","pull_request":88,"pull_request_title":"KD-214 Faster checkout"}',
+  })
 })
 
-test('leaves out what the job does not know', () => {
-  const args = submitArgs(
+test('leaves out what the job does not know, and keeps what an earlier step set', () => {
+  const env = tcEnv(
     { token: 't', url: 'u', project: undefined, ticket: undefined, tags: {} },
     {
       repository: undefined,
@@ -69,12 +64,21 @@ test('leaves out what the job does not know', () => {
       pull_request: undefined,
       pull_request_title: undefined,
     },
+    { TC_PROJECT: 'from-an-earlier-step' },
   )
-  assert.deepEqual(args, ['submit', '--signal', 'branch=main'])
+  assert.equal(env.TC_PROJECT, 'from-an-earlier-step')
+  assert.equal(env.TC_TICKET, undefined)
+  assert.equal(env.TC_TAGS, undefined)
+  assert.equal(env.TC_SIGNALS, '{"branch":"main"}')
 })
 
-test('reads how many token entries tc reported', () => {
-  assert.equal(reportedCount('submitted · 3 token entries · $4.10'), 3)
-  assert.equal(reportedCount('submitted · 1 token entry · $0.20'), 1)
-  assert.equal(reportedCount('nothing to submit'), undefined)
+test('reads what tc submit reported', () => {
+  assert.deepEqual(
+    readSubmitted(
+      '{"submitted":3,"list_value":"4.10","currency":"USD","share_on_tickets_percent":100}',
+    ),
+    { count: 3, listValue: '4.10', currency: 'USD' },
+  )
+  assert.deepEqual(readSubmitted('{}'), { count: 0, listValue: undefined, currency: undefined })
+  assert.throws(() => readSubmitted('submitted 3'), /something other than JSON/)
 })
