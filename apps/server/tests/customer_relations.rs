@@ -1538,3 +1538,94 @@ async fn old_screenshots_and_reports_are_deleted(pool: PgPool) {
         [("month".to_owned(), false), ("new".to_owned(), true)]
     );
 }
+
+#[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
+async fn members_write_to_support_from_the_app(pool: PgPool) {
+    let fake = fake_services(json!({
+        "action": "answer", "kind": "question",
+        "answer": "Hi Ana, bills go under Bills.", "links": [], "reason": ""
+    }))
+    .await;
+    let (smtp, sent) = fake_smtp().await.unwrap();
+    let state = AppState::new(
+        pool.clone(),
+        config(settings(&fake), Some(smtp)),
+        Arc::new(NoExtension),
+    );
+    let (_, _, ana) = organization(&pool, "Kestrel Digital", "ana@kestrel.example")
+        .await
+        .unwrap();
+
+    let (status, support, _) = call(&state, "GET", "/api/v1/support", Some(&ana), None)
+        .await
+        .unwrap();
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(support["answer_to"], "ana@kestrel.example");
+    let (status, _, _) = call(
+        &state,
+        "POST",
+        "/api/v1/support/messages",
+        None,
+        Some(json!({"message": "Hi"})),
+    )
+    .await
+    .unwrap();
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    let (status, _, _) = call(
+        &state,
+        "POST",
+        "/api/v1/support/messages",
+        Some(&ana),
+        Some(json!({"message": "  "})),
+    )
+    .await
+    .unwrap();
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let (status, _, _) = call(
+        &state,
+        "POST",
+        "/api/v1/support/messages",
+        Some(&ana),
+        Some(json!({"message": "Where do bills go?"})),
+    )
+    .await
+    .unwrap();
+    assert_eq!(status, StatusCode::ACCEPTED);
+
+    customer_relations::run_once(&state).await;
+    let row = sqlx::query("SELECT channel, contact_email, state FROM support_conversations")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(row.get::<String, _>("channel"), "app");
+    assert_eq!(row.get::<String, _>("contact_email"), "ana@kestrel.example");
+    assert_eq!(row.get::<String, _>("state"), "answered");
+    let mails = sent.lock().unwrap().clone();
+    assert!(
+        mails
+            .iter()
+            .any(|mail| mail.contains("To: ana@kestrel.example")
+                && mail.contains("bills go under Bills"))
+    );
+
+    // Without the support inbox, as on most self-hosted instances.
+    let off = AppState::new(
+        pool.clone(),
+        config(Settings::default(), None),
+        Arc::new(NoExtension),
+    );
+    let (status, _, _) = call(&off, "GET", "/api/v1/support", Some(&ana), None)
+        .await
+        .unwrap();
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    let (status, _, _) = call(
+        &off,
+        "POST",
+        "/api/v1/support/messages",
+        Some(&ana),
+        Some(json!({"message": "Hi"})),
+    )
+    .await
+    .unwrap();
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}

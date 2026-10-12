@@ -1,5 +1,6 @@
 -- Customer relations, part two: feedback reports from the web app's
--- feedback button, and notes on a customer for the customer record.
+-- feedback button, notes on a customer for the customer record, and support
+-- messages from inside the app.
 
 -- A report from the feedback button. The person sees what it contains before
 -- sending it (docs: Security and privacy > What a feedback report contains).
@@ -46,3 +47,8 @@ CREATE TABLE customer_notes (
     created_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX customer_notes_organization ON customer_notes (organization_id, created_at);
+
+-- Support messages sent from inside the app, by a signed-in member.
+ALTER TABLE support_conversations DROP CONSTRAINT support_conversations_channel_check;
+ALTER TABLE support_conversations ADD CONSTRAINT support_conversations_channel_check
+    CHECK (channel IN ('mail', 'contact_form', 'app'));

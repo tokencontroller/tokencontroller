@@ -212,7 +212,7 @@ pub struct SupportFilter {
 #[derive(Debug, Serialize, ToSchema)]
 pub struct ConversationSummary {
     pub id: Uuid,
-    /// `mail` or `contact_form`.
+    /// `mail`, `contact_form` or `app`.
     pub channel: String,
     pub contact_email: String,
     pub contact_name: Option<String>,

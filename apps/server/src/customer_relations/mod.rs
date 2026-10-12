@@ -8,8 +8,9 @@
 //! Everything here is off until its settings are set (see [`Settings`]), so
 //! a self-hosted instance runs none of it:
 //!
-//! - The support inbox takes mail from the mail worker (`/inbound/mail`) and
-//!   the website's contact form (`/contact`). The support answerer answers
+//! - The support inbox takes mail from the mail worker (`/inbound/mail`),
+//!   the website's contact form (`/contact`) and members in the app
+//!   (`/support/messages`). The support answerer answers
 //!   from the docs within minutes and hands what the docs cannot answer to
 //!   the operators, with a proposed answer.
 //! - The site assistant (`/assistant/questions`) answers website visitors
@@ -88,6 +89,8 @@ pub fn routes() -> OpenApiRouter<AppState> {
                 .layer(DefaultBodyLimit::max(feedback::MAX_REQUEST_BYTES)),
         )
         .routes(routes!(feedback::my_reports))
+        .routes(routes!(inbox::support))
+        .routes(routes!(inbox::support_message))
         .routes(routes!(feedback::screenshot))
         .routes(routes!(admin::overview))
         .routes(routes!(admin::list_support))

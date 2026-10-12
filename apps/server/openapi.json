@@ -2539,6 +2539,88 @@
         }
       }
     },
+    "/api/v1/support": {
+      "get": {
+        "tags": [
+          "customer_relations"
+        ],
+        "summary": "Whether support inside the app is on, and where its answers go. Answers\n404 when it is off, as on a self-hosted instance without support.",
+        "operationId": "support",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SupportView"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Support inside the app is off",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/support/messages": {
+      "post": {
+        "tags": [
+          "customer_relations"
+        ],
+        "summary": "Writes to support from inside the app. The answer comes by mail to the\nmember's address, like an answer to the contact form.",
+        "operationId": "support_message",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SupportMessage"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Received; the answer comes by mail"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Support inside the app is off",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/tag-map": {
       "get": {
         "tags": [
@@ -3221,7 +3303,7 @@
         "properties": {
           "channel": {
             "type": "string",
-            "description": "`mail` or `contact_form`."
+            "description": "`mail`, `contact_form` or `app`."
           },
           "contact_email": {
             "type": "string"
@@ -4836,6 +4918,31 @@
               "null"
             ],
             "description": "Stripe's status, such as `active`, `past_due` or `canceled`."
+          }
+        }
+      },
+      "SupportMessage": {
+        "type": "object",
+        "description": "A message to support from inside the app.",
+        "required": [
+          "message"
+        ],
+        "properties": {
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "SupportView": {
+        "type": "object",
+        "description": "Support inside the app, as a signed-in member sees it.",
+        "required": [
+          "answer_to"
+        ],
+        "properties": {
+          "answer_to": {
+            "type": "string",
+            "description": "Where answers go: the member's own address."
           }
         }
       },
