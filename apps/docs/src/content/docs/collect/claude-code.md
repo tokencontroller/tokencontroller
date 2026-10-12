@@ -13,7 +13,7 @@ The Claude Code mod records what Claude Code spends, turn by turn, and shows whe
 /plugin install token-controller
 ```
 
-Then connect it to your organization with the [CLI](/collect/cli) (`tc connect`), or leave it local.
+The mod keeps its token entries through the [CLI](/collect/cli), so install `tc` too. Then connect it to your organization with `tc connect`, or leave it local.
 
 ## Where it runs {#where}
 

@@ -1,0 +1,39 @@
+{
+  "name": "@tokencontroller/sdk",
+  "version": "1.0.0",
+  "description": "Report token entries to Token Controller from any agent written in TypeScript or JavaScript.",
+  "license": "MIT",
+  "author": "Jan Beck",
+  "homepage": "https://docs.tokencontroller.com/collect/token-entries",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tokencontroller/tokencontroller.git",
+    "directory": "packages/sdk"
+  },
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "LICENSE",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "lint": "biome check .",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test 'src/**/*.test.ts'",
+    "build": "tsc -p tsconfig.build.json"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.15",
+    "@types/node": "^22",
+    "typescript": "7.0.2"
+  }
+}

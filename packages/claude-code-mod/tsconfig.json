@@ -1,0 +1,20 @@
+{
+  // CI checks the plain modules in hooks/lib, which hold the mod's logic.
+  // register.tsx needs Claude Code's own types, which the engine lays in
+  // .claude-plugin/types when it loads the mod; see the README.
+  "compilerOptions": {
+    "target": "es2023",
+    "lib": ["es2023"],
+    "types": ["node"],
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "verbatimModuleSyntax": true,
+    "allowImportingTsExtensions": true,
+    "erasableSyntaxOnly": true,
+    "noEmit": true,
+    "skipLibCheck": true
+  },
+  "include": ["hooks/lib"]
+}
