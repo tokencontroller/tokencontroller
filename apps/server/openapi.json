@@ -1405,7 +1405,7 @@
         "tags": [
           "bills"
         ],
-        "summary": "Upload a CSV bill file. Each bill is stored as a new revision when its\nfigures differ from the latest one. A file with a problem saves nothing.\nControllers only.",
+        "summary": "Upload a CSV bill file. Every bill in it is checked before any is\nstored, so a file with a problem saves nothing. Each bill is stored as a\nnew revision when its figures differ from the latest one. Controllers\nonly.",
         "operationId": "upload_bill_csv",
         "parameters": [
           {

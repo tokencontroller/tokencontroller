@@ -611,6 +611,38 @@ async fn a_csv_bill_file_is_previewed_then_uploaded(pool: PgPool) {
         "Row 3, column cost_source: Seats and subscriptions are flat fees and have no bill. \
          Leave this row out; finance handles them as before. Nothing was saved."
     );
+    // One good row and one the bills area would refuse: the preview names
+    // it, and the upload stores neither.
+    let half_good = "period,cost_source,gross,discount,credit,net,currency\n\
+                     2026-09,api_key,10,0,0,10,USD\n\
+                     2026-08,api_key,10,-5,0,15,USD\n";
+    let negative = send(
+        &kestrel.app,
+        Method::POST,
+        "/api/v1/bills/csv/preview",
+        &kestrel.controller,
+        Some(csv_body(half_good)),
+    )
+    .await
+    .unwrap();
+    assert_eq!(negative.json["problem"]["row"], 3);
+    assert_eq!(negative.json["problem"]["column"], "discount");
+    let partial = send(
+        &kestrel.app,
+        Method::POST,
+        "/api/v1/bills/csv",
+        &kestrel.controller,
+        Some(csv_body(half_good)),
+    )
+    .await
+    .unwrap();
+    assert_eq!(partial.status, StatusCode::BAD_REQUEST);
+    let saved: i64 = sqlx::query_scalar("SELECT count(*) FROM bills")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(saved, 0, "a file with a problem saves nothing");
+
     let not_a_controller = send(
         &kestrel.app,
         Method::POST,
