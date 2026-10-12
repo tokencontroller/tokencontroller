@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE people SET tags = jsonb_set(tags, ARRAY[$2], to_jsonb($3::text))\n           WHERE organization_id = $1 AND tags ->> $2 = ANY($4)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text",
+        "TextArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "05651564e2db0a3ed708eeef686ee6a2554780000439fe943542501e13661a0f"
+}
