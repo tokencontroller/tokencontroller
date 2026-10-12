@@ -260,7 +260,11 @@ fn error_message(status: u16, body: &str) -> String {
                 _ => None,
             })
     });
-    message.unwrap_or_else(|| match status {
+    // Some refusals, such as a body the service cannot read, are plain text.
+    let text = body.trim();
+    let plain = (parsed.is_none() && !text.is_empty() && !text.starts_with('<'))
+        .then(|| text.chars().take(300).collect::<String>());
+    message.or(plain).unwrap_or_else(|| match status {
         401 => "not signed in; run tc connect again".to_owned(),
         403 => "this token may not do that".to_owned(),
         404 => "not found; is this a Token Controller service?".to_owned(),
@@ -314,7 +318,11 @@ mod tests {
             "no such ticket"
         );
         assert_eq!(
-            error_message(401, "nope"),
+            error_message(422, "Failed to deserialize the JSON body"),
+            "Failed to deserialize the JSON body"
+        );
+        assert_eq!(
+            error_message(401, "<html>nope</html>"),
             "not signed in; run tc connect again"
         );
         assert_eq!(error_message(403, ""), "this token may not do that");

@@ -297,6 +297,10 @@ fn segments_of(
     placing: &Placing<'_>,
 ) -> Vec<Segment> {
     let run = |name: &str| placing.run.signals.get(name).cloned();
+    // The Action may spell it `github.com/kestrel/storefront`; projects map
+    // `kestrel/storefront`, the name tc reads from a git remote.
+    let run_repository =
+        || run("repository").map(|named| crate::repo::name_from_url(&named).unwrap_or(named));
     let mut pull_request_title_keys: Vec<String> = row
         .signals
         .get("pull_request_title_keys")
@@ -335,7 +339,7 @@ fn segments_of(
             let signals = Signals {
                 branch: message.branch.clone().or_else(|| run("branch")),
                 directory: message.directory.clone(),
-                repository: message.repository.clone().or_else(|| run("repository")),
+                repository: message.repository.clone().or_else(run_repository),
                 pull_request: pull_request.clone(),
                 subagent: message.subagent.clone(),
                 pull_request_title_keys: pull_request_title_keys.clone(),

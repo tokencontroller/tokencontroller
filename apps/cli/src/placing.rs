@@ -40,6 +40,13 @@ pub struct Signals {
 }
 
 impl Signals {
+    /// The pull request as a number: `12` from `12` or `#12`.
+    pub fn pull_request_number(&self) -> Option<u64> {
+        self.pull_request
+            .as_deref()
+            .and_then(|number| number.trim().trim_start_matches('#').parse().ok())
+    }
+
     /// Every key found anywhere in the session, in order, once.
     pub fn all_keys(&self, patterns: &[KeyPattern]) -> Vec<String> {
         let mut keys: Vec<String> = Vec::new();
@@ -82,10 +89,7 @@ impl Signals {
             branch: self.branch.clone(),
             working_directory: self.directory.clone(),
             repository: self.repository.clone(),
-            pull_request: self
-                .pull_request
-                .as_deref()
-                .and_then(|number| number.trim().trim_start_matches('#').parse().ok()),
+            pull_request: self.pull_request_number(),
             subagent_type: self.subagent.clone(),
             prompt_ticket_keys: mentions
                 .into_iter()
