@@ -161,6 +161,7 @@ const kindText: Record<ApiTokenKind, { name: string; hint: string }> = {
   service: { name: "Service token", hint: "For an agent that reports token entries, such as a CI bot. You become its agent manager." },
   read: { name: "Read token", hint: "For the reporting API in Excel, Google Sheets or Power BI. It sees what your role sees." },
   organization: { name: "Organization token", hint: "For telemetry push from managed settings." },
+  cli: { name: "CLI token", hint: "Made by tc connect on one computer. Revoke it to sign that computer out." },
 };
 
 function ApiTokens() {
