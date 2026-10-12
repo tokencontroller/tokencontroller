@@ -7,7 +7,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use serde::Serialize;
 use sqlx::PgPool;
 use time::OffsetDateTime;
-use tokencontroller_core::Money;
+use tokencontroller_core::{Money, TokenCounts};
 use utoipa::ToSchema;
 use uuid::Uuid;
 
@@ -30,6 +30,9 @@ pub struct SplitView {
     /// A ticket key that matched a pattern but that the ticket sync did not
     /// find: the review list shows it as unknown ticket.
     pub unknown_ticket: Option<String>,
+    /// Its share of the token entry in percent, when it was split by hand;
+    /// `null` for a whole token entry or one split exactly by messages.
+    pub share_percent: Option<i32>,
 }
 
 /// One token entry.
@@ -43,11 +46,19 @@ pub struct EntryView {
     #[serde(with = "time::serde::rfc3339")]
     #[schema(value_type = String, format = DateTime)]
     pub started_at: OffsetDateTime,
+    #[serde(with = "time::serde::rfc3339")]
+    #[schema(value_type = String, format = DateTime)]
+    pub ended_at: OffsetDateTime,
+    /// The whole token entry's tokens, every split together.
+    #[schema(value_type = crate::ingest::model::TokenCountsSchema)]
+    pub tokens: TokenCounts,
     pub status: EntryStatus,
     /// Arrived with no person involved, such as from CI.
     pub automatic: bool,
     pub summary: String,
+    /// The agent manager's name.
     pub agent_manager: Option<String>,
+    pub agent_manager_id: Option<Uuid>,
     /// The list value of all splits; `null` when the model is unknown.
     pub list_value: Option<String>,
     #[schema(value_type = String, example = "USD")]
@@ -57,6 +68,53 @@ pub struct EntryView {
     pub splits: Vec<SplitView>,
     /// Why a people manager sent it back.
     pub rejected_reason: Option<String>,
+}
+
+/// When each token entry ended and its tokens, every split together.
+async fn details(
+    db: &PgPool,
+    lines: &[CostLine],
+) -> Result<BTreeMap<Uuid, (OffsetDateTime, TokenCounts)>, sqlx::Error> {
+    let ids: Vec<Uuid> = lines
+        .iter()
+        .map(|line| line.entry_id)
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect();
+    let count = |tokens: i64| u64::try_from(tokens).unwrap_or(0);
+    Ok(sqlx::query!(
+        r#"SELECT id, ended_at, input_tokens, output_tokens, cache_write_tokens, cache_read_tokens
+           FROM token_entries WHERE id = ANY($1)"#,
+        &ids,
+    )
+    .fetch_all(db)
+    .await?
+    .into_iter()
+    .map(|row| {
+        let tokens = TokenCounts {
+            input: count(row.input_tokens),
+            output: count(row.output_tokens),
+            cache_write: count(row.cache_write_tokens),
+            cache_read: count(row.cache_read_tokens),
+        };
+        (row.id, (row.ended_at, tokens))
+    })
+    .collect())
+}
+
+/// The share in percent of each split made by hand.
+async fn hand_shares(db: &PgPool, lines: &[CostLine]) -> Result<BTreeMap<Uuid, i32>, sqlx::Error> {
+    let ids: Vec<Uuid> = lines.iter().map(|line| line.split_id).collect();
+    Ok(sqlx::query!(
+        r#"SELECT id, share_percent AS "share_percent!" FROM splits
+           WHERE id = ANY($1) AND share_percent IS NOT NULL"#,
+        &ids,
+    )
+    .fetch_all(db)
+    .await?
+    .into_iter()
+    .map(|row| (row.id, row.share_percent))
+    .collect())
 }
 
 /// Groups cost lines into token entries, in the order they came.
@@ -97,6 +155,8 @@ pub async fn entries(db: &PgPool, lines: Vec<CostLine>) -> Result<Vec<EntryView>
     .into_iter()
     .map(|row| (row.token_entry_id, row.reason))
     .collect();
+    let details = details(db, &lines).await?;
+    let shares = hand_shares(db, &lines).await?;
 
     let mut order: Vec<Uuid> = Vec::new();
     let mut grouped: BTreeMap<Uuid, Vec<CostLine>> = BTreeMap::new();
@@ -117,6 +177,10 @@ pub async fn entries(db: &PgPool, lines: Vec<CostLine>) -> Result<Vec<EntryView>
                     splits.iter().map(|split| split.list_value).collect();
                 values.and_then(|values| Money::sum(values, currency).ok())
             });
+            let (ended_at, tokens) = details
+                .get(&id)
+                .copied()
+                .unwrap_or((first.started_at, TokenCounts::default()));
             Some(EntryView {
                 id,
                 agent_harness: first.agent_harness.clone(),
@@ -124,12 +188,15 @@ pub async fn entries(db: &PgPool, lines: Vec<CostLine>) -> Result<Vec<EntryView>
                 model: first.model.clone(),
                 provider: first.provider.clone(),
                 started_at: first.started_at,
+                ended_at,
+                tokens,
                 status: first.status,
                 automatic: !first.on_token_sheet,
                 summary: first.summary.clone(),
                 agent_manager: first
                     .agent_manager_id
                     .and_then(|person| names.get(&person).cloned()),
+                agent_manager_id: first.agent_manager_id,
                 list_value: total.map(format_amount),
                 currency: currency
                     .map_or_else(|| "USD".to_owned(), tokencontroller_core::Currency::code),
@@ -147,6 +214,7 @@ pub async fn entries(db: &PgPool, lines: Vec<CostLine>) -> Result<Vec<EntryView>
                         tags: split.tags,
                         placed_by: split.placed_by,
                         unknown_ticket: split.unknown_ticket,
+                        share_percent: shares.get(&split.split_id).copied(),
                     })
                     .collect(),
             })

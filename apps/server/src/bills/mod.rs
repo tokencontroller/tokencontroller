@@ -43,13 +43,15 @@ pub fn routes() -> OpenApiRouter<AppState> {
         .routes(routes!(reconciliation::get_reconciliation))
 }
 
-/// How a provider charges for what a bill covers. Seats and subscriptions
-/// are flat fees and have no bill. When one provider has bills from several
-/// cost sources, its token entries are charged on the first in this order.
+/// How a provider charges for what a bill covers: the metered cost sources.
+/// Seats and subscriptions are flat fees and have no bill. When one
+/// provider has bills from several cost sources, its token entries are
+/// charged on the first in this order.
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, ToSchema,
 )]
 #[serde(rename_all = "snake_case")]
+#[schema(as = BillCostSource)]
 pub enum CostSource {
     UsageAtApiRates,
     ApiKey,
@@ -171,6 +173,8 @@ pub enum BillError {
     NegativeReduction,
     #[error("{0:?} is not a provider: use lower-case letters, digits and _, such as anthropic")]
     Provider(String),
+    #[error("{0:?} is not a currency code: use three capital letters, such as EUR")]
+    NotACurrency(String),
     #[error(transparent)]
     Amount(#[from] AmountError),
     #[error("the organization does not exist")]
@@ -633,7 +637,7 @@ impl BillInput {
     /// [`BillError`] for an amount, currency or rate that cannot be read.
     pub fn into_new_bill(self, recorded_by: Uuid) -> Result<NewBill, BillError> {
         let currency = Currency::new(&self.currency)
-            .map_err(|_| BillError::Amount(AmountError::Invalid(self.currency.clone())))?;
+            .map_err(|_| BillError::NotACurrency(self.currency.clone()))?;
         let read = |text: Option<&str>| -> Result<Money, BillError> {
             text.map_or(Ok(Money::zero(currency)), |text| {
                 Ok(parse_amount(text, currency)?)

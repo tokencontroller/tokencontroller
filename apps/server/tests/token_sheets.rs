@@ -477,6 +477,14 @@ async fn a_rejected_token_entry_comes_back_and_goes_again_once_fixed(pool: PgPoo
     assert_eq!(status, StatusCode::OK, "{split}");
     assert_eq!(split["splits"].as_array().map(Vec::len), Some(2));
     assert_eq!(split["list_value"], "0.42");
+    let share_of = |ticket: &str| {
+        split["splits"]
+            .as_array()
+            .and_then(|splits| splits.iter().find(|s| s["tags"]["ticket"] == ticket))
+            .map(|s| s["share_percent"].clone())
+    };
+    assert_eq!(share_of("KD-214"), Some(json!(60)));
+    assert_eq!(share_of("OPS-7"), Some(json!(40)));
 
     let (_, submitted) = call(
         &kestrel.app,
@@ -698,4 +706,65 @@ async fn a_ticket_key_still_unknown_after_a_sync_shows_as_unknown_ticket(pool: P
         .await
         .unwrap();
     assert_eq!(after, ("KD-999".to_owned(), None));
+}
+
+#[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
+async fn a_draft_priced_in_another_currency_counts_in_dollars(pool: PgPool) {
+    let kestrel = kestrel(&pool).await.unwrap();
+    let (status, stored) = call(
+        &kestrel.app,
+        Method::POST,
+        "/api/v1/token-entries",
+        &kestrel.ana,
+        Some(session_entry("manual:eur", &json!({"ticket": "KD-214"}))),
+    )
+    .await
+    .unwrap();
+    assert_eq!(status, StatusCode::CREATED, "{stored}");
+    // Priced in euros, at 1.25 dollars per euro today.
+    sqlx::query("UPDATE token_entries SET currency = 'EUR' WHERE organization_id = $1")
+        .bind(kestrel.organization_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO exchange_rates (day, currency, per_euro_nanos) VALUES (current_date, 'USD', 1250000000)",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let (_, sheet) = call(
+        &kestrel.app,
+        Method::GET,
+        "/api/v1/token-sheets/current",
+        &kestrel.ana,
+        None,
+    )
+    .await
+    .unwrap();
+    assert_eq!(sheet["currency"], "USD");
+    assert_eq!(sheet["list_value"], "0.53");
+    let entry = &sheet["token_entries"][0];
+    assert_eq!(entry["currency"], "EUR");
+    assert_eq!(entry["list_value"], "0.42");
+    assert_eq!(entry["agent_manager_id"], kestrel.ana_id.to_string());
+    assert_eq!(
+        entry["tokens"],
+        json!({"input": 12000, "output": 3000, "cache_write": 0, "cache_read": 0})
+    );
+    assert!(entry["ended_at"].is_string());
+
+    let (_, submitted) = call(
+        &kestrel.app,
+        Method::POST,
+        "/api/v1/token-sheets/submit",
+        &kestrel.ana,
+        None,
+    )
+    .await
+    .unwrap();
+    assert_eq!(submitted["list_value"], "0.53");
+    assert_eq!(submitted["share_on_tickets_percent"], 100);
+    assert_eq!(submitted["late"], 0);
 }

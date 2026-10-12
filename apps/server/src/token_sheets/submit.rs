@@ -21,7 +21,7 @@ use uuid::Uuid;
 
 use super::cadence::{Cadence, CadenceKind, CadencePeriod};
 use super::cadences::cadence_for;
-use super::current::basis_points;
+use super::current::{Dollars, basis_points};
 use super::late::late_sheets;
 use crate::AppState;
 use crate::bills::amount::format_amount;
@@ -71,13 +71,15 @@ pub struct Submitted {
     /// Token entries on the token sheet from this submit, the drafts in the
     /// service included.
     pub submitted: usize,
-    /// Their list value, known models only. A decimal string.
+    /// Their list value in US dollars, the currency providers price in,
+    /// known models only. A decimal string.
     pub list_value: String,
     pub currency: String,
     /// The share of that list value on tickets, in whole percent; `null`
     /// when nothing has a known value.
     pub share_on_tickets_percent: Option<u8>,
-    /// Token entries of a closed month, posted to it as late adjustments.
+    /// Token entries of this submit whose month had closed, posted to it as
+    /// late adjustments.
     pub late: usize,
     /// The cadence periods the submit covered, oldest first.
     pub token_sheets: Vec<CadencePeriod>,
@@ -114,7 +116,11 @@ fn covered_periods(
 
 /// The list value of token entries in US dollars, known models only, and
 /// how much of it is on tickets.
-async fn value_on_tickets(db: &PgPool, ids: &[Uuid]) -> Result<(Money, Option<u8>), sqlx::Error> {
+async fn value_on_tickets(
+    db: &PgPool,
+    ids: &[Uuid],
+    today: Date,
+) -> Result<(Money, Option<u8>), sqlx::Error> {
     let splits = sqlx::query!(
         r#"SELECT s.list_value_nanos, e.currency,
                   EXISTS (SELECT 1 FROM split_tags t WHERE t.split_id = s.id AND t.name = 'ticket') AS "on_ticket!"
@@ -124,15 +130,27 @@ async fn value_on_tickets(db: &PgPool, ids: &[Uuid]) -> Result<(Money, Option<u8
     )
     .fetch_all(db)
     .await?;
+    let values: Vec<(Money, bool)> = splits
+        .into_iter()
+        .filter_map(|split| {
+            let currency = Currency::new(&split.currency).ok()?;
+            Some((
+                Money::from_nanos(split.list_value_nanos?, currency),
+                split.on_ticket,
+            ))
+        })
+        .collect();
+    let dollars =
+        Dollars::load(db, values.iter().map(|(value, _)| value.currency()), today).await?;
     let mut total = 0_i128;
     let mut ticketed = 0_i128;
-    for split in splits {
-        let Some(nanos) = split.list_value_nanos.filter(|_| split.currency == "USD") else {
+    for (value, on_ticket) in values {
+        let Some(nanos) = dollars.nanos(value) else {
             continue;
         };
-        total = total.saturating_add(i128::from(nanos));
-        if split.on_ticket {
-            ticketed = ticketed.saturating_add(i128::from(nanos));
+        total = total.saturating_add(nanos);
+        if on_ticket {
+            ticketed = ticketed.saturating_add(nanos);
         }
     }
     let percent = basis_points(ticketed, total)
@@ -140,6 +158,19 @@ async fn value_on_tickets(db: &PgPool, ids: &[Uuid]) -> Result<(Money, Option<u8
         .and_then(|percent| u8::try_from(percent).ok());
     let value = Money::from_nanos(i64::try_from(total).unwrap_or(i64::MAX), Currency::USD);
     Ok((value, percent))
+}
+
+/// Each token entry's status, by id.
+async fn statuses(db: &PgPool, ids: &[Uuid]) -> Result<Vec<(Uuid, String)>, sqlx::Error> {
+    Ok(sqlx::query!(
+        "SELECT id, status FROM token_entries WHERE id = ANY($1)",
+        ids
+    )
+    .fetch_all(db)
+    .await?
+    .into_iter()
+    .map(|row| (row.id, row.status))
+    .collect())
 }
 
 /// Writes one token sheet per covered period and puts each token entry on
@@ -271,23 +302,20 @@ pub(crate) async fn submit(
     write_sheets(&mut tx, &caller, &periods, &entries).await?;
     tx.commit().await?;
 
-    let late = crate::close::late::post_late_entries(db, caller.organization_id).await?;
-    let statuses: Vec<(Uuid, String)> = sqlx::query!(
-        "SELECT id, status FROM token_entries WHERE id = ANY($1)",
-        &ids
-    )
-    .fetch_all(db)
-    .await?
-    .into_iter()
-    .map(|row| (row.id, row.status))
-    .collect();
+    crate::close::late::post_late_entries(db, caller.organization_id).await?;
+    let statuses = statuses(db, &ids).await?;
     let status_of = |id: Uuid| {
         statuses
             .iter()
             .find(|(entry, _)| *entry == id)
             .map_or_else(|| "submitted".to_owned(), |(_, status)| status.clone())
     };
-    let (value, share) = value_on_tickets(db, &ids).await?;
+    let (value, share) = value_on_tickets(db, &ids, today).await?;
+    // Token entries of this submit that a closed month locked.
+    let late = statuses
+        .iter()
+        .filter(|(_, status)| status == "locked")
+        .count();
     Ok(Json(Submitted {
         token_entries: stored
             .iter()

@@ -1151,3 +1151,85 @@ async fn outliers_follow_the_status_and_currency_asked_for(pool: PgPool) {
     assert_eq!(approved["tickets"], json!([]));
     assert_eq!(approved["without_baseline"], 0);
 }
+
+#[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
+async fn everyone_lists_periods_and_open_items_name_their_currency(pool: PgPool) {
+    let kestrel = kestrel(&pool).await.unwrap();
+    let periods = call(
+        &kestrel.app,
+        Method::GET,
+        "/api/v1/periods",
+        &kestrel.ana,
+        None,
+    )
+    .await
+    .unwrap();
+    assert_eq!(periods.status, StatusCode::OK, "{}", periods.text());
+    assert!(
+        periods
+            .json()
+            .as_array()
+            .is_some_and(|all| all.iter().any(|period| period["period"] == "2026-09"))
+    );
+    let september = call(
+        &kestrel.app,
+        Method::GET,
+        "/api/v1/periods/2026-09",
+        &kestrel.controller,
+        None,
+    )
+    .await
+    .unwrap()
+    .json();
+    assert_eq!(september["open_items"]["currency"], "USD");
+    assert_eq!(september["open_items"]["organization_overhead"], "0.00");
+}
+
+#[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
+async fn a_bill_in_a_currency_that_cannot_be_read_says_so(pool: PgPool) {
+    let kestrel = kestrel(&pool).await.unwrap();
+    let answer = call(
+        &kestrel.app,
+        Method::POST,
+        "/api/v1/bills",
+        &kestrel.controller,
+        Some(json!({
+            "period": "2026-09",
+            "provider": "anthropic",
+            "cost_source": "usage_at_api_rates",
+            "net": "1.50",
+            "currency": "dollars"
+        })),
+    )
+    .await
+    .unwrap();
+    assert_eq!(answer.status, StatusCode::BAD_REQUEST);
+    assert_eq!(
+        answer.json()["message"],
+        "\"dollars\" is not a currency code: use three capital letters, such as EUR"
+    );
+}
+
+#[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
+async fn the_token_entries_table_lists_one_person(pool: PgPool) {
+    let kestrel = kestrel(&pool).await.unwrap();
+    let ana: Uuid = sqlx::query_scalar("SELECT id FROM people WHERE email = 'ana@kestrel.example'")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    let list = |person: Uuid| {
+        let path = format!("/api/v1/reports/token-entries?period=2026-09&person={person}");
+        let app = kestrel.app.clone();
+        let token = kestrel.controller.clone();
+        async move { call(&app, Method::GET, &path, &token, None).await }
+    };
+    let hers = list(ana).await.unwrap().json();
+    assert_eq!(hers["total"], 2);
+    assert_eq!(
+        hers["token_entries"][0]["agent_manager_id"],
+        ana.to_string()
+    );
+    assert_eq!(hers["token_entries"][0]["agent_manager"], "ana");
+    let nobody = list(Uuid::nil()).await.unwrap().json();
+    assert_eq!(nobody["total"], 0);
+}

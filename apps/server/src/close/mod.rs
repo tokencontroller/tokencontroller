@@ -83,6 +83,9 @@ pub struct OpenItems {
     pub bills_not_final: Vec<String>,
     /// Organization overhead: cost on no project that may belong on one.
     pub organization_overhead: String,
+    /// The reporting currency, which `organization_overhead` is in.
+    #[schema(example = "EUR")]
+    pub currency: String,
     pub organization_overhead_entries: usize,
     /// Token sheets whose cadence period is over and that were not
     /// submitted.
@@ -193,7 +196,7 @@ async fn close_check(
 }
 
 /// Every period from the first with a token entry or a bill up to this
-/// month, newest first.
+/// month, newest first. Everyone can list them, to pick a period.
 #[utoipa::path(
     get,
     path = "/periods",
@@ -206,7 +209,7 @@ pub(crate) async fn list_periods(
     caller: Caller,
     Query(query): Query<crate::reports::csv::FormatQuery>,
 ) -> Result<Response, ApiError> {
-    caller.require_role(Role::PeopleManager)?;
+    caller.require_credential(crate::reports::READERS)?;
     let organization_id = caller.organization_id;
     let now = OffsetDateTime::now_utc();
     let first = sqlx::query_scalar!(
@@ -329,6 +332,7 @@ async fn period_view(
             .map(|bill| bill.view.provider.clone())
             .collect(),
         organization_overhead: format_amount(overhead_total),
+        currency: account.currency.code(),
         organization_overhead_entries: overhead.len(),
         late_token_sheets: late,
         unapproved: check.unapproved,
