@@ -6,12 +6,16 @@ import { http, HttpResponse, type HttpResponseResolver } from "msw";
 import type {
   ApiToken,
   CadenceView,
+  ExternalProject,
   NewBill,
+  NewTicketSystem,
   NewTokenEntry,
   Person,
   Role,
   RuleSignal,
   Tags,
+  TicketMapping,
+  TicketSystem,
   TokenEntryStatus,
 } from "@/api/contract";
 import { parseCsv } from "@/lib/csv";
@@ -109,6 +113,47 @@ function member(handler: (ctx: Ctx) => Response | Promise<Response>, roles?: Rol
 
 const PM: Role[] = ["people_manager"];
 const CONTROLLER: Role[] = ["controller"];
+
+const ticketSystemName: Record<TicketSystem["kind"], string> = { jira: "Jira Cloud", azure_devops: "Azure DevOps", github_issues: "GitHub Issues" };
+const siteExample: Record<TicketSystem["kind"], string> = {
+  jira: "a Jira Cloud site, such as https://acme.atlassian.net",
+  azure_devops: "an Azure DevOps organization, such as https://dev.azure.com/acme",
+  github_issues: "https://api.github.com",
+};
+
+/** The service's check of a ticket system's address. */
+function siteFits(kind: TicketSystem["kind"], site: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(site);
+  } catch {
+    return false;
+  }
+  const path = url.pathname.split("/").filter(Boolean);
+  if (url.protocol !== "https:" || url.port || url.username || url.search || url.hash) return false;
+  if (kind === "jira") return url.hostname.endsWith(".atlassian.net") && !path.length;
+  if (kind === "azure_devops") return (url.hostname === "dev.azure.com" && path.length === 1) || (url.hostname.endsWith(".visualstudio.com") && path.length <= 1);
+  return (url.hostname === "api.github.com" || (url.hostname.startsWith("api.") && url.hostname.endsWith(".ghe.com"))) && !path.length;
+}
+
+/** What the token sees in each ticket system of the example organization. */
+const externalProjects: Record<TicketSystem["kind"], ExternalProject[]> = {
+  jira: [
+    { key: "KD", name: "Storefront" },
+    { key: "CP", name: "Claims Portal" },
+    { key: "INT", name: "Intranet" },
+    { key: "OPS", name: "Operations" },
+  ],
+  azure_devops: [
+    { key: "6ce954b1-ce1f-45d1-b94d-e6bf2464ba2c", name: "Storefront" },
+    { key: "0f1c7a52-3d0a-4b0e-9a3e-6a0d8f1e2b47", name: "Claims Portal" },
+  ],
+  github_issues: [
+    { key: "kestrel/storefront", name: "storefront" },
+    { key: "kestrel/claims-portal", name: "claims-portal" },
+    { key: "kestrel/intranet", name: "intranet" },
+  ],
+};
 
 /** The tags a token entry gets: its person (by email) and their tags, the ticket, its project and the project's tags. */
 function tagsFor(db: Db, personId: string | null, target: string, extra: Tags = {}): Tags {
@@ -768,17 +813,48 @@ export const handlers = [
   }, CONTROLLER)),
   http.get(`${API}/ticket-systems`, member(({ db }) => HttpResponse.json(db.ticketSystems))),
   http.post(`${API}/ticket-systems`, member(async ({ db, request }) => {
-    const body = (await request.json()) as { kind: "jira" | "azure_devops" | "github_issues"; site: string; token: string };
-    if (!body.site.trim() || !body.token.trim()) return error(400, "invalid", "Give the site and an API token.");
-    const system = { id: nextId(db, "ts"), kind: body.kind, site: body.site.trim(), mappings: [], last_sync_at: null, status: "ok" as const };
+    const body = (await request.json()) as NewTicketSystem;
+    const site = body.site.trim().replace(/\/+$/, "");
+    if (!siteFits(body.kind, site)) return error(400, "bad_request", `Give ${siteExample[body.kind]}.`);
+    const token = body.token.trim();
+    if (!token) return error(400, "bad_request", `Add an API token from ${ticketSystemName[body.kind]}.`);
+    if (body.kind === "jira" && !body.email?.trim()) return error(400, "bad_request", "Jira Cloud signs in with the token and the email of its Atlassian account; add the email.");
+    const system: TicketSystem = { id: crypto.randomUUID(), kind: body.kind, site, key_hint: token.slice(-4), mappings: [], last_sync_at: null, message: null, status: "ok" };
     db.ticketSystems.push(system);
     return HttpResponse.json(system, { status: 201 });
+  }, CONTROLLER)),
+  http.delete(`${API}/ticket-systems/:id`, member(({ db, params }) => {
+    const index = db.ticketSystems.findIndex((s) => s.id === params.id);
+    if (index < 0) return error(404, "not_found", "No such ticket system.");
+    // Its tickets stay and stop syncing.
+    db.ticketSystems.splice(index, 1);
+    return new HttpResponse(null, { status: 204 });
+  }, CONTROLLER)),
+  http.get(`${API}/ticket-systems/:id/projects`, member(({ db, params }) => {
+    const system = db.ticketSystems.find((s) => s.id === params.id);
+    if (!system) return error(404, "not_found", "No such ticket system.");
+    return HttpResponse.json(externalProjects[system.kind]);
+  }, CONTROLLER)),
+  http.put(`${API}/ticket-systems/:id/mappings`, member(async ({ db, params, request }) => {
+    const system = db.ticketSystems.find((s) => s.id === params.id);
+    if (!system) return error(404, "not_found", "No such ticket system.");
+    const mappings = (await request.json()) as TicketMapping[];
+    const seen = new Set<string>();
+    for (const m of mappings) {
+      if (!m.external.trim()) return error(400, "bad_request", "Each mapping needs the ticket system's project.");
+      if (seen.has(m.external)) return error(400, "bad_request", `${m.external} is mapped twice; map each project once.`);
+      seen.add(m.external);
+      if (!db.projects.some((p) => p.name === m.project)) return error(400, "bad_request", `There is no project ${m.project}.`);
+    }
+    system.mappings = mappings;
+    system.last_sync_at = `${TODAY}T17:05:00Z`;
+    return HttpResponse.json(system);
   }, CONTROLLER)),
   http.post(`${API}/ticket-systems/:id/sync`, member(({ db, params }) => {
     const system = db.ticketSystems.find((s) => s.id === params.id);
     if (!system) return error(404, "not_found", "No such ticket system.");
     system.last_sync_at = `${TODAY}T17:05:00Z`;
-    return HttpResponse.json(system);
+    return HttpResponse.json(system, { status: 202 });
   }, CONTROLLER)),
   http.get(`${API}/export/raw`, member(({ db }) => {
     const files = { "organization.json": db.organization, "people.json": db.people, "token_entries.json": db.entries, "bills.json": db.bills, "rules.json": db.rules, "tickets.json": db.tickets, "periods.json": db.periods, "tags.json": { names: db.tagNames, map: db.tagMap } };

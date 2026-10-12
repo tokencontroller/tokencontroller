@@ -42,8 +42,9 @@ import type {
   TagMapChange,
   TagName,
   Tags,
+  NewTicketSystem,
   Ticket,
-  TicketSystem,
+  TicketMapping,
   TokenBudget,
   TokenEntry,
   TokenEntryStatus,
@@ -212,10 +213,13 @@ export const api = {
   createApiToken: (kind: ApiTokenKind, name: string) => ok(typed.POST("/api/v1/api-tokens", { body: { kind, name } })),
   revokeApiToken: (id: string) => ok(typed.DELETE("/api/v1/api-tokens/{id}", path(id))),
   handOverApiToken: (id: string, person_id: string) => ok(typed.POST("/api/v1/api-tokens/{id}/hand-over", { ...path(id), body: { person_id } })),
-  ticketSystems: () => call<TicketSystem[]>("GET", "/ticket-systems"),
-  connectTicketSystem: (body: { kind: TicketSystem["kind"]; site: string; token: string }) =>
-    call<TicketSystem>("POST", "/ticket-systems", { body }),
-  syncTickets: (id: string) => call<TicketSystem>("POST", `/ticket-systems/${enc(id)}/sync`),
+  ticketSystems: () => ok(typed.GET("/api/v1/ticket-systems")),
+  connectTicketSystem: (body: NewTicketSystem) => ok(typed.POST("/api/v1/ticket-systems", { body })),
+  disconnectTicketSystem: (id: string) => ok(typed.DELETE("/api/v1/ticket-systems/{id}", path(id))),
+  /** The projects the ticket system has, to map onto ours. */
+  externalProjects: (id: string) => ok(typed.GET("/api/v1/ticket-systems/{id}/projects", path(id))),
+  mapProjects: (id: string, mappings: TicketMapping[]) => ok(typed.PUT("/api/v1/ticket-systems/{id}/mappings", { ...path(id), body: mappings })),
+  syncTickets: (id: string) => ok(typed.POST("/api/v1/ticket-systems/{id}/sync", path(id))),
   rawExport: () => download("/export/raw"),
 
   // Connecting a computer (`tc connect`, a device sign-in)

@@ -109,3 +109,19 @@ test("admin area", async ({ page }) => {
     await page.screenshot({ path: `${dir}/${name}.png`, fullPage: true });
   }
 });
+
+test("ticket systems", async ({ page }) => {
+  await signIn(page, "nadia");
+  await page.goto("/settings");
+  await page.getByRole("button", { name: "Connect a ticket system" }).click();
+  const connect = page.getByRole("dialog", { name: "Connect a ticket system" });
+  await connect.getByLabel("Jira Cloud site").fill("https://kestrel-labs.atlassian.net");
+  await connect.getByLabel("Email of the Atlassian account").fill("n.berger@kestrel.example");
+  await connect.getByLabel("API token").fill("ATATT3x-labs-9fQe");
+  await page.screenshot({ path: `${dir}/28-connect-jira.png` });
+  await connect.getByRole("button", { name: "Connect" }).click();
+  const map = page.getByRole("dialog", { name: "Map Jira Cloud projects" });
+  await map.getByLabel("Project for Storefront").selectOption("storefront");
+  await map.getByLabel("Project for Intranet").selectOption("intranet");
+  await page.screenshot({ path: `${dir}/29-map-jira-projects.png` });
+});

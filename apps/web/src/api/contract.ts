@@ -62,6 +62,12 @@ export type Project = Schemas["Project"];
 export type NewProject = Schemas["NewProject"];
 export type ProjectChange = Schemas["ProjectChange"];
 export type Ticket = Schemas["Ticket"];
+/** A connected ticket system (docs: Integrations). The token is never sent back. */
+export type TicketSystem = Schemas["TicketSystemView"];
+export type NewTicketSystem = Schemas["NewTicketSystem"];
+/** One project of a ticket system mapped to a Token Controller project, by name. */
+export type TicketMapping = Schemas["Mapping"];
+export type ExternalProject = Schemas["ExternalProject"];
 export type NewTicket = Schemas["NewTicket"];
 export type TicketSource = Schemas["TicketSource"];
 export type Client = Schemas["Client"];
@@ -450,13 +456,4 @@ export interface NewRule {
   sets: Tags;
 }
 
-export interface TicketSystem {
-  id: string;
-  kind: "jira" | "azure_devops" | "github_issues";
-  site: string;
-  /** External project to Token Controller project key. */
-  mappings: { external: string; project: string }[];
-  last_sync_at: string | null;
-  status: "ok" | "failing";
-}
 
