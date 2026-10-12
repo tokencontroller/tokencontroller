@@ -1,0 +1,7 @@
+entry,person,agent_harness,agent_name,started_at,status,arrival,bill,tags,configured,signals,summary,hand_split
+1,mara,Codex,,2026-10-20T09:00:00Z,locked,token_sheet,openai-2026-10,,,branch=KD-214-saved-card;repository=kestrel/storefront,Fix the checkout error with a saved card,
+2,mara,Claude Code,,2026-10-21T09:00:00Z,locked,token_sheet,anthropic-2026-10,,,branch=KD-240-slots;repository=kestrel/storefront,Delivery slot picker,
+3,tom,Codex,,2026-10-22T09:00:00Z,locked,token_sheet,openai-2026-10,,,branch=KD-231-autocomplete;repository=kestrel/storefront,Address autocomplete,
+4,,Claude Code,,2026-10-23T09:00:00Z,locked,automatic,anthropic-2026-10,,,,,
+5,lena,Claude Code,,2026-10-24T09:00:00Z,draft,token_sheet,,,,branch=KD-214-saved-card;repository=kestrel/storefront,Not submitted,
+6,lena,Claude Code,,2026-10-27T09:00:00Z,rejected,token_sheet,anthropic-2026-10,,,branch=main;repository=lena/scratch,Rejected: says no ticket,

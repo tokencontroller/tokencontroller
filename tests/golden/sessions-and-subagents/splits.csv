@@ -1,0 +1,8 @@
+entry,tags,amount,placed_by,notes
+1,person=mara;project=storefront;team=web;ticket=KD-214,9.00,rule: ticket key in branch,
+1,person=mara;project=storefront;purpose=code-review;team=web;ticket=KD-240,7.50,rule: ticket key in branch,
+1,person=mara;project=storefront;team=web;ticket=KD-231,1.50,rule: ticket key in prompts or session title,
+1,person=mara;project=storefront;team=web;ticket=KD-240,1.50,rule: ticket key in prompts or session title,
+1,person=mara;project=storefront;purpose=code-review;team=web;ticket=KD-231,1.50,rule: ticket key in prompts or session title,
+2,person=lena;project=storefront;team=data,3.00,rule: repository,
+2,person=lena;project=intranet;team=data,6.00,rule: repository,

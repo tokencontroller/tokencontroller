@@ -22,7 +22,7 @@ use crate::tags::{TagName, TagValue, Tags};
 
 /// A stretch of a session on one branch and one working directory. A
 /// subagent's calls form their own segment, placed on the subagent's own
-/// signals when it has them, otherwise following the session.
+/// signals when they find a ticket, otherwise on the session's ticket.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Segment {
     pub signals: Signals,
@@ -102,6 +102,8 @@ impl TokenEntry {
     /// Cuts a session's messages into segments. Reports of the same message
     /// are joined first (see [`dedupe`]). Messages are taken in time order;
     /// a message without a branch or working directory keeps the session's.
+    /// A segment's repository and pull request are those of its first
+    /// message that names them, or else the session's.
     /// Segments are in the order the session first reached them, and
     /// returning to a branch adds to its segment.
     #[must_use]
@@ -134,6 +136,16 @@ impl TokenEntry {
                         .clone_from(&key.working_directory);
                     if key.subagent_type.is_some() {
                         segment_signals.subagent_type.clone_from(&key.subagent_type);
+                    }
+                    // A segment in another working directory can be in
+                    // another repository: its own message says which.
+                    if message.signals.repository.is_some() {
+                        segment_signals
+                            .repository
+                            .clone_from(&message.signals.repository);
+                    }
+                    if message.signals.pull_request.is_some() {
+                        segment_signals.pull_request = message.signals.pull_request;
                     }
                     segments.push((
                         key,
@@ -218,11 +230,24 @@ impl TokenEntry {
                 .map(|segment| place(&self.tags, &segment.signals))
                 .collect();
             for (index, segment) in self.segments.iter().enumerate() {
-                let shares = self
-                    .followed_session(index, &placed)
-                    .or_else(|| placed.get(index))
-                    .cloned()
-                    .unwrap_or_default();
+                let shares = match self.followed_session(index, &placed) {
+                    // Placed again on the session's tickets, so that the
+                    // subagent keeps tags its own signals give, such as a
+                    // rule on its type.
+                    Some(session) => session
+                        .iter()
+                        .filter_map(|share| {
+                            let ticket = share.tags.get(&TagName::ticket())?;
+                            let mut named = self.tags.clone();
+                            named.insert(TagName::ticket(), ticket.clone());
+                            let mut placed = place(&named, &segment.signals).into_iter().next()?;
+                            placed.weight = share.weight;
+                            placed.placed_by.clone_from(&share.placed_by);
+                            Some(placed)
+                        })
+                        .collect(),
+                    None => placed.get(index).cloned().unwrap_or_default(),
+                };
                 pieces.push((shares, prices.value_all(&segment.usage)?));
             }
             if self.segments.is_empty() {
@@ -266,18 +291,22 @@ impl TokenEntry {
         Ok(Splits { splits, dropped })
     }
 
-    /// For a subagent's segment that its own signals placed nowhere, the
+    /// For a subagent's segment whose own signals found no ticket, the
     /// placement of the session segment on the same branch and working
-    /// directory.
+    /// directory, when that found one.
     fn followed_session<'a>(
         &self,
         index: usize,
         placed: &'a [Vec<PlacedShare>],
     ) -> Option<&'a Vec<PlacedShare>> {
+        let has_ticket = |shares: &[PlacedShare]| {
+            shares
+                .iter()
+                .any(|share| share.tags.contains(&TagName::ticket()))
+        };
         let segment = self.segments.get(index)?;
         segment.signals.subagent_type.as_ref()?;
-        let own = placed.get(index)?;
-        if own.iter().any(|share| share.placed_by != PlacedBy::Nothing) {
+        if has_ticket(placed.get(index)?) {
             return None;
         }
         self.segments
@@ -289,6 +318,7 @@ impl TokenEntry {
                     && session.signals.working_directory == segment.signals.working_directory
             })
             .map(|(_, shares)| shares)
+            .filter(|shares| has_ticket(shares))
     }
 }
 
@@ -529,6 +559,99 @@ mod tests {
             vec!["ACME-1", "ACME-50", "GLOBEX-7"]
         );
         assert_eq!(segment.usage.len(), 2);
+
+        // A segment in another working directory takes its own message's
+        // repository and pull request over the session's.
+        let session = Signals {
+            working_directory: Some("/work/shop".to_owned()),
+            repository: Some("acme/shop".to_owned()),
+            pull_request: Some(12),
+            ..Signals::default()
+        };
+        let mut elsewhere = message("m2", 1, Some("main"), 1);
+        elsewhere.signals.working_directory = Some("/work/other".to_owned());
+        elsewhere.signals.repository = Some("acme/other".to_owned());
+        elsewhere.signals.pull_request = Some(13);
+        let mut back = message("m3", 2, Some("main"), 1);
+        back.signals.repository = Some("acme/third".to_owned());
+        let segments = TokenEntry::segments_from_messages(
+            &session,
+            vec![message("m1", 0, Some("main"), 1), elsewhere, back],
+        );
+        let found: Vec<(Option<&str>, Option<u64>)> = segments
+            .iter()
+            .map(|segment| {
+                (
+                    segment.signals.repository.as_deref(),
+                    segment.signals.pull_request,
+                )
+            })
+            .collect();
+        assert_eq!(
+            found,
+            vec![
+                (Some("acme/shop"), Some(12)),
+                (Some("acme/other"), Some(13))
+            ]
+        );
+    }
+
+    #[test]
+    fn a_subagent_in_a_mapped_repository_takes_the_session_ticket_and_keeps_its_tags() {
+        let mut organization = brightline();
+        if let Some(acme) = organization.directory.projects.get_mut(&value("acme-shop")) {
+            acme.repositories.push("brightline/acme-shop".to_owned());
+        }
+        organization.rules.push(Rule {
+            name: "reviews".to_owned(),
+            when: vec![Condition {
+                signal: SignalKey::SubagentType,
+                test: Test::Is("code-reviewer".to_owned()),
+            }],
+            then: Action::SetTags(tags(&["purpose=code-review"])),
+        });
+        let session = Signals {
+            repository: Some("brightline/acme-shop".to_owned()),
+            ..Signals::default()
+        };
+        let mut asked = message("m1", 0, Some("main"), 1_000_000);
+        asked.signals.prompt_ticket_keys = vec!["ACME-50".to_owned()];
+        let mut reviewer = message("m2", 1, Some("main"), 2_000_000);
+        reviewer.signals.subagent_type = Some("code-reviewer".to_owned());
+        let segments = TokenEntry::segments_from_messages(&session, vec![asked, reviewer]);
+        let splits = entry(segments)
+            .split(&organization, &prices(), None)
+            .unwrap();
+        assert_eq!(
+            split_lists(&splits),
+            vec![
+                ("ACME-50".to_owned(), 1_000_000_000),
+                ("ACME-50".to_owned(), 2_000_000_000)
+            ]
+        );
+        let review = splits.splits.get(1).unwrap();
+        assert_eq!(review.tags.get_str("purpose"), Some(&value("code-review")));
+        assert_eq!(
+            review.placed_by,
+            PlacedBy::Rule("ticket key in prompts or session title".to_owned())
+        );
+
+        // Without a ticket in the session, the subagent keeps its own
+        // placement: the repository's project.
+        let mut reviewer = message("m2", 1, Some("main"), 2_000_000);
+        reviewer.signals.subagent_type = Some("code-reviewer".to_owned());
+        let segments = TokenEntry::segments_from_messages(
+            &session,
+            vec![message("m1", 0, Some("main"), 1_000_000), reviewer],
+        );
+        let splits = entry(segments)
+            .split(&organization, &prices(), None)
+            .unwrap();
+        assert_eq!(splits.splits.len(), 2);
+        let review = splits.splits.get(1).unwrap();
+        assert_eq!(review.tags.get_str("project"), Some(&value("acme-shop")));
+        assert_eq!(review.tags.get_str("purpose"), Some(&value("code-review")));
+        assert_eq!(review.placed_by, PlacedBy::Rule("repository".to_owned()));
     }
 
     #[test]

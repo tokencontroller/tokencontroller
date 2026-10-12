@@ -1,0 +1,12 @@
+entry,tags,amount,placed_by,notes
+1,person=mara;project=storefront;purpose=code-review;team=web;ticket=KD-231,1.00,rule: ticket key in branch,
+2,person=mara;project=storefront;purpose=research;team=web;ticket=KD-240,2.00,rule: ticket key in branch,
+3,person=mara;project=storefront;purpose=learning;team=web;ticket=KD-240,3.00,rule: ticket key in branch,
+4,person=mara;project=storefront;purpose=code-review;team=web,4.00,rule: repository,
+5,person=mara;project=storefront;team=web;ticket=KD-240,5.00,rule: ticket key in prompts or session title,
+6,person=mara;project=storefront;team=web;ticket=KD-231,6.00,rule: ticket key in prompts or session title,
+7,feature=wishlist;person=mara;project=storefront;team=web;ticket=KD-300,7.00,rule: ticket key in branch,
+8,person=mara;project=storefront;purpose=operations;team=web;ticket=OPS-12,8.00,rule: ticket key in branch,
+9,person=mara;project=storefront;team=web;ticket=KD-999,9.00,rule: ticket key in branch,ticket not synced
+10,person=mara;project=storefront;team=web,10.00,rule: repository,
+11,person=mara;team=web,11.00,no ticket,dropped color

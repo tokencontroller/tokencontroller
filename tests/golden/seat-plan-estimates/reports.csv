@@ -1,0 +1,6 @@
+filter,group_by,value,amount
+,person,felix,8.00
+,person,lena,3.250005
+,person,mara,12.00
+,person,tom,4.50
+team=web,,,16.50

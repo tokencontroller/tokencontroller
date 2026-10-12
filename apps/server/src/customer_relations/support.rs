@@ -35,13 +35,16 @@ const ESCALATED_REPLY: &str = "Thank you for your message. The docs do not answe
 pub enum Channel {
     Mail,
     ContactForm,
+    /// Support inside the app, from a signed-in member.
+    App,
 }
 
 impl Channel {
-    fn as_str(self) -> &'static str {
+    const fn as_str(self) -> &'static str {
         match self {
             Self::Mail => "mail",
             Self::ContactForm => "contact_form",
+            Self::App => "app",
         }
     }
 }
@@ -272,13 +275,14 @@ async fn file_mail(
     Ok(())
 }
 
-/// Starts a conversation from the contact form.
+/// Starts a conversation from the contact form or from support in the app.
 ///
 /// # Errors
 ///
 /// When the database fails.
-pub async fn receive_contact_form(
+pub async fn receive_message(
     db: &PgPool,
+    channel: Channel,
     email: &str,
     name: Option<&str>,
     text: &str,
@@ -288,7 +292,7 @@ pub async fn receive_contact_form(
         "INSERT INTO support_conversations (channel, contact_email, contact_name, subject)
          VALUES ($1, $2, $3, 'Your message to Token Controller')
          RETURNING id",
-        Channel::ContactForm.as_str(),
+        channel.as_str(),
         email.trim().to_lowercase(),
         name.map(str::trim).filter(|name| !name.is_empty()),
     )

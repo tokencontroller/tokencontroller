@@ -7,10 +7,9 @@ use std::path::Path;
 
 use tokencontroller_core::{Currency, Money};
 
-use crate::context::Context;
 use crate::error::Result;
-use crate::keys::{KeyPattern, project_of};
-use crate::placing::{Named, Pick, Placement, Signals, place};
+use crate::keys::KeyPattern;
+use crate::placing::{Named, Pick, Placement, Placer, Signals};
 use crate::store::{EntryRow, Status, Store, StoredMessage};
 use crate::tokens::Tokens;
 
@@ -189,7 +188,7 @@ impl Entry {
 
 /// Everything placing needs besides the entry itself.
 pub struct Placing<'a> {
-    pub context: &'a Context,
+    pub placer: &'a Placer,
     pub patterns: &'a [KeyPattern],
     pub run: &'a Run,
 }
@@ -229,47 +228,31 @@ pub fn build(store: &Store, row: EntryRow, placing: &Placing<'_>) -> Result<Entr
 
     let placements: Vec<Placement> = segments
         .iter()
-        .map(|(signals, _, _)| {
-            place(
-                signals,
-                &named,
-                placing.context,
-                placing.patterns,
-                pick.as_ref(),
-            )
-        })
+        .map(|(signals, _, _)| placing.placer.place(signals, &named, pick.as_ref()))
         .collect();
     let asks_classifier = placements
         .iter()
-        .any(|placement| placement.ticket_only_mentioned || !placement.tags.contains_key("ticket"));
+        .any(|placement| placement.ticket_only_mentioned || !placement.has_ticket());
 
     let mut splits = if let Some(hand) = &row.hand_split {
-        shares(
-            hand,
-            placements.first(),
-            segments.first().map(|s| &s.0),
-            placing.patterns,
-            &value,
-            tokens,
-        )?
-    } else if let ([placement], [(signals, _, _)]) = (placements.as_slice(), segments.as_slice())
-        && placement.equal_split.len() > 1
-    {
-        let equal: Vec<(String, u64)> = placement
-            .equal_split
+        let signals = segments
+            .first()
+            .map(|(signals, _, _)| signals.clone())
+            .unwrap_or_default();
+        let hand: Vec<HandShare> = hand
             .iter()
-            .map(|ticket| (ticket.clone(), 1))
+            .map(|(ticket, weight)| {
+                let mut named = named.clone();
+                named.insert("ticket".to_owned(), ticket.clone());
+                HandShare {
+                    weight: *weight,
+                    tags: placing.placer.place(&signals, &named, None).tags(),
+                }
+            })
             .collect();
-        shares(
-            &equal,
-            Some(placement),
-            Some(signals),
-            placing.patterns,
-            &value,
-            tokens,
-        )?
+        by_hand(&hand, &signals, &value, tokens)?
     } else {
-        by_segment(&segments, &placements, &messages)
+        by_segment(&segments, &placements, &messages)?
     };
     set_percents(&mut splits)?;
 
@@ -350,7 +333,6 @@ fn segments_of(
                 .map(|directory| crate::repo::config_tags(Path::new(directory)))
                 .unwrap_or_default();
             let signals = Signals {
-                agent_harness: row.harness.name().to_owned(),
                 branch: message.branch.clone().or_else(|| run("branch")),
                 directory: message.directory.clone(),
                 repository: message.repository.clone().or_else(|| run("repository")),
@@ -382,81 +364,123 @@ fn candidates_of(segments: &[Segment], splits: &[Split], patterns: &[KeyPattern]
         .collect()
 }
 
-/// One split per segment; segments that landed on the same tags become one.
+/// A split to add: its tags, value, tokens, model calls and signals.
+struct Piece {
+    tags: BTreeMap<String, String>,
+    value_nanos: i64,
+    tokens: Tokens,
+    message_ids: Option<Vec<String>>,
+    signals: Signals,
+}
+
+/// Adds a piece to the splits; pieces with the same tags become one split.
+fn add_piece(splits: &mut Vec<Split>, piece: Piece) {
+    if let Some(split) = splits.iter_mut().find(|split| split.tags == piece.tags) {
+        split.value_nanos = split.value_nanos.saturating_add(piece.value_nanos);
+        split.tokens = split.tokens.plus(piece.tokens);
+        split.message_ids = match (split.message_ids.take(), piece.message_ids) {
+            (Some(mut existing), Some(ids)) => {
+                existing.extend(ids);
+                Some(existing)
+            }
+            _ => None,
+        };
+    } else {
+        splits.push(Split {
+            tags: piece.tags,
+            share_percent: 0,
+            value_nanos: piece.value_nanos,
+            tokens: piece.tokens,
+            message_ids: piece.message_ids,
+            signals: piece.signals,
+        });
+    }
+}
+
+/// One split per segment, or per share where prompts named several tickets
+/// and the organization splits equally; pieces that landed on the same tags
+/// become one split.
 fn by_segment(
     segments: &[Segment],
     placements: &[Placement],
     messages: &[StoredMessage],
-) -> Vec<Split> {
+) -> Result<Vec<Split>> {
     let mut splits: Vec<Split> = Vec::new();
     for ((signals, indexes, value), placement) in segments.iter().zip(placements) {
-        let ids: Vec<String> = indexes
+        let calls: Vec<&StoredMessage> = indexes
             .iter()
             .filter_map(|index| messages.get(*index))
-            .map(|message| message.message_id.clone())
             .collect();
-        let tokens = indexes
+        let tokens = calls
             .iter()
-            .filter_map(|index| messages.get(*index))
             .fold(Tokens::default(), |sum, message| sum.plus(message.tokens));
-        if let Some(split) = splits.iter_mut().find(|split| split.tags == placement.tags) {
-            split.value_nanos = split.value_nanos.saturating_add(value.nanos);
-            split.tokens = split.tokens.plus(tokens);
-            if let Some(existing) = split.message_ids.as_mut() {
-                existing.extend(ids);
-            }
-        } else {
-            splits.push(Split {
-                tags: placement.tags.clone(),
-                share_percent: 0,
-                value_nanos: value.nanos,
-                tokens,
-                message_ids: Some(ids),
-                signals: signals.clone(),
-            });
+        if let [share] = placement.shares.as_slice() {
+            add_piece(
+                &mut splits,
+                Piece {
+                    tags: share.tags.clone(),
+                    value_nanos: value.nanos,
+                    tokens,
+                    message_ids: Some(
+                        calls
+                            .iter()
+                            .map(|message| message.message_id.clone())
+                            .collect(),
+                    ),
+                    signals: signals.clone(),
+                },
+            );
+            continue;
+        }
+        let weights: Vec<u64> = placement.shares.iter().map(|share| share.weight).collect();
+        let values = Money::from_nanos(value.nanos, CURRENCY).allocate(&weights)?;
+        let token_parts = divide_tokens(tokens, &weights)?;
+        for ((share, part), tokens) in placement.shares.iter().zip(values).zip(token_parts) {
+            add_piece(
+                &mut splits,
+                Piece {
+                    tags: share.tags.clone(),
+                    value_nanos: part.nanos(),
+                    tokens,
+                    message_ids: None,
+                    signals: signals.clone(),
+                },
+            );
         }
     }
-    splits
+    Ok(splits)
 }
 
-/// Splits by share: the tags of the whole entry, with each share's ticket
-/// and that ticket's project.
-fn shares(
-    shares: &[(String, u64)],
-    placement: Option<&Placement>,
-    signals: Option<&Signals>,
-    patterns: &[KeyPattern],
+/// One share of a split by hand, already placed on its ticket.
+struct HandShare {
+    weight: u64,
+    tags: BTreeMap<String, String>,
+}
+
+/// Splits by hand: the entry's value and tokens divided by share.
+fn by_hand(
+    shares: &[HandShare],
+    signals: &Signals,
     value: &Value,
     tokens: Tokens,
 ) -> Result<Vec<Split>> {
-    let weights: Vec<u64> = shares.iter().map(|(_, weight)| *weight).collect();
+    let weights: Vec<u64> = shares.iter().map(|share| share.weight).collect();
     let values = Money::from_nanos(value.nanos, CURRENCY).allocate(&weights)?;
     let token_parts = divide_tokens(tokens, &weights)?;
-    Ok(shares
-        .iter()
-        .zip(values)
-        .zip(token_parts)
-        .map(|(((ticket, _), part), tokens)| {
-            let mut tags = placement.map(|p| p.tags.clone()).unwrap_or_default();
-            tags.insert("ticket".to_owned(), ticket.clone());
-            match project_of(patterns, ticket) {
-                Some(project) => {
-                    tags.insert("project".to_owned(), project);
-                }
-                None => {
-                    tags.remove("project");
-                }
-            }
-            Split {
-                tags,
-                share_percent: 0,
+    let mut splits = Vec::new();
+    for ((share, part), tokens) in shares.iter().zip(values).zip(token_parts) {
+        add_piece(
+            &mut splits,
+            Piece {
+                tags: share.tags.clone(),
                 value_nanos: part.nanos(),
                 tokens,
                 message_ids: None,
-                signals: signals.cloned().unwrap_or_default(),
-            }
-        })
-        .collect())
+                signals: signals.clone(),
+            },
+        );
+    }
+    Ok(splits)
 }
 
 /// Divides token counts by weight with the largest-remainder method, so the
@@ -531,10 +555,11 @@ fn main_model(messages: &[StoredMessage]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::context::{Organization, Project, SeveralKeys};
+    use crate::context::{Context, Organization, Project};
     use crate::placing::KeyCount;
     use crate::sources::{FileContents, Harness, Message};
     use crate::store::local_id;
+    use tokencontroller_core::{Rule, SeveralKeys};
 
     fn message(key: &str, at_ms: i64, branch: &str, model: &str, input: u64) -> Message {
         Message {
@@ -563,7 +588,8 @@ mod tests {
                 name: "Kestrel".into(),
                 currency: None,
                 tag_names: vec!["team".into()],
-                several_keys: SeveralKeys::Split,
+                several_keys: SeveralKeys::EqualSplit,
+                rules: Rule::defaults(),
             }),
             projects: vec![Project {
                 name: "storefront".into(),
@@ -596,9 +622,10 @@ mod tests {
     fn one(store: &Store) -> Entry {
         let context = context();
         let patterns = context.key_patterns(None);
+        let placer = Placer::new(&context, None);
         let run = Run::default();
         let placing = Placing {
-            context: &context,
+            placer: &placer,
             patterns: &patterns,
             run: &run,
         };
@@ -698,9 +725,14 @@ mod tests {
             first.tags.get("project").map(String::as_str),
             Some("storefront")
         );
+        // OPS-1 matches no project's pattern, so the repository's project
+        // stays, as the core places it.
         let second = hand.splits.get(1).unwrap();
         assert_eq!(second.tags.get("ticket").map(String::as_str), Some("OPS-1"));
-        assert_eq!(second.tags.get("project"), None);
+        assert_eq!(
+            second.tags.get("project").map(String::as_str),
+            Some("storefront")
+        );
         assert!(first.message_ids.is_none());
         assert_eq!(hand.candidates, ["KD-7", "KD-8"]);
     }

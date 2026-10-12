@@ -3,10 +3,13 @@
 //! show the same list; local, they live in the database on this machine.
 
 use serde::Serialize;
+use tokencontroller_core::pattern::TextPattern;
+use tokencontroller_core::rules::{Action, Condition, SignalKey, Test};
+use tokencontroller_core::{Rule, Tags};
 
 use crate::app::App;
 use crate::cli::RulesAction;
-use crate::context::{Condition, Rule, Scope, Signal, Test};
+use crate::context::{Context, describe};
 use crate::error::{Error, Result};
 use crate::output;
 
@@ -15,13 +18,13 @@ pub fn run(app: &mut App<'_>, action: Option<RulesAction>) -> Result<()> {
     match action.unwrap_or(RulesAction::List) {
         RulesAction::List => {}
         RulesAction::Add { words } => {
-            let rule = parse_words(app, &words)?;
-            let mut personal = personal_rules(app);
+            let rule = parse_words(&app.context, &words)?;
+            let mut personal = app.context.rules.clone();
             personal.push(rule);
             save(app, &personal)?;
         }
         RulesAction::Move { from, to } => {
-            let mut personal = personal_rules(app);
+            let mut personal = app.context.rules.clone();
             let index = position(from, personal.len())?;
             let target = position(to, personal.len())?;
             let rule = personal.remove(index);
@@ -29,7 +32,7 @@ pub fn run(app: &mut App<'_>, action: Option<RulesAction>) -> Result<()> {
             save(app, &personal)?;
         }
         RulesAction::Remove { number } => {
-            let mut personal = personal_rules(app);
+            let mut personal = app.context.rules.clone();
             let index = position(number, personal.len())?;
             personal.remove(index);
             save(app, &personal)?;
@@ -39,7 +42,8 @@ pub fn run(app: &mut App<'_>, action: Option<RulesAction>) -> Result<()> {
 }
 
 /// A rule in JSON: personal rules carry the number `tc rules remove` takes,
-/// and every rule its `text` as the list shows it.
+/// and every rule its `text` as the list shows it, then the rule as the core
+/// keeps it.
 #[derive(Debug, Serialize)]
 struct RuleView<'a> {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -47,15 +51,6 @@ struct RuleView<'a> {
     text: String,
     #[serde(flatten)]
     rule: &'a Rule,
-}
-
-fn personal_rules(app: &App<'_>) -> Vec<Rule> {
-    app.context
-        .rules
-        .iter()
-        .filter(|rule| rule.scope == Scope::Personal)
-        .cloned()
-        .collect()
 }
 
 /// A 1-based position from the list into an index.
@@ -70,12 +65,26 @@ fn position(number: usize, len: usize) -> Result<usize> {
         })
 }
 
+/// The signals a rule can test, as the command line writes them (Rules:
+/// "Signals").
+const SIGNALS: [(&str, SignalKey); 6] = [
+    ("branch", SignalKey::Branch),
+    ("directory", SignalKey::WorkingDirectory),
+    ("repository", SignalKey::Repository),
+    ("pull-request", SignalKey::PullRequest),
+    ("subagent", SignalKey::SubagentType),
+    ("ticket", SignalKey::Ticket),
+];
+
+/// The tests, as the command line writes them.
+const TESTS: [&str; 5] = ["is", "starts-with", "contains", "matches", "is-set"];
+
 /// A rule from its words: `branch starts-with review/ purpose=code-review`,
 /// as separate arguments or as one, as the mod's pane passes it. An arrow
 /// between the test and the tags may be written. Without a test word, a value
 /// that looks like a regular expression is one, and any other must match
-/// exactly.
-fn parse_words(app: &App<'_>, words: &[String]) -> Result<Rule> {
+/// exactly. `is-set` takes no value.
+fn parse_words(context: &Context, words: &[String]) -> Result<Rule> {
     let split: Vec<String> = match words {
         [one] => one.split_whitespace().map(str::to_owned).collect(),
         _ => words.to_vec(),
@@ -87,81 +96,80 @@ fn parse_words(app: &App<'_>, words: &[String]) -> Result<Rule> {
         .collect();
     let example = "write a rule as SIGNAL TEST VALUE NAME=VALUE, such as branch starts-with review/ purpose=code-review";
     let (signal, test, value, set) = match words.as_slice() {
-        [signal, test, value, set @ ..] if Test::from_word(test).is_some() => {
-            (*signal, *test, *value, set)
-        }
+        [signal, "is-set", set @ ..] => (*signal, "is-set", "", set),
+        [signal, test, value, set @ ..] if TESTS.contains(test) => (*signal, *test, *value, set),
         [signal, value, set @ ..] => {
             let test = if looks_like_regex(value) {
-                Test::Matches
+                "matches"
             } else {
-                Test::Is
+                "is"
             };
-            (*signal, test.word(), *value, set)
+            (*signal, test, *value, set)
         }
         _ => return Err(Error::usage(example)),
     };
     if set.is_empty() || set.iter().any(|pair| !pair.contains('=')) {
         return Err(Error::usage(example));
     }
-    let set: Vec<String> = set.iter().map(|pair| (*pair).to_owned()).collect();
-    parse_rule(app, signal, test, value, &set)
+    let key = SIGNALS
+        .iter()
+        .find(|(word, _)| *word == signal)
+        .map(|(_, key)| *key)
+        .ok_or_else(|| {
+            let words: Vec<&str> = SIGNALS.iter().map(|(word, _)| *word).collect();
+            Error::usage(format!(
+                "{signal} is not a signal; use one of {}",
+                words.join(", ")
+            ))
+        })?;
+    let test = match test {
+        "is" => Test::Is(value.to_owned()),
+        "starts-with" => Test::StartsWith(value.to_owned()),
+        "contains" => Test::Contains(value.to_owned()),
+        "is-set" => Test::IsSet,
+        _ => Test::Matches(
+            TextPattern::new(value)
+                .map_err(|_| Error::usage(format!("{value} is not a regular expression")))?,
+        ),
+    };
+    let mut tags = Tags::new();
+    for pair in set {
+        let parsed = Tags::parse([*pair]).map_err(|error| Error::usage(error.to_string()))?;
+        for (name, tag_value) in parsed.iter() {
+            if !context.allows_tag(name.as_str()) {
+                return Err(Error::usage(format!(
+                    "{name} is not on your organization's list of tag names"
+                )));
+            }
+            tags.insert(name.clone(), tag_value.clone());
+        }
+    }
+    let name = match &test {
+        Test::IsSet => format!("{signal} is-set"),
+        _ => format!("{signal} {} {value}", test_word(&test)),
+    };
+    Ok(Rule {
+        name,
+        when: vec![Condition { signal: key, test }],
+        then: Action::SetTags(tags),
+    })
+}
+
+/// The word for a test.
+fn test_word(test: &Test) -> &'static str {
+    match test {
+        Test::Is(_) => "is",
+        Test::StartsWith(_) => "starts-with",
+        Test::Contains(_) => "contains",
+        Test::Matches(_) => "matches",
+        Test::IsSet => "is-set",
+    }
 }
 
 fn looks_like_regex(value: &str) -> bool {
     value.contains([
         '^', '$', '*', '+', '?', '(', ')', '[', ']', '{', '}', '|', '\\',
     ])
-}
-
-fn parse_rule(
-    app: &App<'_>,
-    signal: &str,
-    test: &str,
-    value: &str,
-    set: &[String],
-) -> Result<Rule> {
-    let signal = Signal::from_word(signal).ok_or_else(|| {
-        let words: Vec<&str> = Signal::ALL.iter().map(|s| s.word()).collect();
-        Error::usage(format!(
-            "{signal} is not a signal; use one of {}",
-            words.join(", ")
-        ))
-    })?;
-    let test = Test::from_word(test).ok_or_else(|| {
-        let words: Vec<&str> = Test::ALL.iter().map(|t| t.word()).collect();
-        Error::usage(format!(
-            "{test} is not a test; use one of {}",
-            words.join(", ")
-        ))
-    })?;
-    if test == Test::Matches && regex::Regex::new(value).is_err() {
-        return Err(Error::usage(format!("{value} is not a regular expression")));
-    }
-    let mut tags = std::collections::BTreeMap::new();
-    for pair in set {
-        let (name, tag_value) = super::name_value(pair)
-            .filter(|(_, tag_value)| !tag_value.is_empty())
-            .ok_or_else(|| {
-                Error::usage(format!(
-                    "{pair} is not NAME=VALUE, such as purpose=code-review"
-                ))
-            })?;
-        if !app.context.allows_tag(&name) {
-            return Err(Error::usage(format!(
-                "{name} is not on your organization's list of tag names"
-            )));
-        }
-        tags.insert(name, tag_value);
-    }
-    Ok(Rule {
-        scope: Scope::Personal,
-        when: Condition {
-            signal,
-            test,
-            value: value.to_owned(),
-        },
-        set: tags,
-    })
 }
 
 fn save(app: &mut App<'_>, personal: &[Rule]) -> Result<()> {
@@ -180,25 +188,15 @@ fn save(app: &mut App<'_>, personal: &[Rule]) -> Result<()> {
 }
 
 fn list(app: &mut App<'_>) -> Result<()> {
-    let organization: Vec<&Rule> = app
-        .context
-        .rules
-        .iter()
-        .filter(|rule| rule.scope == Scope::Organization)
-        .collect();
-    let personal: Vec<&Rule> = app
-        .context
-        .rules
-        .iter()
-        .filter(|rule| rule.scope == Scope::Personal)
-        .collect();
+    let organization = app.context.organization_rules();
+    let personal = &app.context.rules;
     if app.json {
         let numbered: Vec<RuleView<'_>> = personal
             .iter()
             .enumerate()
             .map(|(index, rule)| RuleView {
                 number: Some(index.saturating_add(1)),
-                text: rule.to_string(),
+                text: describe(rule),
                 rule,
             })
             .collect();
@@ -206,7 +204,7 @@ fn list(app: &mut App<'_>) -> Result<()> {
             .iter()
             .map(|rule| RuleView {
                 number: None,
-                text: rule.to_string(),
+                text: describe(rule),
                 rule,
             })
             .collect();
@@ -215,15 +213,14 @@ fn list(app: &mut App<'_>) -> Result<()> {
             &serde_json::json!({ "rules": numbered, "organization": organization }),
         );
     }
-    writeln!(
-        app.out,
-        "Built in, in this order: ticket key in branch, in pull request title, in prompts or session title; repository mapped to a project."
-    )?;
-    if !organization.is_empty() {
-        writeln!(app.out, "Organization rules (run first):")?;
-        for rule in &organization {
-            writeln!(app.out, "     {rule}")?;
-        }
+    let heading = if app.context.organization.is_some() {
+        "Organization rules, run first:"
+    } else {
+        "Built-in rules, run first:"
+    };
+    writeln!(app.out, "{heading}")?;
+    for rule in &organization {
+        writeln!(app.out, "     {}", describe(rule))?;
     }
     if personal.is_empty() {
         writeln!(
@@ -233,7 +230,12 @@ fn list(app: &mut App<'_>) -> Result<()> {
     } else {
         writeln!(app.out, "Your rules:")?;
         for (index, rule) in personal.iter().enumerate() {
-            writeln!(app.out, "  {:>2} {rule}", index.saturating_add(1))?;
+            writeln!(
+                app.out,
+                "  {:>2} {}",
+                index.saturating_add(1),
+                describe(rule)
+            )?;
         }
     }
     Ok(())
@@ -249,6 +251,61 @@ mod tests {
         assert!(looks_like_regex(r"KD-\d+"));
         assert!(!looks_like_regex("review/"));
         assert!(!looks_like_regex("main"));
+    }
+
+    fn words(text: &str) -> Vec<String> {
+        vec![text.to_owned()]
+    }
+
+    #[test]
+    fn words_become_a_core_rule() {
+        let context = Context::default();
+        let rule = parse_words(
+            &context,
+            &words("branch starts-with review/ purpose=code-review"),
+        )
+        .unwrap();
+        assert_eq!(rule.name, "branch starts-with review/");
+        assert_eq!(
+            rule.when,
+            [Condition {
+                signal: SignalKey::Branch,
+                test: Test::StartsWith("review/".into())
+            }]
+        );
+        assert_eq!(
+            describe(&rule),
+            "branch starts-with review/ → purpose=code-review"
+        );
+        let regex =
+            parse_words(&context, &words("branch ^review/ -> purpose=code-review")).unwrap();
+        assert_eq!(regex.name, "branch matches ^review/");
+        let exact = parse_words(&context, &words("subagent release-notes ticket=OPS-1")).unwrap();
+        assert_eq!(
+            exact
+                .sets_ticket()
+                .map(tokencontroller_core::TagValue::as_str),
+            Some("OPS-1")
+        );
+        let set = parse_words(
+            &context,
+            &[
+                "pull-request".into(),
+                "is-set".into(),
+                "purpose=code-review".into(),
+            ],
+        )
+        .unwrap();
+        assert_eq!(set.name, "pull-request is-set");
+        for wrong in [
+            "weather is sunny x=y",
+            "branch starts-with review/",
+            "branch matches ( purpose=x",
+            "branch is main Purpose=x",
+            "branch",
+        ] {
+            assert!(parse_words(&context, &words(wrong)).is_err(), "{wrong}");
+        }
     }
 
     #[test]

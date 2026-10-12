@@ -1,0 +1,5 @@
+setting,value
+reporting_currency,EUR
+cost_source,usage_at_api_rates
+period,2026-10
+columns,person

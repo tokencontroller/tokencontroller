@@ -11,7 +11,8 @@ This fills in ADR 0010 where the CLI needed details.
 
 ## Placing
 
-- The order is the one on the Rules page. `tc` places with `apps/cli/src/placing.rs` while it moves to the rules engine in `crates/core` (ADR 0015), so the machine and the service place alike; the command line does not change with it.
+- The core places: `tc` hands each segment to the rules engine in `crates/core` (ADR 0015), so the machine and the service place alike. Rules travel in the core's own shape. Connected, the organization's rules, tag names and projects and the person's tags and rules come from `GET /api/v1/me/context`; with no service connected, the default rules and the person's own apply, and a pattern from `tc config ticket-key-pattern` finds ticket keys that belong to no project.
+- The classifier is the machine's own step. When the ticket came only from a mention in prompts or the session title, or nothing found one, the ticket it picks is placed like a named one and shows as placed by the classifier; when it answers `none` to a mention, placing runs again without the mentions.
 - Segments: a session splits exactly by message where the branch, the working directory or the subagent changes. Hand splits and equal splits divide by share with the largest-remainder method (ADR 0004).
 - List value on the machine is an estimate in USD, the price list's currency: the agent's reported cost where it has one, otherwise the tokens at a price snapshot taken from LiteLLM's list and built into the binary (`apps/cli/prices.json`). The service computes the list value that counts with its own price tables.
 
@@ -23,7 +24,7 @@ This fills in ADR 0010 where the CLI needed details.
 
 ## Signing in
 
-`tc connect` signs in with the same magic link as the web app: it asks the service for a link mail with `local_tool: true`, the person opens the link in a browser and presses Sign in, and `tc` polls until it receives a `tc_cli_…` token. Opening the link alone uses nothing, so mail scanners cannot sign a machine in. That token belongs to one person on one machine, can be revoked under _Settings_, reads what its person may read, and may change only that person's token sheet and rules: settings, members and API tokens need the web app. With a `tc_svc_…` service token, as in CI, `tc submit` reports automatic token entries instead of a token sheet.
+`tc connect` signs in with a magic link, as the web app does (`POST /api/v1/sign-in` with `local_tool`). With an invite link it takes the address from the invite; for an instance address it asks for it. The person presses Sign in in the mail, and `tc` collects a `tc_cli_…` token by polling and keeps it in its settings file. Opening the link alone uses nothing, so mail scanners cannot sign a machine in. That token belongs to one person on one machine, can be revoked under _Settings_, reads what its person may read, and may change only that person's token sheet and rules: settings, members and API tokens need the web app. With a `tc_svc_…` service token, as in CI, `tc submit` reports automatic token entries instead of a token sheet.
 
 ## Shipping
 
@@ -32,4 +33,4 @@ This fills in ADR 0010 where the CLI needed details.
 
 ## Why
 
-Readers we own can keep what placing needs and still count exactly as ccusage does, with nothing fetched at build time. One JSON contract and one exit code scheme let the mod and the Action wrap `tc` without parsing tables. Device sign-in keeps passwords and sign-in links out of the terminal.
+Readers we own can keep what placing needs and still count exactly as ccusage does, with nothing fetched at build time. One JSON contract and one exit code scheme let the mod and the Action wrap `tc` without parsing tables. Signing in with the web app's magic link keeps passwords out of the terminal and needs no second sign-in in the service.

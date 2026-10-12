@@ -10,6 +10,753 @@
     "version": "1.0.0"
   },
   "paths": {
+    "/api/v1/admin": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "What waits for the operators. Answers 404 to everyone else, so the web\napp can ask it to decide whether to show the admin area.",
+        "operationId": "overview",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Overview"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not an operator",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/assistant/questions": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "The site assistant's questions of the last 90 days, newest first.",
+        "operationId": "list_questions",
+        "parameters": [
+          {
+            "name": "answered",
+            "in": "query",
+            "description": "`false` lists only the questions the docs did not answer: each one is\na docs change to make.",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/QuestionView"
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not an operator",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/customers": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Every organization on the instance, newest first.",
+        "operationId": "list_customers",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/CustomerSummary"
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not an operator",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/customers/{id}": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Everything about one customer: plan, members, support, feedback,\nnewsletter and notes.",
+        "operationId": "get_customer",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerRecord"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/customers/{id}/notes": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Keeps a note with a customer.",
+        "operationId": "add_note",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewNote"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Note"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/feedback": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Feedback reports, newest first: every organization's for the operators,\nthe own organization's for a controller on an instance without operators.",
+        "operationId": "list_received",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "description": "`received`, `answered` or `fixed`; without it, all.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/Status"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ReceivedReport"
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not someone who handles reports",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/feedback/{id}": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "One feedback report.",
+        "operationId": "get_received",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReceivedReport"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Answers a report or marks it fixed. The sender gets a notice by mail\nthat links to the app.",
+        "operationId": "update_received",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReportChange"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReceivedReport"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/newsletter": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "The newsletter list and every issue.",
+        "operationId": "newsletter",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NewsletterView"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not an operator",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/newsletter/issues": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Writes a draft. Nothing goes out until it is sent.",
+        "operationId": "create_issue",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IssueText"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssueView"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not an operator",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/newsletter/issues/{id}": {
+      "patch": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Changes a draft.",
+        "operationId": "update_issue",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IssueText"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssueView"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Already sent",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/newsletter/issues/{id}/send": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Sends a draft to every confirmed subscriber. The service sends it in\nsmall batches over the next minutes.",
+        "operationId": "send_issue",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssueView"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Not a draft, or the newsletter is off",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/support": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Support conversations, the ones that need a person first.",
+        "operationId": "list_support",
+        "parameters": [
+          {
+            "name": "state",
+            "in": "query",
+            "description": "`new`, `answered`, `escalated` or `closed`. Without it, every\nconversation that is not closed.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ConversationSummary"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not an operator",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/support/{id}": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "One support conversation with every message.",
+        "operationId": "get_support",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConversationView"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/support/{id}/close": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Closes a conversation: nothing left to do. A new mail from the person\nopens it again.",
+        "operationId": "close",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConversationView"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/support/{id}/replies": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Answers a conversation by hand. The mail goes out within a minute, and\nthe conversation then waits for the person.",
+        "operationId": "reply",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Reply"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConversationView"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Support mail is off",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/api-tokens": {
       "get": {
         "tags": [
@@ -460,6 +1207,112 @@
           },
           "429": {
             "description": "Too many messages from here",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/feedback": {
+      "get": {
+        "tags": [
+          "feedback"
+        ],
+        "summary": "The reports the signed-in person sent, newest first, with where each\nstands.",
+        "operationId": "my_reports",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ReportView"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "feedback"
+        ],
+        "summary": "Sends a report from the feedback button. A signed-in person only.",
+        "operationId": "send_report",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewReport"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReportView"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/feedback/{id}/screenshot": {
+      "get": {
+        "tags": [
+          "feedback"
+        ],
+        "summary": "A report's screenshot, for its sender and the people who handle it.",
+        "operationId": "screenshot",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The PNG or JPEG image",
+            "content": {
+              "image/png": {}
+            }
+          },
+          "404": {
             "content": {
               "application/json": {
                 "schema": {
@@ -1843,6 +2696,88 @@
         }
       }
     },
+    "/api/v1/support": {
+      "get": {
+        "tags": [
+          "customer_relations"
+        ],
+        "summary": "Whether support inside the app is on, and where its answers go. Answers\n404 when it is off, as on a self-hosted instance without support.",
+        "operationId": "support",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SupportView"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Support inside the app is off",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/support/messages": {
+      "post": {
+        "tags": [
+          "customer_relations"
+        ],
+        "summary": "Writes to support from inside the app. The answer comes by mail to the\nmember's address, like an answer to the contact form.",
+        "operationId": "support_message",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SupportMessage"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Received; the answer comes by mail"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Support inside the app is off",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/tag-map": {
       "get": {
         "tags": [
@@ -2666,6 +3601,107 @@
           }
         }
       },
+      "ConversationSummary": {
+        "type": "object",
+        "description": "A support conversation in a list.",
+        "required": [
+          "id",
+          "channel",
+          "contact_email",
+          "subject",
+          "kind",
+          "state",
+          "messages",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "channel": {
+            "type": "string",
+            "description": "`mail`, `contact_form` or `app`."
+          },
+          "contact_email": {
+            "type": "string"
+          },
+          "contact_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "kind": {
+            "type": "string",
+            "description": "`question`, `feature_request`, `bug`, `privacy_request`, `sales`,\n`automatic`, `spam` or `other`."
+          },
+          "messages": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "state": {
+            "type": "string",
+            "description": "`new`, `answered`, `escalated` or `closed`."
+          },
+          "subject": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ConversationView": {
+        "type": "object",
+        "description": "A whole support conversation.",
+        "required": [
+          "conversation",
+          "messages"
+        ],
+        "properties": {
+          "conversation": {
+            "$ref": "#/components/schemas/ConversationSummary"
+          },
+          "customer": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/CustomerLink",
+                "description": "The contact's organization, when their address is a member's."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "escalation_reason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why it went to the operators."
+          },
+          "messages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MessageView"
+            }
+          },
+          "suggested_answer": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The answer the AI support answerer proposes; edit it before sending."
+          }
+        }
+      },
       "CostSource": {
         "type": "string",
         "description": "How a provider charges the organization. It decides what the close\nreconciles against (docs: Account > Bills).",
@@ -2707,6 +3743,223 @@
           "read",
           "organization"
         ]
+      },
+      "CustomerLink": {
+        "type": "object",
+        "description": "The organization a contact belongs to, if they are a member.",
+        "required": [
+          "id",
+          "name"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "CustomerMember": {
+        "type": "object",
+        "description": "A member, with their newsletter status.",
+        "required": [
+          "id",
+          "name",
+          "email",
+          "role",
+          "invited_at"
+        ],
+        "properties": {
+          "email": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "invited_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "joined_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "name": {
+            "type": "string"
+          },
+          "newsletter": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`confirmed`, `pending`, or empty when not subscribed."
+          },
+          "removed_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "role": {
+            "$ref": "#/components/schemas/Role"
+          }
+        }
+      },
+      "CustomerRecord": {
+        "type": "object",
+        "description": "Everything we know about one customer.",
+        "required": [
+          "customer",
+          "slug",
+          "reporting_currency",
+          "members",
+          "support",
+          "feedback",
+          "notes"
+        ],
+        "properties": {
+          "customer": {
+            "$ref": "#/components/schemas/CustomerSummary"
+          },
+          "feedback": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ReceivedReport"
+            }
+          },
+          "members": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CustomerMember"
+            },
+            "description": "Everyone who was ever a member, the ones who left last."
+          },
+          "notes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Note"
+            },
+            "description": "Newest first."
+          },
+          "reporting_currency": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          },
+          "subscription": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Subscription",
+                "description": "Empty when the organization never started a checkout."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "support": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ConversationSummary"
+            },
+            "description": "Conversations with its members' addresses, closed ones too."
+          }
+        }
+      },
+      "CustomerSummary": {
+        "type": "object",
+        "description": "An organization in the customer list.",
+        "required": [
+          "id",
+          "name",
+          "created_at",
+          "members",
+          "open_support",
+          "open_feedback"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "members": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Members who have not left, joined or invited."
+          },
+          "name": {
+            "type": "string"
+          },
+          "open_feedback": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Feedback reports from its members nobody answered yet."
+          },
+          "open_support": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Support conversations from its members that are not closed."
+          },
+          "plan": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Plan",
+                "description": "Solo or the Team plan; empty when billing is off (self-hosted)."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "Diagnostics": {
+        "type": "object",
+        "description": "Sent with every report, and shown to the person before they send it.\nNothing else rides along: unknown fields are refused.",
+        "properties": {
+          "app_version": {
+            "type": "string"
+          },
+          "browser": {
+            "type": "string",
+            "description": "The browser's user agent."
+          },
+          "errors": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The last error messages the app showed, at most 10."
+          },
+          "page": {
+            "type": "string",
+            "description": "The page's path, such as `/reports/cost-sheet`. Anything after `?` or\n`#` is dropped."
+          },
+          "request_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The `x-request-id` of the last requests to the service, at most 10."
+          },
+          "screen": {
+            "type": "string",
+            "description": "Such as `1440x900`."
+          }
+        },
+        "additionalProperties": false
       },
       "Done": {
         "type": "object",
@@ -2821,6 +4074,91 @@
             "$ref": "#/components/schemas/MemberView"
           }
         }
+      },
+      "IssueText": {
+        "type": "object",
+        "description": "A new issue, or a change to a draft. Fields left out stay as they are.",
+        "properties": {
+          "body": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "subject": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "IssueView": {
+        "type": "object",
+        "description": "A newsletter issue.",
+        "required": [
+          "id",
+          "subject",
+          "body",
+          "status",
+          "recipients",
+          "delivered",
+          "created_at"
+        ],
+        "properties": {
+          "body": {
+            "type": "string",
+            "description": "Plain text. Every mail adds the one-click unsubscribe link below it."
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "delivered": {
+            "type": "integer",
+            "format": "int64",
+            "description": "How many of them have it."
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "recipients": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Subscribers it goes or went to; 0 for a draft."
+          },
+          "send_started_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "sent_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "status": {
+            "type": "string",
+            "description": "`draft`, `sending` or `sent`."
+          },
+          "subject": {
+            "type": "string"
+          }
+        }
+      },
+      "Kind": {
+        "type": "string",
+        "description": "What a report is about.",
+        "enum": [
+          "bug",
+          "idea",
+          "question"
+        ]
       },
       "LinkSent": {
         "type": "object",
@@ -2970,6 +4308,49 @@
           }
         }
       },
+      "MessageView": {
+        "type": "object",
+        "description": "One message of a conversation.",
+        "required": [
+          "id",
+          "author",
+          "body",
+          "links",
+          "created_at"
+        ],
+        "properties": {
+          "author": {
+            "type": "string",
+            "description": "`customer`, `assistant` (the AI support answerer) or `operator`."
+          },
+          "body": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "links": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Docs pages the answer links to."
+          },
+          "sent_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "When our reply went out by mail; empty while it waits."
+          }
+        }
+      },
       "NewApiToken": {
         "type": "object",
         "description": "A new token.",
@@ -3007,6 +4388,19 @@
           }
         }
       },
+      "NewNote": {
+        "type": "object",
+        "description": "A note to keep with a customer.",
+        "required": [
+          "text"
+        ],
+        "properties": {
+          "text": {
+            "type": "string",
+            "description": "Such as what a call was about, or their answer to \"What was hard\nthis month?\"."
+          }
+        }
+      },
       "NewProject": {
         "type": "object",
         "description": "A new project.",
@@ -3031,6 +4425,36 @@
               "string",
               "null"
             ]
+          }
+        }
+      },
+      "NewReport": {
+        "type": "object",
+        "description": "A report from the feedback button.",
+        "required": [
+          "kind",
+          "text"
+        ],
+        "properties": {
+          "diagnostics": {
+            "$ref": "#/components/schemas/Diagnostics"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/Kind"
+          },
+          "screenshot": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Screenshot",
+                "description": "Off unless the person turned it on."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "text": {
+            "type": "string"
           }
         }
       },
@@ -3092,6 +4516,65 @@
               "string",
               "null"
             ]
+          }
+        }
+      },
+      "NewsletterView": {
+        "type": "object",
+        "description": "The newsletter list and its issues.",
+        "required": [
+          "on",
+          "confirmed",
+          "pending",
+          "issues"
+        ],
+        "properties": {
+          "confirmed": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Subscribers who confirmed."
+          },
+          "issues": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/IssueView"
+            },
+            "description": "Newest first."
+          },
+          "on": {
+            "type": "boolean",
+            "description": "Whether the newsletter can be sent (`TC_RESEND_API_KEY` and\n`TC_NEWSLETTER_FROM` are set)."
+          },
+          "pending": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Sign-ups waiting for their confirmation, deleted after 7 days."
+          }
+        }
+      },
+      "Note": {
+        "type": "object",
+        "description": "A note an operator kept about a customer.",
+        "required": [
+          "id",
+          "author_email",
+          "body",
+          "created_at"
+        ],
+        "properties": {
+          "author_email": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
           }
         }
       },
@@ -3269,6 +4752,38 @@
           "slug": {
             "type": "string",
             "description": "Used in invite links, such as `kestrel` in `/i/kestrel-4f2a9c1e7b03`."
+          }
+        }
+      },
+      "Overview": {
+        "type": "object",
+        "description": "What waits for the operators.",
+        "required": [
+          "support_escalated",
+          "feedback_received",
+          "assistant_missed_7_days",
+          "newsletter_subscribers"
+        ],
+        "properties": {
+          "assistant_missed_7_days": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Site assistant questions of the last 7 days the docs did not answer."
+          },
+          "feedback_received": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Feedback reports nobody answered yet."
+          },
+          "newsletter_subscribers": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Confirmed newsletter subscribers."
+          },
+          "support_escalated": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Support conversations that need a person."
           }
         }
       },
@@ -3453,6 +4968,71 @@
           }
         }
       },
+      "QuestionView": {
+        "type": "object",
+        "description": "A question asked to the site assistant on the website.",
+        "required": [
+          "id",
+          "question",
+          "answer",
+          "answered",
+          "links",
+          "created_at"
+        ],
+        "properties": {
+          "answer": {
+            "type": "string"
+          },
+          "answered": {
+            "type": "boolean",
+            "description": "Whether the docs answered it."
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "links": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "page": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The website page it was asked on."
+          },
+          "question": {
+            "type": "string"
+          }
+        }
+      },
+      "ReceivedReport": {
+        "type": "object",
+        "description": "A report as the people who handle it see it.",
+        "required": [
+          "report",
+          "organization",
+          "reporter"
+        ],
+        "properties": {
+          "organization": {
+            "$ref": "#/components/schemas/CustomerLink"
+          },
+          "report": {
+            "$ref": "#/components/schemas/ReportView"
+          },
+          "reporter": {
+            "$ref": "#/components/schemas/Reporter"
+          }
+        }
+      },
       "Rejected": {
         "type": "object",
         "description": "A token entry the service turned down.",
@@ -3470,6 +5050,128 @@
           }
         }
       },
+      "Reply": {
+        "type": "object",
+        "description": "An operator's answer.",
+        "required": [
+          "text"
+        ],
+        "properties": {
+          "text": {
+            "type": "string",
+            "description": "Plain text. It goes out by mail, signed \"Token Controller support\"."
+          }
+        }
+      },
+      "ReportChange": {
+        "type": "object",
+        "description": "An answer to a report, or news on it. Fields left out stay as they are.",
+        "properties": {
+          "answer": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Plain text the sender reads in the app."
+          },
+          "fixed_in": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The version the fix shipped in, such as `1.0.1`."
+          },
+          "status": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Status",
+                "description": "Without it, an answer makes the report `answered` and a version\nmakes it `fixed`."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "ReportView": {
+        "type": "object",
+        "description": "A report as its sender sees it.",
+        "required": [
+          "id",
+          "kind",
+          "text",
+          "has_screenshot",
+          "diagnostics",
+          "status",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "answer": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "diagnostics": {
+            "$ref": "#/components/schemas/Diagnostics"
+          },
+          "fixed_in": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The version the fix shipped in."
+          },
+          "has_screenshot": {
+            "type": "boolean",
+            "description": "Fetch it from `/feedback/{id}/screenshot`. Screenshots are deleted\nafter 90 days."
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/Kind"
+          },
+          "status": {
+            "$ref": "#/components/schemas/Status"
+          },
+          "text": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "Reporter": {
+        "type": "object",
+        "description": "Who sent a report.",
+        "required": [
+          "person_id",
+          "name",
+          "email"
+        ],
+        "properties": {
+          "email": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "person_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
       "Role": {
         "type": "string",
         "description": "What a member can see and do.",
@@ -3478,6 +5180,24 @@
           "people_manager",
           "controller"
         ]
+      },
+      "Screenshot": {
+        "type": "object",
+        "description": "A screenshot the person saw, and blurred where they wanted, before\nsending.",
+        "required": [
+          "type",
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "string",
+            "description": "The image in base64, at most 3 MB decoded."
+          },
+          "type": {
+            "type": "string",
+            "description": "`image/png` or `image/jpeg`."
+          }
+        }
       },
       "ServiceStatus": {
         "type": "object",
@@ -3580,6 +5300,15 @@
           }
         }
       },
+      "Status": {
+        "type": "string",
+        "description": "Where a report stands, as the person who sent it sees it.",
+        "enum": [
+          "received",
+          "answered",
+          "fixed"
+        ]
+      },
       "StripeRedirect": {
         "type": "object",
         "description": "A Stripe page to send the controller to.",
@@ -3589,6 +5318,64 @@
         "properties": {
           "url": {
             "type": "string"
+          }
+        }
+      },
+      "Subscription": {
+        "type": "object",
+        "description": "The Team plan subscription, as Stripe last told us.",
+        "required": [
+          "cancel_at_period_end"
+        ],
+        "properties": {
+          "cancel_at_period_end": {
+            "type": "boolean"
+          },
+          "current_period_end": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "interval": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`month` or `year`."
+          },
+          "status": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Stripe's status, such as `active`, `past_due` or `canceled`."
+          }
+        }
+      },
+      "SupportMessage": {
+        "type": "object",
+        "description": "A message to support from inside the app.",
+        "required": [
+          "message"
+        ],
+        "properties": {
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "SupportView": {
+        "type": "object",
+        "description": "Support inside the app, as a signed-in member sees it.",
+        "required": [
+          "answer_to"
+        ],
+        "properties": {
+          "answer_to": {
+            "type": "string",
+            "description": "Where answers go: the member's own address."
           }
         }
       },

@@ -1,0 +1,2 @@
+version,model,input,output,cache_write,cache_read
+1,openai/gpt-5,1.25,10.00,0,0.125
