@@ -987,3 +987,167 @@ async fn the_close_waits_for_a_bill_that_is_not_final(pool: PgPool) {
     .unwrap();
     assert_eq!(closed.status, StatusCode::OK, "{}", closed.text());
 }
+
+#[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
+async fn a_saved_report_says_who_can_remove_it(pool: PgPool) {
+    let kestrel = kestrel(&pool).await.unwrap();
+    let save = |token: String, name: &str| {
+        let app = kestrel.app.clone();
+        let body = json!({"name": name, "filter": "team:web", "by": "ticket"});
+        async move {
+            call(
+                &app,
+                Method::POST,
+                "/api/v1/reports/saved",
+                &token,
+                Some(body),
+            )
+            .await
+        }
+    };
+    let ours = save(kestrel.controller.clone(), "Web by ticket")
+        .await
+        .unwrap();
+    assert_eq!(ours.status, StatusCode::CREATED, "{}", ours.text());
+    assert_eq!(ours.json()["can_remove"], true);
+    let mine = save(kestrel.ana.clone(), "Mine").await.unwrap();
+    assert_eq!(mine.status, StatusCode::CREATED, "{}", mine.text());
+    let mine = mine.json();
+    assert_eq!(mine["created_by"], "ana");
+    assert_ne!(mine["created_by_id"], ours.json()["created_by_id"]);
+
+    let list = |token: String| {
+        let app = kestrel.app.clone();
+        async move {
+            call(&app, Method::GET, "/api/v1/reports/saved", &token, None)
+                .await
+                .map(|answer| answer.json())
+        }
+    };
+    let can_remove = |list: &Value| -> Vec<(String, bool)> {
+        list.as_array()
+            .into_iter()
+            .flatten()
+            .map(|saved| {
+                (
+                    saved["name"].as_str().unwrap_or_default().to_owned(),
+                    saved["can_remove"].as_bool().unwrap_or_default(),
+                )
+            })
+            .collect()
+    };
+    let as_ana = list(kestrel.ana.clone()).await.unwrap();
+    assert_eq!(
+        can_remove(&as_ana),
+        [
+            ("Mine".to_owned(), true),
+            ("Web by ticket".to_owned(), false)
+        ]
+    );
+    assert_eq!(
+        as_ana.pointer("/0/created_by_id"),
+        Some(&mine["created_by_id"])
+    );
+    let as_controller = list(kestrel.controller.clone()).await.unwrap();
+    assert_eq!(
+        can_remove(&as_controller),
+        [
+            ("Mine".to_owned(), true),
+            ("Web by ticket".to_owned(), true)
+        ]
+    );
+
+    let remove = |token: &str, id: &Value| {
+        let path = format!("/api/v1/reports/saved/{}", id.as_str().unwrap_or_default());
+        let app = kestrel.app.clone();
+        let token = token.to_owned();
+        async move { call(&app, Method::DELETE, &path, &token, None).await }
+    };
+    let refused = remove(&kestrel.ana, &ours.json()["id"]).await.unwrap();
+    assert_eq!(refused.status, StatusCode::NOT_FOUND);
+    let removed = remove(&kestrel.ana, &mine["id"]).await.unwrap();
+    assert_eq!(removed.status, StatusCode::NO_CONTENT);
+}
+
+#[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
+async fn outliers_follow_the_status_and_currency_asked_for(pool: PgPool) {
+    let kestrel = kestrel(&pool).await.unwrap();
+    // Three storefront tickets in August make the baseline: their median is
+    // 0.50.
+    sqlx::query(
+        "INSERT INTO tickets (organization_id, key, project_id, title)
+         SELECT $1, key, (SELECT id FROM projects WHERE organization_id = $1), key
+         FROM unnest(ARRAY['KD-1', 'KD-2', 'KD-3']) AS key",
+    )
+    .bind(kestrel.organization_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let ana: Uuid = sqlx::query_scalar("SELECT id FROM people WHERE email = 'ana@kestrel.example'")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    let ana_cli = session(&pool, ana, secret::CLI, "local_tool")
+        .await
+        .unwrap();
+    let sent = call(
+        &kestrel.app,
+        Method::POST,
+        "/api/v1/token-sheets/submit",
+        &ana_cli,
+        Some(json!({"token_entries": [
+            september("claude-code:a1", "2026-08-03T09:00:00Z", "0.40", "KD-1"),
+            september("claude-code:a2", "2026-08-04T09:00:00Z", "0.50", "KD-2"),
+            september("claude-code:a3", "2026-08-05T09:00:00Z", "0.60", "KD-3"),
+        ]})),
+    )
+    .await
+    .unwrap();
+    assert_eq!(sent.status, StatusCode::OK, "{}", sent.text());
+    // 1.25 USD per euro on the last day of September: 1 USD is 0.80 EUR.
+    sqlx::query(
+        "INSERT INTO exchange_rates (day, currency, per_euro_nanos) VALUES ('2026-09-30', 'USD', 1250000000)",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let outliers = |query: &str| {
+        let path = format!("/api/v1/reports/outliers?period=2026-09{query}");
+        let app = kestrel.app.clone();
+        let token = kestrel.controller.clone();
+        async move { call(&app, Method::GET, &path, &token, None).await }
+    };
+    let usd = outliers("").await.unwrap();
+    assert_eq!(usd.status, StatusCode::OK, "{}", usd.text());
+    let usd = usd.json();
+    assert_eq!(usd["currency"], "USD");
+    assert_eq!(usd["status"], "all");
+    assert_eq!(usd["exchange_rate"], Value::Null);
+    assert_eq!(usd["tickets"][0]["ticket"], "OPS-7");
+    assert_eq!(usd["tickets"][0]["amount"], "1.08");
+    assert_eq!(usd["tickets"][0]["baseline"], "0.50");
+    assert_eq!(usd["tickets"][0]["ratio"], "2.2");
+    assert_eq!(usd["tickets"][0]["similar_tickets"], 3);
+    assert_eq!(usd["tickets"][1]["ticket"], "KD-214");
+    assert_eq!(usd["tickets"][1]["direction"], "low");
+
+    let eur = outliers("&currency=EUR").await.unwrap().json();
+    assert_eq!(eur["currency"], "EUR");
+    assert_eq!(eur["exchange_rate"], "0.8");
+    assert_eq!(eur["tickets"][0]["amount"], "0.86");
+    assert_eq!(eur["tickets"][0]["baseline"], "0.40");
+    assert_eq!(eur["tickets"][0]["ratio"], "2.2");
+    let csv = outliers("&currency=EUR&format=csv").await.unwrap().text();
+    assert!(
+        csv.contains("2026-09,OPS-7,storefront,0.86,0.40,EUR,2.2,high"),
+        "{csv}"
+    );
+
+    // With approval asked for, nothing submitted counts, in the period or
+    // in the baseline.
+    let approved = outliers("&status=approved").await.unwrap().json();
+    assert_eq!(approved["status"], "approved");
+    assert_eq!(approved["tickets"], json!([]));
+    assert_eq!(approved["without_baseline"], 0);
+}

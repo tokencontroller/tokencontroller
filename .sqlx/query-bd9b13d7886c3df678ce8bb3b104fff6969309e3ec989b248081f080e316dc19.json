@@ -1,0 +1,125 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT f.id, t.key, t.title, f.currency, f.proposed_nanos, f.matches, f.model,\n                  f.created_at, b.id AS \"token_budget_id?\"\n           FROM token_forecasts f\n           JOIN tickets t ON t.id = f.ticket_id\n           LEFT JOIN token_budgets b ON b.token_forecast_id = f.id AND b.removed_at IS NULL\n           WHERE f.organization_id = $1 AND t.key = $2\n           ORDER BY f.created_at DESC, f.id DESC\n           LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "token_forecasts",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "key",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tickets",
+            "name": "key"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "title",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tickets",
+            "name": "title"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "currency",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "token_forecasts",
+            "name": "currency"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "proposed_nanos",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "token_forecasts",
+            "name": "proposed_nanos"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "matches",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "token_forecasts",
+            "name": "matches"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "model",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "token_forecasts",
+            "name": "model"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "token_forecasts",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "token_budget_id?",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "token_budgets",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false,
+      true,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "bd9b13d7886c3df678ce8bb3b104fff6969309e3ec989b248081f080e316dc19"
+}

@@ -35,7 +35,7 @@ use crate::sign_in::Caller;
 
 pub(super) fn routes() -> OpenApiRouter<AppState> {
     OpenApiRouter::new()
-        .routes(routes!(create_token_forecast))
+        .routes(routes!(create_token_forecast, get_token_forecast))
         .routes(routes!(accept_token_forecast))
         .routes(routes!(get_settings, set_settings))
 }
@@ -208,6 +208,18 @@ impl StoredMatch {
     fn known_cost(&self, currency: Currency) -> Option<Money> {
         (self.unknown_model_entries == 0).then(|| Money::from_nanos(self.actual_nanos, currency))
     }
+
+    /// As the API shows it.
+    fn view(&self, currency: Currency) -> ForecastMatch {
+        ForecastMatch {
+            ticket: self.ticket.clone(),
+            title: self.title.clone(),
+            confidence: self.confidence,
+            actual: format_amount(Money::from_nanos(self.actual_nanos, currency)),
+            token_entries: self.token_entries,
+            unknown_model_entries: self.unknown_model_entries,
+        }
+    }
 }
 
 /// The median cost of the matches whose cost is fully known.
@@ -265,6 +277,9 @@ pub struct TokenForecastView {
     #[serde(with = "time::serde::rfc3339")]
     #[schema(value_type = String, format = DateTime)]
     pub created_at: OffsetDateTime,
+    /// The token budget it became once a person accepted it; `null` until
+    /// then, or after that token budget was removed.
+    pub token_budget_id: Option<Uuid>,
 }
 
 fn ticket_filter(key: &str) -> Filter {
@@ -434,19 +449,58 @@ pub async fn create<E: Embedder>(
         title: ticket.title,
         currency: currency.code(),
         proposed: proposed.map(format_amount),
-        matches: matches
-            .iter()
-            .map(|found| ForecastMatch {
-                ticket: found.ticket.clone(),
-                title: found.title.clone(),
-                confidence: found.confidence,
-                actual: format_amount(Money::from_nanos(found.actual_nanos, currency)),
-                token_entries: found.token_entries,
-                unknown_model_entries: found.unknown_model_entries,
-            })
-            .collect(),
+        matches: matches.iter().map(|found| found.view(currency)).collect(),
         model: embedder.model().to_owned(),
         created_at: row.created_at,
+        token_budget_id: None,
+    })
+}
+
+/// The latest token forecast made for the ticket `key`, as it was made,
+/// with the token budget it became. `scope` must cover the ticket.
+///
+/// # Errors
+///
+/// [`ApiError::NotFound`] when no token forecast was made for the ticket,
+/// [`ApiError::Forbidden`] outside `scope`, or a database error.
+pub async fn latest(
+    db: &PgPool,
+    organization_id: Uuid,
+    scope: &Scope,
+    key: &str,
+) -> Result<TokenForecastView, ApiError> {
+    let row = sqlx::query!(
+        r#"SELECT f.id, t.key, t.title, f.currency, f.proposed_nanos, f.matches, f.model,
+                  f.created_at, b.id AS "token_budget_id?"
+           FROM token_forecasts f
+           JOIN tickets t ON t.id = f.ticket_id
+           LEFT JOIN token_budgets b ON b.token_forecast_id = f.id AND b.removed_at IS NULL
+           WHERE f.organization_id = $1 AND t.key = $2
+           ORDER BY f.created_at DESC, f.id DESC
+           LIMIT 1"#,
+        organization_id,
+        key.trim(),
+    )
+    .fetch_optional(db)
+    .await?
+    .ok_or(ApiError::NotFound)?;
+    require_covers_ticket(db, organization_id, scope, &row.key).await?;
+    let currency =
+        Currency::new(&row.currency).map_err(|error| ApiError::Internal(error.into()))?;
+    let matches: Vec<StoredMatch> =
+        serde_json::from_value(row.matches).map_err(|error| ApiError::Internal(error.into()))?;
+    Ok(TokenForecastView {
+        id: row.id,
+        ticket: row.key,
+        title: row.title,
+        currency: currency.code(),
+        proposed: row
+            .proposed_nanos
+            .map(|nanos| format_amount(Money::from_nanos(nanos, currency))),
+        matches: matches.iter().map(|found| found.view(currency)).collect(),
+        model: row.model,
+        created_at: row.created_at,
+        token_budget_id: row.token_budget_id,
     })
 }
 
@@ -622,6 +676,30 @@ pub(crate) async fn create_token_forecast(
     )
     .await?;
     Ok((StatusCode::CREATED, Json(forecast)))
+}
+
+/// The latest token forecast made for a ticket, as it was made, with the
+/// token budget it became once accepted.
+#[utoipa::path(
+    get,
+    path = "/tickets/{key}/token-forecast",
+    tag = "token_budgets",
+    params(("key" = String, Path, description = "The ticket key, such as KD-214")),
+    responses(
+        (status = OK, description = "The latest token forecast", body = TokenForecastView),
+        (status = FORBIDDEN, description = "Outside the filters you are assigned", body = crate::error::ErrorBody),
+        (status = NOT_FOUND, description = "No token forecast was made for this ticket", body = crate::error::ErrorBody),
+    ),
+)]
+pub(crate) async fn get_token_forecast(
+    State(state): State<AppState>,
+    caller: Caller,
+    Path(key): Path<String>,
+) -> Result<Json<TokenForecastView>, ApiError> {
+    caller.require_role(Role::PeopleManager)?;
+    let scope = Scope::of(&state.db, &caller).await?;
+    let forecast = latest(&state.db, caller.organization_id, &scope, &key).await?;
+    Ok(Json(forecast))
 }
 
 /// Accept a token forecast: it becomes a token budget on its ticket for

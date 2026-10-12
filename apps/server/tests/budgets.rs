@@ -749,19 +749,19 @@ async fn token_budget_vs_actual_pins_overrun_underrun_and_exactly_at(pool: PgPoo
     .unwrap();
     assert_eq!(status, StatusCode::OK);
     assert!(csv.starts_with(
-        "token_budget,name,filter,applies,actual_period,amount,actual,difference,outcome,token_entries,unknown_model_entries,currency\r\n"
+        "token_budget,name,filter,applies,actual_period,amount,actual,difference,outcome,share_percent,token_entries,unknown_model_entries,currency\r\n"
     ));
     assert!(
         csv.contains(&format!(
-            "{over},,team:data,2026-09,2026-09,5.00,7.50,2.50,overrun,1,0,USD\r\n"
+            "{over},,team:data,2026-09,2026-09,5.00,7.50,2.50,overrun,,1,0,USD\r\n"
         )),
         "{csv}"
     );
     assert!(csv.contains(&format!(
-        "{unknown},,team:qa,2026-09,2026-09,1.00,0.00,-1.00,unknown model,1,1,USD\r\n"
+        "{unknown},,team:qa,2026-09,2026-09,1.00,0.00,-1.00,unknown model,,1,1,USD\r\n"
     )));
     assert!(csv.contains(&format!(
-        "{all_time},,ticket:KD-180,all time,all time,8.00,8.00,0.00,at_token_budget,2,0,USD\r\n"
+        "{all_time},,ticket:KD-180,all time,all time,8.00,8.00,0.00,at_token_budget,,2,0,USD\r\n"
     )));
 
     let (status, _) = call(
@@ -970,10 +970,82 @@ async fn actual_is_in_the_reporting_currency(pool: PgPool) {
     .await
     .unwrap();
     assert_eq!(report["currency"], "EUR");
+    assert_eq!(report["exchange_rate"], Value::Null);
+    assert_eq!(report["label"], "list-price estimate");
     let web_row = row(&report, &web).unwrap();
     assert_eq!(web_row["token_budget"]["currency"], "EUR");
     assert_eq!(web_row["actual"], "8.00");
     assert_eq!(web_row["outcome"], "at_token_budget");
+    assert_eq!(web_row["share"], Value::Null);
+
+    // Shown in dollars and as shares of the period, as every report can be.
+    let (status, shown) = call(
+        &pool,
+        "GET",
+        "/api/v1/reports/token-budgets?period=2026-09&currency=USD&view=share",
+        org.controller,
+        None,
+    )
+    .await
+    .unwrap();
+    assert_eq!(status, StatusCode::OK, "{shown}");
+    assert_eq!(shown["currency"], "USD");
+    assert_eq!(shown["exchange_rate"], "1.25");
+    assert_eq!(shown["view"], "share");
+    assert_eq!(shown["label"], "share of the period");
+    let web_row = row(&shown, &web).unwrap();
+    assert_eq!(web_row["amount"], "10.00");
+    assert_eq!(web_row["actual"], "10.00");
+    assert_eq!(web_row["difference"], "0.00");
+    assert_eq!(web_row["outcome"], "at_token_budget");
+    assert_eq!(web_row["share"], 10_000);
+    let (_, csv) = call_text(
+        &pool,
+        "GET",
+        "/api/v1/reports/token-budgets?period=2026-09&currency=USD&view=share&format=csv",
+        org.controller,
+        None,
+    )
+    .await
+    .unwrap();
+    assert!(
+        csv.contains(",10.00,10.00,0.00,at_token_budget,100.00,1,0,USD"),
+        "{csv}"
+    );
+    let (_, detail) = call(
+        &pool,
+        "GET",
+        &format!("/api/v1/reports/token-budgets/{web}?period=2026-09&currency=USD&view=share"),
+        org.controller,
+        None,
+    )
+    .await
+    .unwrap();
+    assert_eq!(detail["currency"], "USD");
+    assert_eq!(detail["exchange_rate"], "1.25");
+    assert_eq!(detail["row"]["actual"], "10.00");
+    assert_eq!(detail["row"]["share"], 10_000);
+    assert_eq!(detail["tickets"][0]["actual"], "10.00");
+    let (status, _) = call(
+        &pool,
+        "GET",
+        "/api/v1/reports/token-budgets?period=2026-09&currency=XYZ",
+        org.controller,
+        None,
+    )
+    .await
+    .unwrap();
+    assert_eq!(status, StatusCode::CONFLICT);
+    let (status, _) = call(
+        &pool,
+        "GET",
+        "/api/v1/reports/token-budgets?period=2026-09&currency=dollars",
+        org.controller,
+        None,
+    )
+    .await
+    .unwrap();
+    assert_eq!(status, StatusCode::BAD_REQUEST);
 }
 
 /// A deterministic stand-in for an embeddings model: words hashed into a
@@ -1098,6 +1170,11 @@ async fn embedded(pool: &PgPool) -> TestResult<i64> {
 async fn a_token_forecast_proposes_the_median_of_similar_past_tickets(pool: PgPool) {
     let org = organization(&pool, "USD").await.unwrap();
     past_work(&pool, &org).await.unwrap();
+    let latest = "/api/v1/tickets/KD-214/token-forecast";
+    let (status, _) = call(&pool, "GET", latest, org.controller, None)
+        .await
+        .unwrap();
+    assert_eq!(status, StatusCode::NOT_FOUND);
 
     let made = forecast::create(
         &pool,
@@ -1173,6 +1250,21 @@ async fn a_token_forecast_proposes_the_median_of_similar_past_tickets(pool: PgPo
     assert_eq!(budget["applies"], "all time");
     assert_eq!(budget["period"], Value::Null);
     assert_eq!(budget["token_forecast_id"], made.id.to_string());
+    // After a reload the page reads the token forecast again, accepted.
+    let (status, read) = call(&pool, "GET", latest, org.account_manager, None)
+        .await
+        .unwrap();
+    assert_eq!(status, StatusCode::OK, "{read}");
+    assert_eq!(read["id"], made.id.to_string());
+    assert_eq!(read["proposed"], "40.00");
+    assert_eq!(read["matches"].as_array().map(Vec::len), Some(3));
+    assert_eq!(read["token_budget_id"], budget["id"]);
+    let (status, _) = call(&pool, "GET", latest, org.ana, None).await.unwrap();
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, _) = call(&pool, "GET", latest, org.web_lead, None)
+        .await
+        .unwrap();
+    assert_eq!(status, StatusCode::FORBIDDEN);
     let (status, again) = call(&pool, "POST", &accept, org.account_manager, Some(json!({})))
         .await
         .unwrap();
@@ -1247,6 +1339,11 @@ async fn a_token_forecast_proposes_the_median_of_similar_past_tickets(pool: PgPo
     .await
     .unwrap();
     assert_eq!(budget["amount"], "12.50");
+    let (_, read) = call(&pool, "GET", latest, org.controller, None)
+        .await
+        .unwrap();
+    assert_eq!(read["id"], third.id.to_string());
+    assert_eq!(read["token_budget_id"], budget["id"]);
     let (status, _) = call(
         &pool,
         "POST",

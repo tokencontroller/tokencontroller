@@ -13,12 +13,13 @@ use axum::extract::{Query, State};
 use axum::response::{IntoResponse, Response};
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
-use tokencontroller_core::{Currency, Money, MoneyError};
+use tokencontroller_core::{Currency, ExchangeRate, Money, MoneyError};
 use utoipa::{IntoParams, ToSchema};
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
 use super::READERS;
+use super::cost::{rate_shown, shown_in};
 use super::csv::Csv;
 use super::filter::Filter;
 use super::lines::{self, CostLine, LineQuery, StatusView};
@@ -55,6 +56,11 @@ pub struct OutlierQuery {
     pub filter: Option<String>,
     /// How many tickets to list, 20 when left out.
     pub limit: Option<usize>,
+    /// `all` (the default) or `approved`: with approval on, only approved
+    /// token entries count, in the period and in the baseline.
+    pub status: Option<StatusView>,
+    /// Show the amounts in another currency, such as `USD`.
+    pub currency: Option<String>,
     /// `csv` for a CSV file.
     pub format: Option<String>,
 }
@@ -107,8 +113,11 @@ pub struct Outliers {
     #[schema(value_type = String, example = "2026-09")]
     pub period: Period,
     pub closed: bool,
+    pub status: StatusView,
     #[schema(value_type = String, example = "EUR")]
     pub currency: Currency,
+    /// The rate from the reporting currency, when shown in another one.
+    pub exchange_rate: Option<String>,
     /// `list-price estimate`.
     pub label: &'static str,
     /// Furthest from the baseline first.
@@ -253,12 +262,14 @@ fn baselines(past: &BTreeMap<String, Ticket>, currency: Currency) -> Result<Base
 type Found = ((i128, i128), Outlier);
 
 /// Each ticket with cost next to its baseline, with its distance from it,
-/// and how many tickets had no baseline to compare with.
+/// and how many tickets had no baseline to compare with. Distances come
+/// from the reporting currency; amounts are shown at `rate`.
 fn against_baselines(
     tickets: BTreeMap<String, Ticket>,
     baselines: &Baselines,
     currency: Currency,
-) -> (Vec<Found>, usize) {
+    rate: ExchangeRate,
+) -> Result<(Vec<Found>, usize), MoneyError> {
     let Baselines {
         projects,
         organization,
@@ -290,13 +301,15 @@ fn against_baselines(
             without_baseline = without_baseline.saturating_add(1);
             continue;
         };
+        let amount = rate.convert(Money::from_nanos(ticket.nanos, currency))?;
+        let shown_baseline = rate.convert(middle)?;
         found.push((
             distance(ticket.nanos, middle.nanos()),
             Outlier {
                 ticket: key,
                 project: ticket.project,
-                amount: format_amount(Money::from_nanos(ticket.nanos, currency)),
-                baseline: format_amount(middle),
+                amount: format_amount(amount),
+                baseline: format_amount(shown_baseline),
                 ratio: format_tenths(tenths),
                 direction: if ticket.nanos >= middle.nanos() {
                     Direction::High
@@ -310,7 +323,7 @@ fn against_baselines(
             },
         ));
     }
-    (found, without_baseline)
+    Ok((found, without_baseline))
 }
 
 /// Computes the outliers of a period for a caller.
@@ -327,17 +340,19 @@ pub async fn compute(
 ) -> Result<Outliers, ApiError> {
     let filter = Filter::parse(query.filter.as_deref().unwrap_or(""))
         .map_err(|error| ApiError::BadRequest(error.to_string()))?;
+    let status = query.status.unwrap_or_default();
     let scope = Scope::of(db, caller).await?;
     let account = account::load(
         db,
         caller.organization_id,
         query.period,
-        StatusView::All,
+        status,
         &scope,
         &filter,
     )
     .await?;
     let currency = account.currency;
+    let rate = shown_in(db, currency, query.currency.as_deref(), query.period).await?;
 
     let mut from = query.period;
     for _ in 0..MONTHS_BACK {
@@ -349,7 +364,7 @@ pub async fn compute(
         organization_id: caller.organization_id,
         from: from.starts_at(),
         until: query.period.starts_at(),
-        statuses: StatusView::All.statuses(),
+        statuses: status.statuses(),
         filter: Filter::default(),
         with_late: true,
     };
@@ -379,12 +394,15 @@ pub async fn compute(
     add_lines(&mut past, &past_lines, &account.converter, false)?;
     past.retain(|key, _| !tickets.contains_key(key));
     let baselines = baselines(&past, currency).map_err(|error| ApiError::Internal(error.into()))?;
-    let (mut found, without_baseline) = against_baselines(tickets, &baselines, currency);
+    let (mut found, without_baseline) = against_baselines(tickets, &baselines, currency, rate)
+        .map_err(|error| ApiError::Internal(error.into()))?;
     found.sort_by(|a, b| further(a.0, b.0).then_with(|| a.1.ticket.cmp(&b.1.ticket)));
     Ok(Outliers {
         period: query.period,
         closed: account.closed.is_some(),
-        currency,
+        status,
+        currency: rate.to(),
+        exchange_rate: rate_shown(rate),
         label: "list-price estimate",
         tickets: found
             .into_iter()
@@ -447,7 +465,7 @@ pub fn to_csv(outliers: &Outliers) -> Csv {
     params(OutlierQuery),
     responses(
         (status = OK, description = "The outliers, as JSON or CSV", content((Outliers = "application/json"), (String = "text/csv"))),
-        (status = BAD_REQUEST, description = "The filter cannot be read", body = crate::error::ErrorBody),
+        (status = BAD_REQUEST, description = "The filter or currency cannot be read", body = crate::error::ErrorBody),
         (status = CONFLICT, description = "An exchange rate is missing", body = crate::error::ErrorBody),
     ),
 )]

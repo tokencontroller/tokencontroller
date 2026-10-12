@@ -41,10 +41,22 @@ pub struct SavedReport {
     /// `speed`, `day` or `cost_kind`.
     #[schema(example = "team")]
     pub by: String,
+    /// The name of the person who saved it.
     pub created_by: Option<String>,
+    /// The person who saved it.
+    pub created_by_id: Uuid,
+    /// Whether you can remove it: whoever saved it and controllers can, in
+    /// the browser.
+    pub can_remove: bool,
     #[serde(with = "time::serde::rfc3339")]
     #[schema(value_type = String, format = DateTime)]
     pub created_at: OffsetDateTime,
+}
+
+/// Whether `caller` may remove a report `created_by` saved.
+fn can_remove(caller: &Caller, created_by: Uuid) -> bool {
+    caller.require_session().is_ok()
+        && (created_by == caller.person_id || caller.role == Role::Controller)
 }
 
 /// A report to save.
@@ -73,7 +85,8 @@ pub(crate) async fn list_saved(
 ) -> Result<Json<Vec<SavedReport>>, ApiError> {
     caller.require_credential(READERS)?;
     let saved = sqlx::query!(
-        r#"SELECT r.id, r.name, r.filter, r.group_by, p.name AS "created_by?", r.created_at
+        r#"SELECT r.id, r.name, r.filter, r.group_by, p.name AS "created_by?",
+                  r.created_by AS created_by_id, r.created_at
            FROM saved_reports r LEFT JOIN people p ON p.id = r.created_by
            WHERE r.organization_id = $1
            ORDER BY lower(r.name), r.created_at"#,
@@ -88,6 +101,8 @@ pub(crate) async fn list_saved(
         filter: Filter::from_json(&row.filter),
         by: row.group_by,
         created_by: row.created_by,
+        can_remove: can_remove(&caller, row.created_by_id),
+        created_by_id: row.created_by_id,
         created_at: row.created_at,
     })
     .collect();
@@ -146,6 +161,8 @@ pub(crate) async fn save_report(
             filter,
             by: by.name().to_owned(),
             created_by,
+            created_by_id: caller.person_id,
+            can_remove: true,
             created_at: row.created_at,
         }),
     ))

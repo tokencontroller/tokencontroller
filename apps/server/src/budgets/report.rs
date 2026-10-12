@@ -12,7 +12,7 @@ use axum::response::{IntoResponse, Response};
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use time::OffsetDateTime;
-use tokencontroller_core::{Currency, Money, MoneyError};
+use tokencontroller_core::{Currency, ExchangeRate, Money, MoneyError, shares};
 use utoipa::{IntoParams, ToSchema};
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
@@ -25,9 +25,10 @@ use crate::bills::amount::format_amount;
 use crate::bills::rates::{self, RateError};
 use crate::close::period::{Period, PeriodDates};
 use crate::error::ApiError;
+use crate::reports::cost::{View, percent_text, rate_shown, shown_in};
 use crate::reports::csv::Csv;
 use crate::reports::entries::{self, EntryView};
-use crate::reports::filter::Tags;
+use crate::reports::filter::{Filter, Tags};
 use crate::reports::lines::StatusView;
 use crate::sign_in::Caller;
 
@@ -95,6 +96,10 @@ pub struct TokenBudgetRow {
     pub difference: String,
     /// `null` when token entries on an unknown model leave it open.
     pub outcome: Option<Outcome>,
+    /// In the share view, actual's share of all the cost you see over the
+    /// same period, in basis points: `3500` for 35.00 percent. Token
+    /// budgets overlap, so shares of different rows do not add up.
+    pub share: Option<u64>,
     pub token_entries: usize,
     /// Token entries on a model missing from the price table: counted, but
     /// their cost is not known, so it is not in `actual`.
@@ -108,8 +113,13 @@ pub struct TokenBudgetReport {
     pub period: String,
     #[schema(example = "EUR")]
     pub currency: String,
+    /// The rate from the reporting currency, when shown in another one.
+    pub exchange_rate: Option<String>,
     /// The view of token entries counted: `all` or `approved`.
     pub status: StatusView,
+    pub view: View,
+    /// `list-price estimate`, or `share of the period`.
+    pub label: &'static str,
     /// Token budgets overlap, so rows are never added up.
     pub rows: Vec<TokenBudgetRow>,
 }
@@ -123,6 +133,10 @@ pub struct ReportQuery {
     pub period: Option<String>,
     /// `all` (the default) or `approved`.
     pub status: Option<StatusView>,
+    /// Show money in another currency, such as `USD`.
+    pub currency: Option<String>,
+    /// `money` (the default) or `share`.
+    pub view: Option<View>,
     /// `csv` for a CSV file.
     pub format: Option<String>,
 }
@@ -136,11 +150,59 @@ pub struct DetailQuery {
     pub period: Option<String>,
     /// `all` (the default) or `approved`.
     pub status: Option<StatusView>,
+    /// Show money in another currency, such as `USD`.
+    pub currency: Option<String>,
+    /// `money` (the default) or `share`.
+    pub view: Option<View>,
     /// `csv` for a CSV file.
     pub format: Option<String>,
     /// The table the CSV file holds: `tickets` (the default) or
     /// `token_entries`.
     pub table: Option<String>,
+}
+
+/// Which token entries count, and how money is shown.
+#[derive(Debug, Clone, Default)]
+pub struct Showing {
+    pub status: StatusView,
+    /// Another currency to show money in, such as `USD`.
+    pub currency: Option<String>,
+    pub view: View,
+}
+
+impl Showing {
+    const fn label(&self) -> &'static str {
+        match self.view {
+            View::Share => "share of the period",
+            View::Money => "list-price estimate",
+        }
+    }
+}
+
+/// In the share view, all the cost `actuals` hold over `period` (every
+/// loaded period for `None`), worked out once per period.
+fn total_of(
+    actuals: &Actuals,
+    totals: &mut BTreeMap<Option<Period>, Money>,
+    period: Option<Period>,
+    view: View,
+) -> Result<Option<Money>, MoneyError> {
+    if view != View::Share {
+        return Ok(None);
+    }
+    if let Some(total) = totals.get(&period) {
+        return Ok(Some(*total));
+    }
+    let total = actuals.of(&Filter::default(), period)?.value;
+    totals.insert(period, total);
+    Ok(Some(total))
+}
+
+/// `part`'s share of `total` in basis points, the core's way ([`shares`]);
+/// `None` when there is no total to share, or `part` lies outside it.
+fn share_of(part: Money, total: Money) -> Option<u64> {
+    let rest = total.checked_sub(part).ok()?;
+    shares(&[part, rest]).ok()?.first().copied()
 }
 
 /// The period asked for, or this month.
@@ -207,23 +269,30 @@ fn compare(
     core.compare(items.iter().map(|(tags, money)| (tags, *money)))
 }
 
-/// One row from a token budget and its actual.
+/// One row from a token budget and its actual, compared in the reporting
+/// currency and shown at `rate`. In the share view, `total` is all the
+/// cost the caller sees over the same period.
 fn row(
     budget: &TokenBudget,
     amount: Money,
     actual: &Actual<'_>,
     actual_period: Option<Period>,
+    rate: ExchangeRate,
+    total: Option<Money>,
 ) -> Result<TokenBudgetRow, MoneyError> {
     let period = actual_period.unwrap_or_else(|| Period::containing(OffsetDateTime::now_utc()));
     let compared = compare(budget, amount, actual, period)?;
-    let difference = compared.difference;
+    let shown_amount = rate.convert(amount)?;
+    let shown_actual = rate.convert(compared.actual)?;
+    let difference = shown_actual.checked_sub(shown_amount)?;
     Ok(TokenBudgetRow {
         token_budget: TokenBudgetView::from(budget),
         actual_period: actual_period.map(|period| period.to_string()),
-        amount: format_amount(amount),
-        actual: format_amount(compared.actual),
+        amount: format_amount(shown_amount),
+        actual: format_amount(shown_actual),
         difference: format_amount(difference),
         outcome: Outcome::of(compared.outcome, actual.is_complete()),
+        share: total.and_then(|total| share_of(compared.actual, total)),
         token_entries: actual.token_entries,
         unknown_model_entries: actual.unknown_model_entries,
     })
@@ -257,7 +326,7 @@ pub async fn report(
     db: &PgPool,
     caller: &Caller,
     period: Period,
-    status: StatusView,
+    showing: &Showing,
 ) -> Result<TokenBudgetReport, ApiError> {
     let now = OffsetDateTime::now_utc();
     let organization_id = caller.organization_id;
@@ -268,7 +337,10 @@ pub async fn report(
         .filter(|budget| budget.applies.in_force(period))
         .collect();
     let periods = periods_for(db, organization_id, &budgets, period, now).await?;
-    let actuals = Actuals::load(db, organization_id, &periods, status, &viewer.scope).await?;
+    let actuals =
+        Actuals::load(db, organization_id, &periods, showing.status, &viewer.scope).await?;
+    let rate = shown_in(db, actuals.currency, showing.currency.as_deref(), period).await?;
+    let mut totals = BTreeMap::new();
     let mut rows = Vec::new();
     for budget in &budgets {
         let actual_period = budget.applies.actual_period(period);
@@ -283,13 +355,15 @@ pub async fn report(
         let actual = actuals
             .of(&budget.filter, actual_period)
             .map_err(money_error)?;
+        let total =
+            total_of(&actuals, &mut totals, actual_period, showing.view).map_err(money_error)?;
         rows.push((
             actual
                 .value
                 .checked_sub(amount)
                 .map_err(money_error)?
                 .nanos(),
-            row(budget, amount, &actual, actual_period).map_err(money_error)?,
+            row(budget, amount, &actual, actual_period, rate, total).map_err(money_error)?,
         ));
     }
     // The largest overrun first, the largest underrun last.
@@ -299,8 +373,11 @@ pub async fn report(
     });
     Ok(TokenBudgetReport {
         period: period.to_string(),
-        currency: actuals.currency.code(),
-        status,
+        currency: rate.to().code(),
+        exchange_rate: rate_shown(rate),
+        status: showing.status,
+        view: showing.view,
+        label: showing.label(),
         rows: rows.into_iter().map(|(_, row)| row).collect(),
     })
 }
@@ -318,6 +395,7 @@ pub fn to_csv(report: &TokenBudgetReport) -> Csv {
         "actual",
         "difference",
         "outcome",
+        "share_percent",
         "token_entries",
         "unknown_model_entries",
         "currency",
@@ -337,6 +415,7 @@ pub fn to_csv(report: &TokenBudgetReport) -> Csv {
             row.outcome
                 .map_or("unknown model", Outcome::as_str)
                 .to_owned(),
+            row.share.map(percent_text).unwrap_or_default(),
             row.token_entries.to_string(),
             row.unknown_model_entries.to_string(),
             report.currency.clone(),
@@ -365,7 +444,12 @@ pub(crate) async fn token_budget_vs_actual(
     Query(query): Query<ReportQuery>,
 ) -> Result<Response, ApiError> {
     let period = period_or_now(query.period.as_deref(), OffsetDateTime::now_utc())?;
-    let report = report(&state.db, &caller, period, query.status.unwrap_or_default()).await?;
+    let showing = Showing {
+        status: query.status.unwrap_or_default(),
+        currency: query.currency,
+        view: query.view.unwrap_or_default(),
+    };
+    let report = report(&state.db, &caller, period, &showing).await?;
     if wants_csv(query.format.as_deref()) {
         return Ok(to_csv(&report).into_download(&format!("token-budget-vs-actual-{period}.csv")));
     }
@@ -405,6 +489,9 @@ pub struct TokenBudgetDetail {
     pub period: String,
     #[schema(example = "EUR")]
     pub currency: String,
+    /// The rate from the reporting currency, when shown in another one.
+    /// Token entries keep their own currency.
+    pub exchange_rate: Option<String>,
     pub row: TokenBudgetRow,
     /// Actual per ticket, the largest first; they add up to actual.
     pub tickets: Vec<TicketActual>,
@@ -509,7 +596,7 @@ pub async fn detail(
     caller: &Caller,
     id: Uuid,
     period: Period,
-    status: StatusView,
+    showing: &Showing,
 ) -> Result<TokenBudgetDetail, ApiError> {
     let now = OffsetDateTime::now_utc();
     let organization_id = caller.organization_id;
@@ -529,16 +616,21 @@ pub async fn detail(
         now,
     )
     .await?;
-    let actuals = Actuals::load(db, organization_id, &periods, status, &viewer.scope).await?;
+    let actuals =
+        Actuals::load(db, organization_id, &periods, showing.status, &viewer.scope).await?;
     let currency = actuals.currency;
+    let rate = shown_in(db, currency, showing.currency.as_deref(), period).await?;
     let actual_period = budget.applies.actual_period(period);
     let amount =
         in_reporting_currency(db, budget.amount, currency, actual_period, now.date()).await?;
     let actual = actuals
         .of(&budget.filter, actual_period)
         .map_err(money_error)?;
-    let row = row(&budget, amount, &actual, actual_period).map_err(money_error)?;
+    let total = total_of(&actuals, &mut BTreeMap::new(), actual_period, showing.view)
+        .map_err(money_error)?;
+    let row = row(&budget, amount, &actual, actual_period, rate, total).map_err(money_error)?;
     let tickets = per_ticket(&actual, currency).map_err(money_error)?;
+    let shown = |amount: Money| rate.convert(amount).map(format_amount).map_err(money_error);
     let keys: Vec<String> = tickets
         .iter()
         .filter_map(|sum| sum.ticket.clone())
@@ -551,30 +643,35 @@ pub async fn detail(
     .await?;
     Ok(TokenBudgetDetail {
         period: period.to_string(),
-        currency: currency.code(),
+        currency: rate.to().code(),
+        exchange_rate: rate_shown(rate),
         row,
         tickets: tickets
             .into_iter()
-            .map(|sum| TicketActual {
-                title: sum.ticket.as_ref().and_then(|key| titles.get(key).cloned()),
-                ticket: sum.ticket,
-                actual: format_amount(sum.value),
-                token_entries: sum.token_entries,
-                unknown_model_entries: sum.unknown_model_entries,
+            .map(|sum| {
+                Ok(TicketActual {
+                    title: sum.ticket.as_ref().and_then(|key| titles.get(key).cloned()),
+                    actual: shown(sum.value)?,
+                    ticket: sum.ticket,
+                    token_entries: sum.token_entries,
+                    unknown_model_entries: sum.unknown_model_entries,
+                })
             })
-            .collect(),
+            .collect::<Result<_, ApiError>>()?,
         token_entries,
         adjustments: actual
             .adjustments
             .iter()
-            .map(|adjustment| AdjustmentLine {
-                id: adjustment.id,
-                amount: format_amount(adjustment.amount),
-                tags: adjustment.tags.clone(),
-                reason: adjustment.reason.clone(),
-                late: adjustment.late,
+            .map(|adjustment| {
+                Ok(AdjustmentLine {
+                    id: adjustment.id,
+                    amount: shown(adjustment.amount)?,
+                    tags: adjustment.tags.clone(),
+                    reason: adjustment.reason.clone(),
+                    late: adjustment.late,
+                })
             })
-            .collect(),
+            .collect::<Result<_, ApiError>>()?,
     })
 }
 
@@ -626,14 +723,12 @@ pub(crate) async fn token_budget_detail(
     Query(query): Query<DetailQuery>,
 ) -> Result<Response, ApiError> {
     let period = period_or_now(query.period.as_deref(), OffsetDateTime::now_utc())?;
-    let detail = detail(
-        &state.db,
-        &caller,
-        id,
-        period,
-        query.status.unwrap_or_default(),
-    )
-    .await?;
+    let showing = Showing {
+        status: query.status.unwrap_or_default(),
+        currency: query.currency.clone(),
+        view: query.view.unwrap_or_default(),
+    };
+    let detail = detail(&state.db, &caller, id, period, &showing).await?;
     if !wants_csv(query.format.as_deref()) {
         return Ok(Json(detail).into_response());
     }
@@ -799,15 +894,35 @@ mod tests {
             lines: lines.iter().collect(),
             adjustments: vec![&credit],
         };
-        let under = row(&budget("ticket:KD-1", 150), eur(150), &actual, None).unwrap();
+        let same = ExchangeRate::identity(Currency::EUR);
+        let under = row(
+            &budget("ticket:KD-1", 150),
+            eur(150),
+            &actual,
+            None,
+            same,
+            None,
+        )
+        .unwrap();
         assert_eq!(under.outcome, Some(Outcome::Underrun));
         // Amounts show in cents; the outcome compares the exact figures.
         assert_eq!(under.difference, "0.00");
         let over = budget("ticket:KD-1", 100);
-        let row = row(&over, eur(100), &actual, None).unwrap();
+        let row = row(&over, eur(100), &actual, None, same, Some(eur(600))).unwrap();
         assert_eq!(row.outcome, Some(Outcome::Overrun));
         assert_eq!(row.actual, "1.50");
         assert_eq!(row.difference, "0.50");
+        // 1.50 of 6.00 seen in the period, less the one-nano credit.
+        assert_eq!(row.share, Some(2500));
+    }
+
+    #[test]
+    fn a_share_needs_a_total_that_holds_the_part() {
+        assert_eq!(share_of(eur(150), eur(600)), Some(2500));
+        assert_eq!(share_of(eur(600), eur(600)), Some(10_000));
+        assert_eq!(share_of(eur(0), eur(0)), None);
+        assert_eq!(share_of(eur(700), eur(600)), None);
+        assert_eq!(share_of(eur(-100), eur(600)), None);
     }
 
     #[test]
@@ -815,7 +930,10 @@ mod tests {
         let report = TokenBudgetReport {
             period: "2026-09".to_owned(),
             currency: "EUR".to_owned(),
+            exchange_rate: None,
             status: StatusView::All,
+            view: View::Share,
+            label: "share of the period",
             rows: vec![TokenBudgetRow {
                 token_budget: TokenBudgetView {
                     id: Uuid::nil(),
@@ -835,14 +953,15 @@ mod tests {
                 actual: "80.00".to_owned(),
                 difference: "-20.00".to_owned(),
                 outcome: None,
+                share: Some(4120),
                 token_entries: 3,
                 unknown_model_entries: 1,
             }],
         };
         assert_eq!(
             to_csv(&report).into_text(),
-            "token_budget,name,filter,applies,actual_period,amount,actual,difference,outcome,token_entries,unknown_model_entries,currency\r\n\
-             00000000-0000-0000-0000-000000000000,,ticket:KD-214,all time,all time,100.00,80.00,-20.00,unknown model,3,1,EUR\r\n"
+            "token_budget,name,filter,applies,actual_period,amount,actual,difference,outcome,share_percent,token_entries,unknown_model_entries,currency\r\n\
+             00000000-0000-0000-0000-000000000000,,ticket:KD-214,all time,all time,100.00,80.00,-20.00,unknown model,41.20,3,1,EUR\r\n"
         );
     }
 

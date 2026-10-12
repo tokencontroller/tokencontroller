@@ -611,11 +611,20 @@ function outliersOf(db: Db, me: Person, period: string, filter: Tags, limit: num
     });
   }
   found.sort((a, b) => b.far - a.far || a.outlier.ticket.localeCompare(b.outlier.ticket));
-  return { period, closed: isClosed(db, period), currency, label: "list-price estimate", tickets: found.slice(0, limit).map((f) => f.outlier), without_baseline: withoutBaseline };
+  return { period, closed: isClosed(db, period), status: "all", currency, label: "list-price estimate", tickets: found.slice(0, limit).map((f) => f.outlier), without_baseline: withoutBaseline };
 }
 
-function savedView(db: Db, r: SavedReportRecord): SavedReport {
-  return { id: r.id, name: r.name, filter: r.filter, by: r.by, created_by: db.people.find((p) => p.id === r.created_by)?.name ?? null, created_at: r.created_at };
+function savedView(db: Db, me: Person, r: SavedReportRecord): SavedReport {
+  return {
+    id: r.id,
+    name: r.name,
+    filter: r.filter,
+    by: r.by,
+    created_by: db.people.find((p) => p.id === r.created_by)?.name ?? null,
+    created_by_id: r.created_by ?? "",
+    can_remove: r.created_by === me.id || me.role === "controller",
+    created_at: r.created_at,
+  };
 }
 
 export function reportsHandlers({ API, member, fail, now }: { API: string; member: Member; fail: Fail; now: () => string }) {
@@ -680,7 +689,7 @@ export function reportsHandlers({ API, member, fail, now }: { API: string; membe
         .map((b) => budgetRow(db, me, b, period, approved))
         .sort((a, b) => b.difference - a.difference || a.row.token_budget.id.localeCompare(b.row.token_budget.id))
         .map((r) => r.row);
-      const report: TokenBudgetReport = { period, currency: cur(db), status: approved ? "approved" : "all", rows };
+      const report: TokenBudgetReport = { period, currency: cur(db), status: approved ? "approved" : "all", view: "money", label: "list-price estimate", rows };
       return HttpResponse.json(report);
     })),
     http.get(`${API}/reports/token-budgets/:id`, member(({ db, me, url, params }) => {
@@ -793,8 +802,8 @@ export function reportsHandlers({ API, member, fail, now }: { API: string; membe
       if (typeof filter === "string") return bad(filter);
       return HttpResponse.json(outliersOf(db, me, period, filter, Number(url.searchParams.get("limit") ?? 20)));
     })),
-    http.get(`${API}/reports/saved`, member(({ db }) =>
-      HttpResponse.json([...db.reports].sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()) || a.created_at.localeCompare(b.created_at)).map((r) => savedView(db, r))),
+    http.get(`${API}/reports/saved`, member(({ db, me }) =>
+      HttpResponse.json([...db.reports].sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()) || a.created_at.localeCompare(b.created_at)).map((r) => savedView(db, me, r))),
     )),
     http.post(`${API}/reports/saved`, member(async ({ db, me, request }) => {
       const input = (await request.json()) as Partial<SaveInput>;
@@ -806,7 +815,7 @@ export function reportsHandlers({ API, member, fail, now }: { API: string; membe
       if (typeof filter === "string") return bad(filter);
       const record: SavedReportRecord = { id: crypto.randomUUID(), name, filter, by, created_by: me.id, created_at: now() };
       db.reports.push(record);
-      return HttpResponse.json(savedView(db, record), { status: 201 });
+      return HttpResponse.json(savedView(db, me, record), { status: 201 });
     })),
     http.get(`${API}/reports/saved/:id`, member(({ db, me, url, params }) => {
       const saved = db.reports.find((r) => r.id === params.id);

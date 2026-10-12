@@ -3891,6 +3891,24 @@
             }
           },
           {
+            "name": "status",
+            "in": "query",
+            "description": "`all` (the default) or `approved`: with approval on, only approved\ntoken entries count, in the period and in the baseline.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/StatusView"
+            }
+          },
+          {
+            "name": "currency",
+            "in": "query",
+            "description": "Show the amounts in another currency, such as `USD`.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "name": "format",
             "in": "query",
             "description": "`csv` for a CSV file.",
@@ -3917,7 +3935,7 @@
             }
           },
           "400": {
-            "description": "The filter cannot be read",
+            "description": "The filter or currency cannot be read",
             "content": {
               "application/json": {
                 "schema": {
@@ -4157,6 +4175,24 @@
             }
           },
           {
+            "name": "currency",
+            "in": "query",
+            "description": "Show money in another currency, such as `USD`.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "view",
+            "in": "query",
+            "description": "`money` (the default) or `share`.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/View"
+            }
+          },
+          {
             "name": "format",
             "in": "query",
             "description": "`csv` for a CSV file.",
@@ -4240,6 +4276,24 @@
             "required": false,
             "schema": {
               "$ref": "#/components/schemas/StatusView"
+            }
+          },
+          {
+            "name": "currency",
+            "in": "query",
+            "description": "Show money in another currency, such as `USD`.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "view",
+            "in": "query",
+            "description": "`money` (the default) or `share`.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/View"
             }
           },
           {
@@ -5604,6 +5658,56 @@
       }
     },
     "/api/v1/tickets/{key}/token-forecast": {
+      "get": {
+        "tags": [
+          "token_budgets"
+        ],
+        "summary": "The latest token forecast made for a ticket, as it was made, with the\ntoken budget it became once accepted.",
+        "operationId": "get_token_forecast",
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "description": "The ticket key, such as KD-214",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The latest token forecast",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenForecastView"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Outside the filters you are assigned",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No token forecast was made for this ticket",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
       "post": {
         "tags": [
           "token_budgets"
@@ -10073,6 +10177,7 @@
         "required": [
           "period",
           "closed",
+          "status",
           "currency",
           "label",
           "tickets",
@@ -10086,6 +10191,13 @@
             "type": "string",
             "example": "EUR"
           },
+          "exchange_rate": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The rate from the reporting currency, when shown in another one."
+          },
           "label": {
             "type": "string",
             "description": "`list-price estimate`."
@@ -10093,6 +10205,9 @@
           "period": {
             "type": "string",
             "example": "2026-09"
+          },
+          "status": {
+            "$ref": "#/components/schemas/StatusView"
           },
           "tickets": {
             "type": "array",
@@ -11039,6 +11154,8 @@
           "name",
           "filter",
           "by",
+          "created_by_id",
+          "can_remove",
           "created_at"
         ],
         "properties": {
@@ -11046,6 +11163,10 @@
             "type": "string",
             "description": "A tag name, or `agent_harness`, `agent_name`, `model`, `effort`,\n`speed`, `day` or `cost_kind`.",
             "example": "team"
+          },
+          "can_remove": {
+            "type": "boolean",
+            "description": "Whether you can remove it: whoever saved it and controllers can, in\nthe browser."
           },
           "created_at": {
             "type": "string",
@@ -11055,7 +11176,13 @@
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "description": "The name of the person who saved it."
+          },
+          "created_by_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The person who saved it."
           },
           "filter": {
             "$ref": "#/components/schemas/Filter"
@@ -12016,6 +12143,13 @@
             "type": "string",
             "example": "EUR"
           },
+          "exchange_rate": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The rate from the reporting currency, when shown in another one.\nToken entries keep their own currency."
+          },
           "period": {
             "type": "string",
             "example": "2026-09"
@@ -12083,12 +12217,25 @@
           "period",
           "currency",
           "status",
+          "view",
+          "label",
           "rows"
         ],
         "properties": {
           "currency": {
             "type": "string",
             "example": "EUR"
+          },
+          "exchange_rate": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The rate from the reporting currency, when shown in another one."
+          },
+          "label": {
+            "type": "string",
+            "description": "`list-price estimate`, or `share of the period`."
           },
           "period": {
             "type": "string",
@@ -12104,6 +12251,9 @@
           "status": {
             "$ref": "#/components/schemas/StatusView",
             "description": "The view of token entries counted: `all` or `approved`."
+          },
+          "view": {
+            "$ref": "#/components/schemas/View"
           }
         }
       },
@@ -12152,6 +12302,15 @@
                 "type": "null"
               }
             ]
+          },
+          "share": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "In the share view, actual's share of all the cost you see over the\nsame period, in basis points: `3500` for 35.00 percent. Token\nbudgets overlap, so shares of different rows do not add up.",
+            "minimum": 0
           },
           "token_budget": {
             "$ref": "#/components/schemas/TokenBudgetView"
@@ -12418,6 +12577,14 @@
               "string",
               "null"
             ]
+          },
+          "token_budget_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "The token budget it became once a person accepted it; `null` until\nthen, or after that token budget was removed."
           }
         }
       },
