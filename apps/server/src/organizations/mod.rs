@@ -27,7 +27,7 @@ use crate::error::ApiError;
 use crate::tags;
 
 pub use audit::record_audit_event;
-pub use members::{MemberStatus, MemberView, clean_name, filters_of};
+pub use members::{MemberLimitView, MemberStatus, MemberView, clean_name, filters_of};
 pub use provisioning::{add_member, member_by_email, only_organization, remove_member};
 pub use role::{Role, UnknownRole};
 pub use rules::{OrganizationRules, change_rule_tags, organization_rules, personal_rules};
@@ -45,6 +45,7 @@ pub fn routes() -> OpenApiRouter<AppState> {
             settings::update_organization
         ))
         .routes(routes!(members::list_members, members::invite_member))
+        .routes(routes!(members::get_member_limit))
         .routes(routes!(members::update_member, members::remove_member))
         .routes(routes!(members::set_filters))
         .routes(routes!(members::resend_invite))
@@ -231,6 +232,33 @@ pub async fn member_count(db: &PgPool, organization_id: Uuid) -> Result<i64, sql
     )
     .fetch_one(db)
     .await
+}
+
+/// The most members an organization may have unless the extension or a
+/// hook says otherwise: the Team plan's 150 (docs: Plans and limits).
+pub const DEFAULT_MEMBER_LIMIT: u32 = 150;
+
+/// The member limit of an organization: what the build's hooks say (such
+/// as a plan), else what the extension says, else [`DEFAULT_MEMBER_LIMIT`].
+///
+/// # Errors
+///
+/// Whatever the hook fails with.
+pub async fn member_limit(
+    state: &AppState,
+    organization_id: Uuid,
+) -> Result<crate::hooks::MemberLimit, ApiError> {
+    if let Some(limit) = state.hooks.member_limit(state, organization_id).await? {
+        return Ok(limit);
+    }
+    let max = state
+        .extension
+        .member_limit()
+        .unwrap_or(DEFAULT_MEMBER_LIMIT);
+    Ok(crate::hooks::MemberLimit {
+        max: i64::from(max),
+        message: "This instance allows no more members.".to_owned(),
+    })
 }
 
 #[cfg(test)]

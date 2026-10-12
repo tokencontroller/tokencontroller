@@ -17,8 +17,8 @@ use time::OffsetDateTime;
 use uuid::Uuid;
 
 use super::stripe_config;
-use crate::AppState;
 use crate::error::ApiError;
+use crate::hosted::Hosted;
 
 /// How old a signed event may be, in seconds (Stripe's own default).
 const TOLERANCE_SECONDS: i64 = 300;
@@ -93,7 +93,7 @@ struct Recurring {
     ),
 )]
 pub(super) async fn receive(
-    State(state): State<AppState>,
+    State(state): State<Hosted>,
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<StatusCode, ApiError> {
@@ -150,7 +150,7 @@ fn verify(header: &str, body: &[u8], secret: &str, now: i64) -> Result<(), ApiEr
     }
 }
 
-async fn apply(state: &AppState, event: Event) -> Result<(), ApiError> {
+async fn apply(state: &Hosted, event: Event) -> Result<(), ApiError> {
     let at = OffsetDateTime::from_unix_timestamp(event.created)
         .map_err(|error| ApiError::BadRequest(format!("event time: {error}")))?;
     match event.kind.as_str() {
@@ -176,7 +176,7 @@ fn parse<T: for<'de> Deserialize<'de>>(object: serde_json::Value) -> Result<T, A
         .map_err(|error| ApiError::BadRequest(format!("unexpected Stripe object: {error}")))
 }
 
-async fn checkout_completed(state: &AppState, session: CheckoutSession) -> Result<(), ApiError> {
+async fn checkout_completed(state: &Hosted, session: CheckoutSession) -> Result<(), ApiError> {
     let (Some(organization_id), Some(customer)) = (
         session
             .client_reference_id
@@ -205,7 +205,7 @@ async fn checkout_completed(state: &AppState, session: CheckoutSession) -> Resul
 }
 
 async fn subscription_changed(
-    state: &AppState,
+    state: &Hosted,
     subscription: Subscription,
     at: OffsetDateTime,
 ) -> Result<(), ApiError> {

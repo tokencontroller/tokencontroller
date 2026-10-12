@@ -18,9 +18,9 @@ use uuid::Uuid;
 use super::admin::{self, ConversationSummary, Operator, Scope};
 use super::feedback::{self, ReceivedReport};
 use super::onboarding::{self, Journey};
-use crate::AppState;
 use crate::billing::{self, Plan};
 use crate::error::{ApiError, ErrorBody};
+use crate::hosted::Hosted;
 use crate::organizations::Role;
 
 /// An organization in the customer list.
@@ -99,7 +99,7 @@ pub struct CustomerRecord {
 }
 
 pub(super) async fn summaries(
-    state: &AppState,
+    state: &Hosted,
     only: Option<Uuid>,
 ) -> Result<Vec<CustomerSummary>, ApiError> {
     let rows = sqlx::query!(
@@ -119,7 +119,7 @@ pub(super) async fn summaries(
     )
     .fetch_all(&state.db)
     .await?;
-    let billing_on = state.config.stripe.is_some();
+    let billing_on = state.settings.stripe.is_some();
     Ok(rows
         .into_iter()
         .map(|row| CustomerSummary {
@@ -151,7 +151,7 @@ pub(super) async fn summaries(
     ),
 )]
 pub async fn list_customers(
-    State(state): State<AppState>,
+    State(state): State<Hosted>,
     _operator: Operator,
 ) -> Result<Json<Vec<CustomerSummary>>, ApiError> {
     Ok(Json(summaries(&state, None).await?))
@@ -174,7 +174,7 @@ async fn notes(db: &PgPool, organization_id: Uuid) -> Result<Vec<Note>, sqlx::Er
 ///
 /// [`ApiError::NotFound`] for an unknown organization, or when the database
 /// fails.
-pub async fn record(state: &AppState, id: Uuid) -> Result<CustomerRecord, ApiError> {
+pub async fn record(state: &Hosted, id: Uuid) -> Result<CustomerRecord, ApiError> {
     let customer = summaries(state, Some(id))
         .await?
         .into_iter()
@@ -252,7 +252,7 @@ pub async fn record(state: &AppState, id: Uuid) -> Result<CustomerRecord, ApiErr
     ),
 )]
 pub async fn get_customer(
-    State(state): State<AppState>,
+    State(state): State<Hosted>,
     _operator: Operator,
     Path(id): Path<Uuid>,
 ) -> Result<Json<CustomerRecord>, ApiError> {
@@ -281,7 +281,7 @@ pub struct NewNote {
     ),
 )]
 pub async fn add_note(
-    State(state): State<AppState>,
+    State(state): State<Hosted>,
     operator: Operator,
     Path(id): Path<Uuid>,
     Json(note): Json<NewNote>,

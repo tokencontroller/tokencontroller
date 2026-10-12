@@ -11,7 +11,7 @@
 //! who created them leaves: the token entries then show as an error until
 //! someone takes the token over (docs: Account > Roles).
 
-use axum::extract::FromRequestParts;
+use axum::extract::{FromRef, FromRequestParts};
 use axum::http::header::{AUTHORIZATION, COOKIE, ORIGIN};
 use axum::http::request::Parts;
 use axum::http::{HeaderMap, Method};
@@ -140,10 +140,17 @@ impl std::ops::Deref for Member {
     }
 }
 
-impl FromRequestParts<AppState> for Caller {
+/// Works with any router state the service's [`AppState`] can be taken
+/// from, so a build's own areas with their own state can use it.
+impl<S> FromRequestParts<S> for Caller
+where
+    AppState: FromRef<S>,
+    S: Send + Sync,
+{
     type Rejection = ApiError;
 
-    async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, ApiError> {
+    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, ApiError> {
+        let state = &AppState::from_ref(state);
         let caller = authenticate(&parts.headers, state).await?;
         if caller.credential == Credential::BrowserSession
             && !is_safe(&parts.method)
@@ -155,10 +162,14 @@ impl FromRequestParts<AppState> for Caller {
     }
 }
 
-impl FromRequestParts<AppState> for Member {
+impl<S> FromRequestParts<S> for Member
+where
+    AppState: FromRef<S>,
+    S: Send + Sync,
+{
     type Rejection = ApiError;
 
-    async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, ApiError> {
+    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, ApiError> {
         let caller = Caller::from_request_parts(parts, state).await?;
         let allowed = match caller.credential.kind() {
             CredentialKind::Session => true,

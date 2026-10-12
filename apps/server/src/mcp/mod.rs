@@ -6,9 +6,8 @@
 //! Sign in with a read token (`tc_read_`) or a session. The tools see what
 //! that person's role sees.
 //!
-//! To add a tool, add it to [`tools`] and to [`call`]. The operators of the
-//! hosted service also get the customer relations tools
-//! ([`customer_relations::operator_tools`]).
+//! To add a tool, add it to [`tools`] and to [`call`]. A build can add its
+//! own tools through [`crate::hooks::ServiceHooks::mcp_tools`].
 //!
 //! Owner: the service platform work. Keep this area's code, routes and queries in
 //! this folder, and its migrations in `migrations/` named
@@ -26,7 +25,7 @@ use utoipa_axum::routes;
 use crate::AppState;
 use crate::error::ApiError;
 use crate::sign_in::{Caller, CredentialKind};
-use crate::{customer_relations, organizations, projects, tags};
+use crate::{organizations, projects, tags};
 
 /// Protocol versions this server speaks.
 const PROTOCOL_VERSIONS: [&str; 3] = [LATEST_PROTOCOL_VERSION, "2025-03-26", "2024-11-05"];
@@ -135,10 +134,9 @@ async fn handle(
         "ping" => Ok(json!({})),
         "tools/list" => {
             let mut all = tools();
-            if customer_relations::is_operator(state, caller.person_id).await?
-                && let Some(list) = all.as_array_mut()
-            {
-                list.extend(customer_relations::operator_tools());
+            let added = state.hooks.mcp_tools(state, caller).await?;
+            if let Some(list) = all.as_array_mut() {
+                list.extend(added);
             }
             Ok(json!({"tools": all}))
         }
@@ -281,15 +279,11 @@ async fn call(
                 .unwrap_or(100);
             json!(projects::tickets(db, organization_id, project_id, query, limit).await?)
         }
-        other => {
-            let operator_tool = if customer_relations::is_operator(state, caller.person_id).await? {
-                customer_relations::call_operator_tool(state, other, arguments).await?
-            } else {
-                None
-            };
-            operator_tool
-                .ok_or_else(|| RpcError::invalid_params(format!("unknown tool {other}")))?
-        }
+        other => state
+            .hooks
+            .call_mcp_tool(state, caller, other, arguments)
+            .await?
+            .ok_or_else(|| RpcError::invalid_params(format!("unknown tool {other}")))?,
     };
     Ok(value)
 }

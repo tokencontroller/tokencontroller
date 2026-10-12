@@ -4,7 +4,8 @@
 //!
 //! The Enterprise plan build links this library and passes its own
 //! [`Extension`] to [`serve_with`], with its own routes; the open build
-//! passes `NoExtension` to [`serve`].
+//! passes `NoExtension` to [`serve`]. A build that adds its own API areas
+//! uses [`serve_with_additions`] and the plug-in points in [`hooks`].
 //!
 //! Each area of the product has its own module folder, listed in [`api`].
 //! See the layout table in the repository README for who owns which.
@@ -13,6 +14,8 @@ pub mod api;
 pub mod change;
 pub mod config;
 pub mod error;
+pub mod hooks;
+pub mod hosted;
 pub mod mail;
 pub mod state;
 
@@ -43,7 +46,7 @@ use anyhow::Context as _;
 use sqlx::postgres::{PgPool, PgPoolOptions};
 use tokencontroller_core::Extension;
 
-pub use api::{openapi_json, router};
+pub use api::{openapi_json, openapi_json_with, router, router_with};
 pub use config::Config;
 pub use state::AppState;
 
@@ -65,6 +68,16 @@ pub async fn serve(extension: Arc<dyn Extension>) -> anyhow::Result<()> {
     serve_with(extension, |_state| async { Ok(axum::Router::new()) }).await
 }
 
+/// What a build adds to the service once the database is ready: API routes
+/// under `/api/v1`, which get the same request IDs, logs and OpenAPI
+/// document as the service's own, and other routes next to them.
+pub struct Additions {
+    /// Routes relative to `/api/v1`.
+    pub api: utoipa_axum::router::OpenApiRouter<AppState>,
+    /// Routes outside `/api/v1`, such as `/scim/v2`.
+    pub routes: axum::Router,
+}
+
 /// Like [`serve`], and also serves the routes `extra_routes` returns. The
 /// Enterprise plan build uses it to add its own endpoints (OIDC, SCIM) next
 /// to the open ones; it gets the shared state after migrations ran, so it can
@@ -81,6 +94,36 @@ where
     F: FnOnce(AppState) -> Fut,
     Fut: Future<Output = anyhow::Result<axum::Router>>,
 {
+    serve_with_additions(
+        extension,
+        Arc::new(hooks::NoHooks),
+        move |state| async move {
+            Ok(Additions {
+                api: utoipa_axum::router::OpenApiRouter::new(),
+                routes: extra_routes(state).await?,
+            })
+        },
+    )
+    .await
+}
+
+/// Like [`serve_with`], with the build's own plug-in points (`hooks`) and API
+/// routes. `additions` gets the shared state after the service's migrations
+/// ran, so it can apply its own migrations and start its own background work
+/// first.
+///
+/// # Errors
+///
+/// As [`serve`], or whatever `additions` returns.
+pub async fn serve_with_additions<F, Fut>(
+    extension: Arc<dyn Extension>,
+    hooks: Arc<dyn hooks::ServiceHooks>,
+    additions: F,
+) -> anyhow::Result<()>
+where
+    F: FnOnce(AppState) -> Fut,
+    Fut: Future<Output = anyhow::Result<Additions>>,
+{
     init_tracing();
     let config = Config::from_env()?;
     tracing::info!(
@@ -92,11 +135,10 @@ where
 
     let db = connect_and_migrate(&config.database_url).await?;
 
-    let state = AppState::new(db, config, extension);
-    customer_relations::start(state.clone());
+    let state = AppState::new(db, config, extension).with_hooks(hooks);
     jobs::start(state.clone());
-    let extra = extra_routes(state.clone()).await?;
-    let app = router(state).merge(extra);
+    let added = additions(state.clone()).await?;
+    let app = router_with(state, added.api).merge(added.routes);
 
     let listener = tokio::net::TcpListener::bind(LISTEN_ADDRESS)
         .await

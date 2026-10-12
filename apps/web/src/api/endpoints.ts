@@ -113,6 +113,7 @@ export const api = {
 
   // People
   members: () => ok(typed.GET("/api/v1/members")),
+  memberLimit: () => ok(typed.GET("/api/v1/organization/member-limit")),
   addMember: (body: NewMember) => ok(typed.POST("/api/v1/members", { body })),
   updateMember: (id: string, body: MemberChange) => ok(typed.PATCH("/api/v1/members/{id}", { ...path(id), body })),
   setFilters: (id: string, filters: Filter[]) => ok(typed.PUT("/api/v1/members/{id}/filters", { ...path(id), body: filters })),
@@ -266,6 +267,7 @@ export const api = {
   setMyRules: (rules: Rule[]) => ok(typed.PUT("/api/v1/me/rules", { body: { rules } })),
 
   // Feedback reports and support inside the app (every member)
+  /** 404 where the service has no feedback reports, as on an Enterprise plan instance. */
   feedback: () => ok(typed.GET("/api/v1/feedback")),
   sendFeedback: (body: NewReport) => ok(typed.POST("/api/v1/feedback", { body })),
   /** 404 where support is off, as on most self-hosted instances. */

@@ -14,8 +14,9 @@ use sqlx::types::Uuid;
 use sqlx::{PgPool, Row as _};
 use tokencontroller_core::NoExtension;
 use tokencontroller_server::customer_relations::{self, Settings};
+use tokencontroller_server::hosted::{self, Hosted};
 use tokencontroller_server::sign_in::secret;
-use tokencontroller_server::{AppState, Config, router};
+use tokencontroller_server::{AppState, Config};
 use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader};
 use tower::ServiceExt as _;
 use wiremock::matchers::{header, method, path};
@@ -26,7 +27,7 @@ type TestResult<T> = Result<T, Box<dyn std::error::Error>>;
 const SECRET: &str = "inbound-secret";
 const SITE: &str = "https://site.example";
 
-fn config(settings: Settings, smtp_url: Option<String>) -> Config {
+fn config(smtp_url: Option<String>) -> Config {
     Config {
         database_url: "postgres://unused".to_owned(),
         public_url: "https://app.example".to_owned(),
@@ -34,10 +35,18 @@ fn config(settings: Settings, smtp_url: Option<String>) -> Config {
         smtp_url,
         smtp_from: None,
         prices_refresh: false,
-        customer_relations: settings,
-        stripe: None,
         embeddings: None,
     }
+}
+
+/// The hosted service with `settings` for customer relations.
+fn hosted_state(pool: PgPool, settings: Settings, smtp_url: Option<String>) -> Hosted {
+    let app = AppState::new(pool, config(smtp_url), Arc::new(NoExtension));
+    let settings = hosted::Settings {
+        customer_relations: settings,
+        stripe: None,
+    };
+    Hosted::new(app, Arc::new(settings))
 }
 
 fn settings(fake: &MockServer) -> Settings {
@@ -152,7 +161,7 @@ fn signature(id: &str, body: &[u8]) -> TestResult<String> {
     Ok(hex::encode(mac.finalize().into_bytes()))
 }
 
-async fn hand_over(state: &AppState, id: &str, mailbox: &str, raw: &str) -> TestResult<StatusCode> {
+async fn hand_over(state: &Hosted, id: &str, mailbox: &str, raw: &str) -> TestResult<StatusCode> {
     let request = Request::post("/api/v1/inbound/mail")
         .header("content-type", "message/rfc822")
         .header("x-tc-message-id", id)
@@ -161,11 +170,14 @@ async fn hand_over(state: &AppState, id: &str, mailbox: &str, raw: &str) -> Test
         .header("x-tc-envelope-to", format!("{mailbox}@example.com"))
         .header("x-tc-signature", signature(id, raw.as_bytes())?)
         .body(Body::from(raw.to_owned()))?;
-    Ok(router(state.clone()).oneshot(request).await?.status())
+    Ok(hosted::router(state.clone())
+        .oneshot(request)
+        .await?
+        .status())
 }
 
 async fn post_json(
-    state: &AppState,
+    state: &Hosted,
     uri: &str,
     body: &Value,
 ) -> TestResult<(StatusCode, Value, Option<String>)> {
@@ -173,7 +185,7 @@ async fn post_json(
         .header("content-type", "application/json")
         .header("origin", SITE)
         .body(Body::from(body.to_string()))?;
-    let response = router(state.clone()).oneshot(request).await?;
+    let response = hosted::router(state.clone()).oneshot(request).await?;
     let status = response.status();
     let origin = response
         .headers()
@@ -204,11 +216,7 @@ async fn a_question_by_mail_is_answered_from_the_docs(pool: PgPool) {
     }))
     .await;
     let (smtp, sent) = fake_smtp().await.unwrap();
-    let state = AppState::new(
-        pool.clone(),
-        config(settings(&fake), Some(smtp)),
-        Arc::new(NoExtension),
-    );
+    let state = hosted_state(pool.clone(), settings(&fake), Some(smtp));
 
     assert_eq!(
         hand_over(&state, "m1", "support", QUESTION).await.unwrap(),
@@ -267,11 +275,7 @@ async fn a_reply_reopens_its_conversation(pool: PgPool) {
         "action": "answer", "kind": "question", "answer": "Yes.", "links": [], "reason": ""
     }))
     .await;
-    let state = AppState::new(
-        pool.clone(),
-        config(settings(&fake), None),
-        Arc::new(NoExtension),
-    );
+    let state = hosted_state(pool.clone(), settings(&fake), None);
     hand_over(&state, "m1", "support", QUESTION).await.unwrap();
     customer_relations::run_once(&state).await;
     let ours: String = sqlx::query_scalar(
@@ -306,11 +310,7 @@ async fn what_the_docs_cannot_answer_goes_to_the_operators(pool: PgPool) {
     }))
     .await;
     let (smtp, sent) = fake_smtp().await.unwrap();
-    let state = AppState::new(
-        pool.clone(),
-        config(settings(&fake), Some(smtp)),
-        Arc::new(NoExtension),
-    );
+    let state = hosted_state(pool.clone(), settings(&fake), Some(smtp));
     hand_over(&state, "m1", "support", QUESTION).await.unwrap();
     customer_relations::run_once(&state).await;
 
@@ -358,7 +358,7 @@ async fn without_a_claude_key_every_question_goes_to_the_operators(pool: PgPool)
     let fake = fake_services(json!({})).await;
     let mut settings = settings(&fake);
     settings.anthropic_api_key = None;
-    let state = AppState::new(pool.clone(), config(settings, None), Arc::new(NoExtension));
+    let state = hosted_state(pool.clone(), settings, None);
     hand_over(&state, "m1", "support", QUESTION).await.unwrap();
     customer_relations::run_once(&state).await;
     let state_now: String = sqlx::query_scalar("SELECT state FROM support_conversations")
@@ -371,11 +371,7 @@ async fn without_a_claude_key_every_question_goes_to_the_operators(pool: PgPool)
 #[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
 async fn auto_replies_are_kept_but_never_answered(pool: PgPool) {
     let fake = fake_services(json!({})).await;
-    let state = AppState::new(
-        pool.clone(),
-        config(settings(&fake), None),
-        Arc::new(NoExtension),
-    );
+    let state = hosted_state(pool.clone(), settings(&fake), None);
     let auto = "From: ana@kestrel.example\r\nAuto-Submitted: auto-replied\r\nSubject: Out of office\r\n\r\nAway.\r\n";
     hand_over(&state, "m1", "support", auto).await.unwrap();
     customer_relations::run_once(&state).await;
@@ -396,11 +392,7 @@ async fn auto_replies_are_kept_but_never_answered(pool: PgPool) {
 #[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
 async fn handed_over_mail_must_be_signed(pool: PgPool) {
     let fake = fake_services(json!({})).await;
-    let state = AppState::new(
-        pool.clone(),
-        config(settings(&fake), None),
-        Arc::new(NoExtension),
-    );
+    let state = hosted_state(pool.clone(), settings(&fake), None);
     let request = Request::post("/api/v1/inbound/mail")
         .header("x-tc-message-id", "m1")
         .header("x-tc-mailbox", "support")
@@ -408,18 +400,14 @@ async fn handed_over_mail_must_be_signed(pool: PgPool) {
         .header("x-tc-signature", "00")
         .body(Body::from(QUESTION))
         .unwrap();
-    let status = router(state.clone())
+    let status = hosted::router(state.clone())
         .oneshot(request)
         .await
         .unwrap()
         .status();
     assert_eq!(status, StatusCode::UNAUTHORIZED);
 
-    let off = AppState::new(
-        pool,
-        config(Settings::default(), None),
-        Arc::new(NoExtension),
-    );
+    let off = hosted_state(pool, Settings::default(), None);
     assert_eq!(
         hand_over(&off, "m1", "support", QUESTION).await.unwrap(),
         StatusCode::NOT_FOUND
@@ -429,7 +417,7 @@ async fn handed_over_mail_must_be_signed(pool: PgPool) {
 #[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
 async fn mail_with_screenshots_fits(pool: PgPool) {
     let fake = fake_services(json!({})).await;
-    let state = AppState::new(pool, config(settings(&fake), None), Arc::new(NoExtension));
+    let state = hosted_state(pool, settings(&fake), None);
     let big = format!("{QUESTION}{}", "x".repeat(10 * 1024 * 1024));
     assert_eq!(
         hand_over(&state, "m1", "support", &big).await.unwrap(),
@@ -443,11 +431,7 @@ async fn the_contact_form_starts_a_conversation(pool: PgPool) {
         "action": "answer", "kind": "question", "answer": "Yes.", "links": [], "reason": ""
     }))
     .await;
-    let state = AppState::new(
-        pool.clone(),
-        config(settings(&fake), None),
-        Arc::new(NoExtension),
-    );
+    let state = hosted_state(pool.clone(), settings(&fake), None);
     let (status, _, origin) = post_json(
         &state,
         "/api/v1/contact",
@@ -489,11 +473,7 @@ async fn the_site_assistant_answers_and_keeps_the_question(pool: PgPool) {
         "answered": true, "answer": "Yes, Solo is free.", "links": ["https://docs.example/plans"]
     }))
     .await;
-    let state = AppState::new(
-        pool.clone(),
-        config(settings(&fake), None),
-        Arc::new(NoExtension),
-    );
+    let state = hosted_state(pool.clone(), settings(&fake), None);
     let (status, body, origin) = post_json(
         &state,
         "/api/v1/assistant/questions",
@@ -523,11 +503,7 @@ async fn the_site_assistant_answers_and_keeps_the_question(pool: PgPool) {
     .unwrap();
     assert_eq!(status, StatusCode::BAD_REQUEST);
 
-    let off = AppState::new(
-        pool,
-        config(Settings::default(), None),
-        Arc::new(NoExtension),
-    );
+    let off = hosted_state(pool, Settings::default(), None);
     let (status, _, _) = post_json(
         &off,
         "/api/v1/assistant/questions",
@@ -541,11 +517,7 @@ async fn the_site_assistant_answers_and_keeps_the_question(pool: PgPool) {
 #[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
 async fn the_newsletter_needs_a_confirmed_sign_up(pool: PgPool) {
     let fake = fake_services(json!({})).await;
-    let state = AppState::new(
-        pool.clone(),
-        config(settings(&fake), None),
-        Arc::new(NoExtension),
-    );
+    let state = hosted_state(pool.clone(), settings(&fake), None);
 
     let (status, body, _) = post_json(
         &state,
@@ -635,7 +607,7 @@ async fn the_newsletter_needs_a_confirmed_sign_up(pool: PgPool) {
     .header("content-type", "application/x-www-form-urlencoded")
     .body(Body::from("List-Unsubscribe=One-Click"))
     .unwrap();
-    let status = router(state.clone())
+    let status = hosted::router(state.clone())
         .oneshot(request)
         .await
         .unwrap()
@@ -651,11 +623,7 @@ async fn the_newsletter_needs_a_confirmed_sign_up(pool: PgPool) {
 #[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
 async fn an_issue_goes_to_confirmed_subscribers_only(pool: PgPool) {
     let fake = fake_services(json!({})).await;
-    let state = AppState::new(
-        pool.clone(),
-        config(settings(&fake), None),
-        Arc::new(NoExtension),
-    );
+    let state = hosted_state(pool.clone(), settings(&fake), None);
     sqlx::query(
         "INSERT INTO newsletter_subscribers (email, source, status, confirm_token, unsubscribe_token, confirmed_at)
          VALUES ('a@kestrel.example', 'test', 'confirmed', 'c1', 'u1', now()),
@@ -715,11 +683,7 @@ async fn an_issue_goes_to_confirmed_subscribers_only(pool: PgPool) {
 #[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
 async fn old_questions_mail_and_conversations_are_deleted(pool: PgPool) {
     // Retention runs with every feature off too.
-    let state = AppState::new(
-        pool.clone(),
-        config(Settings::default(), None),
-        Arc::new(NoExtension),
-    );
+    let state = hosted_state(pool.clone(), Settings::default(), None);
     sqlx::query(
         "INSERT INTO assistant_questions (question, answer, answered, created_at) VALUES
          ('old', 'a', true, now() - interval '91 days'), ('new', 'a', true, now() - interval '89 days')",
@@ -823,7 +787,7 @@ async fn session_for(pool: &PgPool, person_id: Uuid) -> TestResult<String> {
 /// Calls the API as the person with `session`; returns the status, the JSON
 /// body (or Null) and the content type.
 async fn call(
-    state: &AppState,
+    state: &Hosted,
     method: &str,
     uri: &str,
     session: Option<&str>,
@@ -839,7 +803,7 @@ async fn call(
             .body(Body::from(body.to_string()))?,
         None => request.body(Body::empty())?,
     };
-    let response = router(state.clone()).oneshot(request).await?;
+    let response = hosted::router(state.clone()).oneshot(request).await?;
     let status = response.status();
     let content_type = response
         .headers()
@@ -860,11 +824,7 @@ async fn only_operators_see_the_admin_area(pool: PgPool) {
     let (smtp, sent) = fake_smtp().await.unwrap();
     let mut settings = settings(&fake);
     settings.anthropic_api_key = None;
-    let state = AppState::new(
-        pool.clone(),
-        config(settings, Some(smtp)),
-        Arc::new(NoExtension),
-    );
+    let state = hosted_state(pool.clone(), settings, Some(smtp));
     let (_, _, ops) = organization(&pool, "Token Controller", "ops@example.com")
         .await
         .unwrap();
@@ -1000,11 +960,7 @@ async fn only_operators_see_the_admin_area(pool: PgPool) {
 #[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
 async fn operators_write_and_send_the_newsletter(pool: PgPool) {
     let fake = fake_services(json!({})).await;
-    let state = AppState::new(
-        pool.clone(),
-        config(settings(&fake), None),
-        Arc::new(NoExtension),
-    );
+    let state = hosted_state(pool.clone(), settings(&fake), None);
     let (_, _, ops) = organization(&pool, "Token Controller", "ops@example.com")
         .await
         .unwrap();
@@ -1095,16 +1051,13 @@ async fn operators_write_and_send_the_newsletter(pool: PgPool) {
     assert_eq!(newsletter["issues"][0]["delivered"], 1);
 
     // Without Resend nothing can be sent.
-    let off = AppState::new(
+    let off = hosted_state(
         pool.clone(),
-        config(
-            Settings {
-                operator_emails: vec!["ops@example.com".to_owned()],
-                ..Settings::default()
-            },
-            None,
-        ),
-        Arc::new(NoExtension),
+        Settings {
+            operator_emails: vec!["ops@example.com".to_owned()],
+            ..Settings::default()
+        },
+        None,
     );
     let (_, draft, _) = call(
         &off,
@@ -1134,11 +1087,7 @@ async fn operators_write_and_send_the_newsletter(pool: PgPool) {
 async fn feedback_reaches_the_operators_and_the_answer_reaches_the_sender(pool: PgPool) {
     let fake = fake_services(json!({})).await;
     let (smtp, sent) = fake_smtp().await.unwrap();
-    let state = AppState::new(
-        pool.clone(),
-        config(settings(&fake), Some(smtp)),
-        Arc::new(NoExtension),
-    );
+    let state = hosted_state(pool.clone(), settings(&fake), Some(smtp));
     let (_, _, ops) = organization(&pool, "Token Controller", "ops@example.com")
         .await
         .unwrap();
@@ -1334,11 +1283,7 @@ async fn feedback_reaches_the_operators_and_the_answer_reaches_the_sender(pool: 
 #[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
 async fn without_operators_controllers_read_their_own_reports(pool: PgPool) {
     let (smtp, sent) = fake_smtp().await.unwrap();
-    let state = AppState::new(
-        pool.clone(),
-        config(Settings::default(), Some(smtp)),
-        Arc::new(NoExtension),
-    );
+    let state = hosted_state(pool.clone(), Settings::default(), Some(smtp));
     let (_, _, acme) = organization(&pool, "Acme", "cfo@acme.example")
         .await
         .unwrap();
@@ -1407,11 +1352,7 @@ async fn without_operators_controllers_read_their_own_reports(pool: PgPool) {
 #[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
 async fn the_customer_record_brings_it_together(pool: PgPool) {
     let fake = fake_services(json!({})).await;
-    let state = AppState::new(
-        pool.clone(),
-        config(settings(&fake), None),
-        Arc::new(NoExtension),
-    );
+    let state = hosted_state(pool.clone(), settings(&fake), None);
     let (_, _, ops) = organization(&pool, "Token Controller", "ops@example.com")
         .await
         .unwrap();
@@ -1504,11 +1445,7 @@ async fn the_customer_record_brings_it_together(pool: PgPool) {
 
 #[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
 async fn old_screenshots_and_reports_are_deleted(pool: PgPool) {
-    let state = AppState::new(
-        pool.clone(),
-        config(Settings::default(), None),
-        Arc::new(NoExtension),
-    );
+    let state = hosted_state(pool.clone(), Settings::default(), None);
     let (organization, person, _) = organization(&pool, "Kestrel Digital", "ana@kestrel.example")
         .await
         .unwrap();
@@ -1549,11 +1486,7 @@ async fn members_write_to_support_from_the_app(pool: PgPool) {
     }))
     .await;
     let (smtp, sent) = fake_smtp().await.unwrap();
-    let state = AppState::new(
-        pool.clone(),
-        config(settings(&fake), Some(smtp)),
-        Arc::new(NoExtension),
-    );
+    let state = hosted_state(pool.clone(), settings(&fake), Some(smtp));
     let (_, _, ana) = organization(&pool, "Kestrel Digital", "ana@kestrel.example")
         .await
         .unwrap();
@@ -1611,11 +1544,7 @@ async fn members_write_to_support_from_the_app(pool: PgPool) {
     );
 
     // Without the support inbox, as on most self-hosted instances.
-    let off = AppState::new(
-        pool.clone(),
-        config(Settings::default(), None),
-        Arc::new(NoExtension),
-    );
+    let off = hosted_state(pool.clone(), Settings::default(), None);
     let (status, _, _) = call(&off, "GET", "/api/v1/support", Some(&ana), None)
         .await
         .unwrap();
@@ -1635,11 +1564,7 @@ async fn members_write_to_support_from_the_app(pool: PgPool) {
 #[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
 async fn operators_read_customers_over_mcp(pool: PgPool) {
     let fake = fake_services(json!({})).await;
-    let state = AppState::new(
-        pool.clone(),
-        config(settings(&fake), None),
-        Arc::new(NoExtension),
-    );
+    let state = hosted_state(pool.clone(), settings(&fake), None);
     let (_, _, ops) = organization(&pool, "Token Controller", "ops@example.com")
         .await
         .unwrap();
@@ -1761,11 +1686,7 @@ async fn a_stalled_organization_gets_one_onboarding_email(pool: PgPool) {
     let (smtp, sent) = fake_smtp().await.unwrap();
     let mut on = settings(&fake);
     on.onboarding_emails = true;
-    let state = AppState::new(
-        pool.clone(),
-        config(on.clone(), Some(smtp)),
-        Arc::new(NoExtension),
-    );
+    let state = hosted_state(pool.clone(), on.clone(), Some(smtp));
     let (kestrel, _, _) = organization(&pool, "Kestrel Digital", "ana@kestrel.example")
         .await
         .unwrap();
@@ -1831,11 +1752,7 @@ async fn a_stalled_organization_gets_one_onboarding_email(pool: PgPool) {
         .execute(&pool)
         .await
         .unwrap();
-    let down = AppState::new(
-        pool.clone(),
-        config(on, Some("smtp://127.0.0.1:1".to_owned())),
-        Arc::new(NoExtension),
-    );
+    let down = hosted_state(pool.clone(), on, Some("smtp://127.0.0.1:1".to_owned()));
     let failed = customer_relations::send_onboarding_emails(&down, now)
         .await
         .unwrap();
@@ -1847,10 +1764,10 @@ async fn a_stalled_organization_gets_one_onboarding_email(pool: PgPool) {
     assert_eq!(kept, 0);
 
     // Off by default.
-    let off = AppState::new(
+    let off = hosted_state(
         pool.clone(),
-        config(settings(&fake), Some("smtp://127.0.0.1:1".to_owned())),
-        Arc::new(NoExtension),
+        settings(&fake),
+        Some("smtp://127.0.0.1:1".to_owned()),
     );
     customer_relations::send_onboarding_emails(&off, now)
         .await
@@ -1861,14 +1778,13 @@ async fn a_stalled_organization_gets_one_onboarding_email(pool: PgPool) {
         .unwrap();
     assert_eq!(none, 0);
 
-    // The job runner checks every hour, and only when the setting is on.
-    let job = tokencontroller_server::jobs::standard(&state.config)
-        .into_iter()
-        .find(|job| job.name == "onboarding-emails")
-        .expect("the onboarding job runs when the setting is on");
+    // The job runner checks every hour. It is the hosted service's own job,
+    // never one of the service's standard jobs.
+    let job = customer_relations::onboarding_job(Arc::clone(&state.settings));
+    assert_eq!(job.name, "onboarding-emails");
     assert_eq!(job.every, std::time::Duration::from_hours(1));
     assert!(
-        tokencontroller_server::jobs::standard(&off.config)
+        tokencontroller_server::jobs::standard(&state.config)
             .iter()
             .all(|job| job.name != "onboarding-emails")
     );

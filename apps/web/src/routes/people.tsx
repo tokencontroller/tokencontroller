@@ -14,7 +14,8 @@ import { DataTable, type Column } from "@/components/ui/table";
 import { Tag, TagRow } from "@/components/ui/tag";
 import { notify } from "@/components/ui/toast";
 import { describeFilter, displayName } from "@/lib/format";
-import { refreshAll, useBilling, useMe, usePeople } from "@/lib/queries";
+import { additions } from "@/lib/additions";
+import { refreshAll, useBilling, useMe, useMemberLimit, usePeople } from "@/lib/queries";
 import { hasRole, roleLabel } from "@/lib/roles";
 
 const roles: Role[] = ["agent_manager", "people_manager", "controller"];
@@ -170,14 +171,23 @@ export function PeoplePage(): ReactNode {
   const me = useMe();
   const people = usePeople();
   const billing = useBilling();
+  const limit = useMemberLimit();
   const [inviting, setInviting] = useState(false);
   const [invited, setInvited] = useState<Invited | null>(null);
   const [editing, setEditing] = useState<Person | null>(null);
   const remove = useMutation({ mutationFn: api.removeMember, onSuccess: async () => { await refreshAll(); notify("Removed", "Their past token entries keep their agent manager."); } });
   const resend = useMutation({ mutationFn: api.resendInvite, onSuccess: async (r) => { await refreshAll(); setInvited(r); } });
   const controller = hasRole(me.person, "controller");
+  // GET /billing gives the plan's own lines below, the Solo note and the Team
+  // plan count, and tells whether this instance has billing at all.
   const solo = billing.data?.plan === "solo";
-  const full = billing.data ? billing.data.members >= billing.data.member_limit : false;
+  // The service refuses an invite past the limit: the plan's, the license's or
+  // the instance's. The button waits for the limit; if it cannot be read, the
+  // service's refusal still says why.
+  const full = limit.data ? limit.data.members >= limit.data.member_limit : false;
+  // Without billing the limit is the license's or the instance's; it shows once reached.
+  const atLimit = billing.data === null && full && controller;
+  const { PeopleNote } = additions.parts;
   const actions = (p: Person) => [
     { label: "Edit", onClick: () => setEditing(p) },
     ...(p.status === "invited" ? [{ label: "Send the invite again", onClick: () => resend.mutate(p.id) }] : []),
@@ -199,8 +209,9 @@ export function PeoplePage(): ReactNode {
       <PageHeader
         title="People"
         lead="Members, their role and their tags. Teams and departments are tags on people; there is no org chart."
-        actions={controller ? <Button variant="primary" onClick={() => setInviting(true)} disabled={solo || full}>Invite a person</Button> : undefined}
+        actions={controller ? <Button variant="primary" onClick={() => setInviting(true)} disabled={limit.isPending || full}>Invite a person</Button> : undefined}
       />
+      {PeopleNote ? <PeopleNote /> : null}
       {solo && controller ? (
         <Note>
           Solo is for one person who holds every role. To invite people,{" "}
@@ -210,10 +221,15 @@ export function PeoplePage(): ReactNode {
           .
         </Note>
       ) : null}
-      {billing.data && !solo ? (
+      {billing.data && !solo && limit.data ? (
         <p className="mb-4 text-[13px] text-muted">
-          {billing.data.members} of {billing.data.member_limit} members on the Team plan.
+          {limit.data.members} of {limit.data.member_limit} members on the Team plan.
           {full ? " The Team plan stops here; more members need the Enterprise plan." : null}
+        </p>
+      ) : null}
+      {atLimit && limit.data ? (
+        <p className="mb-4 text-[13px] text-muted">
+          {limit.data.members} of {limit.data.member_limit} members. {limit.data.message}
         </p>
       ) : null}
       <FormError error={remove.error ?? resend.error} />

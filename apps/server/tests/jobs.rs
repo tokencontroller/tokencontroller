@@ -18,8 +18,6 @@ fn state(pool: PgPool) -> AppState {
         smtp_url: None,
         smtp_from: None,
         prices_refresh: false,
-        customer_relations: tokencontroller_server::customer_relations::Settings::default(),
-        stripe: None,
         embeddings: None,
     };
     AppState::new(pool, config, Arc::new(NoExtension))

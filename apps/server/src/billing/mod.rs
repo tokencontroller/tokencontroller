@@ -1,7 +1,6 @@
 //! Team plan subscriptions through Stripe for the hosted service. Off unless
-//! the Stripe settings are set, so self-hosted instances never see it
-//! (ADR 0002): every endpoint here answers 404, and the member limit is the
-//! one the docs give for self-hosting.
+//! the Stripe settings are set. While off, every endpoint here answers 404 and
+//! the member limit is the service's own.
 //!
 //! An organization without an active subscription is on the free Solo plan:
 //! one person. The Team plan allows up to 150 members (docs: Plans and
@@ -24,11 +23,27 @@ use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 use uuid::Uuid;
 
-use crate::AppState;
-use crate::config::StripeConfig;
 use crate::error::ApiError;
+use crate::hooks::MemberLimit;
+use crate::hosted::Hosted;
 use crate::organizations::{self, Role};
 use crate::sign_in::Member;
+
+/// `TC_STRIPE_SECRET_KEY` and `TC_STRIPE_WEBHOOK_SECRET`.
+#[derive(Clone, PartialEq, Eq)]
+pub struct StripeConfig {
+    /// The API key the service calls Stripe with.
+    pub secret_key: String,
+    /// The signing secret of the webhook endpoint.
+    pub webhook_secret: String,
+}
+
+/// Never prints the keys.
+impl std::fmt::Debug for StripeConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("StripeConfig { <hidden> }")
+    }
+}
 
 /// The Team plan's member limit (docs: Plans and limits).
 pub const TEAM_PLAN_MEMBERS: u32 = 150;
@@ -37,7 +52,7 @@ pub const SOLO_MEMBERS: u32 = 1;
 
 /// This area's routes, relative to `/api/v1`.
 #[must_use]
-pub fn routes() -> OpenApiRouter<AppState> {
+pub fn routes() -> OpenApiRouter<Hosted> {
     OpenApiRouter::new()
         .routes(routes!(get_billing))
         .routes(routes!(checkout))
@@ -45,41 +60,37 @@ pub fn routes() -> OpenApiRouter<AppState> {
         .routes(routes!(webhook::receive))
 }
 
-/// How many members an organization may have, and what to say when it is
-/// reached.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct MemberLimit {
-    pub max: i64,
-    pub message: &'static str,
-}
-
-/// The member limit of an organization: Solo or Team plan on the hosted
-/// service, otherwise what the extension says or 150.
+/// The member limit of an organization on the hosted service: the Solo or
+/// Team plan, or `None` while billing is off, which keeps the service's own
+/// limit.
 ///
 /// # Errors
 ///
 /// Fails if a query fails.
 pub async fn member_limit(
-    state: &AppState,
+    state: &Hosted,
     organization_id: Uuid,
-) -> Result<MemberLimit, ApiError> {
-    if state.config.stripe.is_none() {
-        let max = state.extension.member_limit().unwrap_or(TEAM_PLAN_MEMBERS);
-        return Ok(MemberLimit {
-            max: i64::from(max),
-            message: "This instance allows no more members.",
-        });
+) -> Result<Option<MemberLimit>, ApiError> {
+    if state.settings.stripe.is_none() {
+        return Ok(None);
     }
-    Ok(match plan(state, organization_id).await? {
+    Ok(Some(plan_limit(plan(state, organization_id).await?)))
+}
+
+/// The member limit of a plan, and what an invite past it is refused with.
+fn plan_limit(plan: Plan) -> MemberLimit {
+    match plan {
         Plan::Team => MemberLimit {
             max: i64::from(TEAM_PLAN_MEMBERS),
-            message: "The Team plan stops at 150 members. More members come with the Enterprise plan.",
+            message: "The Team plan stops at 150 members. More members come with the Enterprise plan."
+                .to_owned(),
         },
         Plan::Solo => MemberLimit {
             max: i64::from(SOLO_MEMBERS),
-            message: "The Solo plan is for one person. Choose the Team plan under Billing to invite people.",
+            message: "The Solo plan is for one person. Choose the Team plan under Billing to invite people."
+                .to_owned(),
         },
-    })
+    }
 }
 
 /// The hosted plans billing knows about.
@@ -99,7 +110,7 @@ pub fn is_team(status: Option<&str>) -> bool {
     matches!(status, Some("active" | "past_due"))
 }
 
-async fn plan(state: &AppState, organization_id: Uuid) -> Result<Plan, ApiError> {
+async fn plan(state: &Hosted, organization_id: Uuid) -> Result<Plan, ApiError> {
     let status = sqlx::query_scalar!(
         "SELECT status FROM billing_subscriptions WHERE organization_id = $1",
         organization_id
@@ -114,8 +125,8 @@ async fn plan(state: &AppState, organization_id: Uuid) -> Result<Plan, ApiError>
     })
 }
 
-fn stripe_config(state: &AppState) -> Result<&StripeConfig, ApiError> {
-    state.config.stripe.as_ref().ok_or(ApiError::NotFound)
+fn stripe_config(state: &Hosted) -> Result<&StripeConfig, ApiError> {
+    state.settings.stripe.as_ref().ok_or(ApiError::NotFound)
 }
 
 /// Monthly or yearly.
@@ -163,7 +174,7 @@ pub struct Billing {
     ),
 )]
 async fn get_billing(
-    State(state): State<AppState>,
+    State(state): State<Hosted>,
     member: Member,
 ) -> Result<Json<Billing>, ApiError> {
     stripe_config(&state)?;
@@ -174,15 +185,15 @@ async fn get_billing(
     )
     .fetch_optional(&state.db)
     .await?;
-    let limit = member_limit(&state, member.organization_id).await?;
+    let plan = match &row {
+        Some(row) if is_team(row.status.as_deref()) => Plan::Team,
+        _ => Plan::Solo,
+    };
+    let member_limit = plan_limit(plan).max;
     let members = organizations::member_count(&state.db, member.organization_id).await?;
     let billing = match row {
         Some(row) => Billing {
-            plan: if is_team(row.status.as_deref()) {
-                Plan::Team
-            } else {
-                Plan::Solo
-            },
+            plan,
             status: row.status,
             interval: match row.billing_interval.as_deref() {
                 Some("month") => Some(Interval::Month),
@@ -192,16 +203,16 @@ async fn get_billing(
             current_period_end: row.current_period_end,
             cancel_at_period_end: row.cancel_at_period_end,
             members,
-            member_limit: limit.max,
+            member_limit,
         },
         None => Billing {
-            plan: Plan::Solo,
+            plan,
             status: None,
             interval: None,
             current_period_end: None,
             cancel_at_period_end: false,
             members,
-            member_limit: limit.max,
+            member_limit,
         },
     };
     Ok(Json(billing))
@@ -236,7 +247,7 @@ pub struct StripeRedirect {
     ),
 )]
 async fn checkout(
-    State(state): State<AppState>,
+    State(state): State<Hosted>,
     member: Member,
     Json(request): Json<CheckoutRequest>,
 ) -> Result<Json<StripeRedirect>, ApiError> {
@@ -293,7 +304,7 @@ async fn checkout(
     ),
 )]
 async fn portal(
-    State(state): State<AppState>,
+    State(state): State<Hosted>,
     member: Member,
 ) -> Result<Json<StripeRedirect>, ApiError> {
     let stripe = stripe_config(&state)?;

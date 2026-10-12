@@ -2,11 +2,13 @@
 // unit tests, Playwright journeys and screenshots until the service has the
 // endpoint. State lives in sessionStorage so a reload keeps it.
 
-import { http, HttpResponse, type HttpResponseResolver } from "msw";
+import { http, HttpResponse, type HttpHandler, type HttpResponseResolver } from "msw";
+import { addedMocks } from "@/additions/mocks";
 import type {
   ApiToken,
   CadenceView,
   ExternalProject,
+  MemberLimit,
   NewTicketSystem,
   NewTokenEntry,
   StoredEntry,
@@ -21,7 +23,7 @@ import type {
 } from "@/api/contract";
 import { parseCsv } from "@/lib/csv";
 import { closeHandlers } from "./close";
-import { enterpriseHandlers, mockEdition } from "./enterprise";
+import { enterpriseHandlers, LICENSE_MEMBERS, mockEdition } from "./enterprise";
 import { customerRelationsHandlers } from "./customer-relations";
 import { reportsHandlers } from "./reports";
 import { tokenEntryHandlers } from "./token-entries";
@@ -91,6 +93,26 @@ function member(handler: (ctx: Ctx) => Response | Promise<Response>, roles?: Rol
     return result;
   };
 }
+
+/**
+ * Like `member`, for feedback, support and the admin area: the Enterprise plan
+ * build serves none of them, so there they answer 404 as the service does.
+ */
+function openEditionMember(handler: (ctx: Ctx) => Response | Promise<Response>): HttpResponseResolver {
+  return member((ctx) => (mockEdition() === "enterprise" ? error(404, "not_found", "not found") : handler(ctx)));
+}
+
+/** What the mock answers of a build's additions get, as the area files here do. */
+export interface MockKit {
+  API: string;
+  /** A handler for signed-in members, with the mock organization's data. */
+  member: typeof member;
+  fail: typeof error;
+  now: () => string;
+}
+
+/** The mock answers of a build's additions (`src/additions/mocks.ts`). */
+export type AddedMocks = (kit: MockKit) => readonly HttpHandler[];
 
 const PM: Role[] = ["people_manager"];
 const CONTROLLER: Role[] = ["controller"];
@@ -279,10 +301,21 @@ function organizationOf(db: Db, name: string, email: string, founderName: string
   };
 }
 
-function billing(db: Db) {
+/** As the service works it out: the plan's where billing is on, else the license's, else the instance's 150. */
+function memberLimit(db: Db): MemberLimit {
   const members = db.people.filter((p) => p.status !== "removed").length;
+  if (db.billing.enabled && mockEdition() === "open") {
+    return db.billing.plan === "team"
+      ? { members, member_limit: 150, message: "The Team plan stops at 150 members. More members come with the Enterprise plan." }
+      : { members, member_limit: 1, message: "The Solo plan is for one person. Choose the Team plan under Billing to invite people." };
+  }
+  return { members, member_limit: mockEdition() === "enterprise" ? LICENSE_MEMBERS : 150, message: "This instance allows no more members." };
+}
+
+function billing(db: Db) {
+  const { members, member_limit } = memberLimit(db);
   const b = db.billing;
-  return { plan: b.plan, status: b.status, interval: b.interval, current_period_end: b.current_period_end, cancel_at_period_end: b.cancel_at_period_end, members, member_limit: b.plan === "team" ? 150 : 1 };
+  return { plan: b.plan, status: b.status, interval: b.interval, current_period_end: b.current_period_end, cancel_at_period_end: b.cancel_at_period_end, members, member_limit };
 }
 
 function tagValues(db: Db, name: string) {
@@ -301,6 +334,9 @@ function ticketView(t: Db["tickets"][number]) {
 }
 
 export const handlers = [
+  // A build's own answers come first, so they win where they answer a path too.
+  ...addedMocks({ API, member, fail: error, now }),
+
   // Sign-in, sign-up and the session
   http.post(`${API}/sign-in`, async ({ request }) => {
     const db = load();
@@ -391,12 +427,12 @@ export const handlers = [
 
   // People
   http.get(`${API}/members`, member(({ db }) => HttpResponse.json(db.people))),
+  http.get(`${API}/organization/member-limit`, member(({ db }) => HttpResponse.json(memberLimit(db)))),
   http.post(`${API}/members`, member(async ({ db, request }) => {
     const body = (await request.json()) as { email: string; name?: string; role?: Role; tags?: Tags };
-    const active = db.people.filter((p) => p.status !== "removed").length;
-    if (db.billing.enabled && db.billing.plan === "solo") return error(409, "conflict", "Solo is for one person. Choose the Team plan to invite people.");
-    if (active >= 150) return error(409, "conflict", "The Team plan stops at 150 members.");
     if (db.people.some((p) => p.email.toLowerCase() === body.email.toLowerCase() && p.status !== "removed")) return error(409, "conflict", "Someone with this email is already a member.");
+    const limit = memberLimit(db);
+    if (limit.members >= limit.member_limit) return error(409, "conflict", limit.message);
     const person: Person = { id: `p0000000-0000-4000-8000-${String(db.nextId++).padStart(12, "0")}`, name: body.name?.trim() || (body.email.split("@")[0] ?? body.email), email: body.email, role: body.role ?? "agent_manager", tags: body.tags ?? {}, filters: [], status: "invited", invited_at: now(), joined_at: null };
     db.people.push(person);
     const code = `${db.organization.slug}-${String(db.nextId++).slice(-4)}`;
@@ -651,7 +687,7 @@ export const handlers = [
   }, CONTROLLER)),
   ...tokenEntryHandlers({ API, member, fail: error, now }),
   ...closeHandlers({ API, member, fail: error, load, now }),
-  ...customerRelationsHandlers({ API, member, fail: error, now }),
+  ...customerRelationsHandlers({ API, member: openEditionMember, fail: error, now }),
   ...enterpriseHandlers({ API, member, fail: error, now }),
   ...reportsHandlers({ API, member, fail: error, now }),
 ];

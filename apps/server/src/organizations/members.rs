@@ -179,6 +179,40 @@ pub(super) async fn list_members(
     ))
 }
 
+/// How many members the organization has and may have (docs: Plans and
+/// limits).
+#[derive(Debug, Serialize, ToSchema)]
+pub struct MemberLimitView {
+    /// Everyone invited or joined who has not left. Every member counts the
+    /// same, whatever their role.
+    pub members: i64,
+    /// The most members the organization may have: the plan's, the Enterprise
+    /// plan license's or the instance's.
+    pub member_limit: i64,
+    /// What an invite past the limit is refused with, such as "This instance
+    /// allows no more members."
+    pub message: String,
+}
+
+/// The organization's member count and member limit.
+#[utoipa::path(
+    get,
+    path = "/organization/member-limit",
+    tag = "members",
+    responses((status = OK, body = MemberLimitView)),
+)]
+pub(super) async fn get_member_limit(
+    State(state): State<AppState>,
+    member: Member,
+) -> Result<Json<MemberLimitView>, ApiError> {
+    let limit = super::member_limit(&state, member.organization_id).await?;
+    Ok(Json(MemberLimitView {
+        members: super::member_count(&state.db, member.organization_id).await?,
+        member_limit: limit.max,
+        message: limit.message,
+    }))
+}
+
 /// Invite someone by email. They get a link that signs them in. Controllers
 /// only.
 #[utoipa::path(
@@ -232,9 +266,9 @@ pub(super) async fn invite_member(
         }
         None => {}
     }
-    let limit = crate::billing::member_limit(&state, member.organization_id).await?;
+    let limit = super::member_limit(&state, member.organization_id).await?;
     if super::member_count(&state.db, member.organization_id).await? >= limit.max {
-        return Err(ApiError::Conflict(limit.message.to_owned()));
+        return Err(ApiError::Conflict(limit.message));
     }
 
     let code = format!(

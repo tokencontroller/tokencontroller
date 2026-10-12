@@ -46,8 +46,6 @@ fn config() -> Config {
         smtp_url: None,
         smtp_from: None,
         prices_refresh: false,
-        customer_relations: tokencontroller_server::customer_relations::Settings::default(),
-        stripe: None,
         embeddings: None,
     }
 }

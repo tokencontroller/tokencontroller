@@ -1,4 +1,5 @@
 import { useEffect, type ComponentProps, type ReactNode } from "react";
+import { additions } from "@/lib/additions";
 import { recordError } from "@/lib/diagnostics";
 
 const control =
@@ -36,7 +37,9 @@ export function Select({ className = "", children, ...props }: ComponentProps<"s
 export function FormError({ error }: { error: unknown }) {
   const message = !error ? null : error instanceof Error ? error.message : "Something went wrong.";
   useEffect(() => {
-    if (message) recordError(message);
+    if (!message) return;
+    recordError(message);
+    additions.onErrorShown(message);
   }, [message]);
   if (!message) return null;
   return (

@@ -16,6 +16,7 @@ import { Switch } from "@/components/ui/switch";
 import { DataTable, type Column } from "@/components/ui/table";
 import { notify } from "@/components/ui/toast";
 import { costSourceOrder, costSourceText, describeCostSource } from "@/lib/cost-source";
+import { additions } from "@/lib/additions";
 import { downloadFile } from "@/lib/csv";
 import { displayName, formatDate, formatDateTime } from "@/lib/format";
 import { refreshAll, useAdmin, useBilling, useMe, usePeople, usePersonName, useProjects } from "@/lib/queries";
@@ -429,6 +430,7 @@ function FeedbackReports() {
 export function SettingsPage(): ReactNode {
   const me = useMe();
   const controller = hasRole(me.person, "controller");
+  const { SettingsPlan } = additions.parts;
   const exportRaw = useMutation({
     mutationFn: api.rawExport,
     onSuccess: (blob) => downloadFile(`token-controller-export-${today()}.${blob.type.includes("zip") ? "zip" : "json"}`, blob, blob.type),
@@ -451,6 +453,7 @@ export function SettingsPage(): ReactNode {
         <ApiTokens />
       </Section>
       {controller ? <Plan /> : null}
+      {controller && SettingsPlan ? <SettingsPlan /> : null}
       {controller ? <FeedbackReports /> : null}
       {controller ? (
         <Section title="Raw export" lead="Everything your organization has, as a zip of JSON: every token entry, split, tag, bill, rule, ticket and period.">

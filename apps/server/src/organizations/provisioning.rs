@@ -90,9 +90,9 @@ pub async fn add_member(
         }
         return Ok(active.id);
     }
-    let limit = crate::billing::member_limit(state, organization_id).await?;
+    let limit = super::member_limit(state, organization_id).await?;
     if member_count(&state.db, organization_id).await? >= limit.max {
-        return Err(ApiError::Conflict(limit.message.to_owned()));
+        return Err(ApiError::Conflict(limit.message));
     }
     let removed = sqlx::query_scalar!(
         r#"SELECT id FROM people

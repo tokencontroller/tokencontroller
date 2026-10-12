@@ -52,18 +52,22 @@ fn area_routes() -> OpenApiRouter<AppState> {
         .merge(crate::close::routes())
         .merge(crate::budgets::routes())
         .merge(crate::reports::routes())
-        .merge(crate::billing::routes())
-        .merge(crate::customer_relations::routes())
 }
 
-fn api() -> OpenApiRouter<AppState> {
-    OpenApiRouter::with_openapi(ApiDoc::openapi()).nest(API_PREFIX, area_routes())
+fn api(extra: OpenApiRouter<AppState>) -> OpenApiRouter<AppState> {
+    OpenApiRouter::with_openapi(ApiDoc::openapi()).nest(API_PREFIX, area_routes().merge(extra))
 }
 
 /// The whole HTTP service, ready to serve: the API, and the web app on
 /// every other path when the image carries it.
 pub fn router(state: AppState) -> Router {
-    let (api_router, openapi) = api().split_for_parts();
+    router_with(state, OpenApiRouter::new())
+}
+
+/// Like [`router`], with a build's own API routes (`extra`, relative to
+/// [`API_PREFIX`]) next to the service's, in the same OpenAPI document.
+pub fn router_with(state: AppState, extra: OpenApiRouter<AppState>) -> Router {
+    let (api_router, openapi) = api(extra).split_for_parts();
     let openapi = Arc::new(openapi);
     let router = api_router.route(
         "/api/v1/openapi.json",
@@ -107,8 +111,19 @@ fn request_span<B>(request: &axum::http::Request<B>) -> tracing::Span {
 ///
 /// Only if the document cannot be written as JSON.
 pub fn openapi_json() -> anyhow::Result<String> {
-    api()
-        .into_openapi()
+    openapi_json_with(crate::hosted::openapi())
+}
+
+/// The OpenAPI document with a build's own paths and schemas (`extra`, with
+/// its paths under [`API_PREFIX`]) merged in.
+///
+/// # Errors
+///
+/// Only if the document cannot be written as JSON.
+pub fn openapi_json_with(extra: utoipa::openapi::OpenApi) -> anyhow::Result<String> {
+    let mut document = api(OpenApiRouter::new()).into_openapi();
+    document.merge(extra);
+    document
         .to_pretty_json()
         .context("could not write the OpenAPI document")
 }

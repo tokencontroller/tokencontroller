@@ -11,7 +11,8 @@ use http_body_util::BodyExt as _;
 use serde_json::{Value, json};
 use sqlx::PgPool;
 use tokencontroller_core::NoExtension;
-use tokencontroller_server::config::StripeConfig;
+use tokencontroller_server::billing::StripeConfig;
+use tokencontroller_server::hosted::{self, Hosted};
 use tokencontroller_server::sign_in::secret;
 use tokencontroller_server::{AppState, Config, router};
 use tower::ServiceExt as _;
@@ -22,7 +23,7 @@ type TestResult<T> = Result<T, Box<dyn std::error::Error>>;
 const KEY: &str = "0123456789abcdef0123456789abcdef";
 const WEBHOOK_SECRET: &str = "whsec_test";
 
-fn config(stripe: bool) -> Config {
+fn config() -> Config {
     Config {
         database_url: "postgres://unused".to_owned(),
         public_url: "http://localhost:8080".to_owned(),
@@ -30,29 +31,25 @@ fn config(stripe: bool) -> Config {
         smtp_url: None,
         smtp_from: None,
         prices_refresh: false,
-        customer_relations: tokencontroller_server::customer_relations::Settings::default(),
-        stripe: stripe.then(|| StripeConfig {
-            secret_key: "sk_test_unused".to_owned(),
-            webhook_secret: WEBHOOK_SECRET.to_owned(),
-        }),
         embeddings: None,
     }
 }
 
 fn app(pool: &PgPool) -> Router {
-    router(AppState::new(
-        pool.clone(),
-        config(false),
-        Arc::new(NoExtension),
-    ))
+    router(AppState::new(pool.clone(), config(), Arc::new(NoExtension)))
 }
 
+/// The hosted service with Team plan billing on.
 fn billing_app(pool: &PgPool) -> Router {
-    router(AppState::new(
-        pool.clone(),
-        config(true),
-        Arc::new(NoExtension),
-    ))
+    let settings = hosted::Settings {
+        stripe: Some(StripeConfig {
+            secret_key: "sk_test_unused".to_owned(),
+            webhook_secret: WEBHOOK_SECRET.to_owned(),
+        }),
+        ..hosted::Settings::default()
+    };
+    let app = AppState::new(pool.clone(), config(), Arc::new(NoExtension));
+    hosted::router(Hosted::new(app, Arc::new(settings)))
 }
 
 /// How a test request proves who it is.
@@ -1335,7 +1332,7 @@ async fn the_status_endpoint_shows_each_part(pool: PgPool) {
     // Without TC_SMTP_URL no sign-in mail goes out.
     assert_eq!(fresh.json["components"][4]["state"], "not_running");
 
-    let mut with_mail = config(false);
+    let mut with_mail = config();
     with_mail.smtp_url = Some("smtp://localhost:2525".to_owned());
     let mail_app = router(AppState::new(
         pool.clone(),
@@ -1612,6 +1609,12 @@ async fn solo_is_one_person_until_the_team_plan_is_paid(pool: PgPool) {
         .unwrap();
     assert_eq!(billing.json["plan"], "solo");
     assert_eq!(billing.json["member_limit"], 1);
+    // The People page reads the same limit from the public answer.
+    let limit = member_limit_of(&app, auth).await.unwrap();
+    assert_eq!(
+        limit.json,
+        json!({"members": 1, "member_limit": 1, "message": "The Solo plan is for one person. Choose the Team plan under Billing to invite people."})
+    );
 
     let invite = json!({"email": "m.ortner@kestrel.example"});
     let refused = send(
@@ -1657,6 +1660,8 @@ async fn solo_is_one_person_until_the_team_plan_is_paid(pool: PgPool) {
     assert_eq!(billing.json["plan"], "team");
     assert_eq!(billing.json["interval"], "month");
     assert_eq!(billing.json["member_limit"], 150);
+    let limit = member_limit_of(&app, auth).await.unwrap();
+    assert_eq!(limit.json["member_limit"], 150);
     let invited = send(&app, Method::POST, "/api/v1/members", auth, Some(invite))
         .await
         .unwrap();
@@ -1707,7 +1712,10 @@ async fn solo_is_one_person_until_the_team_plan_is_paid(pool: PgPool) {
 
 #[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
 async fn billing_is_off_without_stripe_settings(pool: PgPool) {
-    let app = app(&pool);
+    let app = hosted::router(Hosted::new(
+        AppState::new(pool.clone(), config(), Arc::new(NoExtension)),
+        Arc::new(hosted::Settings::default()),
+    ));
     let (_, controller) = organization(&pool, "Kestrel Digital", "n.berger@kestrel.example")
         .await
         .unwrap();
@@ -1810,7 +1818,7 @@ async fn identity_providers_add_remove_and_sign_in_members(pool: PgPool) {
         Some(ids::ORGANIZATION)
     );
     let recorder = Arc::new(Recorder::default());
-    let state = AppState::new(pool.clone(), config(false), recorder.clone());
+    let state = AppState::new(pool.clone(), config(), recorder.clone());
     let app = router(state.clone());
     let org = ids::ORGANIZATION;
 
@@ -1979,7 +1987,7 @@ async fn identity_providers_add_remove_and_sign_in_members(pool: PgPool) {
 #[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
 async fn every_change_reaches_the_audit_log(pool: PgPool) {
     let recorder = Arc::new(Recorder::default());
-    let app = router(AppState::new(pool.clone(), config(false), recorder.clone()));
+    let app = router(AppState::new(pool.clone(), config(), recorder.clone()));
     let (_, nadia) = organization(&pool, "Kestrel Digital", "n.berger@kestrel.example")
         .await
         .unwrap();
@@ -2401,4 +2409,296 @@ async fn merging_tag_values_reaches_every_record_and_rule(pool: PgPool) {
     assert_eq!(removed.status, StatusCode::NO_CONTENT, "{}", removed.text);
     let me = call(Method::GET, "/api/v1/me/rules".to_owned(), &mara, None).await;
     assert_eq!(me.json["rules"][0]["then"], json!({"set_tags": {}}));
+}
+
+/// Hooks a build could add: a one-member limit, and one more MCP tool.
+struct TestHooks;
+
+impl tokencontroller_server::hooks::ServiceHooks for TestHooks {
+    fn member_limit<'a>(
+        &'a self,
+        _state: &'a AppState,
+        _organization_id: Uuid,
+    ) -> tokencontroller_server::hooks::HookFuture<
+        'a,
+        Option<tokencontroller_server::hooks::MemberLimit>,
+    > {
+        Box::pin(async {
+            Ok(Some(tokencontroller_server::hooks::MemberLimit {
+                max: 1,
+                message: "This plan is for one person.".to_owned(),
+            }))
+        })
+    }
+
+    fn mcp_tools<'a>(
+        &'a self,
+        _state: &'a AppState,
+        _caller: &'a tokencontroller_server::sign_in::Caller,
+    ) -> tokencontroller_server::hooks::HookFuture<'a, Vec<Value>> {
+        Box::pin(async {
+            Ok(vec![json!({
+                "name": "plan",
+                "description": "The organization's plan.",
+                "inputSchema": {"type": "object", "properties": {}}
+            })])
+        })
+    }
+
+    fn call_mcp_tool<'a>(
+        &'a self,
+        _state: &'a AppState,
+        caller: &'a tokencontroller_server::sign_in::Caller,
+        name: &'a str,
+        _arguments: &'a Value,
+    ) -> tokencontroller_server::hooks::HookFuture<'a, Option<Value>> {
+        Box::pin(async move {
+            Ok((name == "plan")
+                .then(|| json!({"organization": caller.organization_id, "plan": "one"})))
+        })
+    }
+}
+
+fn hooked_app(pool: &PgPool) -> Router {
+    router(
+        AppState::new(pool.clone(), config(), Arc::new(NoExtension))
+            .with_hooks(Arc::new(TestHooks)),
+    )
+}
+
+#[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
+async fn a_hook_sets_the_member_limit(pool: PgPool) {
+    let (organization_id, controller) =
+        organization(&pool, "Kestrel Digital", "n.berger@kestrel.example")
+            .await
+            .unwrap();
+    let invite = json!({"email": "m.ortner@kestrel.example", "name": "Mara Ortner"});
+
+    let refused = send(
+        &hooked_app(&pool),
+        Method::POST,
+        "/api/v1/members",
+        Auth::Cookie(&controller),
+        Some(invite.clone()),
+    )
+    .await
+    .unwrap();
+    assert_eq!(refused.status, StatusCode::CONFLICT);
+    assert_eq!(refused.json["message"], "This plan is for one person.");
+
+    // Without hooks the instance's own limit holds.
+    let state = AppState::new(pool.clone(), config(), Arc::new(NoExtension));
+    let limit = tokencontroller_server::organizations::member_limit(&state, organization_id)
+        .await
+        .unwrap();
+    assert_eq!(
+        limit.max,
+        i64::from(tokencontroller_server::organizations::DEFAULT_MEMBER_LIMIT)
+    );
+    let invited = send(
+        &app(&pool),
+        Method::POST,
+        "/api/v1/members",
+        Auth::Cookie(&controller),
+        Some(invite),
+    )
+    .await
+    .unwrap();
+    assert_eq!(invited.status, StatusCode::CREATED, "{}", invited.text);
+}
+
+/// An Enterprise plan license for 250 members.
+struct Licensed;
+
+impl tokencontroller_core::Extension for Licensed {
+    fn member_limit(&self) -> Option<u32> {
+        Some(250)
+    }
+}
+
+async fn member_limit_of(app: &Router, auth: Auth<'_>) -> TestResult<Answer> {
+    send(
+        app,
+        Method::GET,
+        "/api/v1/organization/member-limit",
+        auth,
+        None,
+    )
+    .await
+}
+
+#[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
+async fn every_member_reads_the_member_limit(pool: PgPool) {
+    let (_, controller) = organization(&pool, "Kestrel Digital", "n.berger@kestrel.example")
+        .await
+        .unwrap();
+
+    // The open build: the instance's own limit, and what an invite past it
+    // is refused with.
+    let open = member_limit_of(&app(&pool), Auth::Cookie(&controller))
+        .await
+        .unwrap();
+    assert_eq!(open.status, StatusCode::OK, "{}", open.text);
+    assert_eq!(
+        open.json,
+        json!({"members": 1, "member_limit": 150, "message": "This instance allows no more members."})
+    );
+
+    // Invited people count before they join. An agent manager reads it, and
+    // so does a read token.
+    let invited = send(
+        &app(&pool),
+        Method::POST,
+        "/api/v1/members",
+        Auth::Cookie(&controller),
+        Some(json!({"email": "m.ortner@kestrel.example", "name": "Mara Ortner"})),
+    )
+    .await
+    .unwrap();
+    assert_eq!(invited.status, StatusCode::CREATED, "{}", invited.text);
+    let mara = Uuid::parse_str(invited.json["member"]["id"].as_str().unwrap()).unwrap();
+    let mara = session_for(&pool, mara, "browser").await.unwrap();
+    let agent_manager = member_limit_of(&app(&pool), Auth::Cookie(&mara))
+        .await
+        .unwrap();
+    assert_eq!(agent_manager.json["members"], 2);
+    let read = send(
+        &app(&pool),
+        Method::POST,
+        "/api/v1/api-tokens",
+        Auth::Cookie(&controller),
+        Some(json!({"kind": "read", "name": "Power BI"})),
+    )
+    .await
+    .unwrap();
+    let read = read.json["token"].as_str().unwrap();
+    let by_token = member_limit_of(&app(&pool), Auth::Bearer(read))
+        .await
+        .unwrap();
+    assert_eq!(by_token.json["members"], 2);
+    let signed_out = member_limit_of(&app(&pool), Auth::None).await.unwrap();
+    assert_eq!(signed_out.status, StatusCode::UNAUTHORIZED);
+
+    // An Enterprise plan license sets the limit, and a build's hook comes
+    // before it.
+    let licensed = router(AppState::new(pool.clone(), config(), Arc::new(Licensed)));
+    let licensed = member_limit_of(&licensed, Auth::Cookie(&controller))
+        .await
+        .unwrap();
+    assert_eq!(licensed.json["member_limit"], 250);
+    let hooked = member_limit_of(&hooked_app(&pool), Auth::Cookie(&controller))
+        .await
+        .unwrap();
+    assert_eq!(
+        hooked.json,
+        json!({"members": 2, "member_limit": 1, "message": "This plan is for one person."})
+    );
+}
+
+#[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
+async fn a_hook_adds_mcp_tools(pool: PgPool) {
+    let (organization_id, controller) =
+        organization(&pool, "Kestrel Digital", "n.berger@kestrel.example")
+            .await
+            .unwrap();
+    let rpc = |method: &str, params: Value| json!({"jsonrpc": "2.0", "id": 1, "method": method, "params": params});
+    let mcp = |app: Router, body: Value| {
+        let controller = controller.clone();
+        async move {
+            send(
+                &app,
+                Method::POST,
+                "/api/v1/mcp",
+                Auth::Cookie(&controller),
+                Some(body),
+            )
+            .await
+            .unwrap()
+        }
+    };
+
+    let open = mcp(app(&pool), rpc("tools/list", json!({}))).await;
+    let hooked = mcp(hooked_app(&pool), rpc("tools/list", json!({}))).await;
+    let open_tools = open.json["result"]["tools"].as_array().unwrap().len();
+    let hooked_tools = hooked.json["result"]["tools"].as_array().unwrap();
+    assert_eq!(hooked_tools.len(), open_tools.checked_add(1).unwrap());
+    assert_eq!(hooked_tools.last().unwrap()["name"], "plan");
+
+    let called = mcp(
+        hooked_app(&pool),
+        rpc("tools/call", json!({"name": "plan", "arguments": {}})),
+    )
+    .await;
+    assert_eq!(
+        called.json["result"]["structuredContent"]["result"]["organization"],
+        organization_id.to_string()
+    );
+    let unknown = mcp(app(&pool), rpc("tools/call", json!({"name": "plan"}))).await;
+    assert_eq!(unknown.json["error"]["code"], -32602);
+}
+
+#[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
+async fn a_build_adds_api_routes_with_their_own_state(pool: PgPool) {
+    #[derive(Clone)]
+    struct Added {
+        app: AppState,
+        greeting: &'static str,
+    }
+    impl axum::extract::FromRef<Added> for AppState {
+        fn from_ref(added: &Added) -> Self {
+            added.app.clone()
+        }
+    }
+    /// Says hello to a signed-in member.
+    #[utoipa::path(get, path = "/hello", responses((status = OK, body = String)))]
+    async fn hello(
+        axum::extract::State(added): axum::extract::State<Added>,
+        member: tokencontroller_server::sign_in::Member,
+    ) -> String {
+        format!("{} {}", added.greeting, member.organization_id)
+    }
+
+    let (organization_id, controller) =
+        organization(&pool, "Kestrel Digital", "n.berger@kestrel.example")
+            .await
+            .unwrap();
+    let state = AppState::new(pool.clone(), config(), Arc::new(NoExtension));
+    let added = Added {
+        app: state.clone(),
+        greeting: "hello",
+    };
+    let routes =
+        || utoipa_axum::router::OpenApiRouter::<Added>::new().routes(utoipa_axum::routes!(hello));
+    let committed = tokencontroller_server::openapi_json_with(
+        utoipa_axum::router::OpenApiRouter::<Added>::new()
+            .nest("/api/v1", routes())
+            .into_openapi(),
+    )
+    .unwrap();
+    assert!(committed.contains("\"/api/v1/hello\""));
+    assert!(committed.contains("\"/api/v1/members\""));
+    let extra = routes().with_state(added);
+    let app = tokencontroller_server::router_with(state, extra);
+
+    let answer = send(
+        &app,
+        Method::GET,
+        "/api/v1/hello",
+        Auth::Cookie(&controller),
+        None,
+    )
+    .await
+    .unwrap();
+    assert_eq!(answer.status, StatusCode::OK);
+    assert_eq!(answer.text, format!("hello {organization_id}"));
+    assert!(answer.headers.contains_key("x-request-id"));
+    let signed_out = send(&app, Method::GET, "/api/v1/hello", Auth::None, None)
+        .await
+        .unwrap();
+    assert_eq!(signed_out.status, StatusCode::UNAUTHORIZED);
+    let document = send(&app, Method::GET, "/api/v1/openapi.json", Auth::None, None)
+        .await
+        .unwrap();
+    assert!(document.json["paths"]["/api/v1/hello"]["get"].is_object());
+    assert!(document.json["paths"]["/api/v1/members"].is_object());
 }

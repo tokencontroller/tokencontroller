@@ -54,13 +54,13 @@ use utoipa_axum::routes;
 
 pub use admin::is_operator;
 pub use onboarding::{
-    JOB as ONBOARDING_JOB, JOB_EVERY as ONBOARDING_JOB_EVERY, run_job as run_onboarding_job,
+    JOB as ONBOARDING_JOB, JOB_EVERY as ONBOARDING_JOB_EVERY, job as onboarding_job,
     send_due as send_onboarding_emails,
 };
 pub use settings::{Settings, SettingsError};
 pub use tools::{call_operator_tool, operator_tools};
 
-use crate::AppState;
+use crate::hosted::Hosted;
 
 /// How often the background loop runs when nothing wakes it.
 const EVERY: Duration = Duration::from_mins(1);
@@ -71,7 +71,7 @@ const LOCK: i64 = 0x7463_6372;
 
 /// This area's routes, relative to `/api/v1`.
 #[must_use]
-pub fn routes() -> OpenApiRouter<AppState> {
+pub fn routes() -> OpenApiRouter<Hosted> {
     OpenApiRouter::new()
         .routes(routes!(inbox::receive_mail))
         .layer(DefaultBodyLimit::max(inbox::MAX_MAIL_BYTES))
@@ -134,7 +134,7 @@ pub fn wake() {
 /// Starts the background loop: answering support, sending replies, notices
 /// and the newsletter. It runs every minute and whenever [`wake`] is called,
 /// and does nothing while every feature is off.
-pub fn start(state: AppState) {
+pub fn start(state: Hosted) {
     tokio::spawn(async move {
         loop {
             run_once(&state).await;
@@ -145,7 +145,7 @@ pub fn start(state: AppState) {
 
 /// One run of the background loop. Failures are logged and tried again on
 /// the next run. When another replica is running it, this run does nothing.
-pub async fn run_once(state: &AppState) {
+pub async fn run_once(state: &Hosted) {
     let Ok(mut connection) = state.db.acquire().await else {
         tracing::warn!("customer relations: no database connection, skipping this run");
         return;
@@ -165,14 +165,14 @@ pub async fn run_once(state: &AppState) {
     }
 }
 
-async fn run_locked(state: &AppState) {
+async fn run_locked(state: &Hosted) {
     if let Err(error) = retention::forget(&state.db).await {
         tracing::error!("deleting old support and assistant data failed: {error:#}");
     }
     if let Err(error) = feedback::notify(state).await {
         tracing::error!("sending feedback notices failed: {error:#}");
     }
-    let settings = &state.config.customer_relations;
+    let settings = &state.settings.customer_relations;
     if settings.support_from.is_some() {
         // A handful per run, so one run never takes long.
         for _ in 0..10 {

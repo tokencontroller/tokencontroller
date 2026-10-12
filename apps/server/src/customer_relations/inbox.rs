@@ -15,8 +15,8 @@ use utoipa::ToSchema;
 
 use super::support::{self, Inbound};
 use super::web::{self, Limit, Refusal};
-use crate::AppState;
 use crate::error::{ApiError, ErrorBody};
+use crate::hosted::Hosted;
 use crate::sign_in::Member;
 
 type HmacSha256 = hmac::Hmac<sha2::Sha256>;
@@ -70,12 +70,12 @@ pub fn signed(secret: &str, id: &str, body: &[u8], signature: &str) -> bool {
     ),
 )]
 pub async fn receive_mail(
-    State(state): State<AppState>,
+    State(state): State<Hosted>,
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<StatusCode, ApiError> {
     let Some(secret) = state
-        .config
+        .settings
         .customer_relations
         .inbound_mail_secret
         .as_deref()
@@ -143,11 +143,11 @@ fn contact_limit() -> &'static Limit {
     ),
 )]
 pub async fn contact(
-    State(state): State<AppState>,
+    State(state): State<Hosted>,
     headers: HeaderMap,
     Json(message): Json<ContactMessage>,
 ) -> Response {
-    let settings = &state.config.customer_relations;
+    let settings = &state.settings.customer_relations;
     let response = match take_contact(&state, &headers, message).await {
         Ok(()) => StatusCode::ACCEPTED.into_response(),
         Err(refusal) => refusal.into_response(),
@@ -156,16 +156,16 @@ pub async fn contact(
 }
 
 /// The browser's preflight for [`contact`].
-pub async fn contact_preflight(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    web::preflight(&state.config.customer_relations, &headers)
+pub async fn contact_preflight(State(state): State<Hosted>, headers: HeaderMap) -> Response {
+    web::preflight(&state.settings.customer_relations, &headers)
 }
 
 async fn take_contact(
-    state: &AppState,
+    state: &Hosted,
     headers: &HeaderMap,
     message: ContactMessage,
 ) -> Result<(), Refusal> {
-    let settings = &state.config.customer_relations;
+    let settings = &state.settings.customer_relations;
     if settings.support_from.is_none() || settings.site_url.is_none() {
         return Err(ApiError::NotFound.into());
     }
@@ -226,15 +226,15 @@ fn app_limit() -> &'static Limit {
     LIMIT.get_or_init(|| Limit::new(MESSAGES_PER_VISITOR, Duration::from_hours(1)))
 }
 
-fn support_on(state: &AppState) -> Result<(), ApiError> {
-    if state.config.customer_relations.support_from.is_some() {
+fn support_on(state: &Hosted) -> Result<(), ApiError> {
+    if state.settings.customer_relations.support_from.is_some() {
         Ok(())
     } else {
         Err(ApiError::NotFound)
     }
 }
 
-async fn person(state: &AppState, member: &Member) -> Result<(String, String), ApiError> {
+async fn person(state: &Hosted, member: &Member) -> Result<(String, String), ApiError> {
     let row = sqlx::query!(
         "SELECT email, name FROM people WHERE id = $1",
         member.person_id
@@ -256,7 +256,7 @@ async fn person(state: &AppState, member: &Member) -> Result<(String, String), A
     ),
 )]
 pub async fn support(
-    State(state): State<AppState>,
+    State(state): State<Hosted>,
     member: Member,
 ) -> Result<Json<SupportView>, ApiError> {
     support_on(&state)?;
@@ -279,7 +279,7 @@ pub async fn support(
     ),
 )]
 pub async fn support_message(
-    State(state): State<AppState>,
+    State(state): State<Hosted>,
     member: Member,
     Json(message): Json<SupportMessage>,
 ) -> Result<StatusCode, ApiError> {
