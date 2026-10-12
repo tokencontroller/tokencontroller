@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM inbound_mail WHERE received_at < now() - interval '90 days'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "291b525e31ec8882e41359380bf560ae8c4661cd20cad1b2907a0f8bda7d4094"
+}

@@ -28,3 +28,5 @@ The hosted service uses these to run its own support inbox, site assistant and n
 | `TC_SITE_URL` | The public website, such as `https://example.com`. Its pages may use the site assistant, the contact form and the newsletter sign-up. |
 | `TC_RESEND_API_KEY` | A Resend API key. Turns on the newsletter. Needs `TC_NEWSLETTER_FROM`. |
 | `TC_NEWSLETTER_FROM` | The sender of the newsletter, such as `News <news@news.example.com>`. |
+
+The service deletes site assistant questions and the raw copy of support mail after 90 days, and a support conversation two years after its last message. A message's text stays with its conversation until then.
