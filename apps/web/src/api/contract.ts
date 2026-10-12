@@ -70,6 +70,29 @@ export type ApiToken = Schemas["ApiToken"];
 export type ApiTokenKind = Schemas["TokenKind"];
 export type CreatedApiToken = Schemas["CreatedApiToken"];
 
+// Customer relations: feedback reports, support inside the app, the admin area.
+export type FeedbackKind = Schemas["Kind"];
+export type FeedbackStatus = Schemas["Status"];
+export type Diagnostics = Schemas["Diagnostics"];
+export type Screenshot = Schemas["Screenshot"];
+export type NewReport = Schemas["NewReport"];
+export type Report = Schemas["ReportView"];
+export type ReceivedReport = Schemas["ReceivedReport"];
+export type ReportChange = Schemas["ReportChange"];
+export type SupportView = Schemas["SupportView"];
+export type AdminOverview = Schemas["Overview"];
+export type Conversation = Schemas["ConversationSummary"];
+export type ConversationView = Schemas["ConversationView"];
+export type SupportMessage = Schemas["MessageView"];
+export type CustomerSummary = Schemas["CustomerSummary"];
+export type CustomerRecord = Schemas["CustomerRecord"];
+export type CustomerMember = Schemas["CustomerMember"];
+export type CustomerNote = Schemas["Note"];
+export type NewsletterView = Schemas["NewsletterView"];
+export type Issue = Schemas["IssueView"];
+export type IssueText = Schemas["IssueText"];
+export type AssistantQuestion = Schemas["QuestionView"];
+
 /** What to do when prompts name several tickets (docs: Rules). */
 export type SeveralKeys = "most_named" | "equal_split" | "first_named";
 

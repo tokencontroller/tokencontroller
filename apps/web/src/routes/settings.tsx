@@ -17,7 +17,7 @@ import { notify } from "@/components/ui/toast";
 import { costSourceOrder, costSourceText, describeCostSource } from "@/lib/cost-source";
 import { downloadFile } from "@/lib/csv";
 import { displayName, formatDate, formatDateTime } from "@/lib/format";
-import { refreshAll, useBilling, useMe, usePeople, usePersonName } from "@/lib/queries";
+import { refreshAll, useAdmin, useBilling, useMe, usePeople, usePersonName } from "@/lib/queries";
 import { hasRole } from "@/lib/roles";
 import { today } from "@/lib/today";
 
@@ -294,6 +294,24 @@ function Plan() {
   );
 }
 
+/**
+ * On an instance without operators, feedback reports go to the controllers,
+ * who read their own organization's reports here.
+ */
+function FeedbackReports() {
+  const admin = useAdmin();
+  const reports = useQuery({ queryKey: ["admin", "feedback", ""], queryFn: () => api.receivedFeedback(), enabled: admin.data === null, retry: false });
+  if (admin.data !== null || !reports.data) return null;
+  const open = reports.data.filter((r) => r.report.status === "received").length;
+  return (
+    <Section title="Feedback reports" lead="Bugs, ideas and questions your members send with the feedback button come to the controllers on this instance.">
+      <Link to="/admin/feedback" className={buttonClass()}>
+        Feedback reports{open ? ` (${String(open)} new)` : ""}
+      </Link>
+    </Section>
+  );
+}
+
 export function SettingsPage(): ReactNode {
   const me = useMe();
   const controller = hasRole(me.person, "controller");
@@ -318,6 +336,7 @@ export function SettingsPage(): ReactNode {
         <ApiTokens />
       </Section>
       {controller ? <Plan /> : null}
+      {controller ? <FeedbackReports /> : null}
       {controller ? (
         <Section title="Raw export" lead="Everything your organization has, as a zip of JSON: every token entry, split, tag, bill, rule, ticket and period.">
           <Button onClick={() => exportRaw.mutate()} disabled={exportRaw.isPending}>

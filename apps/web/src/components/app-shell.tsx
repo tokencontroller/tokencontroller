@@ -4,7 +4,9 @@ import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useState, type ReactNode } from "react";
 import type { Role } from "@/api/contract";
 import { api } from "@/api/endpoints";
-import { useMe } from "@/lib/queries";
+import { useAdmin, useMe, useSupport } from "@/lib/queries";
+import { FeedbackDialog } from "./feedback-panel";
+import { SupportDialog } from "./support-dialog";
 import { hasRole, roleLabel } from "@/lib/roles";
 import { displayName, initials } from "@/lib/format";
 
@@ -61,7 +63,9 @@ function Logo() {
   );
 }
 
-function Nav({ onNavigate }: { onNavigate?: () => void }) {
+type Panel = "feedback" | "support";
+
+function Nav({ onNavigate, onPanel }: { onNavigate?: () => void; onPanel: (panel: Panel) => void }) {
   const me = useMe();
   const path = useRouterState({ select: (s) => s.location.pathname });
   return (
@@ -92,7 +96,50 @@ function Nav({ onNavigate }: { onNavigate?: () => void }) {
           </div>
         );
       })}
+      <Help path={path} onNavigate={onNavigate} onPanel={onPanel} />
     </nav>
+  );
+}
+
+const itemClass = (active: boolean) =>
+  `flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-sm ${active ? "bg-accent-tint font-medium text-ink" : "text-ink-soft hover:bg-sand hover:text-ink"}`;
+
+/** Feedback, support where it is on, and the admin area for operators. */
+function Help({ path, onNavigate, onPanel }: { path: string; onNavigate?: (() => void) | undefined; onPanel: (panel: Panel) => void }) {
+  const admin = useAdmin();
+  const support = useSupport();
+  const waiting = admin.data ? admin.data.support_escalated + admin.data.feedback_received : 0;
+  return (
+    <div>
+      <div className="mb-1 px-2 text-xs font-medium text-muted">Help</div>
+      <ul className="flex flex-col gap-px">
+        <li>
+          <button type="button" className={itemClass(false)} onClick={() => { onNavigate?.(); onPanel("feedback"); }}>
+            Send feedback
+          </button>
+        </li>
+        <li>
+          <Link to="/feedback" onClick={onNavigate} aria-current={path === "/feedback" ? "page" : undefined} className={itemClass(path === "/feedback")}>
+            Your feedback
+          </Link>
+        </li>
+        {support.data ? (
+          <li>
+            <button type="button" className={itemClass(false)} onClick={() => { onNavigate?.(); onPanel("support"); }}>
+              Support
+            </button>
+          </li>
+        ) : null}
+        {admin.data ? (
+          <li>
+            <Link to="/admin" onClick={onNavigate} aria-current={path.startsWith("/admin") ? "page" : undefined} className={itemClass(path.startsWith("/admin"))}>
+              Admin
+              {waiting ? <span className="rounded-full bg-exception px-1.5 text-xs font-medium leading-5 text-on-ink" aria-label={`${String(waiting)} waiting`}>{waiting}</span> : null}
+            </Link>
+          </li>
+        ) : null}
+      </ul>
+    </div>
   );
 }
 
@@ -124,6 +171,9 @@ function Account() {
 export function AppShell({ children }: { children: ReactNode }): ReactNode {
   const me = useMe();
   const [open, setOpen] = useState(false);
+  // The panels live here, not in the menu: on a phone the menu closes first.
+  const [panel, setPanel] = useState<Panel | null>(null);
+  const support = useSupport();
   return (
     <div className="min-h-dvh lg:grid lg:grid-cols-[240px_minmax(0,1fr)]">
       <aside className="sticky top-0 hidden h-dvh flex-col gap-6 overflow-y-auto border-r border-line bg-sheet px-3 py-5 lg:flex">
@@ -132,7 +182,7 @@ export function AppShell({ children }: { children: ReactNode }): ReactNode {
           <div className="mt-1 truncate text-xs text-muted">{me.organization.name}</div>
         </div>
         <div className="flex-1">
-          <Nav />
+          <Nav onPanel={setPanel} />
         </div>
         <Account />
       </aside>
@@ -151,7 +201,7 @@ export function AppShell({ children }: { children: ReactNode }): ReactNode {
                 <span className="mt-1 block truncate text-xs font-normal text-muted">{me.organization.name}</span>
               </BaseDialog.Title>
               <div className="flex-1">
-                <Nav onNavigate={() => setOpen(false)} />
+                <Nav onNavigate={() => setOpen(false)} onPanel={setPanel} />
               </div>
               <Account />
             </BaseDialog.Popup>
@@ -160,6 +210,8 @@ export function AppShell({ children }: { children: ReactNode }): ReactNode {
       </header>
 
       <main className="mx-auto w-full min-w-0 max-w-6xl px-4 py-6 sm:px-6 lg:px-10 lg:py-8">{children}</main>
+      <FeedbackDialog open={panel === "feedback"} onOpenChange={(o) => setPanel(o ? "feedback" : null)} />
+      {support.data ? <SupportDialog answerTo={support.data.answer_to} open={panel === "support"} onOpenChange={(o) => setPanel(o ? "support" : null)} /> : null}
     </div>
   );
 }

@@ -16,6 +16,7 @@ import type {
 } from "@/api/contract";
 import { parseCsv } from "@/lib/csv";
 import { filterFromText } from "@/lib/format";
+import { customerRelationsHandlers } from "./customer-relations";
 import { createDb, TODAY, type Db, type EntryRecord } from "./seed";
 import {
   budgetVsActual,
@@ -783,6 +784,7 @@ export const handlers = [
     const files = { "organization.json": db.organization, "people.json": db.people, "token_entries.json": db.entries, "bills.json": db.bills, "rules.json": db.rules, "tickets.json": db.tickets, "periods.json": db.periods, "tags.json": { names: db.tagNames, map: db.tagMap } };
     return new HttpResponse(JSON.stringify(files, null, 2), { headers: { "content-type": "application/json" } });
   }, CONTROLLER)),
+  ...customerRelationsHandlers({ API, member, fail: error, now }),
 ];
 
 /** Money helper for tests. */

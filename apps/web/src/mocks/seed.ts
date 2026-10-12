@@ -23,6 +23,7 @@ import type {
   TokenCounts,
   TokenEntryStatus,
 } from "@/api/contract";
+import { createCustomerRelations, type CustomerRelations } from "./customer-relations";
 
 export const TODAY = "2026-10-12";
 export const CURRENCY = "USD";
@@ -133,6 +134,8 @@ export interface Db {
   rules: Rule[];
   tokens: ApiToken[];
   ticketSystems: TicketSystem[];
+  /** Feedback reports, support and what the operators see. */
+  cr: CustomerRelations;
   nextId: number;
 }
 
@@ -648,6 +651,7 @@ export function createDb(): Db {
     ticketSystems: [
       { id: "ts_1", kind: "jira", site: "kestrel.atlassian.net", mappings: [{ external: "KD", project: "storefront" }, { external: "CP", project: "claims-portal" }], last_sync_at: "2026-10-12T16:45:00Z", status: "ok" },
     ],
+    cr: createCustomerRelations(people, ORGANIZATION_ID),
     nextId: 1000,
   };
   return db;
