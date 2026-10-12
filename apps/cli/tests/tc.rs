@@ -99,7 +99,6 @@ impl Machine {
             .env("USERPROFILE", self.home())
             .env("TC_HOME", self.dir.path().join("tc"))
             .env("TZ", "UTC")
-            .env("TC_NO_BROWSER", "1")
             .env_remove("CLAUDE_CONFIG_DIR")
             .env_remove("CODEX_HOME")
             .env_remove("XDG_DATA_HOME")
@@ -258,13 +257,24 @@ fn handle(stream: TcpStream, answer: &Answer, seen: &Mutex<Vec<Seen>>) -> TestRe
 
 fn context() -> Value {
     json!({
-        "organization": {"name": "Kestrel Digital", "currency": "EUR", "tag_names": ["team", "purpose", "client"]},
+        "organization": {
+            "name": "Kestrel Digital",
+            "currency": "EUR",
+            "tag_names": ["team", "purpose", "client"],
+            "rules": [
+                {"name": "ticket key in branch", "then": {"ticket_key_in": "branch"}},
+                {"name": "ticket key in pull request title", "then": {"ticket_key_in": "pull_request_title"}},
+                {"name": "ticket key in prompts or session title", "then": {"ticket_key_in": "prompts_or_session_title"}},
+                {"name": "repository", "then": "repository_project"},
+                {"name": "ops work", "when": [{"signal": "repository", "test": {"is": "kestrel/ops"}}], "then": {"set_tags": {"purpose": "operations"}}}
+            ]
+        },
         "person": {"email": "m.ortner@kestrel.example", "tags": {"team": "web"}},
         "projects": [
             {"name": "storefront", "ticket_key_pattern": "^KD-\\d+", "repositories": ["kestrel/storefront"], "tags": {"client": "acme"}},
             {"name": "ops", "ticket_key_pattern": "^OPS-\\d+", "repositories": ["kestrel/ops"]}
         ],
-        "rules": [{"scope": "organization", "when": {"signal": "agent_harness", "test": "is", "value": "codex"}, "set": {"purpose": "operations"}}],
+        "rules": [],
         "cadence": {"period_start": "2026-10-05", "period_end": "2026-10-11", "due_at": "2026-10-13T09:00:00Z"},
         "rejected": []
     })
@@ -437,7 +447,11 @@ fn rules_are_added_listed_and_removed_on_the_machine() {
         rules["rules"][0]["text"],
         "directory contains ops → purpose=operations"
     );
-    assert_eq!(rules["rules"][1]["when"]["test"], "matches");
+    assert_eq!(rules["rules"][1]["when"][0]["test"]["matches"], "^review/");
+    assert_eq!(
+        rules["organization"][0]["text"], "ticket key in branch",
+        "{rules}"
+    );
 
     let review = machine.json(&["review", "--json"]).unwrap();
     assert_eq!(
@@ -449,7 +463,10 @@ fn rules_are_added_listed_and_removed_on_the_machine() {
     machine.tc(&["rules", "remove", "2"]).unwrap();
     let rules = machine.json(&["rules", "--json"]).unwrap();
     assert_eq!(rules["rules"].as_array().map(Vec::len), Some(1));
-    assert_eq!(rules["rules"][0]["set"]["purpose"], "code-review");
+    assert_eq!(
+        rules["rules"][0]["then"]["set_tags"]["purpose"],
+        "code-review"
+    );
 
     let wrong = machine
         .run(&["rules", "add", "weather", "is", "sunny", "x=y"], &[], "")
@@ -504,7 +521,7 @@ fn a_token_sheet_is_submitted_with_keys_but_never_prompts() {
     .unwrap();
     let env = [
         ("TC_URL", service.url.as_str()),
-        ("TC_TOKEN", "tc_cli_test"),
+        ("TC_TOKEN", "tc_ses_test"),
     ];
 
     let review: Value =
@@ -525,7 +542,7 @@ fn a_token_sheet_is_submitted_with_keys_but_never_prompts() {
         .iter()
         .find(|seen| seen.path == "/api/v1/token-sheets/submit")
         .unwrap();
-    assert_eq!(submit.authorization.as_deref(), Some("Bearer tc_cli_test"));
+    assert_eq!(submit.authorization.as_deref(), Some("Bearer tc_ses_test"));
     let sent = submit.body.to_string();
     assert!(!sent.contains("redirect loop. The follow-up"), "{sent}");
     assert!(!sent.contains("Rotate the deploy keys"), "{sent}");
@@ -614,30 +631,38 @@ fn the_github_action_reports_automatic_entries_with_its_tags_and_signals() {
 }
 
 #[test]
-fn connect_signs_in_on_the_web_and_keeps_the_token() {
+fn connect_signs_in_with_a_magic_link_and_keeps_the_token() {
     let machine = Machine::ready().unwrap();
     let polls = Arc::new(Mutex::new(0_u32));
     let counter = Arc::clone(&polls);
     let service = Service::start(Box::new(move |seen: &Seen| {
         match (seen.method.as_str(), seen.path.as_str()) {
-            ("POST", "/api/v1/cli/authorizations") => (
-                201,
-                json!({"id": "ca_1", "user_code": "WDJB-MJHT", "verification_url": "http://localhost/cli/WDJB-MJHT", "poll_secret": "s3cret", "interval_seconds": 1, "expires_at": "2026-10-12T10:00:00Z"}),
+            ("GET", "/api/v1/invites/kestrel-4f2a") => (
+                200,
+                json!({"organization_name": "Kestrel Digital", "email": "m.ortner@kestrel.example"}),
             ),
-            ("POST", "/api/v1/cli/authorizations/ca_1/token") => {
+            ("POST", "/api/v1/sign-in") => (202, json!({"poll_token": "p0ll"})),
+            ("POST", "/api/v1/sign-in/poll") => {
                 let mut count = counter.lock().map(|count| *count).unwrap_or_default();
                 count = count.saturating_add(1);
                 if let Ok(mut stored) = counter.lock() {
                     *stored = count;
                 }
                 if count < 2 {
-                    (202, json!({"status": "pending"}))
+                    (202, json!({"status": "waiting"}))
                 } else {
-                    (200, json!({"token": "tc_cli_new", "organization": "Kestrel Digital", "person": "m.ortner@kestrel.example"}))
+                    (
+                        200,
+                        json!({"status": "signed_in", "session_token": "tc_ses_new"}),
+                    )
                 }
             }
+            ("GET", "/api/v1/me") => (
+                200,
+                json!({"person": {"email": "m.ortner@kestrel.example", "name": "Mara Ortner"}, "organization": {"name": "Kestrel Digital", "slug": "kestrel"}, "credential": "session"}),
+            ),
             ("GET", "/api/v1/me/context") => (200, context()),
-            _ => (404, json!({"error": "no such route"})),
+            _ => (404, json!({"error": "not_found", "message": "not found"})),
         }
     }))
     .unwrap();
@@ -646,12 +671,26 @@ fn connect_signs_in_on_the_web_and_keeps_the_token() {
     let stdout = String::from_utf8(output.stdout).unwrap();
     let stderr = String::from_utf8(output.stderr).unwrap();
     assert!(output.status.success(), "{stderr}{stdout}");
-    assert!(stderr.contains("WDJB-MJHT"), "{stderr}");
+    assert!(
+        stderr.contains("Sent a sign-in link to m.ortner@kestrel.example"),
+        "{stderr}"
+    );
     assert!(stdout.contains("Kestrel Digital"), "{stdout}");
 
     let seen = service.seen();
-    assert_eq!(seen[0].body["invite"], "kestrel-4f2a");
-    assert_eq!(seen[1].body["poll_secret"], "s3cret");
+    let sign_in = seen
+        .iter()
+        .find(|seen| seen.path == "/api/v1/sign-in")
+        .unwrap();
+    assert_eq!(sign_in.body["email"], "m.ortner@kestrel.example");
+    assert_eq!(sign_in.body["local_tool"], true);
+    let polled = seen
+        .iter()
+        .filter(|seen| seen.path == "/api/v1/sign-in/poll")
+        .count();
+    assert_eq!(polled, 2);
+    let me = seen.iter().find(|seen| seen.path == "/api/v1/me").unwrap();
+    assert_eq!(me.authorization.as_deref(), Some("Bearer tc_ses_new"));
     assert!(
         service
             .paths()
@@ -660,7 +699,7 @@ fn connect_signs_in_on_the_web_and_keeps_the_token() {
 
     let config =
         std::fs::read_to_string(machine.dir.path().join("tc").join("config.toml")).unwrap();
-    assert!(config.contains("token = \"tc_cli_new\""), "{config}");
+    assert!(config.contains("token = \"tc_ses_new\""), "{config}");
     assert!(
         config.contains(&format!("service = \"{}\"", service.url)),
         "{config}"
@@ -669,8 +708,43 @@ fn connect_signs_in_on_the_web_and_keeps_the_token() {
     let status = machine.json(&["status", "--json"]).unwrap();
     assert_eq!(status["connected"], true);
     assert_eq!(status["organization"], "Kestrel Digital");
+    // The organization's own rule, not the built-in ones.
+    assert_eq!(status["rules"], 1);
     assert_eq!(status["token_sheet"]["period_start"], "2026-10-05");
     assert_eq!(status["token_sheet"]["late"], false);
+}
+
+/// Without an invite, `tc connect` asks for the address, and says so when
+/// the link runs out.
+#[test]
+fn connect_to_an_instance_asks_for_the_email_address() {
+    let machine = Machine::ready().unwrap();
+    let service = Service::start(Box::new(|seen: &Seen| {
+        match (seen.method.as_str(), seen.path.as_str()) {
+            ("POST", "/api/v1/sign-in") => (202, json!({"poll_token": "p0ll"})),
+            ("POST", "/api/v1/sign-in/poll") => (
+                410,
+                json!({"error": "gone", "message": "The sign-in link expired after 15 minutes. Sign in again."}),
+            ),
+            _ => (404, json!({"error": "not_found", "message": "not found"})),
+        }
+    }))
+    .unwrap();
+    let output = machine
+        .run(&["connect", &service.url], &[], "jan@example.com\n")
+        .unwrap();
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert_eq!(output.status.code(), Some(2), "{stderr}");
+    assert!(stderr.contains("Your email address at"), "{stderr}");
+    assert!(stderr.contains("expired after 15 minutes"), "{stderr}");
+    let seen = service.seen();
+    assert_eq!(seen[0].body["email"], "jan@example.com");
+
+    let nothing = machine.run(&["connect", &service.url], &[], "").unwrap();
+    assert_eq!(nothing.status.code(), Some(1));
+    let config = machine.dir.path().join("tc").join("config.toml");
+    let saved = std::fs::read_to_string(config).unwrap_or_default();
+    assert!(!saved.contains("token"), "{saved}");
 }
 
 /// The sessions folder of an agent can be moved with its own variable.

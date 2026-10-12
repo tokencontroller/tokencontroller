@@ -244,7 +244,7 @@ mod tests {
         assert_eq!(home.read_config().unwrap(), Config::default());
         let config = Config {
             service: Some("https://app.tokencontroller.com".into()),
-            token: Some("tc_cli_x".into()),
+            token: Some("tc_ses_x".into()),
             ..Config::default()
         };
         home.write_config(&config).unwrap();
