@@ -238,7 +238,7 @@ export function TokenEntriesPage(): ReactNode {
   const navigate = tokenEntriesRoute.useNavigate();
   const period = search.period ?? thisPeriod();
   const [status, setStatus] = useState<TokenEntryStatus | "">("");
-  // The person tag holds the agent manager's email.
+  // An agent manager's id: only their token entries.
   const [person, setPerson] = useState("");
   const [filterText, setFilterText] = useState("");
   const [limit, setLimit] = useState(PAGE);
@@ -246,11 +246,10 @@ export function TokenEntriesPage(): ReactNode {
   const [adding, setAdding] = useState(false);
   const [importing, setImporting] = useState(false);
   const filter = filterFromText(filterText);
-  const query = { ...filter, ...(person ? { person } : {}) };
   const people = usePeople();
   const entries = useQuery({
-    queryKey: ["token-entries", period, status, filterToText(query), limit],
-    queryFn: () => api.tokenEntries({ period, filter: query, status: status ? [status] : [], limit }),
+    queryKey: ["token-entries", period, status, filterToText(filter), person, limit],
+    queryFn: () => api.tokenEntries({ period, filter, ...(person ? { person } : {}), status: status ? [status] : [], limit }),
     placeholderData: keepPreviousData,
   });
   const rows = entries.data?.token_entries ?? [];
@@ -342,7 +341,7 @@ export function TokenEntriesPage(): ReactNode {
             {(people.data ?? [])
               .filter((p) => p.status !== "removed")
               .map((p) => (
-                <option key={p.id} value={p.email}>
+                <option key={p.id} value={p.id}>
                   {displayName(p)}
                 </option>
               ))}

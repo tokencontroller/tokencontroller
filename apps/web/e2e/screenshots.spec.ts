@@ -59,6 +59,14 @@ test("token forecast and token budget vs actual", async ({ page }) => {
   await page.screenshot({ path: `${dir}/34-token-forecast-accepted.png`, fullPage: true });
 });
 
+test("token entry", async ({ page }) => {
+  await signIn(page, "priya");
+  await page.goto("/token-entries");
+  await page.getByRole("table", { name: "Token entries" }).locator("tbody tr").filter({ hasText: "Traced the declined card redirect" }).first().click();
+  await page.getByRole("dialog", { name: "Token entry" }).getByText(/ input · /).waitFor();
+  await page.screenshot({ path: `${dir}/35-token-entry.png` });
+});
+
 test("phone", async ({ browser, baseURL }) => {
   const context = await browser.newContext({ ...(baseURL ? { baseURL } : {}), viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
   const page = await context.newPage();

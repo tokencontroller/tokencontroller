@@ -3,7 +3,6 @@ import type { Account, Billing } from "@/api/contract";
 import { api } from "@/api/endpoints";
 import { ApiError } from "@/api/client";
 import { displayName } from "@/lib/format";
-import { hasRole } from "@/lib/roles";
 
 export const queryClient = new QueryClient({
   defaultOptions: {
@@ -97,10 +96,9 @@ export function useTickets() {
   return useQuery({ queryKey: ["tickets"], queryFn: () => api.tickets() });
 }
 
-/** Every period up to this month, newest first. Only people managers and controllers may list them. */
+/** Every period up to this month, newest first. Everyone can list them, to pick one. */
 export function usePeriods() {
-  const { data: me } = useQuery(meQuery);
-  return useQuery({ queryKey: ["periods"], queryFn: api.periods, enabled: me ? hasRole(me.person, "people_manager") : false });
+  return useQuery({ queryKey: ["periods"], queryFn: api.periods });
 }
 
 /** The oldest period still open: the one the next close is about. */

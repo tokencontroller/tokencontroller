@@ -3,7 +3,7 @@ import { addMonths, formatPeriod } from "@/lib/format";
 import { thisPeriod } from "@/lib/today";
 import { Select } from "./ui/form";
 
-/** The last twelve months, newest first: for agent managers, who have no list of periods. */
+/** The last twelve months, newest first: what to pick from until the periods arrive. */
 function lastMonths(): { period: string; closed: boolean }[] {
   return Array.from({ length: 12 }, (_, i) => ({ period: addMonths(thisPeriod(), -i), closed: false }));
 }

@@ -141,13 +141,15 @@ export const api = {
 
   // Token entries, review and approval
   /** The token entries table: submitted, approved and locked unless `status` names others. Never drafts. */
-  tokenEntries: (query: { period?: PeriodId; filter?: Filter; status?: TokenEntryStatus[]; limit?: number; offset?: number }) =>
+  /** `person` is an agent manager's id: only their token entries. */
+  tokenEntries: (query: { period?: PeriodId; filter?: Filter; person?: string; status?: TokenEntryStatus[]; limit?: number; offset?: number }) =>
     json(
       typed.GET("/api/v1/reports/token-entries", {
         params: {
           query: {
             ...(query.period ? { period: query.period } : {}),
             ...filterQuery(query.filter),
+            ...(query.person ? { person: query.person } : {}),
             ...(query.status?.length ? { status: query.status.join(",") } : {}),
             ...(query.limit === undefined ? {} : { limit: query.limit }),
             ...(query.offset === undefined ? {} : { offset: query.offset }),

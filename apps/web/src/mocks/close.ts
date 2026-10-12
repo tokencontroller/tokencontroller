@@ -40,7 +40,6 @@ type Ctx = { db: Db; me: Person; url: URL; params: Record<string, string>; reque
 type Member = (handler: (ctx: Ctx) => Response | Promise<Response>, roles?: Role[]) => HttpResponseResolver;
 type Fail = (status: number, code: string, message: string) => Response;
 
-const PM: Role[] = ["people_manager"];
 const CONTROLLER: Role[] = ["controller"];
 
 // Money in nano-units as BigInt, rounded the way the core rounds it.
@@ -916,7 +915,8 @@ export function closeHandlers({ API, member, fail, load, now }: { API: string; m
     })),
 
     // Periods, the close and the cost sheet
-    http.get(`${API}/periods`, member(({ db }) => HttpResponse.json(periodsOf(db)), PM)),
+    // Everyone can list the periods, to pick one.
+    http.get(`${API}/periods`, member(({ db }) => HttpResponse.json(periodsOf(db)))),
     http.get(`${API}/periods/:period`, member(({ db, params }) => {
       const period = params.period ?? "";
       return isPeriod(period) ? HttpResponse.json(periodViewOf(db, period)) : badRequest(periodProblem(period));

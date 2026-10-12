@@ -2,7 +2,7 @@ import { useMutation } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import type { EntryView, Money, Person, Project, SplitView, Tags, ValueLabel } from "@/api/contract";
-import { formatDateTime, tagList } from "@/lib/format";
+import { formatDateTime, formatTime, tagList } from "@/lib/format";
 import { formatShare, fromDecimal, nanosOf, shareOf, sum } from "@/lib/money";
 import { api } from "@/api/endpoints";
 import { refreshAll, useMe, useProjects, useTagNames, useTickets } from "@/lib/queries";
@@ -42,16 +42,17 @@ export function valueLabel(entry: EntryView): ValueLabel {
   return entry.list_value ? "list_estimate" : "unknown_model";
 }
 
-/** A split's share of its token entry's list value in basis points, when both are known. */
+/** A split's share of its token entry in basis points: as set by hand, else from the list values when both are known. */
 export function splitShare(entry: EntryView, split: SplitView): number | null {
+  if (split.share_percent != null) return split.share_percent * 100;
   const whole = entryValue(entry);
   if (!whole || !split.list_value || nanosOf(whole) === 0n) return null;
   return shareOf(fromDecimal(split.list_value, entry.currency), whole);
 }
 
-/** Whether a token entry is the member's own: its person tag is their email. */
+/** Whether a token entry is the member's own: they are its agent manager. */
 export function isOwn(entry: EntryView, person: Person): boolean {
-  return entry.splits.some((split) => split.tags.person === person.email);
+  return entry.agent_manager_id === person.id;
 }
 
 /** The unknown tickets of a token entry: keys that matched a pattern but that the ticket sync did not find. */
@@ -189,6 +190,13 @@ function SplitEditor({ entry, onDone }: { entry: EntryView; onDone: () => void }
   );
 }
 
+/** A token entry's tokens: input, output and the cache, in the provider's words. */
+function TokenCounts({ tokens }: { tokens: EntryView["tokens"] }) {
+  const n = (count: number) => count.toLocaleString("en-US");
+  const parts = [`${n(tokens.input)} input`, `${n(tokens.output)} output`, ...(tokens.cache_write ? [`${n(tokens.cache_write)} cache write`] : []), ...(tokens.cache_read ? [`${n(tokens.cache_read)} cache read`] : [])];
+  return <span className="num !text-left">{parts.join(" · ")}</span>;
+}
+
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="grid grid-cols-[110px_1fr] gap-3 border-b border-line py-2 text-sm last:border-0 sm:grid-cols-[120px_1fr]">
@@ -293,7 +301,12 @@ export function EntryDialog({ entry, onClose }: { entry: EntryView | null; onClo
             </Row>
             <Row label="Provider">{entry.provider}</Row>
             <Row label="Agent manager">{nobody ? <Badge tone="exception">nobody</Badge> : entry.agent_manager}</Row>
-            <Row label="Started">{formatDateTime(entry.started_at)}</Row>
+            <Row label="Time">
+              {formatDateTime(entry.started_at)} to {entry.ended_at.slice(0, 10) === entry.started_at.slice(0, 10) ? `${formatTime(entry.ended_at)} UTC` : formatDateTime(entry.ended_at)}
+            </Row>
+            <Row label="Tokens">
+              <TokenCounts tokens={entry.tokens} />
+            </Row>
             <Row label="List value">
               <MoneyText value={entryValue(entry)} label={label} /> {label === "unknown_model" ? null : <span className="text-xs text-muted">{valueLabelText[label]}</span>}
             </Row>
