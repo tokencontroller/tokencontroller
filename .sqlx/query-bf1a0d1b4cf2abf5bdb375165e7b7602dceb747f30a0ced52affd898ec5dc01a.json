@@ -1,0 +1,47 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT email, sign_up_organization_name, poll_hash IS NOT NULL AS \"local_tool!\"\n           FROM sign_in_links\n           WHERE token_hash = $1 AND used_at IS NULL AND expires_at > now()\n           FOR UPDATE",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "email",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "sign_in_links",
+            "name": "email"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "sign_up_organization_name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "sign_in_links",
+            "name": "sign_up_organization_name"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "local_tool!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Bytea"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      null
+    ]
+  },
+  "hash": "bf1a0d1b4cf2abf5bdb375165e7b7602dceb747f30a0ced52affd898ec5dc01a"
+}

@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE tickets SET project_id = $3, title = $4, description = $5, parent_id = $6,\n             assignee_id = $7, tags = coalesce($8, tags), updated_at = now()\n           WHERE id = $1 AND organization_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Text",
+        "Uuid",
+        "Uuid",
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "93c3990dae17e634d905eafe3b5face39c7c3c5b35010c1c287424ee9b82d28f"
+}

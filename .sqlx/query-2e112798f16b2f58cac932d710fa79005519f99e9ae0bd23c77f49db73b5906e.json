@@ -1,0 +1,65 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT version, cost_center, ladder, created_at FROM tag_map_versions\n           WHERE organization_id = $1 AND version = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "version",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "tag_map_versions",
+            "name": "version"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "cost_center",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tag_map_versions",
+            "name": "cost_center"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "ladder",
+        "type_info": "TextArray",
+        "origin": {
+          "Table": {
+            "table": "tag_map_versions",
+            "name": "ladder"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "tag_map_versions",
+            "name": "created_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "2e112798f16b2f58cac932d710fa79005519f99e9ae0bd23c77f49db73b5906e"
+}
