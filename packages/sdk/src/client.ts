@@ -8,7 +8,7 @@ export interface ClientOptions {
   token: string
   /** The service's address. Defaults to the hosted service. */
   url?: string
-  /** How often a failed request is tried again, for entries with a `session_id`. Defaults to 2. */
+  /** How often a failed request is tried again, for entries with a `session_id` or `local_id`. Defaults to 2. */
   retries?: number
   /** How long one request may take, in milliseconds. Defaults to 30 seconds. */
   timeoutMs?: number
@@ -71,9 +71,10 @@ export class TokenController {
     if (found.length > 0) {
       throw new TokenControllerError(`The token entry cannot be sent: ${found.join('; ')}.`)
     }
-    // Without a session ID the service cannot tell a retry from a second
-    // session, so such an entry is sent once.
-    const tries = entry.session_id === undefined ? 1 : this.#retries + 1
+    // Without a session ID or local ID the service cannot tell a retry from
+    // a second session, so such an entry is sent once.
+    const isRepeatable = entry.session_id !== undefined || entry.local_id !== undefined
+    const tries = isRepeatable ? this.#retries + 1 : 1
     let last: TokenControllerError | undefined
     for (let attempt = 1; attempt <= tries; attempt += 1) {
       try {
