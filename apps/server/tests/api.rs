@@ -90,6 +90,30 @@ fn every_operation_has_its_own_id() {
     assert_eq!(ids.len(), count, "two operations share an operationId");
 }
 
+#[test]
+fn path_parameters_are_in_their_path() {
+    // A query parameter declared `in: path` makes generated clients put it
+    // in the URL path, where the service never reads it.
+    let document: serde_json::Value =
+        serde_json::from_str(&tokencontroller_server::openapi_json().unwrap()).unwrap();
+    for (path, operations) in document["paths"].as_object().unwrap() {
+        for operation in operations.as_object().unwrap().values() {
+            let Some(parameters) = operation["parameters"].as_array() else {
+                continue;
+            };
+            for parameter in parameters {
+                let name = parameter["name"].as_str().unwrap();
+                if parameter["in"] == "path" {
+                    assert!(
+                        path.contains(&format!("{{{name}}}")),
+                        "{path} declares `{name}` in the path"
+                    );
+                }
+            }
+        }
+    }
+}
+
 #[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
 async fn seed_data_loads_twice_without_error(pool: PgPool) {
     tokencontroller_server::seed::load(&pool).await.unwrap();

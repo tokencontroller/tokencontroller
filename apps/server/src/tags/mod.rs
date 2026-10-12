@@ -32,6 +32,10 @@ use crate::error::ApiError;
 use crate::organizations::{self, Role};
 use crate::sign_in::Member;
 
+mod merge;
+
+pub use merge::MergeValues;
+
 /// Tags on one record: tag name to value, one value per tag name.
 pub type Tags = BTreeMap<String, String>;
 
@@ -45,6 +49,7 @@ pub fn routes() -> OpenApiRouter<AppState> {
         .routes(routes!(list_tag_names, add_tag_name))
         .routes(routes!(remove_tag_name))
         .routes(routes!(tag_values))
+        .routes(routes!(merge::merge_values))
         .routes(routes!(get_tag_map, set_tag_map))
 }
 
@@ -365,8 +370,8 @@ fn valid_tag_name(name: &str) -> bool {
     name != "organization" && core_name(name).is_ok()
 }
 
-/// Remove a tag name. People, projects and tickets lose its values; token
-/// entries keep theirs. Controllers only; not while the tag map uses it.
+/// Remove a tag name. People, projects, tickets and rules lose its values;
+/// token entries keep theirs. Controllers only; not while the tag map uses it.
 #[utoipa::path(
     delete,
     path = "/tags/{name}",
@@ -435,6 +440,12 @@ async fn remove_tag_name(
     )
     .execute(&mut *tx)
     .await?;
+    if let Ok(tag_name) = core_name(&name) {
+        organizations::change_rule_tags(&mut tx, member.organization_id, |tags| {
+            tags.remove(&tag_name);
+        })
+        .await?;
+    }
     tx.commit().await?;
     organizations::record_audit_event(
         &state,
@@ -460,7 +471,18 @@ async fn tag_values(
     member: Member,
     Path(name): Path<String>,
 ) -> Result<Json<Vec<TagValue>>, ApiError> {
-    let values = sqlx::query_as!(
+    Ok(Json(
+        values_of(&state.db, member.organization_id, &name).await?,
+    ))
+}
+
+/// The values of one tag name, with how many records carry each.
+async fn values_of(
+    db: &PgPool,
+    organization_id: Uuid,
+    name: &str,
+) -> Result<Vec<TagValue>, sqlx::Error> {
+    sqlx::query_as!(
         TagValue,
         r#"
         WITH v(value) AS (
@@ -474,12 +496,11 @@ async fn tag_values(
         SELECT value AS "value!", count(*) AS "records!" FROM v
         WHERE value IS NOT NULL GROUP BY value ORDER BY value
         "#,
-        member.organization_id,
+        organization_id,
         name
     )
-    .fetch_all(&state.db)
-    .await?;
-    Ok(Json(values))
+    .fetch_all(db)
+    .await
 }
 
 /// The tag map in force.

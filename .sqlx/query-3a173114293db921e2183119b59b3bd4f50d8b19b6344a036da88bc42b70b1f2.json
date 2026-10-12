@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE projects SET tags = jsonb_set(tags, ARRAY[$2], to_jsonb($3::text))\n           WHERE organization_id = $1 AND tags ->> $2 = ANY($4)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text",
+        "TextArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "3a173114293db921e2183119b59b3bd4f50d8b19b6344a036da88bc42b70b1f2"
+}

@@ -10,13 +10,14 @@ use std::collections::BTreeSet;
 use axum::Json;
 use axum::extract::State;
 use serde::{Deserialize, Serialize};
-use sqlx::PgPool;
 use sqlx::types::Json as JsonColumn;
+use sqlx::{PgConnection, PgPool};
 use time::OffsetDateTime;
 use tokencontroller_core::rules::{Action, Rule, SeveralKeys};
 use utoipa::ToSchema;
 use uuid::Uuid;
 
+use super::rule_schema::{RuleShape, SeveralKeysShape};
 use super::{Role, record_audit_event};
 use crate::AppState;
 use crate::error::ApiError;
@@ -34,11 +35,11 @@ const MAX_NAME_CHARS: usize = 100;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct OrganizationRules {
     /// In order. The default rules until a controller changes them.
-    #[schema(value_type = Vec<Object>)]
+    #[schema(value_type = Vec<RuleShape>)]
     pub rules: Vec<Rule>,
     /// What the "ticket key in prompts" rule does when prompts name several
     /// tickets: `most_often`, `equal_split` or `first_named`.
-    #[schema(value_type = String)]
+    #[schema(value_type = SeveralKeysShape)]
     pub several_keys: SeveralKeys,
     /// Whether token entries no rule placed are matched to a ticket by
     /// their summary.
@@ -51,9 +52,9 @@ pub struct OrganizationRules {
 pub struct OrganizationRulesChange {
     /// Replaces the whole list, in order. An empty list switches every rule
     /// off.
-    #[schema(value_type = Option<Vec<Object>>)]
+    #[schema(value_type = Option<Vec<RuleShape>>)]
     pub rules: Option<Vec<Rule>>,
-    #[schema(value_type = Option<String>)]
+    #[schema(value_type = Option<SeveralKeysShape>)]
     pub several_keys: Option<SeveralKeys>,
     pub summary_match: Option<bool>,
 }
@@ -63,7 +64,7 @@ pub struct OrganizationRulesChange {
 #[serde(deny_unknown_fields)]
 pub struct PersonalRules {
     /// In order. They run after the organization's.
-    #[schema(value_type = Vec<Object>)]
+    #[schema(value_type = Vec<RuleShape>)]
     pub rules: Vec<Rule>,
 }
 
@@ -74,7 +75,7 @@ pub struct Context {
     pub organization: ContextOrganization,
     pub person: ContextPerson,
     /// The person's own rules, in order.
-    #[schema(value_type = Vec<Object>)]
+    #[schema(value_type = Vec<RuleShape>)]
     pub rules: Vec<Rule>,
     /// Projects that are not archived.
     pub projects: Vec<ContextProject>,
@@ -93,10 +94,10 @@ pub struct ContextOrganization {
     pub currency: String,
     /// The organization's tag names, built-in ones included.
     pub tag_names: Vec<String>,
-    #[schema(value_type = String)]
+    #[schema(value_type = SeveralKeysShape)]
     pub several_keys: SeveralKeys,
     /// The organization's rules, in order; they run before the person's.
-    #[schema(value_type = Vec<Object>)]
+    #[schema(value_type = Vec<RuleShape>)]
     pub rules: Vec<Rule>,
 }
 
@@ -177,6 +178,73 @@ pub async fn personal_rules(db: &PgPool, person_id: Uuid) -> Result<Vec<Rule>, A
     Ok(rules.0)
 }
 
+/// Changes what the `set_tags` rules of an organization and of its people
+/// set, in one place for every list: merging tag values renames a value,
+/// removing a tag name drops it. Rules that set nothing afterwards stay, so
+/// their owners see them.
+///
+/// # Errors
+///
+/// A failed query.
+pub async fn change_rule_tags(
+    conn: &mut PgConnection,
+    organization_id: Uuid,
+    change: impl Fn(&mut tokencontroller_core::Tags),
+) -> Result<(), ApiError> {
+    let organization = sqlx::query_scalar!(
+        r#"SELECT rules AS "rules: JsonColumn<Vec<Rule>>" FROM organizations
+           WHERE id = $1 FOR UPDATE"#,
+        organization_id
+    )
+    .fetch_one(&mut *conn)
+    .await?;
+    // No list yet means the default rules, which set no tags.
+    if let Some(JsonColumn(mut rules)) = organization
+        && change_tags_in(&mut rules, &change)
+    {
+        sqlx::query!(
+            "UPDATE organizations SET rules = $2 WHERE id = $1",
+            organization_id,
+            JsonColumn(&rules) as _
+        )
+        .execute(&mut *conn)
+        .await?;
+    }
+    let people = sqlx::query!(
+        r#"SELECT id, rules AS "rules: JsonColumn<Vec<Rule>>" FROM people
+           WHERE organization_id = $1 AND rules <> '[]'::jsonb FOR UPDATE"#,
+        organization_id
+    )
+    .fetch_all(&mut *conn)
+    .await?;
+    for person in people {
+        let JsonColumn(mut rules) = person.rules;
+        if change_tags_in(&mut rules, &change) {
+            sqlx::query!(
+                "UPDATE people SET rules = $2 WHERE id = $1",
+                person.id,
+                JsonColumn(&rules) as _
+            )
+            .execute(&mut *conn)
+            .await?;
+        }
+    }
+    Ok(())
+}
+
+/// Applies `change` to every `set_tags` rule; whether any changed.
+fn change_tags_in(rules: &mut [Rule], change: &impl Fn(&mut tokencontroller_core::Tags)) -> bool {
+    let mut changed = false;
+    for rule in rules {
+        if let Action::SetTags(tags) = &mut rule.then {
+            let before = tags.clone();
+            change(tags);
+            changed |= *tags != before;
+        }
+    }
+    changed
+}
+
 /// The organization's rules and how they place token entries.
 #[utoipa::path(
     get,
@@ -238,6 +306,22 @@ pub(super) async fn set_organization_rules(
     Ok(Json(
         organization_rules(&state.db, member.organization_id).await?,
     ))
+}
+
+/// Your own rules, in order. They run after the organization's.
+#[utoipa::path(
+    get,
+    path = "/me/rules",
+    tag = "rules",
+    responses((status = OK, body = PersonalRules)),
+)]
+pub(super) async fn get_personal_rules(
+    State(state): State<AppState>,
+    member: Member,
+) -> Result<Json<PersonalRules>, ApiError> {
+    Ok(Json(PersonalRules {
+        rules: personal_rules(&state.db, member.person_id).await?,
+    }))
 }
 
 /// Replace your own rules. They run after the organization's.

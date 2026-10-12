@@ -1601,6 +1601,24 @@
       }
     },
     "/api/v1/me/rules": {
+      "get": {
+        "tags": [
+          "rules"
+        ],
+        "summary": "Your own rules, in order. They run after the organization's.",
+        "operationId": "get_personal_rules",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PersonalRules"
+                }
+              }
+            }
+          }
+        }
+      },
       "put": {
         "tags": [
           "rules"
@@ -2209,9 +2227,9 @@
         "parameters": [
           {
             "name": "archived",
-            "in": "path",
+            "in": "query",
             "description": "Include archived projects.",
-            "required": true,
+            "required": false,
             "schema": {
               "type": "boolean"
             }
@@ -2442,7 +2460,7 @@
         "parameters": [
           {
             "name": "token",
-            "in": "path",
+            "in": "query",
             "required": true,
             "schema": {
               "type": "string"
@@ -2909,7 +2927,7 @@
         "tags": [
           "tags"
         ],
-        "summary": "Remove a tag name. People, projects and tickets lose its values; token\nentries keep theirs. Controllers only; not while the tag map uses it.",
+        "summary": "Remove a tag name. People, projects, tickets and rules lose its values;\ntoken entries keep theirs. Controllers only; not while the tag map uses it.",
         "operationId": "remove_tag_name",
         "parameters": [
           {
@@ -2935,6 +2953,68 @@
             }
           },
           "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tags/{name}/merge": {
+      "post": {
+        "tags": [
+          "tags"
+        ],
+        "summary": "Merge values of a tag name into one, on people, projects, tickets,\npeople managers' filters and rules. Controllers only. The built-in names\ncannot be merged: their values are members, projects and tickets.",
+        "operationId": "merge_values",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MergeValues"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The tag name's values after the merge",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TagValue"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
             "content": {
               "application/json": {
                 "schema": {
@@ -2989,57 +3069,45 @@
         "parameters": [
           {
             "name": "project_id",
-            "in": "path",
-            "required": true,
+            "in": "query",
+            "required": false,
             "schema": {
-              "type": [
-                "string",
-                "null"
-              ],
+              "type": "string",
               "format": "uuid"
             }
           },
           {
             "name": "parent_id",
-            "in": "path",
-            "required": true,
+            "in": "query",
+            "required": false,
             "schema": {
-              "type": [
-                "string",
-                "null"
-              ],
+              "type": "string",
               "format": "uuid"
             }
           },
           {
             "name": "q",
-            "in": "path",
+            "in": "query",
             "description": "Part of the key or the title.",
-            "required": true,
+            "required": false,
             "schema": {
-              "type": [
-                "string",
-                "null"
-              ]
+              "type": "string"
             }
           },
           {
             "name": "limit",
-            "in": "path",
+            "in": "query",
             "description": "At most 500; default 100.",
-            "required": true,
+            "required": false,
             "schema": {
-              "type": [
-                "integer",
-                "null"
-              ],
+              "type": "integer",
               "format": "int64"
             }
           },
           {
             "name": "offset",
-            "in": "path",
-            "required": true,
+            "in": "query",
+            "required": false,
             "schema": {
               "type": "integer",
               "format": "int64"
@@ -3511,7 +3579,7 @@
           "rules": {
             "type": "array",
             "items": {
-              "type": "object"
+              "$ref": "#/components/schemas/Rule"
             },
             "description": "The person's own rules, in order."
           }
@@ -3537,12 +3605,12 @@
           "rules": {
             "type": "array",
             "items": {
-              "type": "object"
+              "$ref": "#/components/schemas/Rule"
             },
             "description": "The organization's rules, in order; they run before the person's."
           },
           "several_keys": {
-            "type": "string"
+            "$ref": "#/components/schemas/SeveralKeys"
           },
           "tag_names": {
             "type": "array",
@@ -4308,6 +4376,28 @@
           }
         }
       },
+      "MergeValues": {
+        "type": "object",
+        "description": "Values of one tag name to merge into one.",
+        "required": [
+          "from",
+          "into"
+        ],
+        "properties": {
+          "from": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The values to replace, such as `Acme` and `acme-corp`."
+          },
+          "into": {
+            "type": "string",
+            "description": "The value they become, such as `acme`. It may be one of them, or new."
+          }
+        },
+        "additionalProperties": false
+      },
       "MessageView": {
         "type": "object",
         "description": "One message of a conversation.",
@@ -4690,12 +4780,12 @@
           "rules": {
             "type": "array",
             "items": {
-              "type": "object"
+              "$ref": "#/components/schemas/Rule"
             },
             "description": "In order. The default rules until a controller changes them."
           },
           "several_keys": {
-            "type": "string",
+            "$ref": "#/components/schemas/SeveralKeys",
             "description": "What the \"ticket key in prompts\" rule does when prompts name several\ntickets: `most_often`, `equal_split` or `first_named`."
           },
           "summary_match": {
@@ -4714,14 +4804,18 @@
               "null"
             ],
             "items": {
-              "type": "object"
+              "$ref": "#/components/schemas/Rule"
             },
             "description": "Replaces the whole list, in order. An empty list switches every rule\noff."
           },
           "several_keys": {
-            "type": [
-              "string",
-              "null"
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/SeveralKeys"
+              },
+              {
+                "type": "null"
+              }
             ]
           },
           "summary_match": {
@@ -4807,7 +4901,7 @@
           "rules": {
             "type": "array",
             "items": {
-              "type": "object"
+              "$ref": "#/components/schemas/Rule"
             },
             "description": "In order. They run after the organization's."
           }
@@ -5181,6 +5275,164 @@
           "controller"
         ]
       },
+      "Rule": {
+        "type": "object",
+        "description": "A rule: when every condition holds, do the action. Such as\n`{\"name\": \"review branches\", \"when\": [{\"signal\": \"branch\", \"test\":\n{\"starts_with\": \"review/\"}}], \"then\": {\"set_tags\": {\"purpose\":\n\"code-review\"}}}`.",
+        "required": [
+          "name",
+          "then"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "The name the review list shows, such as `ticket key in branch`."
+          },
+          "then": {
+            "$ref": "#/components/schemas/RuleAction"
+          },
+          "when": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RuleCondition"
+            },
+            "description": "Conditions that must all hold. No condition means always."
+          }
+        },
+        "additionalProperties": false
+      },
+      "RuleAction": {
+        "oneOf": [
+          {
+            "type": "object",
+            "description": "Finds a ticket key with the projects' ticket key patterns and places\nthe token entry on that ticket.",
+            "required": [
+              "ticket_key_in"
+            ],
+            "properties": {
+              "ticket_key_in": {
+                "$ref": "#/components/schemas/RuleKeySource",
+                "description": "Finds a ticket key with the projects' ticket key patterns and places\nthe token entry on that ticket."
+              }
+            }
+          },
+          {
+            "type": "string",
+            "description": "Places the token entry on the project its repository is mapped to.",
+            "enum": [
+              "repository_project"
+            ]
+          },
+          {
+            "type": "object",
+            "description": "Sets tags, such as `purpose: code-review`. A `ticket` or `project`\nhere places the token entry like the rules above.",
+            "required": [
+              "set_tags"
+            ],
+            "properties": {
+              "set_tags": {
+                "$ref": "#/components/schemas/BTreeMap",
+                "description": "Sets tags, such as `purpose: code-review`. A `ticket` or `project`\nhere places the token entry like the rules above."
+              }
+            }
+          }
+        ],
+        "description": "What a rule does."
+      },
+      "RuleCondition": {
+        "type": "object",
+        "description": "A test on one signal.",
+        "required": [
+          "signal",
+          "test"
+        ],
+        "properties": {
+          "signal": {
+            "$ref": "#/components/schemas/RuleSignal"
+          },
+          "test": {
+            "$ref": "#/components/schemas/RuleTest"
+          }
+        },
+        "additionalProperties": false
+      },
+      "RuleKeySource": {
+        "type": "string",
+        "description": "Where a rule looks for ticket keys.",
+        "enum": [
+          "branch",
+          "pull_request_title",
+          "prompts_or_session_title"
+        ]
+      },
+      "RuleSignal": {
+        "type": "string",
+        "description": "The signals a rule can test.",
+        "enum": [
+          "branch",
+          "working_directory",
+          "repository",
+          "pull_request",
+          "subagent_type",
+          "ticket"
+        ]
+      },
+      "RuleTest": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "is"
+            ],
+            "properties": {
+              "is": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "starts_with"
+            ],
+            "properties": {
+              "starts_with": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "contains"
+            ],
+            "properties": {
+              "contains": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "A regular expression.",
+            "required": [
+              "matches"
+            ],
+            "properties": {
+              "matches": {
+                "type": "string",
+                "description": "A regular expression."
+              }
+            }
+          },
+          {
+            "type": "string",
+            "enum": [
+              "is_set"
+            ]
+          }
+        ],
+        "description": "How a signal is tested. Every test but `is_set` fails when the signal is\nmissing."
+      },
       "Screenshot": {
         "type": "object",
         "description": "A screenshot the person saw, and blurred where they wanted, before\nsending.",
@@ -5222,6 +5474,15 @@
             "type": "string"
           }
         }
+      },
+      "SeveralKeys": {
+        "type": "string",
+        "description": "What the \"ticket key in prompts\" rule does when the prompts name several\ntickets.",
+        "enum": [
+          "most_often",
+          "equal_split",
+          "first_named"
+        ]
       },
       "SignInProvider": {
         "type": "object",
@@ -5293,6 +5554,13 @@
           },
           "local_tool": {
             "type": "boolean"
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Your own name, as your colleagues will see it. Can be set later."
           },
           "organization_name": {
             "type": "string",

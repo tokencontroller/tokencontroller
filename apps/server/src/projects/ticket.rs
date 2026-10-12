@@ -104,6 +104,7 @@ pub struct TicketChange {
 
 /// Which tickets to list.
 #[derive(Debug, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 pub struct TicketFilter {
     pub project_id: Option<Uuid>,
     pub parent_id: Option<Uuid>,

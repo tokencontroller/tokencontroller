@@ -33,6 +33,7 @@ pub mod sign_in;
 pub mod status;
 pub mod tags;
 pub mod token_sheets;
+pub mod web;
 
 use std::io::IsTerminal as _;
 use std::sync::Arc;
