@@ -1,4 +1,7 @@
-/** What the job itself tells about the work: branch, repository and pull request. */
+/**
+ * What the job itself tells about the work: branch, repository and pull
+ * request, as tc reads them from TC_SIGNALS.
+ */
 export interface JobSignals {
   repository: string | undefined
   branch: string | undefined
@@ -39,11 +42,18 @@ export function readJobSignals(env: Env, readEvent: (path: string) => string): J
     typeof event.pull_request?.head?.ref === 'string' ? event.pull_request.head.ref : undefined
 
   return {
-    repository: env.GITHUB_REPOSITORY || undefined,
+    repository: repositoryOf(env.GITHUB_SERVER_URL, env.GITHUB_REPOSITORY),
     branch: env.GITHUB_HEAD_REF || headRef || branchOf(env.GITHUB_REF),
     pull_request: number,
     pull_request_title: title,
   }
+}
+
+/** `github.com/owner/name`, the way the token entry schema spells a repository. */
+function repositoryOf(server: string | undefined, name: string | undefined): string | undefined {
+  if (!name) return undefined
+  const host = server && URL.canParse(server) ? new URL(server).host : 'github.com'
+  return `${host}/${name}`
 }
 
 function branchOf(ref: string | undefined): string | undefined {

@@ -1,32 +1,46 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-
 import {
   bar,
   headline,
   money,
+  placedByLine,
+  placeLine,
   reportTable,
   reportText,
   sessionTicket,
   sheetNote,
+  submittedText,
   tagLine,
 } from './format.ts'
 import type { ReviewRow, Sheet } from './tc.ts'
 
 const SHEET: Sheet = {
+  isConnected: true,
   organization: 'Kestrel',
   currency: 'USD',
-  tokenEntries: 5,
-  cost: 212.4,
+  today: 41.87,
   shareOnTickets: 0.91,
-  dueAt: null,
   isLate: false,
 }
 
-test('the headline reads as the docs show it', () => {
-  assert.equal(headline(SHEET, 'KD-214'), '$212 spent · 91% on tickets · KD-214')
-  assert.equal(headline({ ...SHEET, cost: 9.5, shareOnTickets: null }, null), '$9.50 spent')
-  assert.equal(headline({ ...SHEET, currency: 'EUR' }, null), '€212 spent · 91% on tickets')
+const ROW: ReviewRow = {
+  number: 1,
+  sessionId: 'a',
+  startedAt: null,
+  cost: 1,
+  summary: '',
+  isRejected: false,
+  rejectedReason: null,
+  placedBy: 'rule: ticket key in branch',
+  candidates: [],
+  splits: [{ share: 1, tags: { ticket: 'KD-1', team: 'web' } }],
+}
+
+test('the headline: today, the share on tickets, the session’s ticket', () => {
+  assert.equal(headline(SHEET, 'KD-214'), '$41.87 today · 91% on tickets · KD-214')
+  assert.equal(headline({ ...SHEET, today: 212.4, shareOnTickets: null }, null), '$212 today')
+  assert.equal(headline({ ...SHEET, currency: 'EUR' }, null), '€41.87 today · 91% on tickets')
 })
 
 test('money shows cents below 100 and on request', () => {
@@ -36,31 +50,53 @@ test('money shows cents below 100 and on request', () => {
   assert.equal(money(12, 'CHF'), '12.00 CHF')
 })
 
-test('the token sheet note says late, due soon, or nothing', () => {
-  const now = Date.parse('2026-10-14T10:00:00')
-  assert.equal(sheetNote({ ...SHEET, isLate: true }, now), 'token sheet late')
-  assert.equal(sheetNote({ ...SHEET, dueAt: '2026-10-16T17:00:00' }, now), 'token sheet due Fri')
-  assert.equal(sheetNote({ ...SHEET, dueAt: '2026-10-30T17:00:00' }, now), null)
-  assert.equal(sheetNote({ ...SHEET, dueAt: '2026-10-13T17:00:00' }, now), 'token sheet late')
-  assert.equal(sheetNote(SHEET, now), null)
+test('the token sheet note shows only when it is late', () => {
+  assert.equal(sheetNote({ ...SHEET, isLate: true }), 'token sheet late')
+  assert.equal(sheetNote(SHEET), null)
 })
 
-test('the session ticket comes from its review row', () => {
+test('the session ticket comes from its review row, split or not', () => {
   const rows: ReviewRow[] = [
+    ROW,
+    { ...ROW, number: 2, sessionId: 'b', splits: [{ share: 1, tags: {} }] },
     {
-      number: 1,
-      sessionId: 'a',
-      startedAt: null,
-      cost: 1,
-      tags: { ticket: 'KD-1' },
-      by: '',
-      summary: '',
+      ...ROW,
+      number: 3,
+      sessionId: 'c',
+      splits: [
+        { share: 0.6, tags: { ticket: 'KD-231' } },
+        { share: 0.4, tags: { ticket: 'KD-240' } },
+      ],
     },
-    { number: 2, sessionId: 'b', startedAt: null, cost: 1, tags: {}, by: '', summary: '' },
   ]
   assert.equal(sessionTicket(rows, 'a'), 'KD-1')
   assert.equal(sessionTicket(rows, 'b'), null)
-  assert.equal(sessionTicket(rows, 'c'), null)
+  assert.equal(sessionTicket(rows, 'c'), 'KD-231 +1')
+  assert.equal(sessionTicket(rows, 'd'), null)
+})
+
+test('where an entry sits, and what placed it', () => {
+  assert.equal(placeLine(ROW), 'ticket KD-1 · team web')
+  assert.equal(placeLine({ ...ROW, splits: [] }), 'no tags')
+  assert.equal(
+    placeLine({
+      ...ROW,
+      splits: [
+        { share: 0.6, tags: { ticket: 'KD-231' } },
+        { share: 0.4, tags: { team: 'web' } },
+      ],
+    }),
+    'KD-231 60% · team web 40%',
+  )
+  assert.equal(placedByLine(ROW), 'placed by rule: ticket key in branch')
+  assert.equal(
+    placedByLine({ ...ROW, placedBy: 'none', candidates: ['KD-3', 'KD-4'] }),
+    'not placed · maybe KD-3, KD-4',
+  )
+  assert.equal(
+    placedByLine({ ...ROW, isRejected: true, rejectedReason: 'KD-9 is closed' }),
+    'rejected: KD-9 is closed',
+  )
 })
 
 test('tags read ticket, project, then the rest', () => {
@@ -82,7 +118,7 @@ const REPORT = {
   currency: 'USD',
   rows: [
     { value: 'KD-214', cost: 120.5, share: 0.6 },
-    { value: 'KD-231', cost: 80.25, share: 0.4 },
+    { value: null, cost: 80.25, share: 0.4 },
   ],
   total: 200.75,
 }
@@ -94,7 +130,7 @@ test('a report as a Markdown table for the model', () => {
       '| ticket | cost | share |',
       '| --- | ---: | ---: |',
       '| KD-214 | $120.50 | 60% |',
-      '| KD-231 | $80.25 | 40% |',
+      '| (no ticket) | $80.25 | 40% |',
       '| **total** | **$200.75** | |',
     ].join('\n'),
   )
@@ -105,6 +141,18 @@ test('a report as text with bars for /tc report', () => {
   const lines = reportText(REPORT, 50).split('\n')
   assert.equal(lines.length, 5)
   assert.equal(lines[0], 'Cost by ticket')
-  assert.match(lines[2] ?? '', /^KD-214 {2}\$120\.50 {2} 60% {2}█+$/)
-  assert.match(lines[4] ?? '', /^total {3}\$200\.75$/)
+  assert.match(lines[2] ?? '', /^KD-214 {7}\$120\.50 {2} 60% {2}█+$/)
+  assert.match(lines[3] ?? '', /^\(no ticket\) {3}\$80\.25 {2} 40% {2}█+[\u2589-\u258F]?$/)
+  assert.match(lines[4] ?? '', /^total {8}\$200\.75$/)
+})
+
+test('what tc submit did, in one line', () => {
+  assert.equal(
+    submittedText({ count: 5, cost: 212.4, currency: 'USD', shareOnTickets: 0.95 }),
+    'Submitted 5 token entries · $212.40 · 95% on tickets',
+  )
+  assert.equal(
+    submittedText({ count: 0, cost: null, currency: 'USD', shareOnTickets: null }),
+    'Nothing to submit.',
+  )
 })

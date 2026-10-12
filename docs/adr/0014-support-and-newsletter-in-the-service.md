@@ -10,6 +10,7 @@ The hosted service runs its own support inbox, site assistant and newsletter in 
 - Support answers and notices go over SMTP like all service mail. The newsletter goes through the Resend API from its own subdomain, never over SMTP, so a complaint about it cannot block a sign-in link.
 - Confirm and unsubscribe links in mail point at website pages with one button, so mail scanners that open every link confirm and unsubscribe nobody. Mail clients unsubscribe in one click through `List-Unsubscribe-Post` (RFC 8058).
 - The background loop runs every minute, and at once when mail arrives, under one Postgres advisory lock, so with several replicas no mail goes out twice.
+- The same loop deletes site assistant questions and raw support mail after 90 days, and support conversations two years after their last message, so the privacy policy's periods hold without anyone doing it by hand.
 
 ## Why
 

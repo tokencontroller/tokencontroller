@@ -1,125 +1,33 @@
 /**
- * What the mod hands to `tc record`: one JSON object per line. tc builds the
- * session's draft token entry, its segments and its tags from these, and runs
- * the rules (ADR 0010). The mod adds only what Claude Code alone sees.
+ * What the mod hands to `tc record`: one JSON object with what only Claude
+ * Code knows about a session, its summary and the tags the person set by
+ * hand. tc reads the session's usage, branches and prompts from Claude Code's
+ * own session files, builds the draft token entry and runs the rules (ADR
+ * 0010). Each record is the whole picture so far, so sending it twice changes
+ * nothing.
  */
-
-/** Claude Code's own usage for one turn, as `turn.complete` reports it. */
-export interface TurnUsage {
-  model: string
-  input_tokens: number
-  output_tokens: number
-  cache_read_input_tokens: number
-  cache_creation_input_tokens: number
-}
-
-export interface TurnRecord {
-  kind: 'turn'
+export interface SessionRecord {
+  agent_harness: 'claude-code'
   session_id: string
-  turn_id: string
-  /** The subagent the turn ran in; absent on the main conversation. */
-  agent_id?: string
-  at: string
-  model: string
-  tokens: { input: number; output: number; cache_write: number; cache_read: number }
-  /** US dollars the turn added to the session's cost, as Claude Code counts it. */
-  reported_cost: number | null
-  cwd: string
-  branch: string | null
-  repository: string | null
-  ticket_keys: string[]
+  summary?: string
+  ticket?: string
+  /** Every tag but the ticket the person set by hand this session. */
+  tags?: Record<string, string>
 }
 
-export interface SummaryRecord {
-  kind: 'summary'
-  session_id: string
-  summary: string
-}
-
-/** Tags the person set by hand for the whole session (`/tc ticket`, `/tc tag`). */
-export interface TagsRecord {
-  kind: 'tags'
-  session_id: string
-  tags: Record<string, string>
-}
-
-export type TcRecord = TurnRecord | SummaryRecord | TagsRecord
-
-export interface TurnFacts {
-  sessionId: string
-  turnId: string
-  agentId: string | undefined
-  at: number
-  usage: TurnUsage
-  costBefore: number | undefined
-  costAfter: number | undefined
-  cwd: string
-  branch: string | null
-  repository: string | null
-  ticketKeys: readonly string[]
-}
-
-export function turnRecord(facts: TurnFacts): TurnRecord {
-  const { usage } = facts
-  const cost =
-    facts.costAfter === undefined
-      ? null
-      : Math.max(0, round6(facts.costAfter - (facts.costBefore ?? 0)))
+export function sessionRecord(
+  sessionId: string,
+  summary: string | null,
+  handTags: Readonly<Record<string, string>>,
+): SessionRecord {
+  const { ticket, ...tags } = handTags
   return {
-    kind: 'turn',
-    session_id: facts.sessionId,
-    turn_id: facts.turnId,
-    ...(facts.agentId === undefined ? {} : { agent_id: facts.agentId }),
-    at: new Date(facts.at).toISOString(),
-    model: usage.model,
-    tokens: {
-      input: usage.input_tokens,
-      output: usage.output_tokens,
-      cache_write: usage.cache_creation_input_tokens,
-      cache_read: usage.cache_read_input_tokens,
-    },
-    reported_cost: cost,
-    cwd: facts.cwd,
-    branch: facts.branch,
-    repository: facts.repository,
-    ticket_keys: [...new Set(facts.ticketKeys)],
+    agent_harness: 'claude-code',
+    session_id: sessionId,
+    ...(summary === null ? {} : { summary }),
+    ...(ticket === undefined ? {} : { ticket }),
+    ...(Object.keys(tags).length === 0 ? {} : { tags }),
   }
-}
-
-function round6(n: number): number {
-  return Math.round(n * 1e6) / 1e6
-}
-
-/**
- * Ticket key candidates in a prompt: Jira-style keys (`KD-214`) and issue
- * numbers with their repository (`storefront#12`). Only these keys leave the
- * prompt; tc keeps the ones that match a project's ticket key pattern.
- */
-export function ticketKeyCandidates(text: string): string[] {
-  const found = new Set<string>()
-  for (const match of text.matchAll(/\b([A-Z][A-Z0-9]{1,9}-\d{1,7})\b/g)) {
-    if (match[1] !== undefined) found.add(match[1])
-  }
-  for (const match of text.matchAll(/\b([A-Za-z0-9_.-]+#\d{1,7})\b/g)) {
-    if (match[1] !== undefined) found.add(match[1])
-  }
-  return [...found]
-}
-
-/** `owner/name` from an `origin` URL in any of git's spellings, or null. */
-export function repositoryName(remote: string | null | undefined): string | null {
-  if (!remote) return null
-  const match = /[:/]([^/:]+\/[^/]+?)(?:\.git)?\/?$/.exec(remote.trim())
-  return match?.[1] ?? null
-}
-
-/** The most lines kept for one session while tc cannot take them. */
-export const OUTBOX_LIMIT = 5000
-
-/** Adds lines to an outbox, dropping the oldest turns past the limit. */
-export function addToOutbox(outbox: readonly string[], ...records: TcRecord[]): string[] {
-  const lines = [...outbox, ...records.map(record => JSON.stringify(record))]
-  return lines.length > OUTBOX_LIMIT ? lines.slice(lines.length - OUTBOX_LIMIT) : lines
 }
 
 /**
