@@ -16,7 +16,7 @@ brew install tc
 winget install TokenController.tc
 ```
 
-Binaries for macOS, Windows and Linux are on GitHub.
+Binaries for macOS, Windows and Linux, on Intel and ARM, are on [GitHub](https://github.com/tokencontroller/tokencontroller/releases).
 
 ## Connect, or stay local {#connect}
 
@@ -41,4 +41,4 @@ The export is enough to report by hand when your organization has no service. Th
 
 ## What it reads {#sources}
 
-Session files of Claude Code and Codex, through the open source ccusage adapters. Reading the same files twice changes nothing, so you can run it as often as you like. There is no background process and no sync between your machines: each machine submits its own token entries.
+Session files of Claude Code and Codex, counted the way the open source ccusage project counts them. Reading the same files twice changes nothing, so you can run it as often as you like. There is no background process and no sync between your machines: each machine submits its own token entries.

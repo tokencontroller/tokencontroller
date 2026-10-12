@@ -12,9 +12,10 @@ The docs at [docs.tokencontroller.com](https://docs.tokencontroller.com) say exa
 | `docs/adr/` | Architecture decision records: how the code is built and why | |
 | `apps/server/` | The service at app.tokencontroller.com, in Rust: sign-in, API, telemetry ingest, background jobs, MCP server. It also serves the web app | AGPL-3.0 |
 | `apps/web/` | The web app, built into the service's Docker image | AGPL-3.0 |
-| `apps/cli/` | The `tc` command, in Rust | MIT |
+| `apps/cli/` | The `tc` command, in Rust, with its reference classifier script and the release packaging. A `v*` tag runs `.github/workflows/release.yml` | MIT |
 | `crates/` | Rust libraries the service and the CLI share: `core` holds money, rules and the `Extension` trait | AGPL-3.0 or MIT, per crate; `core` is MIT |
 | `packages/` | Everything published to a registry, one folder each: `claude-code-mod` first, then one mod per agent harness that allows mods, `sdk` and `github-action` | MIT |
+| `Formula/` | The Homebrew formula for `tc`, so `brew tap tokencontroller/tap https://github.com/tokencontroller/tokencontroller` works. The release workflow writes it | MIT |
 | `.claude-plugin/` | The plugin marketplace Claude Code reads with `/plugin marketplace add tokencontroller/tokencontroller`. It lists the mod in `packages/claude-code-mod` | |
 | `tests/golden/` | Acceptance cases as CSV, one folder per scenario in the docs | |
 | `scripts/` | The harness check and the end-to-end smoke test CI runs | |
@@ -52,7 +53,8 @@ The service has one module folder per area under `apps/server/src/`, so work on 
 - Migrations live in `apps/server/migrations/`, named `<UTC timestamp>_<module>_<what>.sql`. The service applies them when it starts. A migration that reached `main` is never edited.
 - Queries are checked against the database when the code compiles. After adding or changing a query, run `cargo sqlx prepare --workspace` and commit `.sqlx/`, so the image builds without a database.
 - After changing the API, run `cargo run -p tokencontroller-server -- openapi > apps/server/openapi.json` and commit it. The web app's client is generated from this file.
-- CI fails on any warning, a skipped test, a lint switched off in the code, fewer tests than before, or a changed harness file without the maintainer's label (ADR 0003, ADR 0013). A pull request merges itself when CI is green, unless it carries the `hold` label.
+- `pnpm --filter @tokencontroller/web dev:mock` runs the web app on mocks of the example organization, no service needed; `dev` proxies `/api` to a local service. `pnpm --filter @tokencontroller/web e2e` runs one Playwright journey per docs guide; the image serves the build from `/usr/share/tokencontroller/web`.
+- CI fails on any warning, a skipped test, a lint switched off in the code, fewer tests than before, a test that exists but did not run, a Rust package without `[lints] workspace = true`, a Cargo config file, SQL in the service that the compiler did not check, a mutant in changed `crates/core` code that no test catches, or a changed harness file without the maintainer's label (ADR 0003, ADR 0013). A pull request merges itself when CI is green, unless it carries the `hold` label.
 
 ## Open core
 
