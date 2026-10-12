@@ -17,6 +17,7 @@ fn state(pool: PgPool) -> AppState {
         secret_key: "0123456789abcdef0123456789abcdef".to_owned(),
         smtp_url: None,
         prices_refresh: false,
+        customer_relations: tokencontroller_server::customer_relations::Settings::default(),
     };
     AppState::new(pool, config, Arc::new(NoExtension))
 }

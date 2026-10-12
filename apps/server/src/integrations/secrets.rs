@@ -28,7 +28,8 @@ fn cipher(secret_key: &str) -> XChaCha20Poly1305 {
     let mut hasher = Sha256::new();
     hasher.update(b"tokencontroller.integrations.v1\0");
     hasher.update(secret_key.as_bytes());
-    XChaCha20Poly1305::new(&hasher.finalize())
+    let key: [u8; 32] = hasher.finalize().into();
+    XChaCha20Poly1305::new(&key.into())
 }
 
 /// Seals `plain` with a key derived from `secret_key`. Every call uses a new

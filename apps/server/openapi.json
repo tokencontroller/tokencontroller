@@ -10,6 +10,132 @@
     "version": "1.0.0"
   },
   "paths": {
+    "/api/v1/assistant/questions": {
+      "post": {
+        "tags": [
+          "customer_relations"
+        ],
+        "summary": "Ask the site assistant a question about Token Controller.",
+        "description": "Off unless `TC_ANTHROPIC_API_KEY` and `TC_SITE_URL` are set. Answers come\nfrom the docs only and are written by an AI model.",
+        "operationId": "ask",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Question"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The answer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssistantAnswer"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The question is empty or too long",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The site assistant is off",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many questions; try again later",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The assistant cannot answer right now",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/contact": {
+      "post": {
+        "tags": [
+          "customer_relations"
+        ],
+        "summary": "Send a message through the contact form. The answer comes by mail.",
+        "operationId": "contact",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ContactMessage"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Received; the answer comes by mail"
+          },
+          "400": {
+            "description": "A field is missing or too long",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The contact form is off",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many messages from here",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/health": {
       "get": {
         "tags": [
@@ -40,10 +166,283 @@
           }
         }
       }
+    },
+    "/api/v1/inbound/mail": {
+      "post": {
+        "tags": [
+          "customer_relations"
+        ],
+        "summary": "Take a mail from the mail worker.",
+        "description": "The body is the raw message (`message/rfc822`). The worker signs it; see\nthe mail decision record. A repeated id is accepted and ignored.",
+        "operationId": "receive_mail",
+        "parameters": [
+          {
+            "name": "x-tc-message-id",
+            "in": "header",
+            "description": "The worker's id for this message",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-tc-mailbox",
+            "in": "header",
+            "description": "The mailbox it was sent to, such as `support`",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-tc-envelope-from",
+            "in": "header",
+            "description": "The envelope sender",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-tc-envelope-to",
+            "in": "header",
+            "description": "The envelope recipient",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-tc-signature",
+            "in": "header",
+            "description": "Hex HMAC-SHA256 of the id, a newline and the body",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "The raw message",
+          "content": {
+            "message/rfc822": {
+              "schema": {
+                "type": "string"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Stored, or stored before"
+          },
+          "400": {
+            "description": "A header is missing",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The signature does not match",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The support inbox is off",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/newsletter/confirm": {
+      "post": {
+        "tags": [
+          "customer_relations"
+        ],
+        "summary": "Confirm a newsletter sign-up with the token from the confirmation mail.",
+        "operationId": "confirm",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Token"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Subscribed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Done"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The link is unknown or expired, or the newsletter is off",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/newsletter/subscribers": {
+      "post": {
+        "tags": [
+          "customer_relations"
+        ],
+        "summary": "Sign up for the newsletter. A confirmation mail goes out; nothing else is\nsent until the link in it is used.",
+        "operationId": "sign_up",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SignUp"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "A confirmation mail is on its way, unless the address is already confirmed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Done"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Not a mail address",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The newsletter is off",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many sign-ups from here",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/newsletter/unsubscribe": {
+      "post": {
+        "tags": [
+          "customer_relations"
+        ],
+        "summary": "Unsubscribe with one click. The address is deleted from the list.",
+        "description": "Mail clients post here straight from the `List-Unsubscribe` header\n(RFC 8058); the website's unsubscribe page posts here too.",
+        "operationId": "unsubscribe",
+        "parameters": [
+          {
+            "name": "token",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Unsubscribed, or was not subscribed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Done"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The newsletter is off",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
     "schemas": {
+      "AssistantAnswer": {
+        "type": "object",
+        "description": "The assistant's answer.",
+        "required": [
+          "answered",
+          "answer",
+          "links"
+        ],
+        "properties": {
+          "answer": {
+            "type": "string",
+            "description": "The answer in a few plain sentences."
+          },
+          "answered": {
+            "type": "boolean",
+            "description": "Whether the docs answered the question."
+          },
+          "links": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Docs pages the answer comes from."
+          }
+        }
+      },
       "Check": {
         "type": "string",
         "description": "Whether one part of the service works.",
@@ -51,6 +450,46 @@
           "ok",
           "failing"
         ]
+      },
+      "ContactMessage": {
+        "type": "object",
+        "description": "A message through the contact form.",
+        "required": [
+          "email",
+          "message"
+        ],
+        "properties": {
+          "email": {
+            "type": "string",
+            "description": "Where the answer goes."
+          },
+          "message": {
+            "type": "string"
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "website": {
+            "type": "string",
+            "description": "Left empty by people. Forms that fill it are taken to be robots."
+          }
+        }
+      },
+      "Done": {
+        "type": "object",
+        "description": "What happened, in one word.",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "description": "`check_your_email`, `confirmed` or `unsubscribed`."
+          }
+        }
       },
       "ErrorBody": {
         "type": "object",
@@ -95,6 +534,57 @@
           "version": {
             "type": "string",
             "description": "The running version, such as `1.0.0`."
+          }
+        }
+      },
+      "Question": {
+        "type": "object",
+        "description": "A visitor's question.",
+        "required": [
+          "question"
+        ],
+        "properties": {
+          "page": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The website page it was asked on, such as `/use-cases/agencies`."
+          },
+          "question": {
+            "type": "string",
+            "description": "The question, at most 500 characters."
+          }
+        }
+      },
+      "SignUp": {
+        "type": "object",
+        "description": "A sign-up.",
+        "required": [
+          "email"
+        ],
+        "properties": {
+          "email": {
+            "type": "string"
+          },
+          "source": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Where the sign-up came from, such as `/blog`."
+          }
+        }
+      },
+      "Token": {
+        "type": "object",
+        "description": "The token from a confirm or unsubscribe link.",
+        "required": [
+          "token"
+        ],
+        "properties": {
+          "token": {
+            "type": "string"
           }
         }
       }

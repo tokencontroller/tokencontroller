@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE support_conversations\n         SET state = 'escalated', escalation_reason = $2, suggested_answer = $3, notified_at = NULL, updated_at = now()\n         WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "53e80fffeccccc5fcaaeea4d079c63e13c2aba5813d500de4088f08a85353b0d"
+}

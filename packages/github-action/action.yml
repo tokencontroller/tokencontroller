@@ -1,0 +1,32 @@
+name: Token Controller
+description: Report what agents spend in CI, such as a pull request review bot, to Token Controller.
+author: Jan Beck
+branding:
+  icon: check-circle
+  color: green
+
+inputs:
+  token:
+    description: A service token (tc_svc_…) from the web app, under Settings. Its creator is the agent manager of everything this step reports.
+    required: true
+  project:
+    description: The project this job's work belongs to. Wins over matching by repository.
+    required: false
+  ticket:
+    description: The ticket this job's work belongs to. Wins over every rule. Without it, TC_TICKET from an earlier step is used.
+    required: false
+  tags:
+    description: Any other tags from your organization's list, as name=value, separated by commas, spaces or new lines.
+    required: false
+  url:
+    description: The address of a self-hosted Token Controller. Leave it out for the hosted service.
+    required: false
+    default: https://app.tokencontroller.com
+
+outputs:
+  token-entries:
+    description: How many token entries this step reported.
+
+runs:
+  using: node24
+  main: dist/main.js

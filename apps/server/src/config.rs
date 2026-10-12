@@ -19,6 +19,8 @@ pub enum ConfigError {
     PublicUrl,
     #[error("TC_PRICES_REFRESH must be `on` or `off`, not {0:?}")]
     PricesRefresh(String),
+    #[error(transparent)]
+    CustomerRelations(#[from] crate::customer_relations::SettingsError),
 }
 
 /// The service's settings.
@@ -35,6 +37,9 @@ pub struct Config {
     pub smtp_url: Option<String>,
     /// `TC_PRICES_REFRESH`: the daily price table refresh, on unless `off`.
     pub prices_refresh: bool,
+    /// The support inbox, site assistant and newsletter settings, all off
+    /// unless set.
+    pub customer_relations: crate::customer_relations::Settings,
 }
 
 impl Config {
@@ -78,12 +83,15 @@ impl Config {
             Some(other) => return Err(ConfigError::PricesRefresh(other.to_owned())),
         };
 
+        let customer_relations = crate::customer_relations::Settings::from_lookup(&lookup)?;
+
         Ok(Self {
             database_url,
             public_url,
             secret_key,
             smtp_url: read("TC_SMTP_URL"),
             prices_refresh,
+            customer_relations,
         })
     }
 }
@@ -97,6 +105,7 @@ impl fmt::Debug for Config {
             .field("secret_key", &"<hidden>")
             .field("smtp_url", &self.smtp_url.as_ref().map(|_| "<hidden>"))
             .field("prices_refresh", &self.prices_refresh)
+            .field("customer_relations", &self.customer_relations)
             .finish()
     }
 }

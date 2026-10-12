@@ -1,0 +1,31 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO newsletter_subscribers (email, source, confirm_token, unsubscribe_token)\n         VALUES ($1, $2, $3, $4)\n         ON CONFLICT (lower(email)) DO UPDATE SET confirmation_sent_at = NULL\n           WHERE newsletter_subscribers.status = 'pending'\n             AND (newsletter_subscribers.confirmation_sent_at IS NULL\n                  OR newsletter_subscribers.confirmation_sent_at < now() - interval '10 minutes')\n         RETURNING id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "newsletter_subscribers",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "22cd9a14bdbc5f04f79253846d50dafd2dbefc6c62a42292138359097ddc2b1f"
+}

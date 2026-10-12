@@ -1,0 +1,88 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT i.id AS issue_id, i.subject, i.body, s.id AS subscriber_id, s.email, s.unsubscribe_token\n         FROM newsletter_deliveries d\n         JOIN newsletter_issues i ON i.id = d.issue_id\n         JOIN newsletter_subscribers s ON s.id = d.subscriber_id\n         WHERE i.status = 'sending' AND d.sent_at IS NULL\n         ORDER BY i.send_started_at, s.email LIMIT $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "issue_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "newsletter_issues",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "subject",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "newsletter_issues",
+            "name": "subject"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "body",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "newsletter_issues",
+            "name": "body"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "subscriber_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "newsletter_subscribers",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "email",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "newsletter_subscribers",
+            "name": "email"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "unsubscribe_token",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "newsletter_subscribers",
+            "name": "unsubscribe_token"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "7f737f224adde23bb76ad623044f6e36a95215997ee556fe19e13a3918c5436b"
+}
