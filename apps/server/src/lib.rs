@@ -136,7 +136,8 @@ pub async fn seed() -> anyhow::Result<()> {
 /// Fails if the configuration is incomplete, Postgres cannot be reached, or
 /// the address belongs to no member.
 pub async fn sign_in_link(email: &str) -> anyhow::Result<String> {
-    init_tracing();
+    // No log output: the link is the only thing on stdout, so scripts can
+    // read it.
     let config = Config::from_env()?;
     let db = connect_and_migrate(&config.database_url).await?;
     let link = sign_in::link_for_member(&db, &config, email).await?;

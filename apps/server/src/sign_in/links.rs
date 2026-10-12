@@ -703,11 +703,15 @@ fn page(status: StatusCode, title: &str, body: &str) -> Response {
 body{{margin:0;background:#F6F7F8;color:#0E1116;font:16px/1.5 Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}}
 main{{max-width:440px;margin:12vh auto;padding:32px 36px;background:#fff;border:1px solid #E7E9EC;border-radius:14px}}
 h1{{margin:0 0 12px;font-size:24px;line-height:1.25;letter-spacing:-.02em}}
-button{{margin-top:12px;padding:13px 22px;font:600 16px/1 inherit;color:#fff;background:#0E1116;border:0;border-radius:10px;cursor:pointer}}
+.brand{{display:flex;align-items:center;gap:10px;margin-bottom:28px;font-size:15px;font-weight:600}}
+.mark{{display:flex;flex-direction:column;justify-content:center;gap:3px;width:24px;height:24px;background:#0E1116;border-radius:7px}}
+.mark i{{display:block;width:12px;height:3px;margin:0 auto;background:#fff;border-radius:2px}}
+button{{margin-top:12px;padding:13px 22px;font-family:inherit;font-size:16px;font-weight:600;line-height:1;color:#fff;background:#0E1116;border:0;border-radius:10px;cursor:pointer}}
 a{{color:#0E7C66}}
 </style>
 </head>
-<body><main><h1>{title}</h1>
+<body><main><div class="brand"><span class="mark"><i></i><i></i></span>Token Controller</div>
+<h1>{title}</h1>
 {body}
 </main></body>
 </html>
