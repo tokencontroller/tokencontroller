@@ -406,7 +406,13 @@ impl NewTokenEntry {
     }
 }
 
-fn check_tags(tags: &BTreeMap<String, String>) -> Result<(), EntryError> {
+/// Checks tags named by hand or sent: names on the wire's rules, never
+/// `person`, values not empty and not too long.
+///
+/// # Errors
+///
+/// [`EntryError`] for the first tag that breaks a rule.
+pub fn check_tags(tags: &BTreeMap<String, String>) -> Result<(), EntryError> {
     for (name, value) in tags {
         if !is_tag_name(name) {
             return Err(EntryError(format!(

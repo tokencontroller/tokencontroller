@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE token_entries SET sent_tags = COALESCE($2, sent_tags), split_plan = $3,\n             placed_by = 'hand', updated_at = now()\n         WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Jsonb",
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "255a0e8a7aaf5cda8037a908f754f3b38a16550af2179d2dfee80fd5a26ba3f1"
+}

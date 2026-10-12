@@ -6118,6 +6118,152 @@
         }
       }
     },
+    "/api/v1/token-entries/{id}/splits": {
+      "put": {
+        "tags": [
+          "token_sheets"
+        ],
+        "summary": "Split one of your token entries by hand, such as one session for two\ntickets at 60 and 40 percent.",
+        "operationId": "set_splits",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The token entry",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SplitsInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The token entry, placed again",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EntryView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The shares do not add up to 100 percent",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such token entry of yours",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Closed or approved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/token-entries/{id}/tags": {
+      "patch": {
+        "tags": [
+          "token_sheets"
+        ],
+        "summary": "Set the tags of one of your token entries by hand, such as its ticket.\nIt becomes one split again, placed by hand.",
+        "operationId": "set_tags",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The token entry",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TagsInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The token entry, placed again",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EntryView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A tag breaks the rules",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such token entry of yours",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Closed or approved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/token-forecasts/settings": {
       "get": {
         "tags": [
@@ -6261,6 +6407,27 @@
         }
       }
     },
+    "/api/v1/token-sheets/current": {
+      "get": {
+        "tags": [
+          "token_sheets"
+        ],
+        "summary": "Your token sheet: drafts, token entries sent back with a reason, and\ntoken entries whose ticket the ticket sync could not find, with the\ncadence period and whether a token sheet is late.",
+        "operationId": "current",
+        "responses": {
+          "200": {
+            "description": "Your token sheet",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenSheet"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/token-sheets/late": {
       "get": {
         "tags": [
@@ -6297,20 +6464,102 @@
         }
       }
     },
-    "/api/v1/token-sheets/review": {
-      "get": {
+    "/api/v1/token-sheets/remind": {
+      "post": {
         "tags": [
           "token_sheets"
         ],
-        "summary": "The caller's own review list: rejected token entries and token sheets.",
-        "operationId": "review",
+        "summary": "Ask everyone to submit their token sheets for a month before the close,\nthe way finance asks for timesheets. The request shows in the web app\nand to local tools until the month closes.",
+        "operationId": "remind",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RemindInput"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
-            "description": "The review list",
+            "description": "Asked",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Review"
+                  "$ref": "#/components/schemas/Reminded"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Only a controller can ask everyone",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The month is closed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/token-sheets/submit": {
+      "post": {
+        "tags": [
+          "token_sheets"
+        ],
+        "summary": "Submit your token sheet: the token entries reviewed on your machine,\nand your drafts here. Submit whenever you like; an empty list says there\nwas nothing to report.",
+        "operationId": "submit",
+        "requestBody": {
+          "description": "Optional: the web app sends none",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubmitInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Submitted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Submitted"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A token entry breaks the schema; nothing was submitted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A token entry sent again is locked in a closed period",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
                 }
               }
             }
@@ -6547,6 +6796,30 @@
               "format": "uuid"
             },
             "description": "These token entries. Left out: every submitted token entry matching\n`period` and `filter` that the caller may approve."
+          }
+        }
+      },
+      "AskedToSubmit": {
+        "type": "object",
+        "description": "A controller asked everyone to submit before the close.",
+        "required": [
+          "period",
+          "asked_at"
+        ],
+        "properties": {
+          "asked_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "asked_by": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "period": {
+            "type": "string",
+            "description": "The month, such as `2026-09`."
           }
         }
       },
@@ -7132,12 +7405,17 @@
         "required": [
           "period_start",
           "period_end",
-          "due_at"
+          "due_at",
+          "late"
         ],
         "properties": {
           "due_at": {
             "type": "string",
             "format": "date-time"
+          },
+          "late": {
+            "type": "boolean",
+            "description": "Whether an earlier cadence period still waits for its token sheet."
           },
           "period_end": {
             "type": "string",
@@ -7383,11 +7661,22 @@
           "rejected"
         ],
         "properties": {
+          "asked_to_submit": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/AskedToSubmit",
+                "description": "A controller asked everyone to submit for this month before the\nclose."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "cadence": {
             "oneOf": [
               {
                 "$ref": "#/components/schemas/Cadence",
-                "description": "The person's next token sheet. `null` until the close area reports\nit."
+                "description": "The cadence period running now and when its token sheet is due;\n`null` when no cadence applies."
               },
               {
                 "type": "null"
@@ -7412,7 +7701,7 @@
             "items": {
               "$ref": "#/components/schemas/Rejected"
             },
-            "description": "Token entries sent from this person's machines that the service\nturned down. Empty until the close area reports them."
+            "description": "Token entries sent from this person's machines that a people\nmanager sent back, with the reason."
           },
           "rules": {
             "type": "array",
@@ -7865,29 +8154,6 @@
             "type": "integer",
             "description": "Rows that can be imported.",
             "minimum": 0
-          }
-        }
-      },
-      "CurrentSheet": {
-        "type": "object",
-        "description": "The cadence period running for a person, as the CLI and the Claude Code\nmod show it.",
-        "required": [
-          "period_start",
-          "period_end",
-          "late"
-        ],
-        "properties": {
-          "late": {
-            "type": "boolean",
-            "description": "Whether an earlier cadence period still waits for its token sheet."
-          },
-          "period_end": {
-            "type": "string",
-            "format": "date"
-          },
-          "period_start": {
-            "type": "string",
-            "format": "date"
           }
         }
       },
@@ -10179,6 +10445,34 @@
           }
         }
       },
+      "RemindInput": {
+        "type": "object",
+        "description": "Which month to ask for.",
+        "required": [
+          "period"
+        ],
+        "properties": {
+          "period": {
+            "type": "string",
+            "description": "The month, such as `2026-09`.",
+            "example": "2026-09"
+          }
+        }
+      },
+      "Reminded": {
+        "type": "object",
+        "description": "How many people the request reaches.",
+        "required": [
+          "reminded"
+        ],
+        "properties": {
+          "reminded": {
+            "type": "integer",
+            "description": "People with a late token sheet or drafts in that month.",
+            "minimum": 0
+          }
+        }
+      },
       "Reply": {
         "type": "object",
         "description": "An operator's answer.",
@@ -10404,34 +10698,6 @@
           "person_id": {
             "type": "string",
             "format": "uuid"
-          }
-        }
-      },
-      "Review": {
-        "type": "object",
-        "description": "The caller's review list.",
-        "required": [
-          "rejected",
-          "context",
-          "token_sheets"
-        ],
-        "properties": {
-          "context": {
-            "$ref": "#/components/schemas/SheetContext"
-          },
-          "rejected": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/EntryView"
-            },
-            "description": "Sent back with a reason: fix and submit again."
-          },
-          "token_sheets": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/SheetSummary"
-            },
-            "description": "The person's token sheets, newest first."
           }
         }
       },
@@ -10750,31 +11016,30 @@
           "first_named"
         ]
       },
-      "SheetContext": {
+      "ShareInput": {
         "type": "object",
-        "description": "What the local tools need to know about a person's token sheets.",
+        "description": "One share of a token entry split by hand.",
         "required": [
-          "rejected"
+          "share_percent"
         ],
         "properties": {
-          "cadence": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/CurrentSheet",
-                "description": "`null` when no cadence applies."
-              },
-              {
-                "type": "null"
-              }
-            ]
+          "share_percent": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Whole percent above 0; the shares add up to 100.",
+            "minimum": 0
           },
-          "rejected": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/Rejected"
+          "tags": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
             }
           }
-        }
+        },
+        "additionalProperties": false
       },
       "SheetSummary": {
         "type": "object",
@@ -10940,7 +11205,8 @@
         "description": "One split of a token entry.",
         "required": [
           "id",
-          "tags"
+          "tags",
+          "placed_by"
         ],
         "properties": {
           "id": {
@@ -10954,6 +11220,10 @@
             ],
             "description": "`null` for an unknown model."
           },
+          "placed_by": {
+            "type": "string",
+            "description": "What placed it, as the review list shows it, such as `rule: ticket\nkey in branch`, `by hand` or `no ticket`."
+          },
           "tags": {
             "type": "object",
             "additionalProperties": {
@@ -10961,6 +11231,28 @@
             },
             "propertyNames": {
               "type": "string"
+            }
+          },
+          "unknown_ticket": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "A ticket key that matched a pattern but that the ticket sync did not\nfind: the review list shows it as unknown ticket."
+          }
+        }
+      },
+      "SplitsInput": {
+        "type": "object",
+        "description": "A token entry's splits by hand.",
+        "required": [
+          "splits"
+        ],
+        "properties": {
+          "splits": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ShareInput"
             }
           }
         }
@@ -11063,6 +11355,97 @@
         "properties": {
           "url": {
             "type": "string"
+          }
+        }
+      },
+      "SubmitInput": {
+        "type": "object",
+        "description": "What a submit sends.",
+        "properties": {
+          "token_entries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NewTokenEntry"
+            },
+            "description": "The token entries reviewed on the machine, each with its `local_id`.\nSending one again replaces it. Empty means nothing to report."
+          }
+        }
+      },
+      "Submitted": {
+        "type": "object",
+        "description": "What a submit did.",
+        "required": [
+          "token_entries",
+          "submitted",
+          "list_value",
+          "currency",
+          "late",
+          "token_sheets"
+        ],
+        "properties": {
+          "currency": {
+            "type": "string"
+          },
+          "late": {
+            "type": "integer",
+            "description": "Token entries of a closed month, posted to it as late adjustments.",
+            "minimum": 0
+          },
+          "list_value": {
+            "type": "string",
+            "description": "Their list value, known models only. A decimal string."
+          },
+          "share_on_tickets_percent": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "The share of that list value on tickets, in whole percent; `null`\nwhen nothing has a known value.",
+            "minimum": 0
+          },
+          "submitted": {
+            "type": "integer",
+            "description": "Token entries on the token sheet from this submit, the drafts in the\nservice included.",
+            "minimum": 0
+          },
+          "token_entries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SubmittedEntry"
+            },
+            "description": "One per token entry sent, in the order sent."
+          },
+          "token_sheets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CadencePeriod"
+            },
+            "description": "The cadence periods the submit covered, oldest first."
+          }
+        }
+      },
+      "SubmittedEntry": {
+        "type": "object",
+        "description": "One token entry sent, as stored.",
+        "required": [
+          "id",
+          "status"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "local_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "description": "`submitted`, or `locked` when its month had closed."
           }
         }
       },
@@ -11208,6 +11591,25 @@
           },
           "value": {
             "type": "string"
+          }
+        }
+      },
+      "TagsInput": {
+        "type": "object",
+        "description": "Tags to set on a token entry by hand.",
+        "required": [
+          "tags"
+        ],
+        "properties": {
+          "tags": {
+            "type": "object",
+            "description": "Every tag the token entry should name, such as `{\"ticket\":\n\"KD-231\"}`. The ticket brings its project and the tags they pass on.",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
           }
         }
       },
@@ -11886,6 +12288,98 @@
           "organization",
           "cli"
         ]
+      },
+      "TokenSheet": {
+        "type": "object",
+        "description": "The person's token sheet as it stands: what waits for them, the cadence\nperiod it is for, and the token sheets they submitted.",
+        "required": [
+          "person",
+          "late",
+          "token_entries",
+          "list_value",
+          "currency",
+          "token_sheets"
+        ],
+        "properties": {
+          "asked_to_submit": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/AskedToSubmit"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "cadence": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`weekly`, `every_two_weeks`, `monthly` or `custom`; `null` when no\ncadence applies."
+          },
+          "currency": {
+            "type": "string"
+          },
+          "due_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "When the running cadence period's token sheet is due: the end of its\nlast day, in UTC."
+          },
+          "late": {
+            "type": "boolean",
+            "description": "Whether an earlier cadence period still waits for its token sheet."
+          },
+          "list_value": {
+            "type": "string",
+            "description": "The list value of the drafts, known models only. A decimal string."
+          },
+          "period_end": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "period_start": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date",
+            "description": "The cadence period running now."
+          },
+          "person": {
+            "type": "string",
+            "description": "The person's name, or their email until they gave one."
+          },
+          "share_on_tickets": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "The share of that list value on tickets, in basis points; `null`\nwhen nothing has a known value.",
+            "minimum": 0
+          },
+          "token_entries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EntryView"
+            },
+            "description": "Drafts, token entries sent back with a reason, and token entries\nwith an unknown ticket, oldest first."
+          },
+          "token_sheets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SheetSummary"
+            },
+            "description": "The person's token sheets, newest first."
+          }
+        }
       },
       "Totals": {
         "type": "object",

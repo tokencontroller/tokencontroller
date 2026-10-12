@@ -24,6 +24,12 @@ pub struct SplitView {
     pub list_value: Option<String>,
     #[schema(value_type = BTreeMap<String, String>)]
     pub tags: Tags,
+    /// What placed it, as the review list shows it, such as `rule: ticket
+    /// key in branch`, `by hand` or `no ticket`.
+    pub placed_by: String,
+    /// A ticket key that matched a pattern but that the ticket sync did not
+    /// find: the review list shows it as unknown ticket.
+    pub unknown_ticket: Option<String>,
 }
 
 /// One token entry.
@@ -139,6 +145,8 @@ pub async fn entries(db: &PgPool, lines: Vec<CostLine>) -> Result<Vec<EntryView>
                         id: split.split_id,
                         list_value: split.list_value.map(format_amount),
                         tags: split.tags,
+                        placed_by: split.placed_by,
+                        unknown_ticket: split.unknown_ticket,
                     })
                     .collect(),
             })

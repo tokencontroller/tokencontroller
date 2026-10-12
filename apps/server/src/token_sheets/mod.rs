@@ -9,8 +9,9 @@
 pub mod approval;
 pub mod cadence;
 pub mod cadences;
+pub mod current;
 pub mod late;
-pub mod review;
+pub mod submit;
 
 use utoipa_axum::router::OpenApiRouter;
 
@@ -24,6 +25,7 @@ pub fn routes() -> OpenApiRouter<AppState> {
     OpenApiRouter::new()
         .merge(cadences::routes())
         .merge(approval::routes())
-        .merge(review::routes())
+        .merge(current::routes())
+        .merge(submit::routes())
         .merge(late::routes())
 }

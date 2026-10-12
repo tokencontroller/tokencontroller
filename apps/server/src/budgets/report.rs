@@ -709,6 +709,7 @@ mod tests {
                 billed_value: None,
                 placed_by: "no ticket".to_owned(),
                 ticket_not_synced: false,
+                unknown_ticket: None,
                 tags,
             },
             value: cents.map(eur),

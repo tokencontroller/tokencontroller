@@ -79,12 +79,15 @@ pub struct Context {
     pub rules: Vec<Rule>,
     /// Projects that are not archived.
     pub projects: Vec<ContextProject>,
-    /// The person's next token sheet. `null` until the close area reports
-    /// it.
+    /// The cadence period running now and when its token sheet is due;
+    /// `null` when no cadence applies.
     pub cadence: Option<Cadence>,
-    /// Token entries sent from this person's machines that the service
-    /// turned down. Empty until the close area reports them.
+    /// Token entries sent from this person's machines that a people
+    /// manager sent back, with the reason.
     pub rejected: Vec<Rejected>,
+    /// A controller asked everyone to submit for this month before the
+    /// close.
+    pub asked_to_submit: Option<crate::token_sheets::current::AskedToSubmit>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -126,6 +129,8 @@ pub struct Cadence {
     pub period_end: String,
     #[serde(with = "time::serde::rfc3339")]
     pub due_at: OffsetDateTime,
+    /// Whether an earlier cadence period still waits for its token sheet.
+    pub late: bool,
 }
 
 /// A token entry the service turned down.
@@ -372,6 +377,8 @@ pub(super) async fn context(
     member: Member,
 ) -> Result<Json<Context>, ApiError> {
     let organization_id = member.organization_id;
+    let sheets =
+        crate::token_sheets::context_for(&state.db, organization_id, member.person_id).await?;
     let organization = super::organization(&state.db, organization_id).await?;
     let organization_rules = organization_rules(&state.db, organization_id).await?;
     let tag_names = tags::tag_names(&state.db, organization_id)
@@ -413,8 +420,26 @@ pub(super) async fn context(
         },
         rules: person.rules.0,
         projects,
-        cadence: None,
-        rejected: Vec::new(),
+        cadence: sheets.cadence.and_then(|sheet| {
+            Some(Cadence {
+                period_start: sheet.period_start.to_string(),
+                period_end: sheet.period_end.to_string(),
+                due_at: crate::token_sheets::current::due_at(sheet.period_end)?,
+                late: sheet.late,
+            })
+        }),
+        rejected: sheets
+            .rejected
+            .into_iter()
+            .filter_map(|rejected| {
+                Some(Rejected {
+                    local_id: rejected.local_id?,
+                    reason: rejected.reason,
+                })
+            })
+            .collect(),
+        asked_to_submit: crate::token_sheets::current::asked_to_submit(&state.db, organization_id)
+            .await?,
     }))
 }
 

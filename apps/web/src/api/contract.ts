@@ -121,33 +121,13 @@ export type IssueText = Schemas["IssueText"];
 export type AssistantQuestion = Schemas["QuestionView"];
 
 
-// Cadence, as the Close and reports work defines it (docs: Account > Cadence).
-export type CadenceKind = "weekly" | "every_two_weeks" | "monthly" | "custom";
-
+/** How often token sheets are due (docs: Account > Cadence and token sheets). */
+export type CadenceKind = Schemas["CadenceKind"];
 /** One stretch of a cadence, from `starts_on` up to and including `ends_on`. */
-export interface CadencePeriod {
-  starts_on: string;
-  ends_on: string;
-}
-
+export type CadencePeriod = Schemas["CadencePeriod"];
 /** A cadence for the organization (`project` null) or one project, by project name. */
-export interface CadenceView {
-  id: string;
-  kind: CadenceKind;
-  every_days?: number | null;
-  project?: string | null;
-  starts_on: string;
-  set_at: string;
-  set_by: string;
-  current: CadencePeriod;
-}
-
-export interface CadenceInput {
-  kind: CadenceKind;
-  every_days?: number | null;
-  project?: string | null;
-  starts_on?: string | null;
-}
+export type CadenceView = Schemas["CadenceView"];
+export type CadenceInput = Schemas["CadenceInput"];
 
 export type TokenEntryStatus = "draft" | "submitted" | "approved" | "rejected" | "locked";
 

@@ -9,6 +9,7 @@ import { FeedbackDialog } from "./feedback-panel";
 import { SupportDialog } from "./support-dialog";
 import { hasRole, roleLabel } from "@/lib/roles";
 import { displayName, initials } from "@/lib/format";
+import { LicenseNotice } from "./enterprise-settings";
 
 interface NavItem {
   to: string;
@@ -209,7 +210,10 @@ export function AppShell({ children }: { children: ReactNode }): ReactNode {
         </BaseDialog.Root>
       </header>
 
-      <main className="mx-auto w-full min-w-0 max-w-6xl px-4 py-6 sm:px-6 lg:px-10 lg:py-8">{children}</main>
+      <main className="mx-auto w-full min-w-0 max-w-6xl px-4 py-6 sm:px-6 lg:px-10 lg:py-8">
+        <LicenseNotice />
+        {children}
+      </main>
       <FeedbackDialog open={panel === "feedback"} onOpenChange={(o) => setPanel(o ? "feedback" : null)} />
       {support.data ? <SupportDialog answerTo={support.data.answer_to} open={panel === "support"} onOpenChange={(o) => setPanel(o ? "support" : null)} /> : null}
     </div>

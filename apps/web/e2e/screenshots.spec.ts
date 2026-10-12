@@ -125,3 +125,18 @@ test("ticket systems", async ({ page }) => {
   await map.getByLabel("Project for Intranet").selectOption("intranet");
   await page.screenshot({ path: `${dir}/29-map-jira-projects.png` });
 });
+
+test("enterprise settings", async ({ page }) => {
+  await signIn(page, "nadia");
+  await page.evaluate(() => fetch("/api/v1/__mock/edition", { method: "POST", body: JSON.stringify({ edition: "enterprise" }) }));
+  await page.goto("/settings");
+  const signInSection = page.locator("section").filter({ has: page.getByRole("heading", { name: "Sign-in", exact: true }) });
+  await signInSection.getByLabel("Issuer URL").fill("https://login.microsoftonline.com/kestrel/v2.0");
+  await signInSection.getByLabel("Client ID").fill("4b1d-tc");
+  await signInSection.getByLabel("Client secret").fill("s3cret");
+  await signInSection.getByRole("button", { name: "Add sign-in" }).click();
+  await page.getByRole("button", { name: "New SCIM token" }).click();
+  await page.getByRole("dialog", { name: "Copy your SCIM token now" }).getByRole("button", { name: "Done" }).click();
+  await page.waitForLoadState("networkidle");
+  await page.screenshot({ path: `${dir}/30-enterprise-settings.png`, fullPage: true });
+});

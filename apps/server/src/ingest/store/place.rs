@@ -68,6 +68,17 @@ pub(super) async fn org_context(
     .filter(|name| !name.is_built_in())
     .collect();
     organization.tag_map = tag_map(conn, organization_id).await?;
+    // Keys a ticket sync did not find: rules and the summary match skip
+    // them (docs: Attribute > Ticket key patterns, unknown).
+    organization.missing_tickets = sqlx::query_scalar!(
+        "SELECT key FROM missing_tickets WHERE organization_id = $1",
+        organization_id
+    )
+    .fetch_all(&mut *conn)
+    .await?
+    .iter()
+    .filter_map(|key| TagValue::new(key).ok())
+    .collect();
 
     let mut people = BTreeMap::new();
     for person in sqlx::query!(

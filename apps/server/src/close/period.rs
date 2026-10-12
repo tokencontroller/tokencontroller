@@ -6,6 +6,10 @@
 use time::{Date, Month, OffsetDateTime, Time};
 pub use tokencontroller_core::Period;
 
+// `day`: a day in JSON as `2026-10-12`, for `#[serde(with = ...)]` on
+// `Date` fields; `day::option` does the same for an `Option<Date>`.
+time::serde::format_description!(pub day, Date, "[year]-[month]-[day]");
+
 /// A period at the end of the calendar.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 #[error("the period is outside the calendar Token Controller can hold")]

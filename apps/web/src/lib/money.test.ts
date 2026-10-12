@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { formatMoney, formatShare, money, parseAmount, shareOf, sum, toDecimal, toMinorUnits } from "./money";
+import { formatMoney, formatShare, fromDecimal, money, parseAmount, shareOf, sum, toDecimal, toMinorUnits } from "./money";
 
 const usd = (nanos: bigint) => money(nanos, "USD");
 
@@ -37,5 +37,11 @@ describe("money", () => {
     expect(formatShare(9500)).toBe("95%");
     expect(formatShare(310)).toBe("3.1%");
     expect(shareOf(usd(202_650_000_000n), usd(212_400_000_000n))).toBe(9540);
+  });
+
+  test("reads the service's decimal strings", () => {
+    expect(fromDecimal("-41.87", "EUR")).toEqual({ nanos: "-41870000000", currency: "EUR" });
+    expect(formatMoney(fromDecimal("1500.00", "USD"))).toBe("$1,500.00");
+    expect(() => fromDecimal("about 3", "USD")).toThrow();
   });
 });
