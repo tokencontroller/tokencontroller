@@ -11,4 +11,11 @@ Under _Token entries_, choose _Add_. Give the agent harness, model, start and en
 
 ## CSV import {#csv}
 
-Choose _Import CSV_ and upload a file with one token entry per row. The columns are the fields of the [token entry schema](/reference/token-entry). The import shows what it read before anything is saved. The CLI's `tc export --csv` writes the same format.
+Choose _Import CSV_ and upload a file with one token entry per row. The columns are the fields of the [token entry schema](/reference/token-entry), with a dot for nested fields: `tokens.input`, `tokens.output`, `tokens.cache_write`, `tokens.cache_read`, `signals.branch`, and one `tags.<name>` column per tag, such as `tags.team`. `agent_harness`, `model`, `started_at` and `ended_at` are required. Commas or semicolons both work, and up to 10,000 rows fit in one file.
+
+```csv
+agent_harness,model,started_at,ended_at,tokens.input,tokens.output,reported_cost,summary,ticket,tags.team
+claude-code,claude-sonnet-5,2026-09-18T09:12:00Z,2026-09-18T09:40:00Z,41200,6100,0.42,Fixed the cart total,KD-214,web
+```
+
+The import shows what it read, with the problem in each row it could not read, before anything is saved. The CLI's `tc export --csv` writes the same format.
