@@ -27,7 +27,7 @@ tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
 utoipa = { version = "6.0.0", features = ["uuid", "time"] }
 utoipa-axum = "0.3.0"
 uuid = { version = "1.28.0", features = ["serde", "v4"] }
-zip = { version = "9.0.2", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+zip = { version = "9.0.2", default-features = false, features = ["deflate-flate2-zlib-rs", "time"] }
 
 # The strict harness (ADR 0003). Owned by the maintainer: changing this block
 # needs the harness-change label. Tests may use unwrap and friends through

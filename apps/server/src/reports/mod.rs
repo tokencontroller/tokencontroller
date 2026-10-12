@@ -10,6 +10,8 @@ pub mod csv;
 pub mod entries;
 pub mod filter;
 pub mod lines;
+pub mod outliers;
+pub mod raw;
 pub mod saved;
 pub mod scope;
 pub mod share;
@@ -31,6 +33,8 @@ pub fn routes() -> OpenApiRouter<AppState> {
     OpenApiRouter::new()
         .routes(routes!(cost::cost_report))
         .routes(routes!(cost::agent_harness_report))
+        .merge(outliers::routes())
+        .merge(raw::routes())
         .merge(saved::routes())
         .merge(table::routes())
 }
