@@ -23,7 +23,7 @@ An administrator adds this to Claude Code's managed settings. Find your organiza
 }
 ```
 
-The exporter adds `/v1/metrics` and `/v1/logs` to the endpoint itself. These settings send numbers and identifiers only. The ingest endpoint drops any event that carries prompt text.
+The exporter adds `/v1/metrics` and `/v1/logs` to the endpoint itself. These settings send numbers and identifiers only. The ingest endpoint drops any event that carries prompt text. Each model call is counted once, from its log event; metrics are accepted and not counted, because they repeat the same calls.
 
 ## Tags in telemetry {#tags}
 

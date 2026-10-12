@@ -1458,6 +1458,177 @@
         }
       }
     },
+    "/api/v1/ingest/otlp/v1/logs": {
+      "post": {
+        "tags": [
+          "telemetry"
+        ],
+        "summary": "OTLP logs: one model call per event, for Claude Code, Codex CLI, Gemini\nCLI and Cursor. Takes the organization token.",
+        "operationId": "otlp_logs",
+        "requestBody": {
+          "description": "An OTLP ExportLogsServiceRequest, as protobuf or JSON, optionally gzip-compressed",
+          "content": {
+            "application/x-protobuf": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "format": "int32",
+                  "minimum": 0
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "An OTLP ExportLogsServiceResponse"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/ingest/otlp/v1/metrics": {
+      "post": {
+        "tags": [
+          "telemetry"
+        ],
+        "summary": "OTLP metrics: accepted and not counted, because the events already count\nevery model call. Takes the organization token.",
+        "operationId": "otlp_metrics",
+        "requestBody": {
+          "description": "An OTLP ExportMetricsServiceRequest, as protobuf or JSON, optionally gzip-compressed",
+          "content": {
+            "application/x-protobuf": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "format": "int32",
+                  "minimum": 0
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "An OTLP ExportMetricsServiceResponse"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/ingest/otlp/v1/traces": {
+      "post": {
+        "tags": [
+          "telemetry"
+        ],
+        "summary": "OTLP traces: one model call per chat span, for Copilot CLI. Takes the\norganization token.",
+        "operationId": "otlp_traces",
+        "requestBody": {
+          "description": "An OTLP ExportTraceServiceRequest, as protobuf or JSON, optionally gzip-compressed",
+          "content": {
+            "application/x-protobuf": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "format": "int32",
+                  "minimum": 0
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "An OTLP ExportTraceServiceResponse"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/invites/{code}": {
       "get": {
         "tags": [
@@ -3205,6 +3376,146 @@
           }
         }
       }
+    },
+    "/api/v1/token-entries": {
+      "post": {
+        "tags": [
+          "token entries"
+        ],
+        "summary": "Report token entries. With a service token they arrive automatically,\nsubmitted, and the token's creator is their agent manager. Signed in,\nthey are manual entries on your own token sheet, as drafts. Sending one\nagain with the same `session_id` or `local_id` updates it.",
+        "operationId": "create_token_entries",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TokenEntries"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StoredEntries"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A token entry breaks the schema; nothing was stored",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A token entry is in a closed period; post an adjustment instead",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/token-entries/csv": {
+      "post": {
+        "tags": [
+          "token entries"
+        ],
+        "summary": "Import a CSV file of token entries onto your token sheet, as drafts.\nEvery row must be readable; otherwise nothing is saved.",
+        "operationId": "import_csv",
+        "requestBody": {
+          "content": {
+            "text/csv": {
+              "schema": {
+                "type": "string"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CsvImported"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A row cannot be read; nothing was saved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A row is in a closed period",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/token-entries/csv/preview": {
+      "post": {
+        "tags": [
+          "token entries"
+        ],
+        "summary": "Read a CSV file of token entries and show what it holds, with the\nproblem in each row that cannot be read. Saves nothing.",
+        "operationId": "preview_csv",
+        "requestBody": {
+          "content": {
+            "text/csv": {
+              "schema": {
+                "type": "string"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CsvPreview"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The file as a whole cannot be read",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -3743,6 +4054,43 @@
           "read",
           "organization"
         ]
+      },
+      "CsvImported": {
+        "type": "object",
+        "description": "What a CSV import saved.",
+        "required": [
+          "token_entries"
+        ],
+        "properties": {
+          "token_entries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StoredEntryBody"
+            }
+          }
+        }
+      },
+      "CsvPreview": {
+        "type": "object",
+        "description": "What a CSV file holds, before anything is saved.",
+        "required": [
+          "ready",
+          "problems"
+        ],
+        "properties": {
+          "problems": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RowProblem"
+            },
+            "description": "The rows that cannot, with what is wrong in each."
+          },
+          "ready": {
+            "type": "integer",
+            "description": "Rows that can be imported.",
+            "minimum": 0
+          }
+        }
       },
       "CustomerLink": {
         "type": "object",
@@ -4388,6 +4736,52 @@
           }
         }
       },
+      "NewMessage": {
+        "type": "object",
+        "description": "One model call of a token entry.",
+        "required": [
+          "message_id",
+          "at",
+          "tokens"
+        ],
+        "properties": {
+          "at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the call was made."
+          },
+          "message_id": {
+            "type": "string",
+            "description": "The agent harness's ID for this call, unique within the session."
+          },
+          "model": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The model of this call, when it differs from the token entry's."
+          },
+          "reported_cost": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The agent's own cost figure for this call, in US dollars.",
+            "example": "0.0042"
+          },
+          "request_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The provider's request ID, when the agent harness knows it."
+          },
+          "tokens": {
+            "$ref": "#/components/schemas/TokenCounts"
+          }
+        },
+        "additionalProperties": false
+      },
       "NewNote": {
         "type": "object",
         "description": "A note to keep with a customer.",
@@ -4458,6 +4852,41 @@
           }
         }
       },
+      "NewSplit": {
+        "type": "object",
+        "description": "One share of a token entry with its own tags.",
+        "properties": {
+          "message_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "A segment: the messages it holds. Exact."
+          },
+          "share_percent": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "A share by hand, in percent.",
+            "minimum": 0
+          },
+          "signals": {
+            "$ref": "#/components/schemas/Signals"
+          },
+          "tags": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
       "NewTagName": {
         "type": "object",
         "description": "A new tag name.",
@@ -4518,6 +4947,148 @@
             ]
           }
         }
+      },
+      "NewTokenEntry": {
+        "type": "object",
+        "description": "One token entry as it arrives.",
+        "required": [
+          "agent_harness",
+          "model",
+          "started_at",
+          "ended_at",
+          "tokens"
+        ],
+        "properties": {
+          "agent_harness": {
+            "type": "string",
+            "description": "The product the agent ran on, such as `claude-code` or `support-desk`."
+          },
+          "agent_name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "A label for the agent, such as \"review bot\"."
+          },
+          "effort": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The effort setting the agent ran with, such as `high`."
+          },
+          "ended_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the session ended."
+          },
+          "local_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The sender's own stable ID for this token entry, such as\n`claude-code:<session id>`. Sending it again replaces the earlier one."
+          },
+          "messages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NewMessage"
+            },
+            "description": "The session's model calls, when the agent knows them. With them, a\nsession seen by telemetry too is counted exactly once (ADR 0006)."
+          },
+          "model": {
+            "type": "string",
+            "description": "The model that did the work."
+          },
+          "placed_by": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "What placed it: a rule's name, `hand`, `classifier` or `none`."
+          },
+          "project": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "A project, by name."
+          },
+          "provider": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Who charges for the model calls: `anthropic`, `openai`, `google`,\n`aws_bedrock`, `gcp_vertex`, `azure_foundry`, `github`, `cursor` or\n`other`. Without it, it follows from the model's name."
+          },
+          "reported_cost": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The agent's own cost figure in US dollars. Without it the list value\nis computed from the model and the price table.",
+            "example": "0.031"
+          },
+          "session_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Joins the token entry to telemetry."
+          },
+          "signals": {
+            "$ref": "#/components/schemas/Signals",
+            "description": "Facts about the session that hint at its tags."
+          },
+          "speed": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The speed setting the agent ran with, such as `fast`."
+          },
+          "splits": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NewSplit"
+            },
+            "description": "How the token entry is split, when it is: segments by message IDs\n(exact) or shares by hand. Without splits it is one split."
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the session started."
+          },
+          "summary": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "What the session did, from one line to a short report."
+          },
+          "tags": {
+            "type": "object",
+            "description": "Tags from the organization's list, one value per tag name.",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "ticket": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "A ticket key, such as `KD-214`. Wins over every rule."
+          },
+          "tokens": {
+            "$ref": "#/components/schemas/TokenCounts",
+            "description": "Counts by kind."
+          }
+        },
+        "additionalProperties": false
       },
       "NewsletterView": {
         "type": "object",
@@ -5181,6 +5752,24 @@
           "controller"
         ]
       },
+      "RowProblem": {
+        "type": "object",
+        "description": "What a preview shows per row.",
+        "required": [
+          "line",
+          "problem"
+        ],
+        "properties": {
+          "line": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "problem": {
+            "type": "string"
+          }
+        }
+      },
       "Screenshot": {
         "type": "object",
         "description": "A screenshot the person saw, and blurred where they wanted, before\nsending.",
@@ -5300,6 +5889,53 @@
           }
         }
       },
+      "Signals": {
+        "type": "object",
+        "description": "Facts about a session that hint at its tags.",
+        "properties": {
+          "branch": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "pull_request": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "repository": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Such as `github.com/kestrel/storefront`."
+          },
+          "subagent_type": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ticket_keys": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Ticket keys found in prompts, the session title and the pull request\ntitle. Only the keys, never the text."
+          },
+          "working_directory": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
       "Status": {
         "type": "string",
         "description": "Where a report stands, as the person who sent it sees it.",
@@ -5308,6 +5944,68 @@
           "answered",
           "fixed"
         ]
+      },
+      "StoredEntries": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/StoredEntryBody"
+          },
+          {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StoredEntryBody"
+            }
+          }
+        ],
+        "description": "What storing gave: one result per token entry sent, in the same shape."
+      },
+      "StoredEntryBody": {
+        "type": "object",
+        "description": "A stored token entry as the API answers with it.",
+        "required": [
+          "id",
+          "status",
+          "currency",
+          "cost_kind",
+          "dropped_tags"
+        ],
+        "properties": {
+          "cost_kind": {
+            "type": "string",
+            "description": "`direct`, `project_overhead` or `organization_overhead`."
+          },
+          "currency": {
+            "type": "string"
+          },
+          "dropped_tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Tag names that were sent but are not on the organization's list, so\nthey were left out."
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "list_value": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "A decimal string such as `\"0.03\"`, or `null` for an unknown model."
+          },
+          "local_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "description": "`draft` or `submitted`."
+          }
+        }
       },
       "StripeRedirect": {
         "type": "object",
@@ -5604,6 +6302,56 @@
             "type": "string"
           }
         }
+      },
+      "TokenCounts": {
+        "type": "object",
+        "description": "Token counts by kind, as the OpenAPI document shows [`TokenCounts`].",
+        "required": [
+          "input",
+          "output",
+          "cache_write",
+          "cache_read"
+        ],
+        "properties": {
+          "cache_read": {
+            "type": "integer",
+            "format": "int64",
+            "default": 0,
+            "minimum": 0
+          },
+          "cache_write": {
+            "type": "integer",
+            "format": "int64",
+            "default": 0,
+            "minimum": 0
+          },
+          "input": {
+            "type": "integer",
+            "format": "int64",
+            "default": 0,
+            "minimum": 0
+          },
+          "output": {
+            "type": "integer",
+            "format": "int64",
+            "default": 0,
+            "minimum": 0
+          }
+        }
+      },
+      "TokenEntries": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/NewTokenEntry"
+          },
+          {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NewTokenEntry"
+            }
+          }
+        ],
+        "description": "One token entry, or a list of them."
       },
       "TokenKind": {
         "type": "string",

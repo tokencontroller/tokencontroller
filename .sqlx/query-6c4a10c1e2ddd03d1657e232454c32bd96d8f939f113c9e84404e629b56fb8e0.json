@@ -1,0 +1,112 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT occurred_at, input_tokens, output_tokens, cache_write_tokens, cache_read_tokens,\n                  reported_cost_nanos, list_value_nanos, split_position\n           FROM messages WHERE token_entry_id = $1 AND counts\n           ORDER BY occurred_at, message_id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "occurred_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "messages",
+            "name": "occurred_at"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "input_tokens",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "messages",
+            "name": "input_tokens"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "output_tokens",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "messages",
+            "name": "output_tokens"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "cache_write_tokens",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "messages",
+            "name": "cache_write_tokens"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "cache_read_tokens",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "messages",
+            "name": "cache_read_tokens"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "reported_cost_nanos",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "messages",
+            "name": "reported_cost_nanos"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "list_value_nanos",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "messages",
+            "name": "list_value_nanos"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "split_position",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "messages",
+            "name": "split_position"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "6c4a10c1e2ddd03d1657e232454c32bd96d8f939f113c9e84404e629b56fb8e0"
+}

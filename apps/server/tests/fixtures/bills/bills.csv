@@ -1,0 +1,4 @@
+period,cost_source,gross,discount,credit,net,currency,exchange_rate,provider
+2026-09,api_key,1234.56,0,0,1234.56,USD,0.92,openai
+2026-09,usage_at_api_rates,10000.00,1500.00,250.00,8250.00,USD,,anthropic
+"2026-08","reseller","500","0","0","500","EUR","",

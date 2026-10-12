@@ -1,0 +1,48 @@
+{
+  "self": "https://acme.atlassian.net/rest/api/3/project/search?startAt=0&maxResults=100",
+  "nextPage": "https://acme.atlassian.net/rest/api/3/project/search?startAt=2&maxResults=100",
+  "maxResults": 100,
+  "startAt": 0,
+  "total": 3,
+  "isLast": false,
+  "values": [
+    {
+      "expand": "description,lead,issueTypes,url,projectKeys,permissions,insight",
+      "self": "https://acme.atlassian.net/rest/api/3/project/10000",
+      "id": "10000",
+      "key": "KD",
+      "name": "Kundendienst",
+      "avatarUrls": {
+        "48x48": "https://acme.atlassian.net/rest/api/3/universal_avatar/view/type/project/avatar/10400",
+        "24x24": "https://acme.atlassian.net/rest/api/3/universal_avatar/view/type/project/avatar/10400?size=small",
+        "16x16": "https://acme.atlassian.net/rest/api/3/universal_avatar/view/type/project/avatar/10400?size=xsmall",
+        "32x32": "https://acme.atlassian.net/rest/api/3/universal_avatar/view/type/project/avatar/10400?size=medium"
+      },
+      "projectTypeKey": "software",
+      "simplified": true,
+      "style": "next-gen",
+      "isPrivate": false,
+      "properties": {},
+      "entityId": "4f6b1a2c-8d3e-4b5f-9a7c-1e2d3f4a5b6c",
+      "uuid": "4f6b1a2c-8d3e-4b5f-9a7c-1e2d3f4a5b6c"
+    },
+    {
+      "expand": "description,lead,issueTypes,url,projectKeys,permissions,insight",
+      "self": "https://acme.atlassian.net/rest/api/3/project/10001",
+      "id": "10001",
+      "key": "OPS",
+      "name": "Operations",
+      "avatarUrls": {
+        "48x48": "https://acme.atlassian.net/rest/api/3/universal_avatar/view/type/project/avatar/10401",
+        "24x24": "https://acme.atlassian.net/rest/api/3/universal_avatar/view/type/project/avatar/10401?size=small",
+        "16x16": "https://acme.atlassian.net/rest/api/3/universal_avatar/view/type/project/avatar/10401?size=xsmall",
+        "32x32": "https://acme.atlassian.net/rest/api/3/universal_avatar/view/type/project/avatar/10401?size=medium"
+      },
+      "projectTypeKey": "software",
+      "simplified": false,
+      "style": "classic",
+      "isPrivate": false,
+      "properties": {}
+    }
+  ]
+}

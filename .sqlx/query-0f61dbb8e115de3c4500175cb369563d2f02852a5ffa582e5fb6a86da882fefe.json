@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE messages SET list_value_nanos = $4\n             WHERE organization_id = $1 AND session_id = $2 AND message_id = $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0f61dbb8e115de3c4500175cb369563d2f02852a5ffa582e5fb6a86da882fefe"
+}

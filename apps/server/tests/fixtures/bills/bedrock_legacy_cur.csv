@@ -1,0 +1,3 @@
+identity/LineItemId,identity/TimeInterval,bill/PayerAccountId,lineItem/UsageAccountId,lineItem/LineItemType,lineItem/UsageStartDate,lineItem/UsageEndDate,lineItem/ProductCode,lineItem/UsageType,lineItem/UsageAmount,lineItem/CurrencyCode,lineItem/UnblendedCost,product/ProductName
+abc123,2026-09-10T00:00:00Z/2026-09-10T01:00:00Z,999988887777,111122223333,Usage,2026-09-10T00:00:00Z,2026-09-10T01:00:00Z,AmazonBedrock,EUC1-Claude4.6Sonnet-input-tokens,1000000,EUR,2.80,Amazon Bedrock
+def456,2026-09-10T00:00:00Z/2026-09-10T01:00:00Z,999988887777,111122223333,Usage,2026-09-10T00:00:00Z,2026-09-10T01:00:00Z,AmazonS3,EUC1-TimedStorage-ByteHrs,1,EUR,0.02,Amazon Simple Storage Service
