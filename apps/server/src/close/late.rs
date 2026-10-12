@@ -11,7 +11,7 @@ use time::OffsetDateTime;
 use uuid::Uuid;
 
 use super::account;
-use super::period::Period;
+use super::period::{Period, PeriodDates};
 use crate::error::ApiError;
 use crate::reports::filter::Filter;
 use crate::reports::lines::{self, LineQuery, StatusView};
@@ -47,7 +47,11 @@ pub async fn post_late_entries(db: &PgPool, organization_id: Uuid) -> Result<usi
     Ok(posted)
 }
 
-async fn post_period(db: &PgPool, organization_id: Uuid, period: Period) -> Result<usize, ApiError> {
+async fn post_period(
+    db: &PgPool,
+    organization_id: Uuid,
+    period: Period,
+) -> Result<usize, ApiError> {
     let closed = account::load(
         db,
         organization_id,
@@ -96,10 +100,13 @@ async fn post_period(db: &PgPool, organization_id: Uuid, period: Period) -> Resu
         if values.is_empty() {
             continue;
         }
-        let reason = if splits.iter().any(|split| split.automatic) {
+        let reason = if splits.iter().any(|split| !split.on_token_sheet) {
             format!("Arrived after {period} closed, on {}", now.date())
         } else {
-            format!("Late token sheet, submitted after {period} closed, on {}", now.date())
+            format!(
+                "Late token sheet, submitted after {period} closed, on {}",
+                now.date()
+            )
         };
         let mut tx = db.begin().await?;
         for (split, value) in values {

@@ -1,0 +1,8 @@
+setting,value
+reporting_currency,USD
+cost_source,usage_at_api_rates
+tag_names,client;team;purpose
+cost_center,team
+ladder,ticket;project;client
+period,2026-10
+columns,team;purpose

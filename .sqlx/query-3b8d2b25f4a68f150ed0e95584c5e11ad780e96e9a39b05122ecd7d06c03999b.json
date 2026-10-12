@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT coalesce(jsonb_agg(to_jsonb(c) || jsonb_build_object(\n               'bills', coalesce((\n                   SELECT jsonb_agg(to_jsonb(cb) ORDER BY cb.bill_revision_id)\n                   FROM closed_period_bills cb\n                   WHERE cb.organization_id = c.organization_id AND cb.period = c.period\n               ), '[]'::jsonb),\n               'exchange_rates', coalesce((\n                   SELECT jsonb_agg(to_jsonb(cr) ORDER BY cr.from_currency, cr.to_currency)\n                   FROM closed_period_rates cr\n                   WHERE cr.organization_id = c.organization_id AND cr.period = c.period\n               ), '[]'::jsonb)\n           ) ORDER BY c.period), '[]'::jsonb) AS \"rows!\"\n           FROM closed_periods c WHERE c.organization_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "rows!",
+        "type_info": "Jsonb",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "3b8d2b25f4a68f150ed0e95584c5e11ad780e96e9a39b05122ecd7d06c03999b"
+}

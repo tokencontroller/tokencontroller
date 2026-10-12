@@ -65,9 +65,13 @@ pub struct TokenEntriesPage {
 /// service.
 fn statuses(text: Option<&str>) -> Result<Vec<String>, ApiError> {
     let Some(text) = text.map(str::trim).filter(|text| !text.is_empty()) else {
-        return Ok([EntryStatus::Submitted, EntryStatus::Approved, EntryStatus::Locked]
-            .map(|status| status.as_str().to_owned())
-            .to_vec());
+        return Ok([
+            EntryStatus::Submitted,
+            EntryStatus::Approved,
+            EntryStatus::Locked,
+        ]
+        .map(|status| status.as_str().to_owned())
+        .to_vec());
     };
     text.split(',')
         .map(str::trim)
@@ -98,8 +102,8 @@ pub(crate) async fn token_entries(
     Query(query): Query<TableQuery>,
 ) -> Result<Response, ApiError> {
     caller.require_credential(READERS)?;
-    let filter =
-        Filter::parse(query.filter.as_deref().unwrap_or("")).map_err(|error| ApiError::BadRequest(error.to_string()))?;
+    let filter = Filter::parse(query.filter.as_deref().unwrap_or(""))
+        .map_err(|error| ApiError::BadRequest(error.to_string()))?;
     let (from, until) = crate::token_sheets::approval::range(query.period)?;
     let line_query = LineQuery {
         organization_id: caller.organization_id,
@@ -113,9 +117,10 @@ pub(crate) async fn token_entries(
     let lines = lines::fetch(&state.db, &line_query, &scope).await?;
     let views = entries::entries(&state.db, lines).await?;
     if query.format.as_deref() == Some("csv") {
-        let filename = query
-            .period
-            .map_or_else(|| "token-entries.csv".to_owned(), |period| format!("token-entries-{period}.csv"));
+        let filename = query.period.map_or_else(
+            || "token-entries.csv".to_owned(),
+            |period| format!("token-entries-{period}.csv"),
+        );
         return Ok(entries::to_csv(&views).into_download(&filename));
     }
     let limit = query.limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT);
@@ -137,8 +142,14 @@ mod tests {
     #[test]
     fn statuses_default_to_the_ones_that_count() {
         assert_eq!(statuses(None).unwrap(), ["submitted", "approved", "locked"]);
-        assert_eq!(statuses(Some(" ")).unwrap(), ["submitted", "approved", "locked"]);
-        assert_eq!(statuses(Some("rejected, locked")).unwrap(), ["rejected", "locked"]);
+        assert_eq!(
+            statuses(Some(" ")).unwrap(),
+            ["submitted", "approved", "locked"]
+        );
+        assert_eq!(
+            statuses(Some("rejected, locked")).unwrap(),
+            ["rejected", "locked"]
+        );
         assert!(statuses(Some("draft")).is_err());
         assert!(statuses(Some("posted")).is_err());
     }

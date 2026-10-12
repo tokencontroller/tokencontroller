@@ -1,0 +1,149 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT b.id, b.name, b.filter, b.period, b.every_month, b.amount_nanos, b.currency,\n                  b.token_forecast_id, b.set_by, b.set_at, p.name AS \"set_by_name?\"\n           FROM token_budgets b LEFT JOIN people p ON p.id = b.set_by\n           WHERE b.organization_id = $1 AND b.removed_at IS NULL AND ($2::uuid IS NULL OR b.id = $2)\n           ORDER BY b.set_at DESC, b.id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "token_budgets",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "token_budgets",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "filter",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "token_budgets",
+            "name": "filter"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "period",
+        "type_info": "Date",
+        "origin": {
+          "Table": {
+            "table": "token_budgets",
+            "name": "period"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "every_month",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "token_budgets",
+            "name": "every_month"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "amount_nanos",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "token_budgets",
+            "name": "amount_nanos"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "currency",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "token_budgets",
+            "name": "currency"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "token_forecast_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "token_budgets",
+            "name": "token_forecast_id"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "set_by",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "token_budgets",
+            "name": "set_by"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "set_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "token_budgets",
+            "name": "set_at"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "set_by_name?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "people",
+            "name": "name"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      false,
+      true,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "a19574a3896b552eb23d34c4c76739627dd7c368b2165c366baba3f7ac7d5f1c"
+}

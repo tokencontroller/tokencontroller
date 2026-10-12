@@ -3,14 +3,17 @@
 //! all state in one Postgres database.
 //!
 //! The Enterprise plan build links this library and passes its own
-//! [`Extension`] to [`serve`]; the open build passes `NoExtension`.
+//! [`Extension`] to [`serve_with`], with its own routes; the open build
+//! passes `NoExtension` to [`serve`].
 //!
 //! Each area of the product has its own module folder, listed in [`api`].
 //! See the layout table in the repository README for who owns which.
 
 pub mod api;
+pub mod change;
 pub mod config;
 pub mod error;
+pub mod mail;
 pub mod state;
 
 pub mod billing;
@@ -58,6 +61,25 @@ pub static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
 /// Fails if the configuration is incomplete, Postgres cannot be reached, a
 /// migration fails or the port is taken.
 pub async fn serve(extension: Arc<dyn Extension>) -> anyhow::Result<()> {
+    serve_with(extension, |_state| async { Ok(axum::Router::new()) }).await
+}
+
+/// Like [`serve`], and also serves the routes `extra_routes` returns. The
+/// Enterprise plan build uses it to add its own endpoints (OIDC, SCIM) next
+/// to the open ones; it gets the shared state after migrations ran, so it can
+/// apply its own migrations to the same database first.
+///
+/// # Errors
+///
+/// As [`serve`], or whatever `extra_routes` returns.
+pub async fn serve_with<F, Fut>(
+    extension: Arc<dyn Extension>,
+    extra_routes: F,
+) -> anyhow::Result<()>
+where
+    F: FnOnce(AppState) -> Fut,
+    Fut: Future<Output = anyhow::Result<axum::Router>>,
+{
     init_tracing();
     let config = Config::from_env()?;
     tracing::info!(
@@ -70,8 +92,10 @@ pub async fn serve(extension: Arc<dyn Extension>) -> anyhow::Result<()> {
     let db = connect_and_migrate(&config.database_url).await?;
 
     let state = AppState::new(db, config, extension);
-    bills::ecb::start(&state, state.config.prices_refresh);
-    let app = router(state);
+    customer_relations::start(state.clone());
+    jobs::start(state.clone());
+    let extra = extra_routes(state.clone()).await?;
+    let app = router(state).merge(extra);
 
     let listener = tokio::net::TcpListener::bind(LISTEN_ADDRESS)
         .await
@@ -103,6 +127,23 @@ pub async fn seed() -> anyhow::Result<()> {
     seed::load(&db).await?;
     db.close().await;
     Ok(())
+}
+
+/// A sign-in link for a member, for instances without a mail server and for
+/// screenshots on staging. Needs the same settings as the service.
+///
+/// # Errors
+///
+/// Fails if the configuration is incomplete, Postgres cannot be reached, or
+/// the address belongs to no member.
+pub async fn sign_in_link(email: &str) -> anyhow::Result<String> {
+    // No log output: the link is the only thing on stdout, so scripts can
+    // read it.
+    let config = Config::from_env()?;
+    let db = connect_and_migrate(&config.database_url).await?;
+    let link = sign_in::link_for_member(&db, &config, email).await?;
+    db.close().await;
+    Ok(link)
 }
 
 async fn connect_and_migrate(database_url: &str) -> anyhow::Result<PgPool> {

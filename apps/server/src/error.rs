@@ -20,6 +20,10 @@ pub enum ApiError {
     NotFound,
     #[error("{0}")]
     Conflict(String),
+    #[error("{0}")]
+    Gone(String),
+    #[error("{0}")]
+    TooManyRequests(String),
     #[error("the database is not available")]
     Database(#[from] sqlx::Error),
     #[error("something went wrong on our side")]
@@ -44,6 +48,8 @@ impl ApiError {
             Self::Forbidden => StatusCode::FORBIDDEN,
             Self::NotFound => StatusCode::NOT_FOUND,
             Self::Conflict(_) => StatusCode::CONFLICT,
+            Self::Gone(_) => StatusCode::GONE,
+            Self::TooManyRequests(_) => StatusCode::TOO_MANY_REQUESTS,
             Self::Database(_) => StatusCode::SERVICE_UNAVAILABLE,
             Self::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
         }
@@ -57,6 +63,8 @@ impl ApiError {
             Self::Forbidden => "forbidden",
             Self::NotFound => "not_found",
             Self::Conflict(_) => "conflict",
+            Self::Gone(_) => "gone",
+            Self::TooManyRequests(_) => "too_many_requests",
             Self::Database(_) => "database_unavailable",
             Self::Internal(_) => "internal",
         }

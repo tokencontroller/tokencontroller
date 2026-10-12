@@ -25,7 +25,10 @@ impl Csv {
             text: String::new(),
             columns: 0,
         };
-        let names: Vec<String> = header.into_iter().map(|name| name.as_ref().to_owned()).collect();
+        let names: Vec<String> = header
+            .into_iter()
+            .map(|name| name.as_ref().to_owned())
+            .collect();
         csv.columns = names.len();
         csv.push_line(&names);
         csv
@@ -38,7 +41,11 @@ impl Csv {
         I: IntoIterator<Item = S>,
         S: Into<String>,
     {
-        let mut cells: Vec<String> = cells.into_iter().map(Into::into).take(self.columns).collect();
+        let mut cells: Vec<String> = cells
+            .into_iter()
+            .map(Into::into)
+            .take(self.columns)
+            .collect();
         cells.resize(self.columns, String::new());
         self.push_line(&cells);
     }
@@ -93,10 +100,44 @@ fn escape(cell: &str) -> String {
     }
 }
 
+/// Re-writes a CSV text made elsewhere, such as the core's cost sheet, with
+/// the same quoting and formula defusing as every other download.
+///
+/// # Errors
+///
+/// A text that is not CSV.
+pub fn from_text(text: &str) -> Result<Csv, ::csv::Error> {
+    let mut reader = ::csv::ReaderBuilder::new()
+        .has_headers(false)
+        .flexible(true)
+        .from_reader(text.as_bytes());
+    let mut records = reader.records();
+    let Some(header) = records.next() else {
+        return Ok(Csv::new(Vec::<String>::new()));
+    };
+    let mut csv = Csv::new(header?.iter());
+    for record in records {
+        csv.row(record?.iter().map(str::to_owned));
+    }
+    Ok(csv)
+}
+
+/// [`from_text`] as an HTTP download named `filename`.
+///
+/// # Errors
+///
+/// [`crate::error::ApiError::Internal`] for a text that is not CSV.
+pub fn download(text: &str, filename: &str) -> Result<Response, crate::error::ApiError> {
+    Ok(from_text(text)
+        .map_err(|error| crate::error::ApiError::Internal(error.into()))?
+        .into_download(filename))
+}
+
 /// A leading minus is a formula unless the cell is a plain number.
 fn starts_like_formula(cell: &str) -> bool {
-    cell.strip_prefix('-')
-        .is_some_and(|rest| rest.is_empty() || !rest.chars().all(|c| c.is_ascii_digit() || c == '.'))
+    cell.strip_prefix('-').is_some_and(|rest| {
+        rest.is_empty() || !rest.chars().all(|c| c.is_ascii_digit() || c == '.')
+    })
 }
 
 /// An amount as a CSV cell: the currency's minor unit, such as `1234.50`,
@@ -152,6 +193,16 @@ mod tests {
             csv.into_text(),
             "summary\r\n\"'=HYPERLINK(\"\"x\"\")\"\r\n'+1\r\n'@SUM(A1)\r\n'-A1\r\n'-\r\n-12.30\r\n"
         );
+    }
+
+    #[test]
+    fn text_from_elsewhere_is_defused_too() {
+        let csv = from_text("bill,line,note\nb,adjustment,=cmd()\n,total,\n").unwrap();
+        assert_eq!(
+            csv.into_text(),
+            "bill,line,note\r\nb,adjustment,'=cmd()\r\n,total,\r\n"
+        );
+        assert_eq!(from_text("").unwrap().into_text(), "\r\n");
     }
 
     #[test]

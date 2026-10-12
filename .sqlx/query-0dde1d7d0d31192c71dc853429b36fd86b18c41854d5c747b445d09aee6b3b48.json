@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO tag_map_versions (organization_id, version) VALUES ($1, 1) ON CONFLICT DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0dde1d7d0d31192c71dc853429b36fd86b18c41854d5c747b445d09aee6b3b48"
+}

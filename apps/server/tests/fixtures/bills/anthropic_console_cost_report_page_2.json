@@ -1,0 +1,29 @@
+{
+  "data": [
+    {
+      "starting_at": "2026-09-03T00:00:00Z",
+      "ending_at": "2026-09-04T00:00:00Z",
+      "results": [
+        {
+          "amount": "5",
+          "context_window": null,
+          "cost_type": "code_execution",
+          "currency": "USD",
+          "description": "Code Execution Usage",
+          "inference_geo": null,
+          "model": null,
+          "service_tier": null,
+          "token_type": null,
+          "workspace_id": "wrkspc_01XYZ789ABC123DEF456MNO"
+        }
+      ]
+    },
+    {
+      "starting_at": "2026-09-04T00:00:00Z",
+      "ending_at": "2026-09-05T00:00:00Z",
+      "results": []
+    }
+  ],
+  "has_more": false,
+  "next_page": null
+}

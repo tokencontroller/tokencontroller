@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE ticket_systems SET\n                 last_sync_at = CASE WHEN $2::text IS NULL THEN now() ELSE last_sync_at END,\n                 last_error = $2\n             WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "28d2e3629942edf8b49af88f2ed3f3294bab0258349816edcbaf1d5b14067d51"
+}

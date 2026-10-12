@@ -1,0 +1,76 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT door, status, input_tokens, list_value_nanos, agent_manager_id\n         FROM token_entries WHERE session_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "door",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "token_entries",
+            "name": "door"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "status",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "token_entries",
+            "name": "status"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "input_tokens",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "token_entries",
+            "name": "input_tokens"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "list_value_nanos",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "token_entries",
+            "name": "list_value_nanos"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "agent_manager_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "token_entries",
+            "name": "agent_manager_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "62bea77b1b8f857ac7fe2748b3b029ac97ea2bd497bfc70f0df845f34f021c09"
+}

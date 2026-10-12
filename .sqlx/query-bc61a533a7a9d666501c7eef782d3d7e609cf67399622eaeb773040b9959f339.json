@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE tickets t SET parent_id = (\n             SELECT p.id FROM tickets p\n             WHERE p.organization_id = $1 AND p.key = x.parent AND p.id <> t.id)\n         FROM unnest($2::text[], $3::text[]) AS x(key, parent)\n         WHERE t.organization_id = $1 AND t.key = x.key",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "TextArray",
+        "TextArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "bc61a533a7a9d666501c7eef782d3d7e609cf67399622eaeb773040b9959f339"
+}

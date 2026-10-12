@@ -2,17 +2,21 @@
 //! every report, the cost sheet, reconciliation and token budgets read
 //! (ADR 0008: reports filter and group on the split's own tag rows).
 
+use std::collections::BTreeSet;
+
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use time::OffsetDateTime;
-use tokencontroller_core::{Currency, Money};
+use tokencontroller_core::{Currency, ModelRef, Money, PlacedBy, Split, Status, Valuation};
 use utoipa::ToSchema;
 use uuid::Uuid;
 
 use super::filter::{Filter, Tags};
 use super::scope::Scope;
 
-/// Where a token entry stands (docs: Reference > Data model, status).
+/// Where a token entry stands (docs: Reference > Data model, status), as the
+/// API and the database spell it. What counts where is the core's
+/// [`Status`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum EntryStatus {
@@ -24,6 +28,27 @@ pub enum EntryStatus {
 }
 
 impl EntryStatus {
+    /// Every status, in the order a token entry moves through them.
+    pub const ALL: [Self; 5] = [
+        Self::Draft,
+        Self::Submitted,
+        Self::Approved,
+        Self::Rejected,
+        Self::Locked,
+    ];
+
+    /// The core's status.
+    #[must_use]
+    pub const fn core(self) -> Status {
+        match self {
+            Self::Draft => Status::Draft,
+            Self::Submitted => Status::Submitted,
+            Self::Approved => Status::Approved,
+            Self::Rejected => Status::Rejected,
+            Self::Locked => Status::Locked,
+        }
+    }
+
     #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {
@@ -51,7 +76,7 @@ impl EntryStatus {
     /// still on the machine and rejected ones do not count until fixed.
     #[must_use]
     pub const fn counts(self) -> bool {
-        matches!(self, Self::Submitted | Self::Approved | Self::Locked)
+        self.core().counts_in_reports()
     }
 }
 
@@ -68,15 +93,30 @@ pub enum StatusView {
 }
 
 impl StatusView {
-    /// The statuses this view shows.
+    /// The statuses this view shows: those that count in reports, or with
+    /// approval on, those that count on the cost sheet.
     #[must_use]
     pub fn statuses(self) -> Vec<String> {
-        let statuses: &[EntryStatus] = match self {
-            Self::All => &[EntryStatus::Submitted, EntryStatus::Approved, EntryStatus::Locked],
-            Self::Approved => &[EntryStatus::Approved, EntryStatus::Locked],
-        };
-        statuses.iter().map(|status| status.as_str().to_owned()).collect()
+        EntryStatus::ALL
+            .into_iter()
+            .filter(|status| match self {
+                Self::All => status.core().counts_in_reports(),
+                Self::Approved => status.core().counts(true),
+            })
+            .map(|status| status.as_str().to_owned())
+            .collect()
     }
+}
+
+/// The statuses that count on the cost sheet: with approval on, approved
+/// and locked only.
+#[must_use]
+pub fn cost_sheet_statuses(approval_on: bool) -> Vec<String> {
+    EntryStatus::ALL
+        .into_iter()
+        .filter(|status| status.core().counts(approval_on))
+        .map(|status| status.as_str().to_owned())
+        .collect()
 }
 
 /// One split of one token entry.
@@ -93,13 +133,66 @@ pub struct CostLine {
     pub speed: Option<String>,
     pub started_at: OffsetDateTime,
     pub status: EntryStatus,
-    pub automatic: bool,
+    /// Reviewed and submitted on a token sheet; otherwise it arrived
+    /// automatically.
+    pub on_token_sheet: bool,
     pub summary: String,
+    /// The currency of the token entry's values.
+    pub currency: Currency,
     /// The split's list value; `None` for an unknown model, which is never
     /// counted as zero.
     pub list_value: Option<Money>,
+    /// What the provider actually charged for the split, where known.
+    pub billed_value: Option<Money>,
+    /// What placed the split, such as `rule: ticket key in branch`.
+    pub placed_by: String,
+    /// Its ticket matched a pattern but is not known yet.
+    pub ticket_not_synced: bool,
     /// Every tag of the split, with `person` always set.
     pub tags: Tags,
+}
+
+impl CostLine {
+    /// The split's tags as the core reads them. A tag the core cannot read is
+    /// left out; the checks on the way in prevent those.
+    #[must_use]
+    pub fn core_tags(&self) -> tokencontroller_core::Tags {
+        crate::close::account::core_tags(&self.tags)
+    }
+
+    /// The split as the core computes with it. A tag the core cannot read is
+    /// left out; the checks on the way in prevent those.
+    #[must_use]
+    pub fn split(&self) -> Split {
+        let tags = self.core_tags();
+        let unknown_models: BTreeSet<ModelRef> = if self.list_value.is_none() {
+            BTreeSet::from([ModelRef::new(&self.provider, &self.model)])
+        } else {
+            BTreeSet::new()
+        };
+        Split {
+            tags,
+            value: Valuation {
+                list: self.list_value.unwrap_or(Money::zero(self.currency)),
+                billed: self.billed_value,
+                unknown_models,
+            },
+            placed_by: placed_by(&self.placed_by),
+            ticket_not_synced: self.ticket_not_synced,
+        }
+    }
+}
+
+/// Reads what placed a split back from the way the review list shows it.
+fn placed_by(text: &str) -> PlacedBy {
+    match text {
+        "by hand" | "hand" => PlacedBy::Named,
+        "config file" => PlacedBy::Configuration,
+        "matched by summary" | "classifier" => PlacedBy::SummaryMatch,
+        other => other
+            .strip_prefix("rule: ")
+            .map_or(PlacedBy::Nothing, |name| PlacedBy::Rule(name.to_owned())),
+    }
 }
 
 /// Which cost lines to read.
@@ -122,11 +215,16 @@ pub struct LineQuery {
 /// # Errors
 ///
 /// A database error.
-pub async fn fetch(db: &PgPool, query: &LineQuery, scope: &Scope) -> Result<Vec<CostLine>, sqlx::Error> {
+pub async fn fetch(
+    db: &PgPool,
+    query: &LineQuery,
+    scope: &Scope,
+) -> Result<Vec<CostLine>, sqlx::Error> {
     let rows = sqlx::query!(
         r#"SELECT s.id AS split_id, e.id AS entry_id, e.agent_manager_id, e.provider,
                   e.agent_harness, e.agent_name, e.model, e.effort, e.speed, e.started_at,
-                  e.status, e.automatic, e.summary, s.list_value_nanos, e.currency,
+                  e.status, e.on_token_sheet, coalesce(e.summary, '') AS "summary!",
+                  s.list_value_nanos, s.billed_value_nanos, s.placed_by, s.ticket_not_synced, e.currency,
                   p.email AS "person_email?",
                   coalesce(
                       (SELECT jsonb_object_agg(t.name, t.value) FROM split_tags t WHERE t.split_id = s.id),
@@ -170,11 +268,17 @@ pub async fn fetch(db: &PgPool, query: &LineQuery, scope: &Scope) -> Result<Vec<
                 speed: row.speed,
                 started_at: row.started_at,
                 status,
-                automatic: row.automatic,
+                on_token_sheet: row.on_token_sheet,
                 summary: row.summary,
+                currency,
                 list_value: row
                     .list_value_nanos
                     .map(|nanos| Money::from_nanos(nanos, currency)),
+                billed_value: row
+                    .billed_value_nanos
+                    .map(|nanos| Money::from_nanos(nanos, currency)),
+                placed_by: row.placed_by,
+                ticket_not_synced: row.ticket_not_synced,
                 tags,
             })
         })
@@ -208,7 +312,36 @@ mod tests {
 
     #[test]
     fn the_approved_view_leaves_out_submitted() {
-        assert_eq!(StatusView::All.statuses(), ["submitted", "approved", "locked"]);
+        assert_eq!(
+            StatusView::All.statuses(),
+            ["submitted", "approved", "locked"]
+        );
         assert_eq!(StatusView::Approved.statuses(), ["approved", "locked"]);
+        assert_eq!(
+            cost_sheet_statuses(false),
+            ["submitted", "approved", "locked"]
+        );
+        assert_eq!(cost_sheet_statuses(true), ["approved", "locked"]);
+    }
+
+    #[test]
+    fn placed_by_reads_back_as_the_review_list_shows_it() {
+        assert_eq!(placed_by("by hand"), PlacedBy::Named);
+        assert_eq!(placed_by("config file"), PlacedBy::Configuration);
+        assert_eq!(placed_by("matched by summary"), PlacedBy::SummaryMatch);
+        assert_eq!(
+            placed_by("rule: ticket key in branch"),
+            PlacedBy::Rule("ticket key in branch".to_owned())
+        );
+        assert_eq!(placed_by("no ticket"), PlacedBy::Nothing);
+        for shown in [
+            "by hand",
+            "config file",
+            "matched by summary",
+            "rule: x",
+            "no ticket",
+        ] {
+            assert_eq!(placed_by(shown).to_string(), shown);
+        }
     }
 }

@@ -1,0 +1,8 @@
+node_modules
+dist
+dist-mock
+src/api/generated.ts
+test-results
+playwright-report
+*.tsbuildinfo
+screenshots

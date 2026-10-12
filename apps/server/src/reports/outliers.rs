@@ -28,7 +28,7 @@ use crate::bills::amount::format_amount;
 use crate::bills::rates::Converter;
 use crate::budgets::similarity::median;
 use crate::close::account;
-use crate::close::period::Period;
+use crate::close::period::{Period, PeriodDates};
 use crate::error::ApiError;
 use crate::sign_in::Caller;
 
@@ -243,56 +243,28 @@ fn baselines(past: &BTreeMap<String, Ticket>, currency: Currency) -> Result<Base
     } else {
         None
     };
-    Ok(Baselines { projects, organization })
+    Ok(Baselines {
+        projects,
+        organization,
+    })
 }
 
-/// Computes the outliers of a period for a caller.
-///
-/// # Errors
-///
-/// [`ApiError::BadRequest`] for a filter that cannot be read,
-/// [`ApiError::Conflict`] when an exchange rate is missing, or a database
-/// error.
-pub async fn compute(db: &PgPool, caller: &Caller, query: &OutlierQuery) -> Result<Outliers, ApiError> {
-    let filter =
-        Filter::parse(query.filter.as_deref().unwrap_or("")).map_err(|error| ApiError::BadRequest(error.to_string()))?;
-    let scope = Scope::of(db, caller).await?;
-    let account = account::load(db, caller.organization_id, query.period, StatusView::All, &scope, &filter).await?;
-    let currency = account.currency;
+/// An outlier with its distance from its baseline, for sorting.
+type Found = ((i128, i128), Outlier);
 
-    let mut from = query.period;
-    for _ in 0..MONTHS_BACK {
-        from = from.previous().map_err(|error| ApiError::BadRequest(error.to_string()))?;
-    }
-    let past_query = LineQuery {
-        organization_id: caller.organization_id,
-        from: from.starts_at(),
-        until: query.period.starts_at(),
-        statuses: StatusView::All.statuses(),
-        filter: Filter::default(),
-        with_late: true,
-    };
-    let past_lines = lines::fetch(db, &past_query, &Scope::everything()).await?;
-
-    // The period's tickets as the caller sees them, with their earlier cost.
-    let mut tickets: BTreeMap<String, Ticket> = BTreeMap::new();
-    add_lines(&mut tickets, account.lines.iter().map(|line| &line.line), &account.converter, true)?;
-    let earlier = past_lines
-        .iter()
-        .filter(|line| scope.sees(line) && filter.matches(&line.tags))
-        .filter(|line| line.tags.get("ticket").is_some_and(|ticket| tickets.contains_key(ticket)))
-        .collect::<Vec<_>>();
-    add_lines(&mut tickets, earlier, &account.converter, false)?;
-
-    // Past tickets of the whole organization, without the period's own.
-    let mut past: BTreeMap<String, Ticket> = BTreeMap::new();
-    add_lines(&mut past, &past_lines, &account.converter, false)?;
-    past.retain(|key, _| !tickets.contains_key(key));
-    let Baselines { projects, organization } =
-        baselines(&past, currency).map_err(|error| ApiError::Internal(error.into()))?;
-
+/// Each ticket with cost next to its baseline, with its distance from it,
+/// and how many tickets had no baseline to compare with.
+fn against_baselines(
+    tickets: BTreeMap<String, Ticket>,
+    baselines: &Baselines,
+    currency: Currency,
+) -> (Vec<Found>, usize) {
+    let Baselines {
+        projects,
+        organization,
+    } = baselines;
     let mut without_baseline = 0_usize;
-    let mut found: Vec<((i128, i128), Outlier)> = Vec::new();
+    let mut found: Vec<Found> = Vec::new();
     for (key, ticket) in tickets {
         if ticket.nanos <= 0 {
             continue;
@@ -303,7 +275,14 @@ pub async fn compute(db: &PgPool, caller: &Caller, query: &OutlierQuery) -> Resu
             .and_then(|project| projects.get(project))
             .map(|found| (*found, Baseline::Project))
             .or_else(|| organization.map(|found| (found, Baseline::Organization)));
-        let Some((Median { amount: middle, tickets: similar }, compared_with)) = baseline else {
+        let Some((
+            Median {
+                amount: middle,
+                tickets: similar,
+            },
+            compared_with,
+        )) = baseline
+        else {
             without_baseline = without_baseline.saturating_add(1);
             continue;
         };
@@ -331,6 +310,76 @@ pub async fn compute(db: &PgPool, caller: &Caller, query: &OutlierQuery) -> Resu
             },
         ));
     }
+    (found, without_baseline)
+}
+
+/// Computes the outliers of a period for a caller.
+///
+/// # Errors
+///
+/// [`ApiError::BadRequest`] for a filter that cannot be read,
+/// [`ApiError::Conflict`] when an exchange rate is missing, or a database
+/// error.
+pub async fn compute(
+    db: &PgPool,
+    caller: &Caller,
+    query: &OutlierQuery,
+) -> Result<Outliers, ApiError> {
+    let filter = Filter::parse(query.filter.as_deref().unwrap_or(""))
+        .map_err(|error| ApiError::BadRequest(error.to_string()))?;
+    let scope = Scope::of(db, caller).await?;
+    let account = account::load(
+        db,
+        caller.organization_id,
+        query.period,
+        StatusView::All,
+        &scope,
+        &filter,
+    )
+    .await?;
+    let currency = account.currency;
+
+    let mut from = query.period;
+    for _ in 0..MONTHS_BACK {
+        from = from
+            .previous()
+            .map_err(|error| ApiError::BadRequest(error.to_string()))?;
+    }
+    let past_query = LineQuery {
+        organization_id: caller.organization_id,
+        from: from.starts_at(),
+        until: query.period.starts_at(),
+        statuses: StatusView::All.statuses(),
+        filter: Filter::default(),
+        with_late: true,
+    };
+    let past_lines = lines::fetch(db, &past_query, &Scope::everything()).await?;
+
+    // The period's tickets as the caller sees them, with their earlier cost.
+    let mut tickets: BTreeMap<String, Ticket> = BTreeMap::new();
+    add_lines(
+        &mut tickets,
+        account.lines.iter().map(|line| &line.line),
+        &account.converter,
+        true,
+    )?;
+    let earlier = past_lines
+        .iter()
+        .filter(|line| scope.sees(line) && filter.matches(&line.tags))
+        .filter(|line| {
+            line.tags
+                .get("ticket")
+                .is_some_and(|ticket| tickets.contains_key(ticket))
+        })
+        .collect::<Vec<_>>();
+    add_lines(&mut tickets, earlier, &account.converter, false)?;
+
+    // Past tickets of the whole organization, without the period's own.
+    let mut past: BTreeMap<String, Ticket> = BTreeMap::new();
+    add_lines(&mut past, &past_lines, &account.converter, false)?;
+    past.retain(|key, _| !tickets.contains_key(key));
+    let baselines = baselines(&past, currency).map_err(|error| ApiError::Internal(error.into()))?;
+    let (mut found, without_baseline) = against_baselines(tickets, &baselines, currency);
     found.sort_by(|a, b| further(a.0, b.0).then_with(|| a.1.ticket.cmp(&b.1.ticket)));
     Ok(Outliers {
         period: query.period,
@@ -422,17 +471,38 @@ mod tests {
 
     #[test]
     fn twice_and_half_are_equally_far() {
-        assert_eq!(further(distance(200, 100), distance(50, 100)), Ordering::Equal);
-        assert_eq!(further(distance(400, 100), distance(50, 100)), Ordering::Less);
-        assert_eq!(further(distance(110, 100), distance(80, 100)), Ordering::Greater);
-        assert_eq!(further(distance(0, 100), distance(900, 100)), Ordering::Less);
+        assert_eq!(
+            further(distance(200, 100), distance(50, 100)),
+            Ordering::Equal
+        );
+        assert_eq!(
+            further(distance(400, 100), distance(50, 100)),
+            Ordering::Less
+        );
+        assert_eq!(
+            further(distance(110, 100), distance(80, 100)),
+            Ordering::Greater
+        );
+        assert_eq!(
+            further(distance(0, 100), distance(900, 100)),
+            Ordering::Less
+        );
     }
 
     #[test]
     fn ratios_round_to_tenths() {
-        assert_eq!(ratio_tenths(212, 48).map(format_tenths).as_deref(), Some("4.4"));
-        assert_eq!(ratio_tenths(25, 100).map(format_tenths).as_deref(), Some("0.3"));
-        assert_eq!(ratio_tenths(100, 100).map(format_tenths).as_deref(), Some("1.0"));
+        assert_eq!(
+            ratio_tenths(212, 48).map(format_tenths).as_deref(),
+            Some("4.4")
+        );
+        assert_eq!(
+            ratio_tenths(25, 100).map(format_tenths).as_deref(),
+            Some("0.3")
+        );
+        assert_eq!(
+            ratio_tenths(100, 100).map(format_tenths).as_deref(),
+            Some("1.0")
+        );
         assert_eq!(ratio_tenths(1, 0), None);
     }
 
@@ -453,7 +523,10 @@ mod tests {
         .into_iter()
         .map(|(key, ticket)| (key.to_owned(), ticket))
         .collect();
-        let Baselines { projects, organization } = baselines(&past, usd).unwrap();
+        let Baselines {
+            projects,
+            organization,
+        } = baselines(&past, usd).unwrap();
         let median = |nanos: i64, tickets: usize| Median {
             amount: Money::from_nanos(nanos, usd),
             tickets,

@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM sessions s USING people p\n               WHERE s.id = $1 AND s.client = 'local_tool' AND p.id = s.person_id\n                 AND p.organization_id = $2 AND ($3 OR s.person_id = $4)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Bool",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "fd7f353b59ae7bc41efed10f00f2f2d9e77755d3ac396b31c0f5fceef29383ab"
+}

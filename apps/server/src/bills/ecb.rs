@@ -1,4 +1,4 @@
-//! The European Central Bank's euro reference rates (ADR 0017): fetched
+//! The European Central Bank's euro reference rates (ADR 0019): fetched
 //! once a day and stored per day, so bills and reports convert between
 //! currencies without anyone typing a rate. `TC_PRICES_REFRESH=off` stops
 //! the refresh on instances without internet access; rates can still be
@@ -11,7 +11,7 @@ use time::Date;
 use time::macros::format_description;
 use tokencontroller_core::Currency;
 
-use super::amount::ExchangeRate;
+use super::amount::RateNumber;
 use super::rates;
 use crate::AppState;
 
@@ -19,23 +19,29 @@ use crate::AppState;
 /// gaps after the service was down.
 pub const RATES_URL: &str = "https://www.ecb.europa.eu/stats/eurofxref/eurofxref-hist-90d.xml";
 
+/// The job's name in the job runner.
+pub const JOB: &str = "exchange-rates";
+
 /// How often the rates are fetched. The bank publishes once a working day,
 /// around 16:00 Frankfurt time.
-const EVERY: Duration = Duration::from_hours(6);
+pub const JOB_EVERY: Duration = Duration::from_hours(6);
 
 /// One day's rate of one currency, in units per euro.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DailyRate {
     pub day: Date,
     pub currency: Currency,
-    pub per_euro: ExchangeRate,
+    pub per_euro: RateNumber,
 }
 
 /// The value of `name="…"` or `name='…'` in a tag's text.
 fn attribute<'a>(tag: &'a str, name: &str) -> Option<&'a str> {
     let at = tag.find(&format!("{name}="))?;
     let rest = tag.get(at.checked_add(name.len())?.checked_add(1)?..)?;
-    let quote = rest.chars().next().filter(|quote| *quote == '"' || *quote == '\'')?;
+    let quote = rest
+        .chars()
+        .next()
+        .filter(|quote| *quote == '"' || *quote == '\'')?;
     let value = rest.get(1..)?;
     value.split(quote).next()
 }
@@ -56,10 +62,12 @@ pub fn parse(xml: &str) -> Vec<DailyRate> {
             day = Date::parse(time, &day_format).ok();
             continue;
         }
-        let (Some(day), Some(code), Some(rate)) = (day, attribute(tag, "currency"), attribute(tag, "rate")) else {
+        let (Some(day), Some(code), Some(rate)) =
+            (day, attribute(tag, "currency"), attribute(tag, "rate"))
+        else {
             continue;
         };
-        if let (Ok(currency), Ok(per_euro)) = (Currency::new(code), ExchangeRate::parse(rate)) {
+        if let (Ok(currency), Ok(per_euro)) = (Currency::new(code), RateNumber::parse(rate)) {
             found.push(DailyRate {
                 day,
                 currency,
@@ -92,29 +100,16 @@ pub async fn refresh(db: &PgPool, client: &reqwest::Client) -> anyhow::Result<us
     Ok(found.len())
 }
 
-/// Starts the refresh in the background, unless `enabled` is false.
-pub fn start(state: &AppState, enabled: bool) {
-    if !enabled {
-        tracing::info!("exchange rate refresh is off");
-        return;
-    }
-    let db = state.db.clone();
-    tokio::spawn(async move {
-        let client = match reqwest::Client::builder().timeout(Duration::from_secs(30)).build() {
-            Ok(client) => client,
-            Err(error) => {
-                tracing::warn!(%error, "could not start the exchange rate refresh");
-                return;
-            }
-        };
-        loop {
-            match refresh(&db, &client).await {
-                Ok(stored) => tracing::info!(stored, "exchange rates refreshed"),
-                Err(error) => tracing::warn!(%error, "could not refresh exchange rates"),
-            }
-            tokio::time::sleep(EVERY).await;
-        }
-    });
+/// The `exchange-rates` job: [`refresh`] from the bank. It runs in the job
+/// runner, so one replica fetches at a time.
+///
+/// # Errors
+///
+/// As [`refresh`].
+pub async fn run_job(state: AppState) -> anyhow::Result<String> {
+    let client = crate::integrations::http::client()?;
+    let stored = refresh(&state.db, &client).await?;
+    Ok(format!("stored {stored} exchange rates"))
 }
 
 #[cfg(test)]
@@ -146,10 +141,13 @@ mod tests {
             Some(&DailyRate {
                 day: date!(2026 - 10 - 09),
                 currency: usd,
-                per_euro: ExchangeRate::parse("1.0832").unwrap(),
+                per_euro: RateNumber::parse("1.0832").unwrap(),
             })
         );
-        assert_eq!(rates.get(2).map(|rate| (rate.day, rate.currency)), Some((date!(2026 - 10 - 08), usd)));
+        assert_eq!(
+            rates.get(2).map(|rate| (rate.day, rate.currency)),
+            Some((date!(2026 - 10 - 08), usd))
+        );
     }
 
     #[test]

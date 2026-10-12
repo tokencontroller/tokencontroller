@@ -25,4 +25,4 @@ A door is a way token entries or telemetry reach Token Controller. Pick the ones
 
 ## Where file readers come from {#sources}
 
-The CLI reads session files with the open source ccusage adapters. Token Controller reads session files for Claude Code and Codex only; every other agent reports by telemetry or through the endpoint.
+The CLI reads session files the way the open source ccusage project counts them. Token Controller reads session files for Claude Code and Codex only; every other agent reports by telemetry or through the endpoint.

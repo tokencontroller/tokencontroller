@@ -4,11 +4,12 @@
 use serde::Serialize;
 use sqlx::PgPool;
 use time::OffsetDateTime;
+use tokencontroller_core::Money;
 use utoipa::ToSchema;
 
 use super::account;
-use super::period::Period;
-use crate::bills::reconciliation::{percent, provider_figures};
+use super::period::{Period, PeriodDates};
+use crate::bills::reconciliation::percent;
 use crate::reports::filter::Filter;
 use crate::reports::lines::StatusView;
 use crate::reports::scope::Scope;
@@ -34,7 +35,7 @@ pub struct OpenPeriodSignals {
 /// A database error. An organization whose figures cannot be converted is
 /// left out.
 pub async fn open_period_signals(db: &PgPool) -> Result<OpenPeriodSignals, sqlx::Error> {
-    let period = Period::of(OffsetDateTime::now_utc());
+    let period = Period::containing(OffsetDateTime::now_utc());
     let organizations = sqlx::query_scalar!(
         "SELECT DISTINCT organization_id FROM bills WHERE period = $1",
         period.first_day(),
@@ -60,14 +61,17 @@ pub async fn open_period_signals(db: &PgPool) -> Result<OpenPeriodSignals, sqlx:
                 continue;
             }
         };
-        let Ok(figures) = provider_figures(&account) else {
+        let Ok(sheet) = account.cost_sheet(&[], &std::collections::BTreeMap::new()) else {
             continue;
         };
-        let entries = tokencontroller_core::Money::sum(figures.iter().map(|f| f.entries_reporting), account.currency);
-        let gross = figures.iter().try_fold(tokencontroller_core::Money::zero(account.currency), |sum, f| {
-            sum.checked_add(f.entries_reporting)?.checked_add(f.residual_reporting)
-        });
-        if let (Ok(entries), Ok(gross)) = (entries, gross)
+        let currency = account.currency;
+        let gross = Money::sum(sheet.blocks.iter().map(|block| block.bill.gross), currency);
+        let residual = Money::sum(
+            sheet.blocks.iter().map(|block| block.bill.residual),
+            currency,
+        );
+        if let (Ok(gross), Ok(residual)) = (gross, residual)
+            && let Ok(entries) = gross.checked_sub(residual)
             && let Some(share) = percent(entries, gross)
         {
             shares.push(share);
@@ -83,7 +87,9 @@ pub async fn open_period_signals(db: &PgPool) -> Result<OpenPeriodSignals, sqlx:
 }
 
 fn average(shares: &[u8]) -> Option<u8> {
-    let count = u32::try_from(shares.len()).ok().filter(|count| *count > 0)?;
+    let count = u32::try_from(shares.len())
+        .ok()
+        .filter(|count| *count > 0)?;
     let sum: u32 = shares.iter().map(|share| u32::from(*share)).sum();
     u8::try_from(sum.checked_div(count)?).ok()
 }

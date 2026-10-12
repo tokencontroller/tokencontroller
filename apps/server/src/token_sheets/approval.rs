@@ -18,14 +18,14 @@ use utoipa_axum::routes;
 use uuid::Uuid;
 
 use crate::AppState;
-use crate::close::period::Period;
+use crate::close::period::{Period, PeriodDates};
 use crate::error::ApiError;
 use crate::organizations::Role;
 use crate::reports::entries::{self, EntryView};
 use crate::reports::filter::Filter;
 use crate::reports::lines::{self, CostLine, EntryStatus, LineQuery};
 use crate::reports::scope::Scope;
-use crate::sign_in::{Caller, Credential};
+use crate::sign_in::Caller;
 
 pub(super) fn routes() -> OpenApiRouter<AppState> {
     OpenApiRouter::new()
@@ -87,7 +87,10 @@ async fn decidable(
         organization_id: caller.organization_id,
         from,
         until,
-        statuses: statuses.iter().map(|status| status.as_str().to_owned()).collect(),
+        statuses: statuses
+            .iter()
+            .map(|status| status.as_str().to_owned())
+            .collect(),
         filter,
         with_late: false,
     };
@@ -124,7 +127,14 @@ pub(crate) async fn approval_queue(
 ) -> Result<Response, ApiError> {
     caller.require_role(Role::PeopleManager)?;
     let filter = parse_filter(query.filter.as_deref())?;
-    let lines = decidable(&state.db, &caller, &[EntryStatus::Submitted], query.period, filter).await?;
+    let lines = decidable(
+        &state.db,
+        &caller,
+        &[EntryStatus::Submitted],
+        query.period,
+        filter,
+    )
+    .await?;
     let views = entries::entries(&state.db, lines).await?;
     if query.format.as_deref() == Some("csv") {
         return Ok(entries::to_csv(&views).into_download("approval.csv"));
@@ -171,17 +181,28 @@ pub(crate) async fn approve(
     Json(input): Json<ApproveInput>,
 ) -> Result<Json<Decided>, ApiError> {
     caller.require_role(Role::PeopleManager)?;
-    caller.require_credential(&[Credential::Session])?;
-    let approval = sqlx::query_scalar!("SELECT approval FROM organizations WHERE id = $1", caller.organization_id)
-        .fetch_one(&state.db)
-        .await?;
+    caller.require_session()?;
+    let approval = sqlx::query_scalar!(
+        "SELECT approval FROM organizations WHERE id = $1",
+        caller.organization_id
+    )
+    .fetch_one(&state.db)
+    .await?;
     if !approval {
         return Err(ApiError::Conflict(
-            "approval is off for this organization: submitted token entries count as they are".to_owned(),
+            "approval is off for this organization: submitted token entries count as they are"
+                .to_owned(),
         ));
     }
     let filter = parse_filter(input.filter.as_deref())?;
-    let lines = decidable(&state.db, &caller, &[EntryStatus::Submitted], input.period, filter).await?;
+    let lines = decidable(
+        &state.db,
+        &caller,
+        &[EntryStatus::Submitted],
+        input.period,
+        filter,
+    )
+    .await?;
     let allowed: BTreeSet<Uuid> = lines.iter().map(|line| line.entry_id).collect();
     let (ids, skipped): (Vec<Uuid>, usize) = match input.token_entry_ids {
         Some(asked) => {
@@ -246,10 +267,12 @@ pub(crate) async fn reject(
     Json(input): Json<RejectInput>,
 ) -> Result<Json<EntryView>, ApiError> {
     caller.require_role(Role::PeopleManager)?;
-    caller.require_credential(&[Credential::Session])?;
+    caller.require_session()?;
     let reason = input.reason.trim();
     if reason.is_empty() {
-        return Err(ApiError::BadRequest("say why the token entry goes back".to_owned()));
+        return Err(ApiError::BadRequest(
+            "say why the token entry goes back".to_owned(),
+        ));
     }
     let status = sqlx::query_scalar!(
         "SELECT status FROM token_entries WHERE id = $1 AND organization_id = $2",
@@ -261,7 +284,8 @@ pub(crate) async fn reject(
     .ok_or(ApiError::NotFound)?;
     if status == "locked" {
         return Err(ApiError::Conflict(
-            "the token entry is in a closed period; a controller can post an adjustment instead".to_owned(),
+            "the token entry is in a closed period; a controller can post an adjustment instead"
+                .to_owned(),
         ));
     }
     let lines = decidable(
@@ -285,7 +309,9 @@ pub(crate) async fn reject(
     .await?
     .rows_affected();
     if changed == 0 {
-        return Err(ApiError::Conflict("the token entry changed meanwhile; look again".to_owned()));
+        return Err(ApiError::Conflict(
+            "the token entry changed meanwhile; look again".to_owned(),
+        ));
     }
     sqlx::query!(
         r#"INSERT INTO token_entry_decisions (token_entry_id, decision, reason, decided_by)

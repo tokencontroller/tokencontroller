@@ -1,21 +1,24 @@
 //! Reconciliation: per period and per bill, token entries plus residual
-//! equal the bill (docs: Account > Bills, reconciliation). Each provider's
-//! bills are checked on their own, in the bill's currency, against the list
-//! value of that provider's token entries; residual is the part no token
-//! entry explains and is always shown. Tags play no part.
+//! equal the bill (docs: Account > Bills, reconciliation). Each bill is
+//! checked on its own, in its own currency, against the list value of the
+//! token entries it charges; residual is the part no token entry explains
+//! and is always shown. Tags play no part. The check is the core's
+//! [`tokencontroller_core::Bill::reconcile`], through the cost sheet it
+//! builds.
 
 use std::collections::BTreeMap;
 
 use axum::Json;
 use axum::extract::{Query, State};
 use serde::{Deserialize, Serialize};
+use tokencontroller_core::cost_sheet::Block;
 use tokencontroller_core::{Currency, Money, MoneyError};
 use utoipa::{IntoParams, ToSchema};
 
 use super::BillView;
 use super::amount::format_amount;
 use crate::AppState;
-use crate::close::account::{self, Account};
+use crate::close::account::{self, Account, AccountError};
 use crate::close::period::Period;
 use crate::error::ApiError;
 use crate::organizations::Role;
@@ -24,25 +27,25 @@ use crate::reports::lines::StatusView;
 use crate::reports::scope::Scope;
 use crate::sign_in::Caller;
 
-/// One provider's check: its bills against its token entries.
+/// One bill against the token entries it charges, in the bill's currency.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, ToSchema)]
-pub struct ProviderCheck {
-    pub provider: String,
-    /// The bills of the period from this provider, latest revision (or, for
-    /// a closed period, the revision it closed with).
-    pub bills: Vec<BillView>,
+pub struct BillCheck {
+    /// The revision checked: the latest, or for a closed period the one it
+    /// closed with.
+    pub bill: BillView,
     #[schema(value_type = String, example = "USD")]
     pub currency: Currency,
-    /// The bills' gross, at list price before discount and credit.
+    /// The bill's gross, at list price before discount and credit.
     pub gross: String,
     pub discount: String,
     pub credit: String,
     pub net: String,
-    /// The list value of the provider's token entries.
+    /// The list value of the token entries it charges.
     pub token_entries: String,
-    /// Gross minus token entries: what no token entry explains.
+    /// Gross minus token entries: what no token entry explains. Negative
+    /// when token entries come to more than the bill.
     pub residual: String,
-    /// How many token entries were counted.
+    /// How many token entry splits were counted.
     pub token_entry_count: usize,
     /// Token entries on a model missing from the price table. Their cost is
     /// unknown, so it sits in residual, never as zero.
@@ -51,10 +54,12 @@ pub struct ProviderCheck {
     pub attribution_percent: Option<u8>,
 }
 
-/// Token entries from a provider without a bill this period, such as a seat
-/// plan: their list value is an estimate at API prices.
+/// Token entries from a provider without a bill this period. On a seat plan
+/// or a subscription that is expected: their list value is an estimate at
+/// API prices and stays off the cost sheet. On a metered plan the bill is
+/// still missing.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, ToSchema)]
-pub struct Estimate {
+pub struct WithoutBill {
     pub provider: String,
     /// In the reporting currency.
     pub token_entries: String,
@@ -72,7 +77,7 @@ pub struct Totals {
     /// What the bills charged: token entries plus residual minus discount
     /// and credit.
     pub net: String,
-    /// List value of token entries without a bill, labelled an estimate.
+    /// List value of token entries on no bill, labelled an estimate.
     pub estimates: String,
 }
 
@@ -84,100 +89,15 @@ pub struct Reconciliation {
     pub closed: bool,
     #[schema(value_type = String, example = "EUR")]
     pub reporting_currency: Currency,
-    pub providers: Vec<ProviderCheck>,
-    pub estimates: Vec<Estimate>,
+    /// Whether the organization's usage is metered, so every provider's
+    /// usage needs a bill. False on a seat plan or a subscription.
+    pub metered: bool,
+    pub bills: Vec<BillCheck>,
+    pub without_bill: Vec<WithoutBill>,
     pub totals: Totals,
     /// Bills a provider restated after the period closed. The closed figures
     /// stay as they were; a controller can post an adjustment.
     pub restated_after_close: Vec<BillView>,
-}
-
-/// The figures of one provider, in money, for the cost sheet and status.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ProviderFigures {
-    pub provider: String,
-    pub currency: Currency,
-    pub gross: Money,
-    pub discount: Money,
-    pub credit: Money,
-    pub net: Money,
-    pub entries: Money,
-    pub residual: Money,
-    /// The same, in the reporting currency.
-    pub entries_reporting: Money,
-    pub residual_reporting: Money,
-    pub discount_reporting: Money,
-    pub credit_reporting: Money,
-    pub net_reporting: Money,
-    pub entry_count: usize,
-    pub unknown_count: usize,
-}
-
-/// Computes every provider's check of an account.
-///
-/// # Errors
-///
-/// [`MoneyError`] on an overflow or when a provider's bills are in more
-/// than one currency.
-pub fn provider_figures(account: &Account) -> Result<Vec<ProviderFigures>, MoneyError> {
-    let mut providers: BTreeMap<&str, Vec<&account::Bill>> = BTreeMap::new();
-    for bill in &account.bills {
-        providers.entry(bill.view.provider.as_str()).or_default().push(bill);
-    }
-    let reporting = account.currency;
-    providers
-        .into_iter()
-        .map(|(provider, bills)| {
-            let currency = bills.first().map_or(reporting, |bill| bill.view.currency);
-            let sum = |pick: fn(&account::Bill) -> Money| Money::sum(bills.iter().map(|bill| pick(bill)), currency);
-            let sum_reporting = |pick: fn(&account::Bill) -> Money| -> Result<Money, MoneyError> {
-                let converted = bills
-                    .iter()
-                    .map(|bill| {
-                        bill.rate
-                            .convert(pick(bill), reporting)
-                            .map_err(|_| MoneyError::Overflow)
-                    })
-                    .collect::<Result<Vec<_>, _>>()?;
-                Money::sum(converted, reporting)
-            };
-            let gross = sum(|bill| bill.gross)?;
-            let lines: Vec<_> = account
-                .lines
-                .iter()
-                .filter(|line| line.line.provider == provider)
-                .collect();
-            let known: Vec<_> = lines.iter().filter_map(|line| line.line.list_value.zip(line.value)).collect();
-            let entries = Money::sum(
-                known
-                    .iter()
-                    .map(|(list, _)| *list)
-                    .filter(|list| list.currency() == currency),
-                currency,
-            )?;
-            let entries_reporting = Money::sum(known.iter().map(|(_, value)| *value), reporting)?;
-            let gross_reporting = sum_reporting(|bill| bill.gross)?;
-            Ok(ProviderFigures {
-                provider: provider.to_owned(),
-                currency,
-                gross,
-                discount: sum(|bill| bill.discount)?,
-                credit: sum(|bill| bill.credit)?,
-                net: sum(|bill| bill.net)?,
-                entries,
-                residual: gross.checked_sub(entries)?,
-                entries_reporting,
-                residual_reporting: gross_reporting.checked_sub(entries_reporting)?,
-                discount_reporting: sum_reporting(|bill| bill.discount)?,
-                credit_reporting: sum_reporting(|bill| bill.credit)?,
-                net_reporting: gross_reporting
-                    .checked_sub(sum_reporting(|bill| bill.discount)?)?
-                    .checked_sub(sum_reporting(|bill| bill.credit)?)?,
-                entry_count: lines.len(),
-                unknown_count: lines.iter().filter(|line| line.value.is_none()).count(),
-            })
-        })
-        .collect()
 }
 
 /// The share of `whole` that `part` is, in whole percent rounded down, or
@@ -193,78 +113,100 @@ pub fn percent(part: Money, whole: Money) -> Option<u8> {
     u8::try_from(share.min(100)).ok()
 }
 
-/// Computes the reconciliation of an account.
+/// Splits and unknown models counted per bill, and per provider without a
+/// bill: (list value in the reporting currency, splits, unknown models).
+type Counts = (
+    BTreeMap<usize, (usize, usize)>,
+    BTreeMap<String, (Money, usize, usize)>,
+);
+
+fn counts(account: &Account) -> Result<Counts, MoneyError> {
+    let mut on_bills: BTreeMap<usize, (usize, usize)> = BTreeMap::new();
+    let mut without: BTreeMap<String, (Money, usize, usize)> = BTreeMap::new();
+    for line in account.counted() {
+        let unknown = usize::from(line.value.is_none());
+        if let Some(index) = line.bill {
+            let entry = on_bills.entry(index).or_insert((0, 0));
+            entry.0 = entry.0.saturating_add(1);
+            entry.1 = entry.1.saturating_add(unknown);
+        } else {
+            let entry = without.entry(line.line.provider.clone()).or_insert((
+                Money::zero(account.currency),
+                0,
+                0,
+            ));
+            if let Some(value) = line.value {
+                entry.0 = entry.0.checked_add(value)?;
+            }
+            entry.1 = entry.1.saturating_add(1);
+            entry.2 = entry.2.saturating_add(unknown);
+        }
+    }
+    Ok((on_bills, without))
+}
+
+/// The reconciliation of an account, from the core's cost sheet blocks.
 ///
 /// # Errors
 ///
-/// [`MoneyError`] on an overflow.
-pub fn reconcile(account: &Account) -> Result<Reconciliation, MoneyError> {
+/// [`AccountError`] when a rate is missing or a bill does not add up.
+pub fn reconcile(account: &Account, blocks: &[Block]) -> Result<Reconciliation, AccountError> {
     let reporting = account.currency;
-    let figures = provider_figures(account)?;
-    let providers = figures
+    let money_error = |error: MoneyError| AccountError::Api(ApiError::Internal(error.into()));
+    let (on_bills, without) = counts(account).map_err(money_error)?;
+    let bills = account
+        .bills
         .iter()
-        .map(|figure| ProviderCheck {
-            provider: figure.provider.clone(),
-            bills: account
-                .bills
-                .iter()
-                .filter(|bill| bill.view.provider == figure.provider)
-                .map(|bill| bill.view.clone())
-                .collect(),
-            currency: figure.currency,
-            gross: format_amount(figure.gross),
-            discount: format_amount(figure.discount),
-            credit: format_amount(figure.credit),
-            net: format_amount(figure.net),
-            token_entries: format_amount(figure.entries),
-            residual: format_amount(figure.residual),
-            token_entry_count: figure.entry_count,
-            unknown_model_count: figure.unknown_count,
-            attribution_percent: percent(figure.entries, figure.gross),
+        .zip(blocks)
+        .enumerate()
+        .map(|(index, (bill, block))| {
+            let (count, unknown) = on_bills.get(&index).copied().unwrap_or((0, 0));
+            let checked = block.bill.reconciliation;
+            BillCheck {
+                bill: bill.view.clone(),
+                currency: bill.bill.currency(),
+                gross: format_amount(bill.bill.gross),
+                discount: format_amount(bill.bill.discount),
+                credit: format_amount(bill.bill.credit),
+                net: format_amount(bill.bill.net),
+                token_entries: format_amount(checked.explained),
+                residual: format_amount(checked.residual),
+                token_entry_count: count,
+                unknown_model_count: unknown,
+                attribution_percent: percent(checked.explained, bill.bill.gross),
+            }
         })
         .collect();
 
-    let mut estimates: BTreeMap<&str, (Money, usize, usize)> = BTreeMap::new();
-    for line in &account.lines {
-        if figures.iter().any(|figure| figure.provider == line.line.provider) {
-            continue;
-        }
-        let entry = estimates
-            .entry(line.line.provider.as_str())
-            .or_insert((Money::zero(reporting), 0, 0));
-        if let Some(value) = line.value {
-            entry.0 = entry.0.checked_add(value)?;
-        } else {
-            entry.2 = entry.2.saturating_add(1);
-        }
-        entry.1 = entry.1.saturating_add(1);
-    }
-    let estimates_total = Money::sum(estimates.values().map(|(amount, _, _)| *amount), reporting)?;
-    let estimates = estimates
-        .into_iter()
-        .map(|(provider, (amount, count, unknown))| Estimate {
-            provider: provider.to_owned(),
-            token_entries: format_amount(amount),
-            token_entry_count: count,
-            unknown_model_count: unknown,
-        })
-        .collect();
-
-    let total = |pick: fn(&ProviderFigures) -> Money| Money::sum(figures.iter().map(pick), reporting);
+    let sum = |pick: fn(&Block) -> Money| Money::sum(blocks.iter().map(pick), reporting);
+    let gross = sum(|block| block.bill.gross).map_err(money_error)?;
+    let residual = sum(|block| block.bill.residual).map_err(money_error)?;
+    let estimates = Money::sum(without.values().map(|(amount, _, _)| *amount), reporting)
+        .map_err(money_error)?;
+    let totals = Totals {
+        token_entries: format_amount(gross.checked_sub(residual).map_err(money_error)?),
+        residual: format_amount(residual),
+        discount: format_amount(sum(|block| block.bill.discount).map_err(money_error)?),
+        credit: format_amount(sum(|block| block.bill.credit).map_err(money_error)?),
+        net: format_amount(sum(|block| block.bill.net).map_err(money_error)?),
+        estimates: format_amount(estimates),
+    };
     Ok(Reconciliation {
         period: account.period,
         closed: account.closed.is_some(),
         reporting_currency: reporting,
-        providers,
-        estimates,
-        totals: Totals {
-            token_entries: format_amount(total(|f| f.entries_reporting)?),
-            residual: format_amount(total(|f| f.residual_reporting)?),
-            discount: format_amount(total(|f| f.discount_reporting)?),
-            credit: format_amount(total(|f| f.credit_reporting)?),
-            net: format_amount(total(|f| f.net_reporting)?),
-            estimates: format_amount(estimates_total),
-        },
+        metered: account.metered,
+        bills,
+        without_bill: without
+            .into_iter()
+            .map(|(provider, (amount, count, unknown))| WithoutBill {
+                provider,
+                token_entries: format_amount(amount),
+                token_entry_count: count,
+                unknown_model_count: unknown,
+            })
+            .collect(),
+        totals,
         restated_after_close: account.restated.clone(),
     })
 }
@@ -305,8 +247,8 @@ pub(crate) async fn get_reconciliation(
         &Filter::default(),
     )
     .await?;
-    let reconciliation = reconcile(&account).map_err(|error| ApiError::Internal(error.into()))?;
-    Ok(Json(reconciliation))
+    let sheet = account.cost_sheet(&[], &BTreeMap::new())?;
+    Ok(Json(reconcile(&account, &sheet.blocks)?))
 }
 
 #[cfg(test)]

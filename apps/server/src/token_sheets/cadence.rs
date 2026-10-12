@@ -137,9 +137,7 @@ impl Cadence {
         let index = offset
             .checked_div_euclid(length)
             .ok_or(CadenceError::OutOfRange)?;
-        let start_offset = index
-            .checked_mul(length)
-            .ok_or(CadenceError::OutOfRange)?;
+        let start_offset = index.checked_mul(length).ok_or(CadenceError::OutOfRange)?;
         let starts_on = self
             .starts_on
             .checked_add(Duration::days(start_offset))
@@ -158,15 +156,16 @@ impl Cadence {
     /// # Errors
     ///
     /// [`CadenceError::OutOfRange`] at the ends of the calendar.
-    pub fn ended_between(self, from: Date, today: Date) -> Result<Vec<CadencePeriod>, CadenceError> {
+    pub fn ended_between(
+        self,
+        from: Date,
+        today: Date,
+    ) -> Result<Vec<CadencePeriod>, CadenceError> {
         let mut periods = Vec::new();
         let mut current = self.period_containing(from)?;
         while current.ends_on < today {
             periods.push(current);
-            let next_day = current
-                .ends_on
-                .next_day()
-                .ok_or(CadenceError::OutOfRange)?;
+            let next_day = current.ends_on.next_day().ok_or(CadenceError::OutOfRange)?;
             current = self.period_containing(next_day)?;
         }
         Ok(periods)
@@ -209,7 +208,8 @@ mod tests {
 
     #[test]
     fn days_before_the_start_fall_in_earlier_stretches() {
-        let cadence = Cadence::new(CadenceKind::EveryTwoWeeks, None, date!(2026 - 09 - 07)).unwrap();
+        let cadence =
+            Cadence::new(CadenceKind::EveryTwoWeeks, None, date!(2026 - 09 - 07)).unwrap();
         assert_eq!(
             cadence.period_containing(date!(2026 - 09 - 06)).unwrap(),
             period(date!(2026 - 08 - 24), date!(2026 - 09 - 06))

@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE sign_in_links SET polled_at = now() WHERE poll_hash = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Bytea"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "16bb0485ec65396e55829b29f5f667899fc37f712313af2b9e5d7410c5d25e04"
+}

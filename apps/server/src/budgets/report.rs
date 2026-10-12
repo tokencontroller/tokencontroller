@@ -23,7 +23,7 @@ use super::token_budget::{self, TokenBudget, TokenBudgetView, Viewer};
 use crate::AppState;
 use crate::bills::amount::format_amount;
 use crate::bills::rates::{self, RateError};
-use crate::close::period::Period;
+use crate::close::period::{Period, PeriodDates};
 use crate::error::ApiError;
 use crate::reports::csv::Csv;
 use crate::reports::entries::{self, EntryView};
@@ -59,19 +59,16 @@ impl Outcome {
         }
     }
 
-    /// The outcome of a `difference` of actual minus token budget. When
-    /// token entries on an unknown model are not in actual, an actual that
-    /// is not already above the token budget could still be: `None`.
+    /// The core's outcome as the API shows it. When token entries on an
+    /// unknown model are not in actual, an actual that is not already above
+    /// the token budget could still be: `None`.
     #[must_use]
-    pub const fn of(difference: Money, complete: bool) -> Option<Self> {
-        if difference.nanos() > 0 {
-            Some(Self::Overrun)
-        } else if !complete {
-            None
-        } else if difference.is_zero() {
-            Some(Self::AtTokenBudget)
-        } else {
-            Some(Self::Underrun)
+    pub const fn of(outcome: tokencontroller_core::Outcome, complete: bool) -> Option<Self> {
+        match (outcome, complete) {
+            (tokencontroller_core::Outcome::Overrun, _) => Some(Self::Overrun),
+            (_, false) => None,
+            (tokencontroller_core::Outcome::OnBudget, true) => Some(Self::AtTokenBudget),
+            (tokencontroller_core::Outcome::Underrun, true) => Some(Self::Underrun),
         }
     }
 }
@@ -149,12 +146,8 @@ pub struct DetailQuery {
 /// The period asked for, or this month.
 fn period_or_now(text: Option<&str>, now: OffsetDateTime) -> Result<Period, ApiError> {
     match text.map(str::trim).filter(|text| !text.is_empty()) {
-        Some(text) => text
-            .parse()
-            .map_err(|error: crate::close::period::PeriodError| {
-                ApiError::BadRequest(error.to_string())
-            }),
-        None => Ok(Period::of(now)),
+        Some(text) => Period::parse(text).map_err(|error| ApiError::BadRequest(error.to_string())),
+        None => Ok(Period::containing(now)),
     }
 }
 
@@ -178,12 +171,40 @@ async fn in_reporting_currency(
     let rate = rates::between(db, amount.currency(), currency, day)
         .await?
         .map_err(|error: RateError| ApiError::Conflict(error.to_string()))?;
-    rate.convert(amount, currency)
+    rate.convert(amount)
         .map_err(|error| ApiError::Conflict(error.to_string()))
 }
 
 fn money_error(error: MoneyError) -> ApiError {
     ApiError::Internal(error.into())
+}
+
+/// Compares a token budget with its actual the core's way
+/// ([`tokencontroller_core::TokenBudget::compare`]): the splits and
+/// adjustments its filter matches, minus the token budget.
+fn compare(
+    budget: &TokenBudget,
+    amount: Money,
+    actual: &Actual<'_>,
+    period: Period,
+) -> Result<tokencontroller_core::BudgetVsActual, MoneyError> {
+    let items: Vec<(tokencontroller_core::Tags, Money)> = actual
+        .lines
+        .iter()
+        .filter_map(|line| Some((line.line.core_tags(), line.value?)))
+        .chain(actual.adjustments.iter().map(|adjustment| {
+            (
+                crate::close::account::core_tags(&adjustment.tags),
+                adjustment.amount,
+            )
+        }))
+        .collect();
+    let core = tokencontroller_core::TokenBudget {
+        filter: tokencontroller_core::Filter(crate::close::account::core_tags(&budget.filter.0)),
+        period,
+        amount,
+    };
+    core.compare(items.iter().map(|(tags, money)| (tags, *money)))
 }
 
 /// One row from a token budget and its actual.
@@ -193,14 +214,16 @@ fn row(
     actual: &Actual<'_>,
     actual_period: Option<Period>,
 ) -> Result<TokenBudgetRow, MoneyError> {
-    let difference = actual.value.checked_sub(amount)?;
+    let period = actual_period.unwrap_or_else(|| Period::containing(OffsetDateTime::now_utc()));
+    let compared = compare(budget, amount, actual, period)?;
+    let difference = compared.difference;
     Ok(TokenBudgetRow {
         token_budget: TokenBudgetView::from(budget),
         actual_period: actual_period.map(|period| period.to_string()),
         amount: format_amount(amount),
-        actual: format_amount(actual.value),
+        actual: format_amount(compared.actual),
         difference: format_amount(difference),
-        outcome: Outcome::of(difference, actual.is_complete()),
+        outcome: Outcome::of(compared.outcome, actual.is_complete()),
         token_entries: actual.token_entries,
         unknown_model_entries: actual.unknown_model_entries,
     })
@@ -641,24 +664,21 @@ mod tests {
 
     #[test]
     fn overrun_is_above_and_underrun_below() {
-        assert_eq!(Outcome::of(eur(1), true), Some(Outcome::Overrun));
+        use tokencontroller_core::Outcome as Core;
+        assert_eq!(Outcome::of(Core::Overrun, true), Some(Outcome::Overrun));
         assert_eq!(
-            Outcome::of(Money::from_nanos(1, Currency::EUR), true),
-            Some(Outcome::Overrun)
+            Outcome::of(Core::OnBudget, true),
+            Some(Outcome::AtTokenBudget)
         );
-        assert_eq!(Outcome::of(eur(0), true), Some(Outcome::AtTokenBudget));
-        assert_eq!(Outcome::of(eur(-1), true), Some(Outcome::Underrun));
-        assert_eq!(
-            Outcome::of(Money::from_nanos(-1, Currency::EUR), true),
-            Some(Outcome::Underrun)
-        );
+        assert_eq!(Outcome::of(Core::Underrun, true), Some(Outcome::Underrun));
     }
 
     #[test]
     fn unknown_models_leave_an_underrun_open_but_not_an_overrun() {
-        assert_eq!(Outcome::of(eur(1), false), Some(Outcome::Overrun));
-        assert_eq!(Outcome::of(eur(0), false), None);
-        assert_eq!(Outcome::of(eur(-500), false), None);
+        use tokencontroller_core::Outcome as Core;
+        assert_eq!(Outcome::of(Core::Overrun, false), Some(Outcome::Overrun));
+        assert_eq!(Outcome::of(Core::OnBudget, false), None);
+        assert_eq!(Outcome::of(Core::Underrun, false), None);
         assert_eq!(Outcome::AtTokenBudget.as_str(), "at_token_budget");
         assert_eq!(Outcome::Overrun.as_str(), "overrun");
         assert_eq!(Outcome::Underrun.as_str(), "underrun");
@@ -682,12 +702,17 @@ mod tests {
                 speed: None,
                 started_at: datetime!(2026-09-01 09:00 UTC),
                 status: EntryStatus::Submitted,
-                automatic: false,
+                on_token_sheet: true,
                 summary: String::new(),
+                currency: Currency::EUR,
                 list_value: cents.map(eur),
+                billed_value: None,
+                placed_by: "no ticket".to_owned(),
+                ticket_not_synced: false,
                 tags,
             },
             value: cents.map(eur),
+            bill: None,
         }
     }
 
@@ -734,6 +759,54 @@ mod tests {
         );
         let total = Money::sum(tickets.iter().map(|sum| sum.value), Currency::EUR).unwrap();
         assert_eq!(total, actual.value);
+    }
+
+    fn budget(filter: &str, cents: i64) -> TokenBudget {
+        TokenBudget {
+            id: Uuid::nil(),
+            name: None,
+            filter: Filter::parse(filter).unwrap(),
+            applies: crate::budgets::token_budget::Applies::AllTime,
+            amount: eur(cents),
+            token_forecast_id: None,
+            set_by: Uuid::nil(),
+            set_by_name: None,
+            set_at: datetime!(2026-09-01 09:00 UTC),
+        }
+    }
+
+    #[test]
+    fn rows_compare_on_the_core_down_to_the_nano() {
+        let lines = [
+            line(1, Some(100), Some("KD-1")),
+            line(2, Some(50), Some("KD-1")),
+        ];
+        let credit = Adjustment {
+            id: Uuid::nil(),
+            amount: Money::from_nanos(-1, Currency::EUR),
+            tags: [("ticket".to_owned(), "KD-1".to_owned())].into(),
+            reason: "credit".to_owned(),
+            late: false,
+            token_entry_id: None,
+            posted_by: None,
+            posted_at: datetime!(2026-10-02 09:00 UTC),
+        };
+        let actual = Actual {
+            value: eur(150),
+            token_entries: 2,
+            unknown_model_entries: 0,
+            lines: lines.iter().collect(),
+            adjustments: vec![&credit],
+        };
+        let under = row(&budget("ticket:KD-1", 150), eur(150), &actual, None).unwrap();
+        assert_eq!(under.outcome, Some(Outcome::Underrun));
+        // Amounts show in cents; the outcome compares the exact figures.
+        assert_eq!(under.difference, "0.00");
+        let over = budget("ticket:KD-1", 100);
+        let row = row(&over, eur(100), &actual, None).unwrap();
+        assert_eq!(row.outcome, Some(Outcome::Overrun));
+        assert_eq!(row.actual, "1.50");
+        assert_eq!(row.difference, "0.50");
     }
 
     #[test]

@@ -22,7 +22,7 @@ use crate::AppState;
 use crate::close::period::Period;
 use crate::error::ApiError;
 use crate::organizations::Role;
-use crate::sign_in::{Caller, Credential};
+use crate::sign_in::Caller;
 
 pub(super) fn routes() -> OpenApiRouter<AppState> {
     OpenApiRouter::new()
@@ -67,7 +67,10 @@ pub struct SaveInput {
     tag = "reports",
     responses((status = OK, description = "Saved reports", body = Vec<SavedReport>)),
 )]
-pub(crate) async fn list_saved(State(state): State<AppState>, caller: Caller) -> Result<Json<Vec<SavedReport>>, ApiError> {
+pub(crate) async fn list_saved(
+    State(state): State<AppState>,
+    caller: Caller,
+) -> Result<Json<Vec<SavedReport>>, ApiError> {
     caller.require_credential(READERS)?;
     let saved = sqlx::query!(
         r#"SELECT r.id, r.name, r.filter, r.group_by, p.name AS "created_by?", r.created_at
@@ -107,16 +110,19 @@ pub(crate) async fn save_report(
     caller: Caller,
     Json(input): Json<SaveInput>,
 ) -> Result<(StatusCode, Json<SavedReport>), ApiError> {
-    caller.require_credential(&[Credential::Session])?;
+    caller.require_session()?;
     let name = input.name.trim();
     if name.is_empty() {
         return Err(ApiError::BadRequest("give the report a name".to_owned()));
     }
     let by = Grouping::parse(&input.by);
     if by.name().is_empty() {
-        return Err(ApiError::BadRequest("say what the report groups by, such as team".to_owned()));
+        return Err(ApiError::BadRequest(
+            "say what the report groups by, such as team".to_owned(),
+        ));
     }
-    let filter = Filter::parse(&input.filter).map_err(|error| ApiError::BadRequest(error.to_string()))?;
+    let filter =
+        Filter::parse(&input.filter).map_err(|error| ApiError::BadRequest(error.to_string()))?;
     let row = sqlx::query!(
         r#"INSERT INTO saved_reports (organization_id, name, filter, group_by, created_by)
            VALUES ($1, $2, $3, $4, $5)
@@ -216,7 +222,7 @@ pub(crate) async fn remove_saved(
     caller: Caller,
     Path(id): Path<Uuid>,
 ) -> Result<StatusCode, ApiError> {
-    caller.require_credential(&[Credential::Session])?;
+    caller.require_session()?;
     let removed = sqlx::query!(
         r#"DELETE FROM saved_reports
            WHERE id = $1 AND organization_id = $2 AND (created_by = $3 OR $4)"#,

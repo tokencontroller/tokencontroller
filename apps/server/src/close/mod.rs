@@ -8,7 +8,6 @@
 
 pub mod account;
 pub mod cost_sheet;
-pub mod ladder;
 pub mod late;
 pub mod links;
 pub mod period;
@@ -24,7 +23,8 @@ use axum::response::{IntoResponse, Response};
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use time::OffsetDateTime;
-use tokencontroller_core::Money;
+use tokencontroller_core::message::Signals;
+use tokencontroller_core::{CloseCheck, CostKind, Money, Status, TagValue, TokenEntry};
 use utoipa::{IntoParams, ToSchema};
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
@@ -32,16 +32,15 @@ use uuid::Uuid;
 
 use self::account::Account;
 use self::cost_sheet::CostSheet;
-use self::ladder::CostKind;
-use self::period::Period;
+use self::period::{Period, PeriodDates};
 use crate::AppState;
 use crate::bills::amount::{format_amount, parse_amount};
 use crate::error::ApiError;
 use crate::organizations::Role;
 use crate::reports::filter::{Filter, Tags};
-use crate::reports::lines::StatusView;
+use crate::reports::lines::{EntryStatus, StatusView};
 use crate::reports::scope::Scope;
-use crate::sign_in::{Caller, Credential};
+use crate::sign_in::Caller;
 
 /// This area's routes, relative to `/api/v1`.
 #[must_use]
@@ -76,16 +75,23 @@ pub struct PeriodSummary {
 pub struct OpenItems {
     /// Bills in for the period.
     pub bills: usize,
+    /// Providers whose token entries are on no bill yet. On a metered plan
+    /// the period cannot close until their bill is in.
+    pub providers_without_bill: Vec<String>,
     /// Organization overhead: cost on no project that may belong on one.
     pub organization_overhead: String,
     pub organization_overhead_entries: usize,
     /// Token sheets whose cadence period is over and that were not
     /// submitted.
     pub late_token_sheets: usize,
-    /// With approval on: token entries not approved yet.
+    /// With approval on: token entries submitted or rejected but not
+    /// approved yet.
     pub unapproved: usize,
     /// Token entries sent back to their agent manager.
     pub rejected: usize,
+    /// Token entries without an agent manager: they show as an error until
+    /// someone takes them.
+    pub without_agent_manager: usize,
     /// Token entries on a model missing from the price table.
     pub unknown_model: usize,
 }
@@ -103,44 +109,84 @@ pub struct PeriodView {
     pub blockers: Vec<String>,
 }
 
-async fn names(db: &PgPool, ids: &[Uuid]) -> Result<BTreeMap<Uuid, String>, sqlx::Error> {
-    let rows = sqlx::query!("SELECT id, name FROM people WHERE id = ANY($1)", ids)
-        .fetch_all(db)
-        .await?;
-    Ok(rows.into_iter().map(|row| (row.id, row.name)).collect())
+/// People's names and emails.
+struct People {
+    names: BTreeMap<Uuid, String>,
+    emails: BTreeMap<Uuid, String>,
 }
 
-async fn approval_on(db: &PgPool, organization_id: Uuid) -> Result<bool, ApiError> {
-    sqlx::query_scalar!("SELECT approval FROM organizations WHERE id = $1", organization_id)
-        .fetch_optional(db)
-        .await?
-        .ok_or(ApiError::NotFound)
+async fn people(db: &PgPool, ids: &[Uuid]) -> Result<People, sqlx::Error> {
+    let rows = sqlx::query!("SELECT id, name, email FROM people WHERE id = ANY($1)", ids)
+        .fetch_all(db)
+        .await?;
+    let mut people = People {
+        names: BTreeMap::new(),
+        emails: BTreeMap::new(),
+    };
+    for row in rows {
+        let name = if row.name.trim().is_empty() {
+            row.email.clone()
+        } else {
+            row.name
+        };
+        people.names.insert(row.id, name);
+        people.emails.insert(row.id, row.email);
+    }
+    Ok(people)
 }
 
 fn ended(period: Period, now: OffsetDateTime) -> bool {
     period.ends_at().is_ok_and(|end| now >= end)
 }
 
-/// Counts token entries of a period per status.
-async fn status_counts(
+/// The core's check of a period's token entries: what is unapproved,
+/// rejected, or without an agent manager.
+async fn close_check(
     db: &PgPool,
     organization_id: Uuid,
     period: Period,
-) -> Result<BTreeMap<String, i64>, ApiError> {
+    approval: bool,
+) -> Result<CloseCheck, ApiError> {
     let until = period
         .ends_at()
         .map_err(|error| ApiError::BadRequest(error.to_string()))?;
     let rows = sqlx::query!(
-        r#"SELECT status, count(*) AS "count!" FROM token_entries
-           WHERE organization_id = $1 AND started_at >= $2 AND started_at < $3
-           GROUP BY status"#,
+        r#"SELECT e.status, e.started_at, e.ended_at, e.agent_harness, e.on_token_sheet,
+                  p.email AS "email?"
+           FROM token_entries e LEFT JOIN people p ON p.id = e.agent_manager_id
+           WHERE e.organization_id = $1 AND e.started_at >= $2 AND e.started_at < $3"#,
         organization_id,
         period.starts_at(),
         until,
     )
     .fetch_all(db)
     .await?;
-    Ok(rows.into_iter().map(|row| (row.status, row.count)).collect())
+    let entries: Vec<TokenEntry> = rows
+        .into_iter()
+        .filter_map(|row| {
+            Some(TokenEntry {
+                agent_harness: row.agent_harness,
+                agent_name: None,
+                agent_manager: row.email.and_then(|email| TagValue::new(&email).ok()),
+                session_id: None,
+                started_at: row.started_at,
+                ended_at: row.ended_at,
+                summary: None,
+                arrival: if row.on_token_sheet {
+                    tokencontroller_core::Arrival::TokenSheet
+                } else {
+                    tokencontroller_core::Arrival::Automatic
+                },
+                status: EntryStatus::parse(&row.status)?.core(),
+                tags: tokencontroller_core::Tags::new(),
+                configured: tokencontroller_core::Tags::new(),
+                signals: Signals::default(),
+                segments: Vec::new(),
+                hand_split: Vec::new(),
+            })
+        })
+        .collect();
+    Ok(CloseCheck::of(period, approval, &entries))
 }
 
 /// Every period from the first with a token entry or a bill up to this
@@ -175,7 +221,7 @@ pub(crate) async fn list_periods(
     )
     .fetch_all(&state.db)
     .await?;
-    let current = Period::of(now);
+    let current = Period::containing(now);
     let mut period = first.map_or(current, Period::of_date);
     let mut periods = Vec::new();
     while period <= current {
@@ -187,7 +233,7 @@ pub(crate) async fn list_periods(
             closed_at: row.map(|row| row.closed_at),
             closed_by: row.and_then(|row| row.closed_by.clone()),
         });
-        let Ok(next) = period.next() else { break };
+        let Ok(next) = period.following() else { break };
         period = next;
     }
     periods.reverse();
@@ -212,17 +258,21 @@ pub(crate) async fn get_period(
 ) -> Result<Json<PeriodView>, ApiError> {
     caller.require_role(Role::Controller)?;
     let period = parse_period(&period)?;
-    Ok(Json(period_view(&state.db, caller.organization_id, period).await?))
+    Ok(Json(
+        period_view(&state.db, caller.organization_id, period).await?,
+    ))
 }
 
 fn parse_period(text: &str) -> Result<Period, ApiError> {
-    text.parse()
-        .map_err(|error: period::PeriodError| ApiError::BadRequest(error.to_string()))
+    Period::parse(text).map_err(|error| ApiError::BadRequest(error.to_string()))
 }
 
-async fn period_view(db: &PgPool, organization_id: Uuid, period: Period) -> Result<PeriodView, ApiError> {
+async fn period_view(
+    db: &PgPool,
+    organization_id: Uuid,
+    period: Period,
+) -> Result<PeriodView, ApiError> {
     let now = OffsetDateTime::now_utc();
-    let approval = approval_on(db, organization_id).await?;
     let account = account::load(
         db,
         organization_id,
@@ -233,31 +283,43 @@ async fn period_view(db: &PgPool, organization_id: Uuid, period: Period) -> Resu
     )
     .await?;
     let closed_by = match &account.closed {
-        Some(closed) => names(db, &[closed.closed_by]).await?.remove(&closed.closed_by),
+        Some(closed) => people(db, &[closed.closed_by])
+            .await?
+            .names
+            .remove(&closed.closed_by),
         None => None,
     };
-    let counts = status_counts(db, organization_id, period).await?;
-    let count = |status: &str| usize::try_from(counts.get(status).copied().unwrap_or(0)).unwrap_or(0);
+    let check = close_check(db, organization_id, period, account.approval).await?;
     let late = crate::token_sheets::late_sheets(db, organization_id, Some(period), now.date())
         .await?
         .len();
     let overhead: Vec<_> = account
-        .lines
-        .iter()
-        .filter(|line| account.ladder.cost_kind(&line.line.tags) == CostKind::OrganizationOverhead)
+        .counted()
+        .filter(|line| {
+            account.tag_map.cost_kind(&line.line.core_tags()) == CostKind::OrganizationOverhead
+        })
         .collect();
-    let overhead_total = Money::sum(overhead.iter().filter_map(|line| line.value), account.currency)
-        .map_err(|error| ApiError::Internal(error.into()))?;
+    let overhead_total = Money::sum(
+        overhead.iter().filter_map(|line| line.value),
+        account.currency,
+    )
+    .map_err(|error| ApiError::Internal(error.into()))?;
+    let without_bill = account.providers_without_bill();
     let open_items = OpenItems {
         bills: account.bills.len(),
+        providers_without_bill: without_bill.keys().cloned().collect(),
         organization_overhead: format_amount(overhead_total),
         organization_overhead_entries: overhead.len(),
         late_token_sheets: late,
-        unapproved: if approval { count("submitted") } else { 0 },
-        rejected: count("rejected"),
-        unknown_model: account.lines.iter().filter(|line| line.value.is_none()).count(),
+        unapproved: check.unapproved,
+        rejected: check.rejected,
+        without_agent_manager: check.without_agent_manager,
+        unknown_model: account
+            .counted()
+            .filter(|line| line.value.is_none())
+            .count(),
     };
-    let blockers = blockers(&account, approval, &open_items, now);
+    let blockers = blockers(&account, &check, &without_bill, now);
     Ok(PeriodView {
         summary: PeriodSummary {
             period,
@@ -266,27 +328,43 @@ async fn period_view(db: &PgPool, organization_id: Uuid, period: Period) -> Resu
             closed_at: account.closed.as_ref().map(|closed| closed.closed_at),
             closed_by,
         },
-        approval,
+        approval: account.approval,
         can_close: blockers.is_empty(),
         blockers,
         open_items,
     })
 }
 
-fn blockers(account: &Account, approval: bool, items: &OpenItems, now: OffsetDateTime) -> Vec<String> {
+fn blockers(
+    account: &Account,
+    check: &CloseCheck,
+    without_bill: &BTreeMap<String, usize>,
+    now: OffsetDateTime,
+) -> Vec<String> {
     let mut blockers = Vec::new();
     if account.closed.is_some() {
-        blockers.push(format!("{} is already closed. Corrections are adjustments.", account.period));
+        blockers.push(format!(
+            "{} is already closed. Corrections are adjustments.",
+            account.period
+        ));
         return blockers;
     }
     if !ended(account.period, now) {
         blockers.push(format!("{} is not over yet.", account.period));
     }
-    if approval && items.unapproved > 0 {
+    if !check.can_close() {
         blockers.push(format!(
             "{} token entries are not approved yet. With approval on, every token entry must be approved before the close.",
-            items.unapproved
+            check.unapproved
         ));
+    }
+    if account.metered {
+        for (provider, count) in without_bill {
+            blockers.push(format!(
+                "There is no bill from {provider} for {} yet, so {count} token entries are on no bill. Send the bill from the API, as CSV or typed in.",
+                account.period
+            ));
+        }
     }
     blockers
 }
@@ -310,9 +388,16 @@ pub(crate) async fn close_period(
     Path(period): Path<String>,
 ) -> Result<Json<CostSheet>, ApiError> {
     caller.require_role(Role::Controller)?;
-    caller.require_credential(&[Credential::Session])?;
+    caller.require_session()?;
     let period = parse_period(&period)?;
-    close(&state.db, caller.organization_id, period, caller.person_id, OffsetDateTime::now_utc()).await?;
+    close(
+        &state.db,
+        caller.organization_id,
+        period,
+        caller.person_id,
+        OffsetDateTime::now_utc(),
+    )
+    .await?;
     let sheet = sheet(&state.db, caller.organization_id, period, &[]).await?;
     Ok(Json(sheet))
 }
@@ -346,30 +431,39 @@ pub async fn close(
         &Filter::default(),
     )
     .await?;
-    let figures = crate::bills::reconciliation::provider_figures(&account)
-        .map_err(|error| ApiError::Internal(error.into()))?;
+    let sheet = account.cost_sheet(&[], &BTreeMap::new())?;
     let entry_ids: Vec<Uuid> = account
-        .lines
-        .iter()
+        .counted()
         .map(|line| line.line.entry_id)
         .collect::<BTreeSet<_>>()
         .into_iter()
         .collect();
-    let (tag_map_version, _) = account::current_ladder(db, organization_id).await?;
+    // Submitted and approved token entries lock; drafts and rejected ones
+    // stay as they are and reach the period only as late adjustments.
+    let locking: Vec<String> = EntryStatus::ALL
+        .into_iter()
+        .filter(|status| {
+            status.core() != Status::Locked
+                && tokencontroller_core::close::status_after_close(status.core()) == Status::Locked
+        })
+        .map(|status| status.as_str().to_owned())
+        .collect();
+    let tag_map_version = i32::try_from(account.tag_map_version.number())
+        .map_err(|error| ApiError::Internal(error.into()))?;
     let price_table_version = current_price_table_version(db).await?;
 
     let mut tx = db.begin().await?;
     sqlx::query!(
         r#"INSERT INTO closed_periods
                (organization_id, period, closed_at, closed_by, reporting_currency, approval,
-                tag_map_version_id, price_table_version_id)
+                tag_map_version, price_table_version_id)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)"#,
         organization_id,
         period.first_day(),
         now,
         controller,
         account.currency.code(),
-        view.approval,
+        account.approval,
         tag_map_version,
         price_table_version,
     )
@@ -383,9 +477,10 @@ pub async fn close(
     })?;
     let locked = sqlx::query!(
         r#"UPDATE token_entries SET status = 'locked'
-           WHERE id = ANY($1) AND organization_id = $2 AND status IN ('submitted', 'approved')"#,
+           WHERE id = ANY($1) AND organization_id = $2 AND status = ANY($3)"#,
         &entry_ids,
         organization_id,
+        &locking,
     )
     .execute(&mut *tx)
     .await?
@@ -396,29 +491,24 @@ pub async fn close(
             "token entries changed while the period was closing; close again".to_owned(),
         ));
     }
-    write_snapshot(&mut tx, &account, &figures).await?;
+    write_snapshot(&mut tx, &account, &sheet).await?;
     tx.commit().await?;
     tracing::info!(%organization_id, %period, entries = entry_ids.len(), "period closed");
     late::post_late_entries(db, organization_id).await?;
     Ok(())
 }
 
-/// Keeps each bill revision and rate the period closed with.
+/// Keeps each bill revision as it was reconciled and every rate the period
+/// closed with.
 async fn write_snapshot(
     tx: &mut sqlx::PgConnection,
     account: &Account,
-    figures: &[crate::bills::reconciliation::ProviderFigures],
+    sheet: &tokencontroller_core::CostSheet,
 ) -> Result<(), sqlx::Error> {
     let organization_id = account.organization_id;
     let period = account.period;
-    let mut seen_providers = BTreeSet::new();
-    for bill in &account.bills {
-        let figure = figures.iter().find(|figure| figure.provider == bill.view.provider);
-        let first_of_provider = seen_providers.insert(bill.view.provider.clone());
-        let (entries, residual) = match figure {
-            Some(figure) if first_of_provider => (figure.entries.nanos(), figure.residual.nanos()),
-            _ => (0, 0),
-        };
+    for (bill, block) in account.bills.iter().zip(&sheet.blocks) {
+        let reconciliation = block.bill.reconciliation;
         sqlx::query!(
             r#"INSERT INTO closed_period_bills
                    (organization_id, period, bill_revision_id, entries_nanos, residual_nanos, exchange_rate_nanos)
@@ -426,21 +516,23 @@ async fn write_snapshot(
             organization_id,
             period.first_day(),
             bill.revision_id,
-            entries,
-            residual,
-            bill.rate.nanos(),
+            reconciliation.explained.nanos(),
+            reconciliation.residual.nanos(),
+            crate::bills::amount::rate_number(block.bill.rate).nanos(),
         )
         .execute(&mut *tx)
         .await?;
     }
-    for (currency, rate) in account.converter.rates() {
+    for rate in account.converter.rates() {
         sqlx::query!(
-            r#"INSERT INTO closed_period_rates (organization_id, period, currency, exchange_rate_nanos)
-               VALUES ($1, $2, $3, $4)"#,
+            r#"INSERT INTO closed_period_rates
+                   (organization_id, period, from_currency, to_currency, exchange_rate_nanos)
+               VALUES ($1, $2, $3, $4, $5)"#,
             organization_id,
             period.first_day(),
-            currency.code(),
-            rate.nanos(),
+            rate.from().code(),
+            rate.to().code(),
+            crate::bills::amount::rate_number(rate).nanos(),
         )
         .execute(&mut *tx)
         .await?;
@@ -449,10 +541,12 @@ async fn write_snapshot(
 }
 
 /// The price table version in force, kept with a closed period.
-async fn current_price_table_version(db: &PgPool) -> Result<Option<Uuid>, sqlx::Error> {
-    sqlx::query_scalar!("SELECT id FROM price_table_versions ORDER BY created_at DESC, id DESC LIMIT 1")
-        .fetch_optional(db)
-        .await
+async fn current_price_table_version(db: &PgPool) -> Result<Option<i64>, sqlx::Error> {
+    sqlx::query_scalar!(
+        "SELECT id FROM price_table_versions ORDER BY created_at DESC, id DESC LIMIT 1"
+    )
+    .fetch_optional(db)
+    .await
 }
 
 /// An adjustment to post (docs: Account > Adjustments).
@@ -490,7 +584,7 @@ pub(crate) async fn post_adjustment(
     Json(input): Json<AdjustmentInput>,
 ) -> Result<(StatusCode, Json<CostSheet>), ApiError> {
     caller.require_role(Role::Controller)?;
-    caller.require_credential(&[Credential::Session])?;
+    caller.require_session()?;
     let period = parse_period(&period)?;
     let organization_id = caller.organization_id;
     let currency = sqlx::query_scalar!(
@@ -507,16 +601,27 @@ pub(crate) async fn post_adjustment(
     })?;
     let currency = tokencontroller_core::Currency::new(&currency)
         .map_err(|error| ApiError::Internal(error.into()))?;
-    let amount = parse_amount(&input.amount, currency).map_err(|error| ApiError::BadRequest(error.to_string()))?;
+    let amount = parse_amount(&input.amount, currency)
+        .map_err(|error| ApiError::BadRequest(error.to_string()))?;
     if amount.is_zero() {
-        return Err(ApiError::BadRequest("an adjustment needs an amount other than zero".to_owned()));
+        return Err(ApiError::BadRequest(
+            "an adjustment needs an amount other than zero".to_owned(),
+        ));
     }
     let reason = input.reason.trim();
     if reason.is_empty() {
-        return Err(ApiError::BadRequest("an adjustment needs a reason".to_owned()));
+        return Err(ApiError::BadRequest(
+            "an adjustment needs a reason".to_owned(),
+        ));
     }
-    if input.tags.iter().any(|(name, value)| name.trim().is_empty() || value.trim().is_empty()) {
-        return Err(ApiError::BadRequest("every tag needs a name and a value".to_owned()));
+    if input
+        .tags
+        .iter()
+        .any(|(name, value)| name.trim().is_empty() || value.trim().is_empty())
+    {
+        return Err(ApiError::BadRequest(
+            "every tag needs a name and a value".to_owned(),
+        ));
     }
     sqlx::query!(
         r#"INSERT INTO adjustments (organization_id, period, amount_nanos, currency, tags, reason, posted_by)
@@ -535,6 +640,31 @@ pub(crate) async fn post_adjustment(
     Ok((StatusCode::CREATED, Json(sheet)))
 }
 
+/// A period's account for the cost sheet, with the names and emails of
+/// whoever posted its adjustments.
+async fn sheet_account(
+    db: &PgPool,
+    organization_id: Uuid,
+    period: Period,
+) -> Result<(Account, People), ApiError> {
+    let account = account::load(
+        db,
+        organization_id,
+        period,
+        StatusView::All,
+        &Scope::everything(),
+        &Filter::default(),
+    )
+    .await?;
+    let posted_by: Vec<Uuid> = account
+        .adjustments
+        .iter()
+        .filter_map(|a| a.posted_by)
+        .collect();
+    let people = people(db, &posted_by).await?;
+    Ok((account, people))
+}
+
 /// Computes the cost sheet of a period with extra tag columns.
 ///
 /// # Errors
@@ -547,18 +677,13 @@ pub async fn sheet(
     period: Period,
     columns: &[String],
 ) -> Result<CostSheet, ApiError> {
-    let account = account::load(
-        db,
-        organization_id,
-        period,
-        StatusView::All,
-        &Scope::everything(),
-        &Filter::default(),
-    )
-    .await?;
-    let posted_by: Vec<Uuid> = account.adjustments.iter().filter_map(|a| a.posted_by).collect();
-    let names = names(db, &posted_by).await?;
-    cost_sheet::compute(&account, columns, &names).map_err(|error| ApiError::Internal(error.into()))
+    let (account, people) = sheet_account(db, organization_id, period).await?;
+    Ok(cost_sheet::compute(
+        &account,
+        columns,
+        &people.names,
+        &people.emails,
+    )?)
 }
 
 /// How to show the cost sheet.
@@ -592,15 +717,26 @@ impl SheetQuery {
     }
 }
 
-/// Answers with the cost sheet as JSON or as a CSV download.
-#[must_use]
-pub fn sheet_response(sheet: CostSheet, csv: bool) -> Response {
-    if csv {
-        let filename = format!("cost-sheet-{}.csv", sheet.period);
-        cost_sheet::to_csv(&sheet).into_download(&filename)
-    } else {
-        Json(sheet).into_response()
+/// Answers with the cost sheet as JSON or as the core's CSV download.
+///
+/// # Errors
+///
+/// As [`sheet`].
+pub async fn sheet_response(
+    db: &PgPool,
+    organization_id: Uuid,
+    period: Period,
+    query: &SheetQuery,
+) -> Result<Response, ApiError> {
+    let (account, people) = sheet_account(db, organization_id, period).await?;
+    let columns = query.column_names();
+    if query.wants_csv() {
+        let text = cost_sheet::to_csv(&account, &columns, &people.emails)?;
+        let filename = format!("cost-sheet-{period}.csv");
+        return crate::reports::csv::download(&text, &filename);
     }
+    let sheet = cost_sheet::compute(&account, &columns, &people.names, &people.emails)?;
+    Ok(Json(sheet).into_response())
 }
 
 /// The cost sheet of a period: final once it is closed, a preview while it
@@ -623,8 +759,7 @@ pub(crate) async fn get_cost_sheet(
 ) -> Result<Response, ApiError> {
     caller.require_role(Role::Controller)?;
     let period = parse_period(&period)?;
-    let sheet = sheet(&state.db, caller.organization_id, period, &query.column_names()).await?;
-    Ok(sheet_response(sheet, query.wants_csv()))
+    sheet_response(&state.db, caller.organization_id, period, &query).await
 }
 
 #[cfg(test)]
@@ -634,7 +769,7 @@ mod tests {
 
     #[test]
     fn a_period_ends_when_the_next_month_starts() {
-        let september: Period = "2026-09".parse().unwrap();
+        let september = Period::parse("2026-09").unwrap();
         assert!(!ended(september, datetime!(2026-09-30 23:59:59 UTC)));
         assert!(ended(september, datetime!(2026-10-01 00:00 UTC)));
     }

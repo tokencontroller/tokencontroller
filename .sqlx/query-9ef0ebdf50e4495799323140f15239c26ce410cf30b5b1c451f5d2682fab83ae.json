@@ -1,0 +1,60 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT ts.starts_on, ts.ends_on, ts.last_submitted_at,\n                  (SELECT count(*) FROM token_sheet_entries tse WHERE tse.token_sheet_id = ts.id) AS \"entries!\"\n           FROM token_sheets ts\n           WHERE ts.organization_id = $1 AND ts.person_id = $2\n           ORDER BY ts.starts_on DESC\n           LIMIT 52",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "starts_on",
+        "type_info": "Date",
+        "origin": {
+          "Table": {
+            "table": "token_sheets",
+            "name": "starts_on"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "ends_on",
+        "type_info": "Date",
+        "origin": {
+          "Table": {
+            "table": "token_sheets",
+            "name": "ends_on"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "last_submitted_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "token_sheets",
+            "name": "last_submitted_at"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "entries!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      null
+    ]
+  },
+  "hash": "9ef0ebdf50e4495799323140f15239c26ce410cf30b5b1c451f5d2682fab83ae"
+}

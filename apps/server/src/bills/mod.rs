@@ -26,12 +26,12 @@ use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 use uuid::Uuid;
 
-use self::amount::{AmountError, ExchangeRate, format_amount, parse_amount};
+use self::amount::{AmountError, RateNumber, format_amount, parse_amount, rate_number};
 use crate::AppState;
-use crate::close::period::Period;
+use crate::close::period::{Period, PeriodDates};
 use crate::error::ApiError;
 use crate::organizations::Role;
-use crate::sign_in::{Caller, Credential};
+use crate::sign_in::{Caller, CredentialKind};
 
 /// This area's routes, relative to `/api/v1`.
 #[must_use]
@@ -43,8 +43,11 @@ pub fn routes() -> OpenApiRouter<AppState> {
 }
 
 /// How a provider charges for what a bill covers. Seats and subscriptions
-/// are flat fees and have no bill.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, ToSchema)]
+/// are flat fees and have no bill. When one provider has bills from several
+/// cost sources, its token entries are charged on the first in this order.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, ToSchema,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum CostSource {
     UsageAtApiRates,
@@ -61,6 +64,17 @@ impl CostSource {
             Self::ApiKey => "api_key",
             Self::CloudMarketplace => "cloud_marketplace",
             Self::Reseller => "reseller",
+        }
+    }
+
+    /// The core's cost source.
+    #[must_use]
+    pub const fn core(self) -> tokencontroller_core::CostSource {
+        match self {
+            Self::UsageAtApiRates => tokencontroller_core::CostSource::UsageAtApiRates,
+            Self::ApiKey => tokencontroller_core::CostSource::ApiKey,
+            Self::CloudMarketplace => tokencontroller_core::CostSource::CloudMarketplace,
+            Self::Reseller => tokencontroller_core::CostSource::Reseller,
         }
     }
 
@@ -127,7 +141,7 @@ pub struct NewBill {
     pub net: Money,
     /// To the organization's reporting currency, at the bill's date. Left
     /// out, it is filled from the reference rate of the period's last day.
-    pub exchange_rate: Option<ExchangeRate>,
+    pub exchange_rate: Option<RateNumber>,
     pub source: BillSource,
     /// The provider's own detail, such as cost per workspace and day.
     pub lines: Vec<serde_json::Value>,
@@ -140,7 +154,9 @@ pub struct NewBill {
 pub enum BillError {
     #[error("the amounts must all be in the bill's currency, {0}")]
     Currency(Currency),
-    #[error("gross minus discount minus credit must equal net: {gross} - {discount} - {credit} is not {net}")]
+    #[error(
+        "gross minus discount minus credit must equal net: {gross} - {discount} - {credit} is not {net}"
+    )]
     DoesNotAddUp {
         gross: Money,
         discount: Money,
@@ -230,7 +246,9 @@ pub async fn record_bill(
     } else {
         let rate = rates::between(db, currency, reporting, bill.period.last_day())
             .await?
-            .ok();
+            .ok()
+            .filter(|_| currency != reporting)
+            .map(rate_number);
         (rate, false)
     };
 
@@ -267,10 +285,12 @@ pub async fn record_bill(
             && latest.credit_nanos == bill.credit.nanos()
             && latest.net_nanos == bill.net.nanos()
             && latest.lines == lines
-            && (!given || latest.exchange_rate_nanos == exchange_rate.map(ExchangeRate::nanos));
+            && (!given || latest.exchange_rate_nanos == exchange_rate.map(RateNumber::nanos));
         if same {
             tx.commit().await?;
-            let view = latest_view(db, bill_id).await?.ok_or(sqlx::Error::RowNotFound)?;
+            let view = latest_view(db, bill_id)
+                .await?
+                .ok_or(sqlx::Error::RowNotFound)?;
             return Ok(Ok(RecordedBill {
                 bill: view,
                 changed: false,
@@ -293,7 +313,7 @@ pub async fn record_bill(
         bill.discount.nanos(),
         bill.credit.nanos(),
         bill.net.nanos(),
-        exchange_rate.map(ExchangeRate::nanos),
+        exchange_rate.map(RateNumber::nanos),
         given,
         bill.source.as_str(),
         lines,
@@ -302,7 +322,9 @@ pub async fn record_bill(
     .execute(&mut *tx)
     .await?;
     tx.commit().await?;
-    let view = latest_view(db, bill_id).await?.ok_or(sqlx::Error::RowNotFound)?;
+    let view = latest_view(db, bill_id)
+        .await?
+        .ok_or(sqlx::Error::RowNotFound)?;
     Ok(Ok(RecordedBill {
         bill: view,
         changed: true,
@@ -329,22 +351,29 @@ fn check(bill: &NewBill) -> Result<(), BillError> {
     if !valid_provider {
         return Err(BillError::Provider(bill.provider.clone()));
     }
-    let does_not_add_up = BillError::DoesNotAddUp {
+    let core = tokencontroller_core::Bill {
+        id: format!(
+            "{}-{}-{}",
+            bill.provider,
+            bill.cost_source.as_str(),
+            bill.period
+        ),
+        provider: bill.provider.clone(),
+        cost_source: bill.cost_source.core(),
+        period: bill.period,
         gross: bill.gross,
         discount: bill.discount,
         credit: bill.credit,
         net: bill.net,
+        exchange_rate: None,
+        revision: 1,
     };
-    let computed = bill
-        .gross
-        .checked_sub(bill.discount)
-        .and_then(|rest| rest.checked_sub(bill.credit))
-        .map_err(|_| does_not_add_up.clone())?;
-    if computed == bill.net {
-        Ok(())
-    } else {
-        Err(does_not_add_up)
-    }
+    core.check().map_err(|_| BillError::DoesNotAddUp {
+        gross: bill.gross,
+        discount: bill.discount,
+        credit: bill.credit,
+        net: bill.net,
+    })
 }
 
 /// The organization's reporting currency.
@@ -352,7 +381,10 @@ fn check(bill: &NewBill) -> Result<(), BillError> {
 /// # Errors
 ///
 /// A database error.
-pub async fn reporting_currency(db: &PgPool, organization_id: Uuid) -> Result<Option<Currency>, sqlx::Error> {
+pub async fn reporting_currency(
+    db: &PgPool,
+    organization_id: Uuid,
+) -> Result<Option<Currency>, sqlx::Error> {
     let code = sqlx::query_scalar!(
         "SELECT reporting_currency FROM organizations WHERE id = $1",
         organization_id
@@ -421,7 +453,11 @@ pub async fn latest_bills(
 /// # Errors
 ///
 /// A database error.
-pub async fn revisions(db: &PgPool, organization_id: Uuid, bill_id: Uuid) -> Result<Vec<BillView>, sqlx::Error> {
+pub async fn revisions(
+    db: &PgPool,
+    organization_id: Uuid,
+    bill_id: Uuid,
+) -> Result<Vec<BillView>, sqlx::Error> {
     let rows = sqlx::query!(
         r#"SELECT b.id, b.period, b.provider, b.cost_source, r.revision, r.currency,
                   r.gross_nanos, r.discount_nanos, r.credit_nanos, r.net_nanos,
@@ -459,9 +495,10 @@ pub async fn revisions(db: &PgPool, organization_id: Uuid, bill_id: Uuid) -> Res
 }
 
 async fn latest_view(db: &PgPool, bill_id: Uuid) -> Result<Option<BillView>, sqlx::Error> {
-    let organization_id = sqlx::query_scalar!("SELECT organization_id FROM bills WHERE id = $1", bill_id)
-        .fetch_one(db)
-        .await?;
+    let organization_id =
+        sqlx::query_scalar!("SELECT organization_id FROM bills WHERE id = $1", bill_id)
+            .fetch_one(db)
+            .await?;
     Ok(revisions(db, organization_id, bill_id).await?.pop())
 }
 
@@ -499,7 +536,7 @@ fn view(row: RevisionRow) -> Option<BillView> {
         net: money(row.net_nanos),
         exchange_rate: row
             .exchange_rate_nanos
-            .and_then(|nanos| ExchangeRate::from_nanos(nanos).ok())
+            .and_then(|nanos| RateNumber::from_nanos(nanos).ok())
             .map(|rate| rate.to_string()),
         exchange_rate_given: row.exchange_rate_given,
         source: BillSource::parse(&row.source)?,
@@ -550,9 +587,12 @@ impl BillInput {
     ///
     /// [`BillError`] for an amount, currency or rate that cannot be read.
     pub fn into_new_bill(self, recorded_by: Uuid) -> Result<NewBill, BillError> {
-        let currency = Currency::new(&self.currency).map_err(|_| BillError::Amount(AmountError::Invalid(self.currency.clone())))?;
+        let currency = Currency::new(&self.currency)
+            .map_err(|_| BillError::Amount(AmountError::Invalid(self.currency.clone())))?;
         let read = |text: Option<&str>| -> Result<Money, BillError> {
-            text.map_or(Ok(Money::zero(currency)), |text| Ok(parse_amount(text, currency)?))
+            text.map_or(Ok(Money::zero(currency)), |text| {
+                Ok(parse_amount(text, currency)?)
+            })
         };
         let net = parse_amount(&self.net, currency)?;
         let discount = read(self.discount.as_deref())?;
@@ -567,7 +607,7 @@ impl BillInput {
         let exchange_rate = self
             .exchange_rate
             .as_deref()
-            .map(ExchangeRate::parse)
+            .map(RateNumber::parse)
             .transpose()?;
         Ok(NewBill {
             period: self.period,
@@ -611,7 +651,7 @@ pub(crate) async fn post_bill(
     Json(input): Json<BillInput>,
 ) -> Result<(StatusCode, Json<BillView>), ApiError> {
     caller.require_role(Role::Controller)?;
-    caller.require_credential(&[Credential::Session, Credential::Service])?;
+    caller.require_credential(&[CredentialKind::Session, CredentialKind::Service])?;
     let bill = input.into_new_bill(caller.person_id)?;
     let recorded = record_bill(&state.db, caller.organization_id, bill).await??;
     let status = if recorded.changed {
@@ -648,7 +688,9 @@ pub(crate) async fn list_bills(
     Query(query): Query<BillsQuery>,
 ) -> Result<Json<Vec<BillView>>, ApiError> {
     caller.require_role(Role::Controller)?;
-    Ok(Json(latest_bills(&state.db, caller.organization_id, query.period).await?))
+    Ok(Json(
+        latest_bills(&state.db, caller.organization_id, query.period).await?,
+    ))
 }
 
 /// Every revision of one bill, oldest first.
@@ -685,7 +727,7 @@ mod tests {
 
     fn bill(gross: &str, discount: &str, credit: &str, net: &str) -> NewBill {
         NewBill {
-            period: "2026-09".parse().unwrap(),
+            period: Period::parse("2026-09").unwrap(),
             provider: "anthropic".to_owned(),
             cost_source: CostSource::UsageAtApiRates,
             gross: usd(gross),
@@ -725,7 +767,7 @@ mod tests {
     #[test]
     fn gross_defaults_to_net_plus_reductions() {
         let input = BillInput {
-            period: "2026-09".parse().unwrap(),
+            period: Period::parse("2026-09").unwrap(),
             provider: "openai".to_owned(),
             cost_source: CostSource::ApiKey,
             gross: None,
@@ -741,7 +783,7 @@ mod tests {
         assert_eq!(new.gross, usd("100"));
         assert_eq!(new.credit, usd("0"));
         assert_eq!(new.source, BillSource::Manual);
-        assert_eq!(new.exchange_rate, Some(ExchangeRate::parse("0.9").unwrap()));
+        assert_eq!(new.exchange_rate, Some(RateNumber::parse("0.9").unwrap()));
         assert_eq!(check(&new), Ok(()));
     }
 
@@ -756,7 +798,12 @@ mod tests {
             assert_eq!(CostSource::parse(source.as_str()), Some(source));
         }
         assert_eq!(CostSource::parse("seat"), None);
-        for source in [BillSource::Pulled, BillSource::Csv, BillSource::Manual, BillSource::Api] {
+        for source in [
+            BillSource::Pulled,
+            BillSource::Csv,
+            BillSource::Manual,
+            BillSource::Api,
+        ] {
             assert_eq!(BillSource::parse(source.as_str()), Some(source));
         }
         assert_eq!(BillSource::parse("email"), None);

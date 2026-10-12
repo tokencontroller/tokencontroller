@@ -13,19 +13,19 @@ use axum::response::{IntoResponse, Response};
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use time::OffsetDateTime;
-use tokencontroller_core::{Currency, Money, MoneyError};
+use tokencontroller_core::{Currency, Money, MoneyError, TagName, group_by, shares};
 use utoipa::{IntoParams, ToSchema};
 
+use super::READERS;
 use super::csv::Csv;
 use super::filter::{Filter, Tags};
 use super::lines::StatusView;
 use super::scope::Scope;
-use super::{READERS, share};
 use crate::AppState;
 use crate::bills::amount::format_amount;
 use crate::bills::rates;
 use crate::close::account::{self, Account};
-use crate::close::period::Period;
+use crate::close::period::{Period, PeriodDates};
 use crate::error::ApiError;
 use crate::sign_in::Caller;
 
@@ -95,7 +95,10 @@ impl Grouping {
             Self::Effort => entry.effort.clone(),
             Self::Speed => entry.speed.clone(),
             Self::Day => Some(entry.started_at.date().to_string()),
-            Self::CostKind => Some(account.ladder.cost_kind(&entry.tags).as_str().to_owned()),
+            Self::CostKind => Some(
+                crate::close::cost_sheet::kind_name(account.tag_map.cost_kind(&entry.core_tags()))
+                    .to_owned(),
+            ),
         }
     }
 
@@ -125,9 +128,9 @@ pub struct ReportRow {
     pub value: Option<String>,
     #[schema(example = "41.87")]
     pub amount: String,
-    /// The line's share of the total in percent, such as `41.20`, in the
-    /// share view.
-    pub share: Option<String>,
+    /// The line's share of the period's usage in basis points, `4120` for
+    /// 41.20 percent, in the share view. Adjustments have none.
+    pub share: Option<u64>,
     pub token_entries: usize,
     /// Token entries on a model missing from the price table.
     pub unknown_model: usize,
@@ -214,16 +217,51 @@ pub fn compute(
         let bucket = groups.entry(grouping.key(line, account)).or_default();
         bucket.entries = bucket.entries.saturating_add(1);
         match line.value {
-            Some(value) => bucket.nanos = bucket.nanos.checked_add(value.nanos()).ok_or(MoneyError::Overflow)?,
+            Some(value) => {
+                bucket.nanos = bucket
+                    .nanos
+                    .checked_add(value.nanos())
+                    .ok_or(MoneyError::Overflow)?;
+            }
             None => bucket.unknown = bucket.unknown.saturating_add(1),
+        }
+    }
+    // A tag grouping is the core's group_by.
+    if let Grouping::Tag(name) = grouping
+        && let Ok(tag) = TagName::new(name)
+    {
+        let items: Vec<(tokencontroller_core::Tags, Money)> = account
+            .lines
+            .iter()
+            .filter_map(|line| Some((line.line.core_tags(), line.value?)))
+            .collect();
+        let everything = tokencontroller_core::Filter::default();
+        for (value, amount) in group_by(
+            items.iter().map(|(tags, amount)| (tags, *amount)),
+            &everything,
+            &tag,
+            currency,
+        )? {
+            groups
+                .entry(value.map(|value| value.to_string()))
+                .or_default()
+                .nanos = amount.nanos();
         }
     }
     let mut adjustments: BTreeMap<Option<String>, i64> = BTreeMap::new();
     for adjustment in &account.adjustments {
-        let visible = scope.is_everything() || scope.filters().iter().any(|mine| mine.matches(&adjustment.tags));
+        let visible = scope.is_everything()
+            || scope
+                .filters()
+                .iter()
+                .any(|mine| mine.matches(&adjustment.tags));
         if visible && filter.matches(&adjustment.tags) {
-            let slot = adjustments.entry(grouping.adjustment_key(&adjustment.tags)).or_insert(0);
-            *slot = slot.checked_add(adjustment.amount.nanos()).ok_or(MoneyError::Overflow)?;
+            let slot = adjustments
+                .entry(grouping.adjustment_key(&adjustment.tags))
+                .or_insert(0);
+            *slot = slot
+                .checked_add(adjustment.amount.nanos())
+                .ok_or(MoneyError::Overflow)?;
         }
     }
     let mut rows: Vec<Computed> = groups
@@ -302,12 +340,15 @@ pub async fn run(db: &PgPool, caller: &Caller, spec: Spec) -> Result<Report, Api
         view,
     } = spec;
     let scope = Scope::of(db, caller).await?;
-    let account = account::load(db, caller.organization_id, period, status, &scope, &filter).await?;
-    let (rows, total) =
-        compute(&account, &grouping, &filter, &scope).map_err(|error| ApiError::Internal(error.into()))?;
+    let account =
+        account::load(db, caller.organization_id, period, status, &scope, &filter).await?;
+    let (rows, total) = compute(&account, &grouping, &filter, &scope)
+        .map_err(|error| ApiError::Internal(error.into()))?;
 
     let target = match currency.as_deref() {
-        Some(code) => Currency::new(code.trim()).map_err(|error| ApiError::BadRequest(error.to_string()))?,
+        Some(code) => {
+            Currency::new(code.trim()).map_err(|error| ApiError::BadRequest(error.to_string()))?
+        }
         None => account.currency,
     };
     let day = period.last_day().min(OffsetDateTime::now_utc().date());
@@ -315,7 +356,7 @@ pub async fn run(db: &PgPool, caller: &Caller, spec: Spec) -> Result<Report, Api
         .await?
         .map_err(|error| ApiError::Conflict(error.to_string()))?;
     let convert = |amount: Money| {
-        rate.convert(amount, target)
+        rate.convert(amount)
             .map_err(|error| ApiError::Internal(error.into()))
     };
     let amounts = rows
@@ -323,14 +364,15 @@ pub async fn run(db: &PgPool, caller: &Caller, spec: Spec) -> Result<Report, Api
         .map(|row| convert(row.amount))
         .collect::<Result<Vec<_>, _>>()?;
     let shares = if view == View::Share {
-        share::percentages(&amounts.iter().map(|amount| amount.nanos()).collect::<Vec<_>>())
+        share_points(&rows, &amounts)
     } else {
         vec![None; amounts.len()]
     };
     let total = if target == account.currency {
         total
     } else {
-        Money::sum(amounts.iter().copied(), target).map_err(|error| ApiError::Internal(error.into()))?
+        Money::sum(amounts.iter().copied(), target)
+            .map_err(|error| ApiError::Internal(error.into()))?
     };
     Ok(Report {
         period,
@@ -340,7 +382,8 @@ pub async fn run(db: &PgPool, caller: &Caller, spec: Spec) -> Result<Report, Api
         status,
         view,
         currency: target,
-        exchange_rate: (target != account.currency).then(|| rate.to_string()),
+        exchange_rate: (target != account.currency)
+            .then(|| crate::bills::amount::rate_number(rate).to_string()),
         label: if view == View::Share {
             "share of the period"
         } else {
@@ -363,6 +406,39 @@ pub async fn run(db: &PgPool, caller: &Caller, spec: Spec) -> Result<Report, Api
     })
 }
 
+/// Each usage line's share of the period in basis points (the core's
+/// [`shares`]); adjustments get none. No usage, or a negative line, gives
+/// no shares.
+fn share_points(rows: &[Computed], amounts: &[Money]) -> Vec<Option<u64>> {
+    let usage: Vec<Money> = rows
+        .iter()
+        .zip(amounts)
+        .filter(|(row, _)| !row.adjustment)
+        .map(|(_, amount)| *amount)
+        .collect();
+    let mut points = shares(&usage)
+        .map_or_else(
+            |_| vec![None; usage.len()],
+            |points| points.into_iter().map(Some).collect(),
+        )
+        .into_iter();
+    rows.iter()
+        .map(|row| {
+            if row.adjustment {
+                None
+            } else {
+                points.next().flatten()
+            }
+        })
+        .collect()
+}
+
+/// Basis points as a percentage with two decimals, such as `41.20`.
+#[must_use]
+pub fn percent_text(points: u64) -> String {
+    format!("{}.{:02}", points.div_euclid(100), points.rem_euclid(100))
+}
+
 /// A report as CSV.
 #[must_use]
 pub fn to_csv(report: &Report) -> Csv {
@@ -383,7 +459,7 @@ pub fn to_csv(report: &Report) -> Csv {
             row.value.clone().unwrap_or_default(),
             row.amount.clone(),
             report.currency.code(),
-            row.share.clone().unwrap_or_default(),
+            row.share.map(percent_text).unwrap_or_default(),
             row.token_entries.to_string(),
             row.unknown_model.to_string(),
             if row.adjustment { "yes" } else { "no" }.to_owned(),
@@ -433,7 +509,11 @@ pub(crate) async fn cost_report(
 ) -> Result<Response, ApiError> {
     caller.require_credential(READERS)?;
     let report = run(&state.db, &caller, Spec::read(&query, "project")?).await?;
-    Ok(respond(report, query.format.as_deref() == Some("csv"), "cost"))
+    Ok(respond(
+        report,
+        query.format.as_deref() == Some("csv"),
+        "cost",
+    ))
 }
 
 /// Cost by agent harness, agent name, model, effort or speed.
@@ -460,7 +540,11 @@ pub(crate) async fn agent_harness_report(
         ));
     }
     let report = run(&state.db, &caller, spec).await?;
-    Ok(respond(report, query.format.as_deref() == Some("csv"), "agent-harness"))
+    Ok(respond(
+        report,
+        query.format.as_deref() == Some("csv"),
+        "agent-harness",
+    ))
 }
 
 #[cfg(test)]
@@ -469,7 +553,15 @@ mod tests {
 
     #[test]
     fn groupings_round_trip_and_tags_are_the_rest() {
-        for by in ["agent_harness", "agent_name", "model", "effort", "speed", "day", "cost_kind"] {
+        for by in [
+            "agent_harness",
+            "agent_name",
+            "model",
+            "effort",
+            "speed",
+            "day",
+            "cost_kind",
+        ] {
             assert_eq!(Grouping::parse(by).name(), by);
             assert!(!matches!(Grouping::parse(by), Grouping::Tag(_)));
         }

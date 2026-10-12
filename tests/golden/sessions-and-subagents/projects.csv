@@ -1,0 +1,3 @@
+project,ticket_key_pattern,repositories,tags
+storefront,^KD-[0-9]+,kestrel/storefront,
+intranet,^INT-[0-9]+,kestrel/intranet,

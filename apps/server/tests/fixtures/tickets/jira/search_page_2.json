@@ -1,0 +1,37 @@
+{
+  "isLast": true,
+  "issues": [
+    {
+      "expand": "",
+      "id": "10216",
+      "self": "https://acme.atlassian.net/rest/api/3/issue/10216",
+      "key": "KD-216",
+      "fields": {
+        "summary": "Remove the old payment banner",
+        "description": {
+          "type": "doc",
+          "version": 1,
+          "content": [
+            { "type": "paragraph", "content": [{ "type": "text", "text": "The banner links to a page that no longer exists." }] }
+          ]
+        },
+        "assignee": null,
+        "updated": "2026-10-12T11:02:17.230+0200",
+        "status": {
+          "self": "https://acme.atlassian.net/rest/api/3/status/10002",
+          "description": "",
+          "iconUrl": "https://acme.atlassian.net/",
+          "name": "Done",
+          "id": "10002",
+          "statusCategory": {
+            "self": "https://acme.atlassian.net/rest/api/3/statuscategory/3",
+            "id": 3,
+            "key": "done",
+            "colorName": "green",
+            "name": "Done"
+          }
+        }
+      }
+    }
+  ]
+}

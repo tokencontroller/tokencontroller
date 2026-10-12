@@ -1,0 +1,36 @@
+{
+  "data": [
+    {
+      "starting_at": "2026-09-03T00:00:00Z",
+      "ending_at": "2026-09-04T00:00:00Z",
+      "results": [
+        {
+          "amount": "40.000000",
+          "claude_tag_category": null,
+          "claude_tag_user_id": null,
+          "context_window": null,
+          "cost_type": null,
+          "currency": "USD",
+          "inference_geo": null,
+          "list_amount": "50.000000",
+          "model": null,
+          "product": null,
+          "rbac_group_id": null,
+          "requests": 12,
+          "slack_channel_id": null,
+          "speed": null,
+          "token_type": null
+        }
+      ]
+    },
+    {
+      "starting_at": "2026-09-04T00:00:00Z",
+      "ending_at": "2026-09-05T00:00:00Z",
+      "results": []
+    }
+  ],
+  "data_refreshed_at": "2026-10-12T04:00:00Z",
+  "has_more": false,
+  "next_page": null,
+  "organization_id": "org_013FP9SaFPBg7Kw7fetjn6cF"
+}

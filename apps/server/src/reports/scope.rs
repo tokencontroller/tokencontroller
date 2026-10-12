@@ -119,9 +119,13 @@ mod tests {
             speed: None,
             started_at: datetime!(2026-09-01 09:00 UTC),
             status: EntryStatus::Submitted,
-            automatic: false,
+            on_token_sheet: true,
             summary: String::new(),
+            currency: tokencontroller_core::Currency::USD,
             list_value: None,
+            billed_value: None,
+            placed_by: "no ticket".to_owned(),
+            ticket_not_synced: false,
             tags: tags
                 .iter()
                 .map(|(n, v)| ((*n).to_owned(), (*v).to_owned()))

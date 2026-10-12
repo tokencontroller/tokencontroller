@@ -1,0 +1,43 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO cost_sheet_links (organization_id, period, secret_hash, created_by)\n           SELECT $1, $2, encode(sha256(convert_to($3, 'UTF8')), 'hex'), $4\n           WHERE EXISTS (SELECT 1 FROM closed_periods WHERE organization_id = $1 AND period = $2)\n           RETURNING id, created_at",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "cost_sheet_links",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "cost_sheet_links",
+            "name": "created_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Date",
+        "Text",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "ed28e5ab17dc83a1a000ddaa1d6460f984ca75328486ce5c134e9c716e9efa61"
+}

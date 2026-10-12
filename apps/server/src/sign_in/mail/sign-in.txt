@@ -1,0 +1,9 @@
+Sign in to Token Controller
+
+Open this link to sign in as {{email}}:
+
+{{sign_in_url}}
+
+The link works once and for {{expires_minutes}} minutes. If you did not ask for it, ignore this email. Nobody can sign in without the link.
+
+Token Controller · {{host}}

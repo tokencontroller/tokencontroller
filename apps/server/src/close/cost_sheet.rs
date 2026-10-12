@@ -3,49 +3,83 @@
 //! shows cost per rung of the ladder by cost kind, project and organization
 //! overhead, residual as its own line, adjustments posted after the close,
 //! and the reconciliation against each bill.
+//!
+//! The figures are the core's [`tokencontroller_core::CostSheet`]: one block
+//! per bill, its lines converted at the bill's rate. This view shows them in
+//! the currency's minor unit the way the core's CSV does, so the shown lines
+//! and residual add up to the shown gross, net is gross minus discount minus
+//! credit, and the total is the sum of the shown nets and adjustments.
 
 use std::collections::BTreeMap;
 
 use serde::Serialize;
 use time::OffsetDateTime;
-use tokencontroller_core::{Currency, Money, MoneyError};
+use tokencontroller_core::cost_sheet::{Block, Line};
+use tokencontroller_core::{CostKind, Currency, Figure, Money, MoneyError, TagName};
 use utoipa::ToSchema;
 use uuid::Uuid;
 
-use super::account::Account;
-use super::ladder::{CostKind, CostObject};
+use super::account::{Account, AccountError};
 use super::period::Period;
-use crate::bills::amount::format_amount;
-use crate::bills::reconciliation::{Reconciliation, provider_figures, reconcile};
-use crate::reports::csv::Csv;
+use crate::bills::reconciliation::{Reconciliation, reconcile};
+use crate::error::ApiError;
 use crate::reports::filter::Tags;
 
-/// One line of cost: everything with the same cost object, cost kind and
-/// extra columns.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, ToSchema)]
-pub struct CostRow {
-    /// The rung the cost object sits on, such as `ticket`, or
-    /// `organization`.
-    pub rung: String,
-    /// The cost object, such as `KD-214`; empty for the organization.
-    pub cost_object: String,
-    pub kind: CostKind,
-    /// The value of every rung of the ladder the cost carries, such as the
-    /// ticket's project, and of each extra column asked for.
-    #[schema(value_type = BTreeMap<String, String>)]
-    pub tags: Tags,
-    #[schema(example = "41.87")]
-    pub amount: String,
-    pub token_entries: usize,
-    /// Token entries on a model missing from the price table: counted, never
-    /// valued as zero.
-    pub unknown_model: usize,
-    /// Whether the amount is a list-price estimate from a provider without a
-    /// bill, such as a seat plan.
-    pub estimate: bool,
+/// How the API spells a cost kind, such as `project_overhead`.
+#[must_use]
+pub const fn kind_name(kind: CostKind) -> &'static str {
+    match kind {
+        CostKind::Direct => "direct",
+        CostKind::ProjectOverhead => "project_overhead",
+        CostKind::OrganizationOverhead => "organization_overhead",
+    }
 }
 
-/// One project's cost.
+/// One line of cost: everything on one bill with the same cost object,
+/// cost kind and extra columns.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, ToSchema)]
+pub struct CostRow {
+    /// `direct`, `project_overhead` or `organization_overhead`.
+    #[schema(example = "direct")]
+    pub cost_kind: &'static str,
+    /// The value of each rung of the ladder the cost carries, such as the
+    /// ticket and its project. A rung without a value is left out.
+    #[schema(value_type = BTreeMap<String, String>)]
+    pub rungs: Tags,
+    /// The value of each extra column asked for.
+    #[schema(value_type = BTreeMap<String, String>)]
+    pub columns: Tags,
+    /// In the reporting currency, rounded so the block adds up.
+    #[schema(example = "41.87")]
+    pub amount: String,
+    /// `list_price`, or `unknown_model` when part of it is on a model
+    /// missing from the price table: that part sits in residual.
+    #[schema(example = "list_price")]
+    pub figure: &'static str,
+}
+
+/// One bill's part of the cost sheet, in the reporting currency.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, ToSchema)]
+pub struct BillBlock {
+    /// The bill, such as `anthropic-usage_at_api_rates-2026-09`.
+    pub bill: String,
+    pub provider: String,
+    pub revision: u32,
+    /// From the bill's currency to the reporting currency.
+    #[schema(example = "0.9214")]
+    pub exchange_rate: String,
+    pub lines: Vec<CostRow>,
+    /// What no token entry explains.
+    pub residual: String,
+    /// The lines plus residual.
+    pub gross: String,
+    pub discount: String,
+    pub credit: String,
+    /// Gross minus discount minus credit.
+    pub net: String,
+}
+
+/// One project's cost over every bill.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, ToSchema)]
 pub struct ProjectTotal {
     pub project: String,
@@ -68,21 +102,14 @@ pub struct KindTotals {
     pub organization_overhead_percent: Option<u8>,
 }
 
-/// One line of the bill that is not a token entry, in the reporting
-/// currency: residual, discount or credit of one provider.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, ToSchema)]
-pub struct BillLine {
-    pub provider: String,
-    pub residual: String,
-    pub discount: String,
-    pub credit: String,
-}
-
 /// An adjustment as the cost sheet shows it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, ToSchema)]
 pub struct AdjustmentRow {
     pub id: Uuid,
     pub amount: String,
+    /// The cost kind its tags give.
+    #[schema(example = "direct")]
+    pub cost_kind: &'static str,
     #[schema(value_type = BTreeMap<String, String>)]
     pub tags: Tags,
     pub reason: String,
@@ -107,319 +134,291 @@ pub struct CostSheet {
     pub closed_at: Option<OffsetDateTime>,
     #[schema(value_type = String, example = "EUR")]
     pub currency: Currency,
-    /// The ladder the cost objects were read with, most specific first.
-    pub ladder: Vec<String>,
+    /// With approval on, it holds approved cost only.
+    pub approval: bool,
+    /// The tag map version the cost objects were read with.
+    pub tag_map_version: u32,
+    /// The rungs of the ladder, broadest first.
+    pub rungs: Vec<String>,
     /// The extra tag names asked for as columns.
     pub columns: Vec<String>,
-    pub rows: Vec<CostRow>,
+    pub blocks: Vec<BillBlock>,
     pub projects: Vec<ProjectTotal>,
     pub kinds: KindTotals,
-    pub bill_lines: Vec<BillLine>,
     pub adjustments: Vec<AdjustmentRow>,
     pub reconciliation: Reconciliation,
-    /// Token entries plus residual, minus discount and credit, plus
-    /// adjustments.
+    /// Every bill's net plus every adjustment.
     pub total: String,
 }
 
+/// What the lines of one block add to the project and kind totals, in
+/// minor units.
 #[derive(Default)]
-struct Bucket {
-    amount: i64,
-    entries: usize,
-    unknown: usize,
-}
-
-fn add(bucket: &mut Bucket, value: Option<Money>) -> Result<(), MoneyError> {
-    match value {
-        Some(value) => {
-            bucket.amount = bucket.amount.checked_add(value.nanos()).ok_or(MoneyError::Overflow)?;
-        }
-        None => bucket.unknown = bucket.unknown.saturating_add(1),
-    }
-    bucket.entries = bucket.entries.saturating_add(1);
-    Ok(())
-}
-
-/// What one cost row groups by.
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
-struct RowKey {
-    project: String,
-    shown: Vec<(String, String)>,
-    kind: CostKind,
-    estimate: bool,
-    rung: String,
-    object: String,
-}
-
-/// The token entries of an account added up three ways.
-#[derive(Default)]
-struct Grouped {
-    rows: BTreeMap<RowKey, Bucket>,
+struct Totals {
     kinds: BTreeMap<CostKind, i64>,
     /// Per project: direct, then project overhead.
     projects: BTreeMap<String, (i64, i64)>,
 }
 
-fn group(account: &Account, columns: &[String], billed: &[&str]) -> Result<Grouped, MoneyError> {
-    let mut grouped = Grouped::default();
-    for line in &account.lines {
-        let tags = &line.line.tags;
-        let kind = account.ladder.cost_kind(tags);
-        let (rung, object) = match account.ladder.cost_object(tags) {
-            CostObject::Rung { name, value } => (name, value),
-            CostObject::Organization => ("organization".to_owned(), String::new()),
-        };
-        let shown: Vec<(String, String)> = account
-            .ladder
-            .rungs()
+impl Totals {
+    fn add(&mut self, line: &Line, rungs: &[TagName], minor: i64) -> Result<(), MoneyError> {
+        let kind = self.kinds.entry(line.cost_kind).or_insert(0);
+        *kind = kind.checked_add(minor).ok_or(MoneyError::Overflow)?;
+        let project = rungs
             .iter()
-            .chain(columns.iter())
-            .filter_map(|name| tags.get(name).map(|value| (name.clone(), value.clone())))
-            .collect();
-        let key = RowKey {
-            project: tags.get("project").cloned().unwrap_or_default(),
-            shown,
-            kind,
-            estimate: !billed.contains(&line.line.provider.as_str()),
-            rung,
-            object,
-        };
-        add(grouped.rows.entry(key).or_default(), line.value)?;
-        let Some(value) = line.value else { continue };
-        let total = grouped.kinds.entry(kind).or_insert(0);
-        *total = total.checked_add(value.nanos()).ok_or(MoneyError::Overflow)?;
-        if let Some(project) = tags.get("project") {
-            let entry = grouped.projects.entry(project.clone()).or_insert((0, 0));
-            let slot = if kind == CostKind::Direct {
+            .zip(&line.rungs)
+            .find(|(name, _)| **name == TagName::project())
+            .and_then(|(_, value)| value.as_ref());
+        if let Some(project) = project {
+            let entry = self.projects.entry(project.to_string()).or_insert((0, 0));
+            let slot = if line.cost_kind == CostKind::Direct {
                 &mut entry.0
             } else {
                 &mut entry.1
             };
-            *slot = slot.checked_add(value.nanos()).ok_or(MoneyError::Overflow)?;
+            *slot = slot.checked_add(minor).ok_or(MoneyError::Overflow)?;
         }
+        Ok(())
     }
-    Ok(grouped)
 }
 
-/// Computes the cost sheet of an account. `columns` are extra tag names
-/// shown on each row, such as `team`; rows then split by them too.
-/// `names` gives the name of whoever posted each adjustment.
-///
-/// # Errors
-///
-/// [`MoneyError`] on an overflow.
-pub fn compute(
-    account: &Account,
-    columns: &[String],
-    names: &BTreeMap<Uuid, String>,
-) -> Result<CostSheet, MoneyError> {
-    let currency = account.currency;
-    let reconciliation = reconcile(account)?;
-    let figures = provider_figures(account)?;
-    let billed: Vec<&str> = figures.iter().map(|figure| figure.provider.as_str()).collect();
-    let Grouped { rows, kinds, projects } = group(account, columns, &billed)?;
-
-    let money = |nanos: i64| format_amount(Money::from_nanos(nanos, currency));
-    let rows = rows
-        .into_iter()
-        .map(|(key, bucket)| CostRow {
-            rung: key.rung,
-            cost_object: key.object,
-            kind: key.kind,
-            tags: key.shown.into_iter().collect(),
-            amount: money(bucket.amount),
-            token_entries: bucket.entries,
-            unknown_model: bucket.unknown,
-            estimate: key.estimate,
-        })
-        .collect();
-
-    let projects = projects
-        .into_iter()
-        .map(|(project, (direct, overhead))| {
-            Ok(ProjectTotal {
-                project,
-                direct: money(direct),
-                project_overhead: money(overhead),
-                total: money(direct.checked_add(overhead).ok_or(MoneyError::Overflow)?),
-            })
-        })
-        .collect::<Result<Vec<_>, MoneyError>>()?;
-
-    let kind_total = |kind| kinds.get(&kind).copied().unwrap_or(0);
-    let all_entries = Money::from_nanos(
-        kinds
-            .values()
-            .try_fold(0_i64, |sum, value| sum.checked_add(*value))
-            .ok_or(MoneyError::Overflow)?,
-        currency,
-    );
-    let share = |kind| {
-        crate::bills::reconciliation::percent(Money::from_nanos(kind_total(kind), currency), all_entries)
-    };
-    let kinds_view = KindTotals {
-        direct: money(kind_total(CostKind::Direct)),
-        project_overhead: money(kind_total(CostKind::ProjectOverhead)),
-        organization_overhead: money(kind_total(CostKind::OrganizationOverhead)),
-        direct_percent: share(CostKind::Direct),
-        project_overhead_percent: share(CostKind::ProjectOverhead),
-        organization_overhead_percent: share(CostKind::OrganizationOverhead),
-    };
-
-    let bill_lines = figures
+fn named(names: &[TagName], values: &[Option<tokencontroller_core::TagValue>]) -> Tags {
+    names
         .iter()
-        .map(|figure| BillLine {
-            provider: figure.provider.clone(),
-            residual: format_amount(figure.residual_reporting),
-            discount: format_amount(figure.discount_reporting),
-            credit: format_amount(figure.credit_reporting),
-        })
-        .collect();
+        .zip(values)
+        .filter_map(|(name, value)| Some((name.to_string(), value.as_ref()?.to_string())))
+        .collect()
+}
 
-    let adjustments_total = Money::sum(account.adjustments.iter().map(|a| a.amount), currency)?;
-    let adjustments = account
+fn block_view(
+    block: &Block,
+    provider: &str,
+    rungs: &[TagName],
+    columns: &[TagName],
+    currency: Currency,
+    totals: &mut Totals,
+) -> Result<(BillBlock, i64), MoneyError> {
+    let bill = &block.bill;
+    let mut amounts: Vec<Money> = block.lines.iter().map(|line| line.amount).collect();
+    amounts.push(bill.residual);
+    let shown = Money::round_all_to_minor_units(&amounts, currency)?;
+    let format = |minor: i64| currency.format_minor_units(minor);
+    let mut lines = Vec::new();
+    for (line, minor) in block.lines.iter().zip(&shown) {
+        totals.add(line, rungs, *minor)?;
+        lines.push(CostRow {
+            cost_kind: kind_name(line.cost_kind),
+            rungs: named(rungs, &line.rungs),
+            columns: named(columns, &line.columns),
+            amount: format(*minor),
+            figure: match line.figure {
+                Figure::UnknownModel => "unknown_model",
+                Figure::Estimate => "estimate",
+                Figure::Billed => "billed",
+                Figure::ListPrice => "list_price",
+            },
+        });
+    }
+    let gross = shown
+        .iter()
+        .try_fold(0_i64, |sum, minor| sum.checked_add(*minor))
+        .ok_or(MoneyError::Overflow)?;
+    let discount = bill.discount.round_to_minor_units();
+    let credit = bill.credit.round_to_minor_units();
+    let net = gross
+        .checked_sub(discount)
+        .and_then(|net| net.checked_sub(credit))
+        .ok_or(MoneyError::Overflow)?;
+    let view = BillBlock {
+        bill: block.bill_id.clone(),
+        provider: provider.to_owned(),
+        revision: bill.revision,
+        exchange_rate: crate::bills::amount::rate_number(bill.rate).to_string(),
+        lines,
+        residual: format(shown.last().copied().unwrap_or_default()),
+        gross: format(gross),
+        discount: format(discount),
+        credit: format(credit),
+        net: format(net),
+    };
+    Ok((view, net))
+}
+
+/// The adjustment rows of the core's sheet, each rounded to minor units as
+/// the core's CSV shows them, added to `total`.
+fn adjustment_rows(
+    account: &Account,
+    core: &tokencontroller_core::CostSheet,
+    names: &BTreeMap<Uuid, String>,
+    total: &mut i64,
+) -> Result<Vec<AdjustmentRow>, MoneyError> {
+    let currency = account.currency;
+    let amounts: Vec<Money> = core
         .adjustments
         .iter()
-        .map(|adjustment| AdjustmentRow {
+        .map(|line| line.adjustment.amount)
+        .collect();
+    let shown = Money::round_all_to_minor_units(&amounts, currency)?;
+    let mut rows = Vec::new();
+    for ((adjustment, line), minor) in account
+        .adjustments
+        .iter()
+        .zip(&core.adjustments)
+        .zip(&shown)
+    {
+        *total = total.checked_add(*minor).ok_or(MoneyError::Overflow)?;
+        rows.push(AdjustmentRow {
             id: adjustment.id,
-            amount: format_amount(adjustment.amount),
+            amount: currency.format_minor_units(*minor),
+            cost_kind: kind_name(line.cost_kind),
             tags: adjustment.tags.clone(),
             reason: adjustment.reason.clone(),
             late: adjustment.late,
             posted_by: adjustment.posted_by.and_then(|id| names.get(&id).cloned()),
             posted_at: adjustment.posted_at,
-        })
-        .collect();
-
-    let mut total = all_entries;
-    for figure in &figures {
-        total = total
-            .checked_add(figure.residual_reporting)?
-            .checked_sub(figure.discount_reporting)?
-            .checked_sub(figure.credit_reporting)?;
+        });
     }
-    let total = total.checked_add(adjustments_total)?;
+    Ok(rows)
+}
 
+/// The totals per cost kind, with each kind's share of all of them.
+fn kind_totals(totals: &Totals, currency: Currency) -> Result<KindTotals, MoneyError> {
+    let format = |minor: i64| currency.format_minor_units(minor);
+    let kind = |kind: CostKind| totals.kinds.get(&kind).copied().unwrap_or(0);
+    let all = totals
+        .kinds
+        .values()
+        .try_fold(0_i64, |sum, minor| sum.checked_add(*minor))
+        .ok_or(MoneyError::Overflow)?;
+    let share = |kind_minor: i64| {
+        let minor = |value: i64| Money::from_minor_units(value, currency).ok();
+        crate::bills::reconciliation::percent(minor(kind_minor)?, minor(all)?)
+    };
+    Ok(KindTotals {
+        direct: format(kind(CostKind::Direct)),
+        project_overhead: format(kind(CostKind::ProjectOverhead)),
+        organization_overhead: format(kind(CostKind::OrganizationOverhead)),
+        direct_percent: share(kind(CostKind::Direct)),
+        project_overhead_percent: share(kind(CostKind::ProjectOverhead)),
+        organization_overhead_percent: share(kind(CostKind::OrganizationOverhead)),
+    })
+}
+
+/// Computes the cost sheet of an account. `columns` are extra tag names
+/// shown on each row, such as `team`; rows then split by them too.
+/// `names` gives the name of whoever posted each adjustment, `emails`
+/// their email for the core.
+///
+/// # Errors
+///
+/// [`AccountError`] when a rate is missing or a bill does not add up.
+pub fn compute(
+    account: &Account,
+    columns: &[String],
+    names: &BTreeMap<Uuid, String>,
+    emails: &BTreeMap<Uuid, String>,
+) -> Result<CostSheet, AccountError> {
+    let currency = account.currency;
+    let columns = columns
+        .iter()
+        .map(|column| {
+            TagName::new(column)
+                .map_err(|error| AccountError::Api(ApiError::BadRequest(error.to_string())))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let core = account.cost_sheet(&columns, emails)?;
+    let reconciliation = reconcile(account, &core.blocks)?;
+    let money_error = |error: MoneyError| AccountError::Api(ApiError::Internal(error.into()));
+
+    let mut totals = Totals::default();
+    let mut blocks = Vec::new();
+    let mut total: i64 = 0;
+    for (block, bill) in core.blocks.iter().zip(&account.bills) {
+        let (view, net) = block_view(
+            block,
+            &bill.bill.provider,
+            &core.rungs,
+            &core.columns,
+            currency,
+            &mut totals,
+        )
+        .map_err(money_error)?;
+        total = total
+            .checked_add(net)
+            .ok_or(MoneyError::Overflow)
+            .map_err(money_error)?;
+        blocks.push(view);
+    }
+
+    let adjustments = adjustment_rows(account, &core, names, &mut total).map_err(money_error)?;
+
+    let format = |minor: i64| currency.format_minor_units(minor);
+    let projects = totals
+        .projects
+        .iter()
+        .map(|(project, (direct, overhead))| {
+            Ok(ProjectTotal {
+                project: project.clone(),
+                direct: format(*direct),
+                project_overhead: format(*overhead),
+                total: format(direct.checked_add(*overhead).ok_or(MoneyError::Overflow)?),
+            })
+        })
+        .collect::<Result<Vec<_>, MoneyError>>()
+        .map_err(money_error)?;
     Ok(CostSheet {
         period: account.period,
         closed: account.closed.is_some(),
         closed_at: account.closed.as_ref().map(|closed| closed.closed_at),
         currency,
-        ladder: account.ladder.rungs().to_vec(),
-        columns: columns.to_vec(),
-        rows,
+        approval: account.approval,
+        tag_map_version: account.tag_map_version.number(),
+        rungs: core.rungs.iter().map(ToString::to_string).collect(),
+        columns: core.columns.iter().map(ToString::to_string).collect(),
+        blocks,
         projects,
-        kinds: kinds_view,
-        bill_lines,
+        kinds: kind_totals(&totals, currency).map_err(money_error)?,
         adjustments,
         reconciliation,
-        total: format_amount(total),
+        total: format(total),
     })
 }
 
-/// A decimal amount with the other sign: discount and credit reduce the
-/// bill, so the amount column of the CSV adds up to the total.
-fn negate(amount: &str) -> String {
-    if amount.chars().all(|c| c == '0' || c == '.') {
-        amount.to_owned()
-    } else if let Some(positive) = amount.strip_prefix('-') {
-        positive.to_owned()
-    } else {
-        format!("-{amount}")
-    }
+/// The cost sheet of an account as the core writes it: one row per line,
+/// with a `bill`, `line`, `cost_kind`, one column per rung and extra
+/// column, `amount` and `note`.
+///
+/// # Errors
+///
+/// As [`compute`].
+pub fn to_csv(
+    account: &Account,
+    columns: &[String],
+    emails: &BTreeMap<Uuid, String>,
+) -> Result<String, AccountError> {
+    let columns = columns
+        .iter()
+        .map(|column| {
+            TagName::new(column)
+                .map_err(|error| AccountError::Api(ApiError::BadRequest(error.to_string())))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let core = account.cost_sheet(&columns, emails)?;
+    core.to_csv()
+        .map_err(|error| AccountError::Api(ApiError::Internal(error.into())))
 }
 
-/// The cost sheet as one CSV file: a `line` column says whether a row is
-/// cost, residual, discount, credit, an adjustment or the total.
-#[must_use]
-pub fn to_csv(sheet: &CostSheet) -> Csv {
-    let mut header: Vec<String> = vec!["line".to_owned(), "period".to_owned()];
-    header.extend(sheet.ladder.iter().cloned());
-    header.extend(sheet.columns.iter().cloned());
-    header.extend(
-        ["cost_kind", "provider", "reason", "estimate", "token_entries", "amount", "currency"]
-            .map(str::to_owned),
-    );
-    let tag_count = sheet.ladder.len().saturating_add(sheet.columns.len());
-    let tag_names: Vec<&String> = sheet.ladder.iter().chain(sheet.columns.iter()).collect();
-    let period = sheet.period.to_string();
-    let currency = sheet.currency.code();
-    let mut csv = Csv::new(header);
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-    let tag_cells = |tags: &Tags| -> Vec<String> {
-        tag_names
-            .iter()
-            .map(|name| tags.get(*name).cloned().unwrap_or_default())
-            .collect()
-    };
-    let blank_tags = vec![String::new(); tag_count];
-
-    for row in &sheet.rows {
-        let mut cells = vec!["cost".to_owned(), period.clone()];
-        cells.extend(tag_cells(&row.tags));
-        cells.extend([
-            row.kind.as_str().to_owned(),
-            String::new(),
-            String::new(),
-            if row.estimate { "yes" } else { "no" }.to_owned(),
-            row.token_entries.to_string(),
-            row.amount.clone(),
-            currency.clone(),
-        ]);
-        csv.row(cells);
+    #[test]
+    fn cost_kinds_are_spelled_as_the_api_spells_them() {
+        assert_eq!(kind_name(CostKind::Direct), "direct");
+        assert_eq!(kind_name(CostKind::ProjectOverhead), "project_overhead");
+        assert_eq!(
+            kind_name(CostKind::OrganizationOverhead),
+            "organization_overhead"
+        );
     }
-    for line in &sheet.bill_lines {
-        for (kind, amount) in [
-            ("residual", &line.residual),
-            ("discount", &line.discount),
-            ("credit", &line.credit),
-        ] {
-            let mut cells = vec![kind.to_owned(), period.clone()];
-            cells.extend(blank_tags.iter().cloned());
-            cells.extend([
-                String::new(),
-                line.provider.clone(),
-                String::new(),
-                "no".to_owned(),
-                String::new(),
-                if kind == "residual" {
-                    amount.clone()
-                } else {
-                    negate(amount)
-                },
-                currency.clone(),
-            ]);
-            csv.row(cells);
-        }
-    }
-    for adjustment in &sheet.adjustments {
-        let mut cells = vec![
-            if adjustment.late { "late_adjustment" } else { "adjustment" }.to_owned(),
-            period.clone(),
-        ];
-        cells.extend(tag_cells(&adjustment.tags));
-        cells.extend([
-            String::new(),
-            String::new(),
-            adjustment.reason.clone(),
-            "no".to_owned(),
-            String::new(),
-            adjustment.amount.clone(),
-            currency.clone(),
-        ]);
-        csv.row(cells);
-    }
-    let mut cells = vec!["total".to_owned(), period];
-    cells.extend(blank_tags);
-    cells.extend([
-        String::new(),
-        String::new(),
-        String::new(),
-        String::new(),
-        String::new(),
-        sheet.total.clone(),
-        currency,
-    ]);
-    csv.row(cells);
-    csv
 }

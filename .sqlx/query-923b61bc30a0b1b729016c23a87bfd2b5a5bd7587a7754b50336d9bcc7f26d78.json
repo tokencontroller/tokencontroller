@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE people SET joined_at = coalesce(joined_at, now())\n           WHERE id = $1 AND removed_at IS NULL\n           RETURNING organization_id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "organization_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "people",
+            "name": "organization_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "923b61bc30a0b1b729016c23a87bfd2b5a5bd7587a7754b50336d9bcc7f26d78"
+}

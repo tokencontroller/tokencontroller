@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO exchange_rates (day, currency, per_euro_nanos) VALUES ($1, $2, $3)\n           ON CONFLICT (currency, day) DO UPDATE SET per_euro_nanos = EXCLUDED.per_euro_nanos",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Date",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f1dea6bb74851e774815fded1e6fe2327efe7d7652f99ddf8f599535c601611f"
+}

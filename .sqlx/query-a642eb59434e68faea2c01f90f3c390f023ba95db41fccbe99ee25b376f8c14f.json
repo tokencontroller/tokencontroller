@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE token_entries SET status = 'locked' WHERE id = $1 AND status IN ('submitted', 'approved')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "a642eb59434e68faea2c01f90f3c390f023ba95db41fccbe99ee25b376f8c14f"
+}

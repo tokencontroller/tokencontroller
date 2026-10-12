@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT least(\n               (SELECT min(started_at)::date FROM token_entries WHERE organization_id = $1),\n               (SELECT min(period) FROM bills WHERE organization_id = $1)\n           ) AS first",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "first",
+        "type_info": "Date",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "4926bc35cf0d21859ad2dab8d1e86d9a1a8ea32e07708ecb0557cf92bb305834"
+}

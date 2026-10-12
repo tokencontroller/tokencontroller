@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE token_entries SET\n               input_tokens = $2, output_tokens = $3, cache_write_tokens = $4, cache_read_tokens = $5,\n               reported_cost_nanos = $6, list_value_nanos = $7,\n               started_at = CASE WHEN $8 AND $9::timestamptz IS NOT NULL THEN $9 ELSE started_at END,\n               ended_at = CASE WHEN $8 AND $10::timestamptz IS NOT NULL THEN $10 ELSE ended_at END,\n               updated_at = now()\n           WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int8",
+        "Int8",
+        "Int8",
+        "Int8",
+        "Int8",
+        "Int8",
+        "Bool",
+        "Timestamptz",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "2e43fe4dc366364891a3dbc44eeb61ab876d08490a18d32d7a821ecb99484c06"
+}

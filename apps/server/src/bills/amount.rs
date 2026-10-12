@@ -3,7 +3,7 @@
 
 use std::fmt;
 
-use tokencontroller_core::{Currency, Money};
+use tokencontroller_core::{Currency, ExchangeRate, Money};
 
 /// Decimal digits a nano-unit has.
 const NANO_DIGITS: usize = 9;
@@ -16,7 +16,9 @@ const NANOS_PER_UNIT: i128 = 1_000_000_000;
 pub enum AmountError {
     #[error("{0:?} is not an amount: write it as a decimal number, such as 1234.56")]
     Invalid(String),
-    #[error("{0:?} is not an exchange rate: write it as a decimal number above zero, such as 0.9214")]
+    #[error(
+        "{0:?} is not an exchange rate: write it as a decimal number above zero, such as 0.9214"
+    )]
     InvalidRate(String),
     #[error("the amount is too large to hold")]
     Overflow,
@@ -31,10 +33,17 @@ fn parse_nanos(text: &str) -> Option<i64> {
         None => (false, text),
     };
     let (whole, fraction) = unsigned.split_once('.').unwrap_or((unsigned, ""));
-    if whole.is_empty() || fraction.len() > NANO_DIGITS || (unsigned.contains('.') && fraction.is_empty()) {
+    if whole.is_empty()
+        || fraction.len() > NANO_DIGITS
+        || (unsigned.contains('.') && fraction.is_empty())
+    {
         return None;
     }
-    if !whole.chars().chain(fraction.chars()).all(|c| c.is_ascii_digit()) {
+    if !whole
+        .chars()
+        .chain(fraction.chars())
+        .all(|c| c.is_ascii_digit())
+    {
         return None;
     }
     let whole: i64 = whole.parse().ok()?;
@@ -43,9 +52,7 @@ fn parse_nanos(text: &str) -> Option<i64> {
         padded.push('0');
     }
     let fraction: i64 = padded.parse().ok()?;
-    let magnitude = whole
-        .checked_mul(1_000_000_000)?
-        .checked_add(fraction)?;
+    let magnitude = whole.checked_mul(1_000_000_000)?.checked_add(fraction)?;
     if negative {
         magnitude.checked_neg()
     } else {
@@ -53,16 +60,15 @@ fn parse_nanos(text: &str) -> Option<i64> {
     }
 }
 
-/// Reads an amount such as `1234.56` or `-12` in `currency`.
+/// Reads an amount such as `1234.56` or `-12` in `currency`, with spaces
+/// around it allowed.
 ///
 /// # Errors
 ///
 /// [`AmountError::Invalid`] for anything but a decimal number with at most
 /// nine digits after the point.
 pub fn parse_amount(text: &str, currency: Currency) -> Result<Money, AmountError> {
-    parse_nanos(text)
-        .map(|nanos| Money::from_nanos(nanos, currency))
-        .ok_or_else(|| AmountError::Invalid(text.to_owned()))
+    Money::parse(text.trim(), currency).map_err(|_| AmountError::Invalid(text.to_owned()))
 }
 
 /// An amount as the API writes it: rounded to the currency's minor unit,
@@ -75,13 +81,15 @@ pub fn format_amount(amount: Money) -> String {
         .map_or_else(|| shown.clone(), |(number, _code)| number.to_owned())
 }
 
-/// How many units of one currency one unit of another is worth, in
-/// nano-units: `0.9214` EUR per USD is 921,400,000.
+/// A rate as a plain number in nano-units, before it is tied to two
+/// currencies: `0.9214` is 921,400,000. The reference rates are numbers per
+/// euro; [`exchange_rate`] turns one into the core's rate between two
+/// currencies.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct ExchangeRate(i64);
+pub struct RateNumber(i64);
 
-impl ExchangeRate {
-    /// One to one.
+impl RateNumber {
+    /// One: a currency to itself.
     pub const ONE: Self = Self(1_000_000_000);
 
     /// A rate kept in nano-units.
@@ -146,28 +154,9 @@ impl ExchangeRate {
             .map_err(|_| AmountError::Overflow)
             .and_then(Self::from_nanos)
     }
-
-    /// `amount` in currency `to` at this rate, rounded half away from zero to
-    /// the nano-unit.
-    ///
-    /// # Errors
-    ///
-    /// [`AmountError::Overflow`] when the result does not fit.
-    pub fn convert(self, amount: Money, to: Currency) -> Result<Money, AmountError> {
-        if amount.currency() == to && self == Self::ONE {
-            return Ok(amount);
-        }
-        let product = i128::from(amount.nanos())
-            .checked_mul(i128::from(self.0))
-            .ok_or(AmountError::Overflow)?;
-        let nanos = divide_rounded(product, NANOS_PER_UNIT).ok_or(AmountError::Overflow)?;
-        i64::try_from(nanos)
-            .map(|nanos| Money::from_nanos(nanos, to))
-            .map_err(|_| AmountError::Overflow)
-    }
 }
 
-impl fmt::Display for ExchangeRate {
+impl fmt::Display for RateNumber {
     /// The rate as a decimal number without trailing zeros, such as `0.9214`.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let whole = self.0.checked_div(1_000_000_000).unwrap_or(0);
@@ -178,6 +167,29 @@ impl fmt::Display for ExchangeRate {
         let digits = format!("{fraction:09}");
         write!(f, "{whole}.{}", digits.trim_end_matches('0'))
     }
+}
+
+/// The core's rate from `from` to `to` at `number`.
+///
+/// # Errors
+///
+/// [`AmountError::InvalidRate`], which a [`RateNumber`] never is.
+pub fn exchange_rate(
+    from: Currency,
+    to: Currency,
+    number: RateNumber,
+) -> Result<ExchangeRate, AmountError> {
+    if from == to {
+        return Ok(ExchangeRate::identity(from));
+    }
+    ExchangeRate::new(from, to, &number.to_string())
+        .map_err(|_| AmountError::InvalidRate(number.to_string()))
+}
+
+/// The number of a core rate, as stored and shown.
+#[must_use]
+pub fn rate_number(rate: ExchangeRate) -> RateNumber {
+    RateNumber(rate.nanos())
 }
 
 /// `numerator / denominator`, rounded half away from zero, for a positive
@@ -205,7 +217,10 @@ mod tests {
     #[test]
     fn reads_decimal_amounts() {
         let eur = Currency::EUR;
-        assert_eq!(parse_amount("1234.56", eur).unwrap().nanos(), 1_234_560_000_000);
+        assert_eq!(
+            parse_amount("1234.56", eur).unwrap().nanos(),
+            1_234_560_000_000
+        );
         assert_eq!(parse_amount("-12", eur).unwrap().nanos(), -12_000_000_000);
         assert_eq!(parse_amount("0.000000001", eur).unwrap().nanos(), 1);
         assert_eq!(parse_amount(" 7.5 ", eur).unwrap().nanos(), 7_500_000_000);
@@ -214,7 +229,17 @@ mod tests {
 
     #[test]
     fn refuses_what_is_not_an_amount() {
-        for text in ["", "abc", "1,5", "1.", ".5", "1.0000000001", "--1", "1e3", "99999999999"] {
+        for text in [
+            "",
+            "abc",
+            "1,5",
+            "1.",
+            ".5",
+            "1.0000000001",
+            "--1",
+            "1e3",
+            "99999999999",
+        ] {
             assert!(parse_amount(text, Currency::EUR).is_err(), "{text}");
         }
     }
@@ -229,53 +254,58 @@ mod tests {
 
     #[test]
     fn reads_and_writes_rates() {
-        let rate = ExchangeRate::parse("0.9214").unwrap();
+        let rate = RateNumber::parse("0.9214").unwrap();
         assert_eq!(rate.nanos(), 921_400_000);
         assert_eq!(rate.to_string(), "0.9214");
-        assert_eq!(ExchangeRate::parse("1").unwrap(), ExchangeRate::ONE);
-        assert_eq!(ExchangeRate::ONE.to_string(), "1");
-        assert_eq!(ExchangeRate::parse("156.25").unwrap().to_string(), "156.25");
+        assert_eq!(RateNumber::parse("1").unwrap(), RateNumber::ONE);
+        assert_eq!(RateNumber::ONE.to_string(), "1");
+        assert_eq!(RateNumber::parse("156.25").unwrap().to_string(), "156.25");
         for text in ["0", "-1", "", "x", "0.0000000001"] {
-            assert!(ExchangeRate::parse(text).is_err(), "{text}");
+            assert!(RateNumber::parse(text).is_err(), "{text}");
         }
-        assert!(ExchangeRate::from_nanos(0).is_err());
-        assert!(ExchangeRate::from_nanos(1).is_ok());
+        assert!(RateNumber::from_nanos(0).is_err());
+        assert!(RateNumber::from_nanos(1).is_ok());
     }
 
     #[test]
-    fn converts_at_the_rate() {
-        let rate = ExchangeRate::parse("0.9214").unwrap();
+    fn ties_numbers_to_two_currencies() {
+        let rate = exchange_rate(
+            Currency::USD,
+            Currency::EUR,
+            RateNumber::parse("0.9214").unwrap(),
+        )
+        .unwrap();
+        assert_eq!((rate.from(), rate.to()), (Currency::USD, Currency::EUR));
+        assert_eq!(rate_number(rate).to_string(), "0.9214");
         let usd = parse_amount("100", Currency::USD).unwrap();
-        let eur = rate.convert(usd, Currency::EUR).unwrap();
-        assert_eq!(eur, parse_amount("92.14", Currency::EUR).unwrap());
-        // Half a nano-unit rounds away from zero, on both sides.
-        let half = ExchangeRate::parse("0.5").unwrap();
-        let one_nano = Money::from_nanos(1, Currency::USD);
-        assert_eq!(half.convert(one_nano, Currency::EUR).unwrap().nanos(), 1);
-        let minus_one_nano = Money::from_nanos(-1, Currency::USD);
-        assert_eq!(half.convert(minus_one_nano, Currency::EUR).unwrap().nanos(), -1);
-        let third = ExchangeRate::parse("0.333333333").unwrap();
-        assert_eq!(third.convert(one_nano, Currency::EUR).unwrap().nanos(), 0);
-    }
-
-    #[test]
-    fn the_same_currency_at_one_is_unchanged() {
-        let eur = parse_amount("12.34", Currency::EUR).unwrap();
-        assert_eq!(ExchangeRate::ONE.convert(eur, Currency::EUR).unwrap(), eur);
+        assert_eq!(
+            rate.convert(usd).unwrap(),
+            parse_amount("92.14", Currency::EUR).unwrap()
+        );
+        let same = exchange_rate(
+            Currency::EUR,
+            Currency::EUR,
+            RateNumber::parse("2").unwrap(),
+        )
+        .unwrap();
+        assert_eq!(same, ExchangeRate::identity(Currency::EUR));
     }
 
     #[test]
     fn turns_rates_round_and_chains_them() {
-        let usd_to_eur = ExchangeRate::parse("0.8").unwrap();
-        assert_eq!(usd_to_eur.inverse().unwrap(), ExchangeRate::parse("1.25").unwrap());
-        let eur_to_gbp = ExchangeRate::parse("0.85").unwrap();
+        let usd_to_eur = RateNumber::parse("0.8").unwrap();
+        assert_eq!(
+            usd_to_eur.inverse().unwrap(),
+            RateNumber::parse("1.25").unwrap()
+        );
+        let eur_to_gbp = RateNumber::parse("0.85").unwrap();
         assert_eq!(
             usd_to_eur.then(eur_to_gbp).unwrap(),
-            ExchangeRate::parse("0.68").unwrap()
+            RateNumber::parse("0.68").unwrap()
         );
-        let third = ExchangeRate::parse("3").unwrap();
+        let third = RateNumber::parse("3").unwrap();
         assert_eq!(third.inverse().unwrap().nanos(), 333_333_333);
-        let two_thirds = ExchangeRate::parse("1.5").unwrap();
+        let two_thirds = RateNumber::parse("1.5").unwrap();
         assert_eq!(two_thirds.inverse().unwrap().nanos(), 666_666_667);
     }
 

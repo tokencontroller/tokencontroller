@@ -31,7 +31,7 @@ use crate::organizations::Role;
 use crate::reports::filter::Filter;
 use crate::reports::lines::StatusView;
 use crate::reports::scope::Scope;
-use crate::sign_in::{Caller, Credential};
+use crate::sign_in::Caller;
 
 pub(super) fn routes() -> OpenApiRouter<AppState> {
     OpenApiRouter::new()
@@ -121,7 +121,7 @@ pub async fn embed_pending<E: Embedder>(
     limit: usize,
 ) -> Result<usize, ForecastError> {
     let rows = sqlx::query!(
-        r#"SELECT e.id, e.organization_id, e.summary
+        r#"SELECT e.id, e.organization_id, e.summary AS "summary!"
            FROM token_entries e
            LEFT JOIN forecast_settings f ON f.organization_id = e.organization_id
            WHERE e.status = 'locked' AND btrim(e.summary) <> ''
@@ -604,7 +604,7 @@ pub(crate) async fn create_token_forecast(
     Path(key): Path<String>,
 ) -> Result<(StatusCode, Json<TokenForecastView>), ApiError> {
     caller.require_role(Role::PeopleManager)?;
-    caller.require_credential(&[Credential::Session])?;
+    caller.require_session()?;
     let config = state
         .config
         .embeddings
@@ -647,7 +647,7 @@ pub(crate) async fn accept_token_forecast(
     Json(input): Json<AcceptInput>,
 ) -> Result<(StatusCode, Json<TokenBudgetView>), ApiError> {
     caller.require_role(Role::PeopleManager)?;
-    caller.require_credential(&[Credential::Session])?;
+    caller.require_session()?;
     let scope = Scope::of(&state.db, &caller).await?;
     let budget = accept(
         &state.db,
@@ -740,7 +740,7 @@ pub(crate) async fn set_settings(
     Json(input): Json<TokenForecastSettingsInput>,
 ) -> Result<Json<TokenForecastSettings>, ApiError> {
     caller.require_role(Role::Controller)?;
-    caller.require_credential(&[Credential::Session])?;
+    caller.require_session()?;
     sqlx::query!(
         r#"INSERT INTO forecast_settings (organization_id, enabled) VALUES ($1, $2)
            ON CONFLICT (organization_id) DO UPDATE SET enabled = EXCLUDED.enabled"#,

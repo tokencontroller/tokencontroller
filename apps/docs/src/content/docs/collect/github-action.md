@@ -17,7 +17,7 @@ The GitHub Action reports what agents spend in CI, such as a PR review bot. It w
     token: ${{ secrets.TOKEN_CONTROLLER_TOKEN }}
 ```
 
-Create the service token in the web app under _Settings_. The person who creates it becomes the agent manager of everything the Action reports.
+Create the service token in the web app under _Settings_. The person who creates it becomes the agent manager of everything the Action reports. For a self-hosted instance, add `url:` with its address.
 
 ## How CI cost is placed {#placing}
 

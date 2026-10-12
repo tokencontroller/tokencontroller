@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE api_tokens SET person_id = $5\n           WHERE id = $1 AND organization_id = $2 AND kind = 'service' AND revoked_at IS NULL\n             AND ($3 OR person_id = $4)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Bool",
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "902758a8a6742d3a449ed71bcd0ca97d0f79b442cffcc609e0439f06bdd91b95"
+}

@@ -37,7 +37,11 @@ impl Filter {
     /// given twice.
     pub fn parse(text: &str) -> Result<Self, FilterError> {
         let mut tags = Tags::new();
-        for part in text.split(',').map(str::trim).filter(|part| !part.is_empty()) {
+        for part in text
+            .split(',')
+            .map(str::trim)
+            .filter(|part| !part.is_empty())
+        {
             let (name, value) = part
                 .split_once(':')
                 .map(|(name, value)| (name.trim(), value.trim()))
@@ -89,7 +93,9 @@ impl Filter {
             .map(|object| {
                 object
                     .iter()
-                    .filter_map(|(name, value)| value.as_str().map(|v| (name.clone(), v.to_owned())))
+                    .filter_map(|(name, value)| {
+                        value.as_str().map(|v| (name.clone(), v.to_owned()))
+                    })
                     .collect()
             })
             .unwrap_or_default();
@@ -149,7 +155,11 @@ mod tests {
     #[test]
     fn matches_when_every_tag_is_there() {
         let filter = Filter::parse("team:web,client:acme").unwrap();
-        assert!(filter.matches(&tags(&[("team", "web"), ("client", "acme"), ("ticket", "KD-1")])));
+        assert!(filter.matches(&tags(&[
+            ("team", "web"),
+            ("client", "acme"),
+            ("ticket", "KD-1")
+        ])));
         assert!(!filter.matches(&tags(&[("team", "web")])));
         assert!(!filter.matches(&tags(&[("team", "web"), ("client", "globex")])));
         assert!(Filter::default().matches(&tags(&[])));

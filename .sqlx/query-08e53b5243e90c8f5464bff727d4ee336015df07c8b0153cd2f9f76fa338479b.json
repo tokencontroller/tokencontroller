@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT organization_id, period FROM cost_sheet_links\n           WHERE secret_hash = encode(sha256(convert_to($1, 'UTF8')), 'hex') AND revoked_at IS NULL",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "organization_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "cost_sheet_links",
+            "name": "organization_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "period",
+        "type_info": "Date",
+        "origin": {
+          "Table": {
+            "table": "cost_sheet_links",
+            "name": "period"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "08e53b5243e90c8f5464bff727d4ee336015df07c8b0153cd2f9f76fa338479b"
+}

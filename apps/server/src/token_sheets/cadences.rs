@@ -19,7 +19,7 @@ use crate::error::ApiError;
 use crate::organizations::Role;
 use crate::reports::filter::Filter;
 use crate::reports::scope::Scope;
-use crate::sign_in::{Caller, Credential};
+use crate::sign_in::Caller;
 
 /// How far back a person's token sheets decide which project cadences
 /// apply to them.
@@ -145,7 +145,9 @@ pub async fn cadence_for(
     person_id: Uuid,
     today: Date,
 ) -> Result<Option<Cadence>, sqlx::Error> {
-    let since = today.checked_sub(Duration::days(RECENT_DAYS)).unwrap_or(today);
+    let since = today
+        .checked_sub(Duration::days(RECENT_DAYS))
+        .unwrap_or(today);
     let rows = sqlx::query!(
         r#"SELECT c.kind, c.every_days, c.starts_on FROM cadences c
            WHERE c.organization_id = $1 AND (
@@ -210,7 +212,7 @@ pub(crate) async fn set_cadence(
     Json(input): Json<CadenceInput>,
 ) -> Result<Json<CadenceView>, ApiError> {
     caller.require_role(Role::PeopleManager)?;
-    caller.require_credential(&[Credential::Session])?;
+    caller.require_session()?;
     let today = OffsetDateTime::now_utc().date();
     let starts_on = input.starts_on.unwrap_or_else(|| monday_of(today));
     let cadence = Cadence::new(input.kind, input.every_days, starts_on)
@@ -280,7 +282,7 @@ pub(crate) async fn remove_cadence(
     Path(id): Path<Uuid>,
 ) -> Result<StatusCode, ApiError> {
     caller.require_role(Role::PeopleManager)?;
-    caller.require_credential(&[Credential::Session])?;
+    caller.require_session()?;
     let project = sqlx::query!(
         r#"SELECT pr.name AS "project?" FROM cadences c LEFT JOIN projects pr ON pr.id = c.project_id
            WHERE c.id = $1 AND c.organization_id = $2"#,
@@ -292,7 +294,9 @@ pub(crate) async fn remove_cadence(
     .ok_or(ApiError::NotFound)?;
     if let Some(name) = project.project {
         let scope = Scope::of(&state.db, &caller).await?;
-        if !scope.covers(&Filter(std::iter::once(("project".to_owned(), name)).collect())) {
+        if !scope.covers(&Filter(
+            std::iter::once(("project".to_owned(), name)).collect(),
+        )) {
             return Err(ApiError::Forbidden);
         }
     }

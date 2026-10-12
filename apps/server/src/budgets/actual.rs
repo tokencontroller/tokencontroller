@@ -179,7 +179,10 @@ pub async fn all_periods(
     )
     .fetch_one(db)
     .await?;
-    Ok(periods_between(first.map(Period::of), Period::of(now)))
+    Ok(periods_between(
+        first.map(Period::containing),
+        Period::containing(now),
+    ))
 }
 
 /// The periods from `first` up to `last`, or only `last` when there is no
@@ -191,7 +194,7 @@ fn periods_between(first: Option<Period>, last: Period) -> BTreeSet<Period> {
     };
     while period < last {
         periods.insert(period);
-        let Ok(next) = period.next() else { break };
+        let Some(next) = period.next() else { break };
         period = next;
     }
     periods
@@ -205,7 +208,7 @@ mod tests {
     use time::macros::datetime;
 
     fn period(text: &str) -> Period {
-        text.parse().unwrap()
+        Period::parse(text).unwrap()
     }
 
     fn usd(cents: i64) -> Money {
@@ -226,15 +229,20 @@ mod tests {
                 speed: None,
                 started_at: datetime!(2026-09-01 09:00 UTC),
                 status: EntryStatus::Submitted,
-                automatic: false,
+                on_token_sheet: true,
                 summary: String::new(),
+                currency: Currency::USD,
                 list_value: cents.map(usd),
+                billed_value: None,
+                placed_by: "no ticket".to_owned(),
+                ticket_not_synced: false,
                 tags: tags
                     .iter()
                     .map(|(n, v)| ((*n).to_owned(), (*v).to_owned()))
                     .collect::<Tags>(),
             },
             value: cents.map(usd),
+            bill: None,
         }
     }
 

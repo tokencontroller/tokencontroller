@@ -18,17 +18,20 @@ use tokencontroller_server::budgets::embeddings::{EmbedError, Embedder};
 use tokencontroller_server::budgets::similarity::Embedding;
 use tokencontroller_server::budgets::{embed_pending, forecast};
 use tokencontroller_server::reports::scope::Scope;
+use tokencontroller_server::sign_in::secret;
 use tokencontroller_server::{AppState, Config, router};
 use tower::ServiceExt as _;
 use uuid::Uuid;
 
 type TestResult<T> = Result<T, Box<dyn std::error::Error>>;
 
+const KEY: &str = "0123456789abcdef0123456789abcdef";
+
 fn test_config() -> TestResult<Config> {
     let vars: BTreeMap<&str, &str> = [
         ("DATABASE_URL", "postgres://unused"),
         ("TC_PUBLIC_URL", "http://localhost:8080"),
-        ("TC_SECRET_KEY", "0123456789abcdef0123456789abcdef"),
+        ("TC_SECRET_KEY", KEY),
     ]
     .into();
     Ok(Config::from_lookup(|name| {
@@ -49,10 +52,16 @@ async fn call_text(
         test_config()?,
         Arc::new(NoExtension),
     ));
+    let session = secret::generate(secret::SESSION, KEY)?;
+    sqlx::query("INSERT INTO sessions (token_hash, person_id, client, expires_at) VALUES ($1, $2, 'browser', now() + interval '1 day')")
+        .bind(&session.hash)
+        .bind(person)
+        .execute(pool)
+        .await?;
     let builder = Request::builder()
         .method(method)
         .uri(path)
-        .header(header::AUTHORIZATION, format!("Bearer test:{person}"));
+        .header(header::COOKIE, format!("tc_session={}", session.token));
     let request = match body {
         Some(body) => builder
             .header(header::CONTENT_TYPE, "application/json")
@@ -122,6 +131,7 @@ async fn organization(pool: &PgPool, currency: &str) -> TestResult<Org> {
     .bind(currency)
     .fetch_one(pool)
     .await?;
+    tokencontroller_server::tags::create_defaults(&mut *pool.acquire().await?, id).await?;
     let controller = person(pool, id, "cleo@example.com", "controller", json!({})).await?;
     let web_lead = person(
         pool,
@@ -152,8 +162,11 @@ async fn organization(pool: &PgPool, currency: &str) -> TestResult<Org> {
         (web_lead, json!({"team": "web"})),
         (account_manager, json!({"client": "acme"})),
     ] {
-        sqlx::query("INSERT INTO people_manager_filters (person_id, filter) VALUES ($1, $2)")
-            .bind(manager)
+        sqlx::query(
+            "INSERT INTO people_manager_filters (organization_id, person_id, filter) VALUES ($1, $2, $3)",
+        )
+        .bind(id)
+        .bind(manager)
             .bind(filter)
             .execute(pool)
             .await?;
@@ -232,9 +245,9 @@ async fn entry(pool: &PgPool, org: Uuid, entry: Entry<'_>) -> TestResult<Uuid> {
         .ok_or("no end")?;
     let id: Uuid = sqlx::query_scalar(
         "INSERT INTO token_entries
-               (organization_id, agent_manager_id, agent_harness, model, started_at, ended_at, summary,
-                automatic, status, list_value_nanos, currency)
-           VALUES ($1, $2, 'claude-code', $3, $4, $5, $6, false, 'submitted', $7, $8)
+               (organization_id, agent_manager_id, agent_harness, model, provider, started_at, ended_at,
+                summary, on_token_sheet, door, status, list_value_nanos, currency)
+           VALUES ($1, $2, 'claude-code', $3, 'anthropic', $4, $5, $6, true, 'token_sheet', 'submitted', $7, $8)
            RETURNING id",
     )
     .bind(org)
@@ -248,15 +261,19 @@ async fn entry(pool: &PgPool, org: Uuid, entry: Entry<'_>) -> TestResult<Uuid> {
     .fetch_one(pool)
     .await?;
     let split: Uuid = sqlx::query_scalar(
-        "INSERT INTO splits (token_entry_id, list_value_nanos) VALUES ($1, $2) RETURNING id",
+        "INSERT INTO splits (token_entry_id, position, method, list_value_nanos, placed_by)
+         VALUES ($1, 0, 'whole', $2, 'by hand') RETURNING id",
     )
     .bind(id)
     .bind(nanos)
     .fetch_one(pool)
     .await?;
     for (name, value) in entry.tags {
-        sqlx::query("INSERT INTO split_tags (split_id, name, value) VALUES ($1, $2, $3)")
-            .bind(split)
+        sqlx::query(
+            "INSERT INTO split_tags (split_id, organization_id, name, value, source) VALUES ($1, $2, $3, $4, 'sent')",
+        )
+        .bind(split)
+        .bind(org)
             .bind(name)
             .bind(value)
             .execute(pool)
@@ -564,7 +581,7 @@ async fn september(pool: &PgPool, org: &Org) -> TestResult<()> {
     )
     .await?;
     sqlx::query(
-        "INSERT INTO closed_periods (organization_id, period, closed_by, reporting_currency, approval) VALUES ($1, '2026-08-01', $2, 'USD', false)",
+        "INSERT INTO closed_periods (organization_id, period, closed_by, reporting_currency, approval, tag_map_version) VALUES ($1, '2026-08-01', $2, 'USD', false, 1)",
     )
     .bind(org.id)
     .bind(org.controller)

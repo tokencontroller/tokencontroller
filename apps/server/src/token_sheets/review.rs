@@ -54,7 +54,10 @@ pub struct Review {
     tag = "token_sheets",
     responses((status = OK, description = "The review list", body = Review)),
 )]
-pub(crate) async fn review(State(state): State<AppState>, caller: Caller) -> Result<Json<Review>, ApiError> {
+pub(crate) async fn review(
+    State(state): State<AppState>,
+    caller: Caller,
+) -> Result<Json<Review>, ApiError> {
     let own = Scope::of_person(caller.person_id, Vec::new());
     let query = LineQuery {
         organization_id: caller.organization_id,

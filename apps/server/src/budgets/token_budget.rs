@@ -20,13 +20,13 @@ use uuid::Uuid;
 use super::inherited::Inherited;
 use crate::AppState;
 use crate::bills::amount::{format_amount, parse_amount};
-use crate::close::period::Period;
+use crate::close::period::{Period, PeriodDates};
 use crate::error::ApiError;
 use crate::organizations::Role;
 use crate::reports::csv::Csv;
 use crate::reports::filter::Filter;
 use crate::reports::scope::Scope;
-use crate::sign_in::{Caller, Credential};
+use crate::sign_in::Caller;
 
 pub(super) fn routes() -> OpenApiRouter<AppState> {
     OpenApiRouter::new()
@@ -356,7 +356,7 @@ impl TokenBudgetInput {
             .as_deref()
             .map(str::trim)
             .filter(|text| !text.is_empty())
-            .map(str::parse::<Period>)
+            .map(Period::parse)
             .transpose()
             .map_err(|error| error.to_string())?;
         let applies = Applies::new(period, self.every_month)?;
@@ -538,7 +538,7 @@ pub(crate) async fn create_token_budget(
     Json(input): Json<TokenBudgetInput>,
 ) -> Result<(StatusCode, Json<TokenBudgetView>), ApiError> {
     caller.require_role(Role::PeopleManager)?;
-    caller.require_credential(&[Credential::Session])?;
+    caller.require_session()?;
     let organization_id = caller.organization_id;
     let currency = reporting_currency(&state.db, organization_id).await?;
     let draft = input.check(currency).map_err(ApiError::BadRequest)?;
@@ -573,7 +573,7 @@ pub(crate) async fn update_token_budget(
     Json(input): Json<TokenBudgetInput>,
 ) -> Result<Json<TokenBudgetView>, ApiError> {
     caller.require_role(Role::PeopleManager)?;
-    caller.require_credential(&[Credential::Session])?;
+    caller.require_session()?;
     let organization_id = caller.organization_id;
     let viewer = Viewer::of(&state.db, &caller).await?;
     let budget = find_visible(&state.db, organization_id, &viewer, id).await?;
@@ -619,7 +619,7 @@ pub(crate) async fn remove_token_budget(
     Path(id): Path<Uuid>,
 ) -> Result<StatusCode, ApiError> {
     caller.require_role(Role::PeopleManager)?;
-    caller.require_credential(&[Credential::Session])?;
+    caller.require_session()?;
     let organization_id = caller.organization_id;
     let viewer = Viewer::of(&state.db, &caller).await?;
     let budget = find_visible(&state.db, organization_id, &viewer, id).await?;
@@ -639,7 +639,7 @@ mod tests {
     use super::*;
 
     fn period(text: &str) -> Period {
-        text.parse().unwrap()
+        Period::parse(text).unwrap()
     }
 
     fn input(

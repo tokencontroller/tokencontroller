@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE messages SET token_entry_id = $3 WHERE organization_id = $1 AND session_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "da6d053eae375b49005c790ebfa8cbe6de0c342589703acf8a088331e085c6e2"
+}

@@ -65,12 +65,13 @@ pub async fn entries(db: &PgPool, lines: Vec<CostLine>) -> Result<Vec<EntryView>
         .collect::<BTreeSet<_>>()
         .into_iter()
         .collect();
-    let names: BTreeMap<Uuid, String> = sqlx::query!("SELECT id, name FROM people WHERE id = ANY($1)", &people)
-        .fetch_all(db)
-        .await?
-        .into_iter()
-        .map(|row| (row.id, row.name))
-        .collect();
+    let names: BTreeMap<Uuid, String> =
+        sqlx::query!("SELECT id, name FROM people WHERE id = ANY($1)", &people)
+            .fetch_all(db)
+            .await?
+            .into_iter()
+            .map(|row| (row.id, row.name))
+            .collect();
     let rejected: Vec<Uuid> = lines
         .iter()
         .filter(|line| line.status == EntryStatus::Rejected)
@@ -106,7 +107,8 @@ pub async fn entries(db: &PgPool, lines: Vec<CostLine>) -> Result<Vec<EntryView>
             let first = splits.first()?.clone();
             let currency = first.list_value.map(Money::currency);
             let total = currency.and_then(|currency| {
-                let values: Option<Vec<Money>> = splits.iter().map(|split| split.list_value).collect();
+                let values: Option<Vec<Money>> =
+                    splits.iter().map(|split| split.list_value).collect();
                 values.and_then(|values| Money::sum(values, currency).ok())
             });
             Some(EntryView {
@@ -117,11 +119,14 @@ pub async fn entries(db: &PgPool, lines: Vec<CostLine>) -> Result<Vec<EntryView>
                 provider: first.provider.clone(),
                 started_at: first.started_at,
                 status: first.status,
-                automatic: first.automatic,
+                automatic: !first.on_token_sheet,
                 summary: first.summary.clone(),
-                agent_manager: first.agent_manager_id.and_then(|person| names.get(&person).cloned()),
+                agent_manager: first
+                    .agent_manager_id
+                    .and_then(|person| names.get(&person).cloned()),
                 list_value: total.map(format_amount),
-                currency: currency.map_or_else(|| "USD".to_owned(), tokencontroller_core::Currency::code),
+                currency: currency
+                    .map_or_else(|| "USD".to_owned(), tokencontroller_core::Currency::code),
                 label: if total.is_some() {
                     "list-price estimate"
                 } else {

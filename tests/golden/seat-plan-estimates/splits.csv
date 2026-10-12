@@ -1,0 +1,5 @@
+entry,tags,amount,placed_by,notes
+1,person=mara;project=storefront;team=web;ticket=KD-214,12.00,rule: ticket key in branch,
+2,person=tom;project=storefront;team=web,4.50,rule: repository,
+3,person=lena;team=data,3.250005,no ticket,
+4,person=felix;project=storefront;team=data;ticket=KD-231,8.00,rule: ticket key in branch,

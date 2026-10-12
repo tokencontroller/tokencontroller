@@ -16,7 +16,10 @@ fn test_config() -> Config {
         public_url: "http://localhost:8080".to_owned(),
         secret_key: "0123456789abcdef0123456789abcdef".to_owned(),
         smtp_url: None,
+        smtp_from: None,
         prices_refresh: false,
+        customer_relations: tokencontroller_server::customer_relations::Settings::default(),
+        stripe: None,
         embeddings: None,
     }
 }
@@ -68,6 +71,24 @@ fn the_committed_openapi_document_is_current() {
         current.trim_end(),
         "apps/server/openapi.json is out of date: run `cargo run -p tokencontroller-server -- openapi > apps/server/openapi.json`"
     );
+}
+
+#[test]
+fn every_operation_has_its_own_id() {
+    // Clients generated from the document, such as the web app's, refuse
+    // two operations with the same id.
+    let document: serde_json::Value =
+        serde_json::from_str(&tokencontroller_server::openapi_json().unwrap()).unwrap();
+    let mut ids = Vec::new();
+    for operations in document["paths"].as_object().unwrap().values() {
+        for operation in operations.as_object().unwrap().values() {
+            ids.push(operation["operationId"].as_str().unwrap().to_owned());
+        }
+    }
+    let count = ids.len();
+    ids.sort();
+    ids.dedup();
+    assert_eq!(ids.len(), count, "two operations share an operationId");
 }
 
 #[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]

@@ -13,11 +13,12 @@ use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 use uuid::Uuid;
 
-use super::{SheetQuery, parse_period, sheet, sheet_response};
+use super::period::{Period, PeriodDates};
+use super::{SheetQuery, parse_period, sheet_response};
 use crate::AppState;
 use crate::error::ApiError;
 use crate::organizations::Role;
-use crate::sign_in::{Caller, Credential};
+use crate::sign_in::Caller;
 
 pub(super) fn routes() -> OpenApiRouter<AppState> {
     OpenApiRouter::new()
@@ -65,7 +66,7 @@ pub(crate) async fn create_link(
     Path(period): Path<String>,
 ) -> Result<(StatusCode, Json<CostSheetLink>), ApiError> {
     caller.require_role(Role::Controller)?;
-    caller.require_credential(&[Credential::Session])?;
+    caller.require_session()?;
     let period = parse_period(&period)?;
     let secret = new_secret();
     let row = sqlx::query!(
@@ -80,7 +81,11 @@ pub(crate) async fn create_link(
     )
     .fetch_optional(&state.db)
     .await?
-    .ok_or_else(|| ApiError::Conflict(format!("{period} is not closed yet; only a closed period has a cost sheet to share.")))?;
+    .ok_or_else(|| {
+        ApiError::Conflict(format!(
+            "{period} is not closed yet; only a closed period has a cost sheet to share."
+        ))
+    })?;
     let created_by = sqlx::query_scalar!("SELECT name FROM people WHERE id = $1", caller.person_id)
         .fetch_one(&state.db)
         .await?;
@@ -89,7 +94,10 @@ pub(crate) async fn create_link(
         Json(CostSheetLink {
             id: row.id,
             period: period.to_string(),
-            url: Some(format!("{}/shared/cost-sheet/{secret}", state.config.public_url)),
+            url: Some(format!(
+                "{}/shared/cost-sheet/{secret}",
+                state.config.public_url
+            )),
             created_by,
             created_at: row.created_at,
             revoked_at: None,
@@ -153,7 +161,7 @@ pub(crate) async fn revoke_link(
     Path(id): Path<Uuid>,
 ) -> Result<StatusCode, ApiError> {
     caller.require_role(Role::Controller)?;
-    caller.require_credential(&[Credential::Session])?;
+    caller.require_session()?;
     let revoked = sqlx::query!(
         r#"UPDATE cost_sheet_links SET revoked_at = coalesce(revoked_at, now())
            WHERE id = $1 AND organization_id = $2"#,
@@ -196,9 +204,8 @@ pub(crate) async fn shared_cost_sheet(
     .fetch_optional(&state.db)
     .await?
     .ok_or(ApiError::NotFound)?;
-    let period = super::period::Period::of_date(link.period);
-    let sheet = sheet(&state.db, link.organization_id, period, &query.column_names()).await?;
-    Ok(sheet_response(sheet, query.wants_csv()))
+    let period = Period::of_date(link.period);
+    sheet_response(&state.db, link.organization_id, period, &query).await
 }
 
 #[cfg(test)]

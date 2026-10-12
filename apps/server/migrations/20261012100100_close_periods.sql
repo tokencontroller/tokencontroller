@@ -13,11 +13,14 @@ CREATE TABLE closed_periods (
     closed_by uuid NOT NULL REFERENCES people (id),
     reporting_currency text NOT NULL CHECK (reporting_currency ~ '^[A-Z]{3}$'),
     approval boolean NOT NULL,
-    -- NULL: the organization never changed its tag map, so the default
-    -- ladder (ticket, project, organization) applied.
-    tag_map_version_id uuid REFERENCES tag_map_versions (id),
-    price_table_version_id uuid,
-    PRIMARY KEY (organization_id, period)
+    -- The tag map version the cost sheet is computed with.
+    tag_map_version integer NOT NULL,
+    -- The price table version in force at the close; NULL before the first
+    -- refresh.
+    price_table_version_id bigint REFERENCES price_table_versions (id),
+    PRIMARY KEY (organization_id, period),
+    FOREIGN KEY (organization_id, tag_map_version)
+        REFERENCES tag_map_versions (organization_id, version)
 );
 
 -- Each bill as it was reconciled at the close, in the bill's currency.
@@ -33,14 +36,15 @@ CREATE TABLE closed_period_bills (
         REFERENCES closed_periods (organization_id, period) ON DELETE CASCADE
 );
 
--- The rate each other currency was converted to the reporting currency at:
--- that of the period's last day.
+-- Every rate of the period's last day the account converted with: token
+-- entries into the reporting currency or into their bill's currency.
 CREATE TABLE closed_period_rates (
     organization_id uuid NOT NULL,
     period date NOT NULL,
-    currency text NOT NULL CHECK (currency ~ '^[A-Z]{3}$'),
+    from_currency text NOT NULL CHECK (from_currency ~ '^[A-Z]{3}$'),
+    to_currency text NOT NULL CHECK (to_currency ~ '^[A-Z]{3}$'),
     exchange_rate_nanos bigint NOT NULL CHECK (exchange_rate_nanos > 0),
-    PRIMARY KEY (organization_id, period, currency),
+    PRIMARY KEY (organization_id, period, from_currency, to_currency),
     FOREIGN KEY (organization_id, period)
         REFERENCES closed_periods (organization_id, period) ON DELETE CASCADE
 );

@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["apps/server", "crates/core"]
+members = ["apps/cli", "apps/server", "crates/core"]
 
 [workspace.package]
 edition = "2024"
@@ -12,21 +12,37 @@ publish = false
 tokencontroller-core = { path = "crates/core" }
 anyhow = "1.0.104"
 axum = "0.8.9"
+base64 = "0.22.1"
+chacha20poly1305 = "0.10"
+csv = "1.4.0"
+flate2 = "1.1"
+getrandom = "0.4.3"
+hex = "0.4.3"
+hmac = "0.13.0"
+lettre = { version = "0.11.23", default-features = false, features = ["builder", "hostname", "smtp-transport", "tokio1", "tokio1-rustls", "rustls-native-certs", "ring"] }
+mail-parser = "0.11.9"
+opentelemetry-proto = { version = "0.33.1", default-features = false, features = ["gen-tonic-messages", "logs", "metrics", "trace", "with-serde"] }
 proptest = "1.12.0"
-reqwest = { version = "0.12.28", default-features = false, features = ["rustls-tls", "json"] }
+prost = "0.14.4"
+regex = "1.13.1"
+reqwest = { version = "0.13.5", default-features = false, features = ["rustls-no-provider", "json", "form", "query", "http2", "charset"] }
+rust_decimal = "1.43.0"
+rustls = { version = "0.23.45", default-features = false, features = ["ring", "std", "tls12", "logging"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
+sha2 = "0.11.0"
 sqlx = { version = "0.9.0", default-features = false, features = ["runtime-tokio", "tls-rustls", "postgres", "macros", "migrate", "uuid", "time", "json"] }
 thiserror = "2.0.21"
-time = { version = "0.3.55", features = ["serde", "formatting", "parsing", "macros"] }
-tokio = { version = "1.53.2", features = ["macros", "rt-multi-thread", "net", "signal", "time"] }
+time = { version = "0.3.55", features = ["serde", "serde-well-known", "formatting", "parsing", "macros"] }
+tokio = { version = "1.53.2", features = ["macros", "rt-multi-thread", "net", "signal", "sync", "time"] }
 tower = "0.5.3"
 tower-http = { version = "0.7.1", features = ["trace"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
-utoipa = { version = "6.0.0", features = ["uuid", "time"] }
+utoipa = { version = "6.0.0", features = ["time", "uuid"] }
 utoipa-axum = "0.3.0"
-uuid = { version = "1.28.0", features = ["serde", "v4"] }
+uuid = { version = "1.28.0", features = ["v4", "serde"] }
+wiremock = "0.6.5"
 zip = { version = "9.0.2", default-features = false, features = ["deflate-flate2-zlib-rs", "time"] }
 
 # The strict harness (ADR 0003). Owned by the maintainer: changing this block
@@ -40,16 +56,19 @@ unused_must_use = "forbid"
 all = { level = "deny", priority = -1 }
 pedantic = { level = "deny", priority = -1 }
 unwrap_used = "forbid"
-expect_used = "deny"     # deny, not forbid: #[tokio::main] and #[tokio::test] allow it in generated code; scripts/harness-check forbids lint attributes in our own code (ADR 0013)
+expect_used = "deny"     # deny, not forbid: #[tokio::main] and #[tokio::test] allow it in generated code; scripts/harness_check.py forbids lint attributes in our own code (ADR 0013)
 panic = "forbid"
 todo = "forbid"
 unimplemented = "forbid"
+unreachable = "deny"     # deny, not forbid: sqlx::query! allows it in generated code; scripts/harness_check.py forbids lint attributes in our own code (ADR 0013)
 indexing_slicing = "forbid"
+string_slice = "forbid"
 float_arithmetic = "forbid"
 arithmetic_side_effects = "forbid"
 as_conversions = "forbid"
 cast_possible_truncation = "forbid"
 let_underscore_must_use = "forbid"
+unused_result_ok = "forbid"
 allow_attributes = "forbid"
 allow_attributes_without_reason = "forbid"
 dbg_macro = "forbid"

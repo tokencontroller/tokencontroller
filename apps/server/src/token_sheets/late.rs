@@ -19,7 +19,7 @@ use uuid::Uuid;
 use super::cadence::CadencePeriod;
 use super::cadences::cadence_for;
 use crate::AppState;
-use crate::close::period::Period;
+use crate::close::period::{Period, PeriodDates};
 use crate::error::ApiError;
 use crate::organizations::Role;
 use crate::reports::filter::Filter;
@@ -93,7 +93,15 @@ pub async fn late_sheets(
             .push((row.starts_on, row.ends_on));
     }
     let mut late = Vec::new();
-    for (person_id, SheetUser { name, email, sheets }) in people {
+    for (
+        person_id,
+        SheetUser {
+            name,
+            email,
+            sheets,
+        },
+    ) in people
+    {
         let Some(cadence) = cadence_for(db, organization_id, person_id, today).await? else {
             continue;
         };
@@ -123,7 +131,11 @@ pub async fn late_sheets(
             }
         }
     }
-    late.sort_by(|a, b| a.period_start.cmp(&b.period_start).then_with(|| a.person.cmp(&b.person)));
+    late.sort_by(|a, b| {
+        a.period_start
+            .cmp(&b.period_start)
+            .then_with(|| a.person.cmp(&b.person))
+    });
     Ok(late)
 }
 
@@ -162,7 +174,11 @@ pub struct SheetContext {
 /// # Errors
 ///
 /// A database error.
-pub async fn context_for(db: &PgPool, organization_id: Uuid, person_id: Uuid) -> Result<SheetContext, sqlx::Error> {
+pub async fn context_for(
+    db: &PgPool,
+    organization_id: Uuid,
+    person_id: Uuid,
+) -> Result<SheetContext, sqlx::Error> {
     let today = OffsetDateTime::now_utc().date();
     let cadence = match cadence_for(db, organization_id, person_id, today).await? {
         Some(cadence) => match cadence.period_containing(today) {
@@ -247,7 +263,10 @@ pub(crate) async fn list_late(
         .filter(|sheet| {
             sheet.person_id == caller.person_id
                 || tags.get(&sheet.person_id).is_some_and(|person_tags| {
-                    scope.filters().iter().any(|filter| filter.matches(person_tags))
+                    scope
+                        .filters()
+                        .iter()
+                        .any(|filter| filter.matches(person_tags))
                 })
         })
         .collect();
@@ -265,11 +284,26 @@ mod tests {
             starts_on: date!(2026 - 09 - 07),
             ends_on: date!(2026 - 09 - 13),
         };
-        assert!(covered(week, &[(date!(2026 - 09 - 07), date!(2026 - 09 - 13))]));
-        assert!(covered(week, &[(date!(2026 - 09 - 01), date!(2026 - 09 - 30))]));
-        assert!(covered(week, &[(date!(2026 - 09 - 13), date!(2026 - 09 - 13))]));
-        assert!(!covered(week, &[(date!(2026 - 09 - 14), date!(2026 - 09 - 20))]));
-        assert!(!covered(week, &[(date!(2026 - 08 - 31), date!(2026 - 09 - 06))]));
+        assert!(covered(
+            week,
+            &[(date!(2026 - 09 - 07), date!(2026 - 09 - 13))]
+        ));
+        assert!(covered(
+            week,
+            &[(date!(2026 - 09 - 01), date!(2026 - 09 - 30))]
+        ));
+        assert!(covered(
+            week,
+            &[(date!(2026 - 09 - 13), date!(2026 - 09 - 13))]
+        ));
+        assert!(!covered(
+            week,
+            &[(date!(2026 - 09 - 14), date!(2026 - 09 - 20))]
+        ));
+        assert!(!covered(
+            week,
+            &[(date!(2026 - 08 - 31), date!(2026 - 09 - 06))]
+        ));
         assert!(!covered(week, &[]));
     }
 }

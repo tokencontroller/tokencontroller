@@ -1,0 +1,48 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT e.id, e.local_id,\n                  (SELECT d.reason FROM token_entry_decisions d\n                   WHERE d.token_entry_id = e.id AND d.decision = 'rejected'\n                   ORDER BY d.decided_at DESC LIMIT 1) AS reason\n           FROM token_entries e\n           WHERE e.organization_id = $1 AND e.agent_manager_id = $2 AND e.status = 'rejected'\n           ORDER BY e.started_at",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "token_entries",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "local_id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "token_entries",
+            "name": "local_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "reason",
+        "type_info": "Text",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      null
+    ]
+  },
+  "hash": "9e5e7d8583584a40a0f1efa3120c454e17c50014b07c891937ec45ddea9662a6"
+}

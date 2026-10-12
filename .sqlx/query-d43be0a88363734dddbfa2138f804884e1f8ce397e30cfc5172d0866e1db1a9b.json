@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE messages SET counts = false\n                     WHERE organization_id = $1 AND session_id = $2\n                       AND (kind = 'stand_in'\n                            OR (kind = 'built' AND EXISTS (\n                                SELECT 1 FROM messages m\n                                WHERE m.organization_id = $1 AND m.session_id = $2\n                                  AND m.kind = 'real' AND m.from_entry)))",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d43be0a88363734dddbfa2138f804884e1f8ce397e30cfc5172d0866e1db1a9b"
+}

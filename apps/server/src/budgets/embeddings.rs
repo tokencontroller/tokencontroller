@@ -74,9 +74,7 @@ impl HttpEmbedder {
     ///
     /// [`EmbedError::Unreachable`] when the HTTP client cannot be built.
     pub fn new(config: &EmbeddingsConfig) -> Result<Self, EmbedError> {
-        let client = reqwest::Client::builder()
-            .timeout(TIMEOUT)
-            .build()
+        let client = crate::integrations::http::client()
             .map_err(|error| EmbedError::Unreachable(describe(&error)))?;
         Ok(Self {
             client,
@@ -106,7 +104,11 @@ impl Embedder for HttpEmbedder {
             model: &self.model,
             input: texts.iter().map(|text| cut(text)).collect(),
         };
-        let mut request = self.client.post(&self.endpoint).json(&body);
+        let mut request = self
+            .client
+            .post(&self.endpoint)
+            .timeout(TIMEOUT)
+            .json(&body);
         if let Some(key) = &self.key {
             request = request.bearer_auth(key);
         }
