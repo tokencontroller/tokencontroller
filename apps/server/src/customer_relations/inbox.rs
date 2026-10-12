@@ -10,13 +10,14 @@ use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use hmac::{KeyInit as _, Mac as _};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 use super::support::{self, Inbound};
 use super::web::{self, Limit, Refusal};
 use crate::AppState;
 use crate::error::{ApiError, ErrorBody};
+use crate::sign_in::Member;
 
 type HmacSha256 = hmac::Hmac<sha2::Sha256>;
 
@@ -195,9 +196,113 @@ async fn take_contact(
         return Ok(());
     }
     let name: Option<String> = message.name.map(|name| name.chars().take(200).collect());
-    support::receive_contact_form(&state.db, email, name.as_deref(), text).await?;
+    support::receive_message(
+        &state.db,
+        support::Channel::ContactForm,
+        email,
+        name.as_deref(),
+        text,
+    )
+    .await?;
     super::wake();
     Ok(())
+}
+
+/// Support inside the app, as a signed-in member sees it.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct SupportView {
+    /// Where answers go: the member's own address.
+    pub answer_to: String,
+}
+
+/// A message to support from inside the app.
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct SupportMessage {
+    pub message: String,
+}
+
+fn app_limit() -> &'static Limit {
+    static LIMIT: OnceLock<Limit> = OnceLock::new();
+    LIMIT.get_or_init(|| Limit::new(MESSAGES_PER_VISITOR, Duration::from_hours(1)))
+}
+
+fn support_on(state: &AppState) -> Result<(), ApiError> {
+    if state.config.customer_relations.support_from.is_some() {
+        Ok(())
+    } else {
+        Err(ApiError::NotFound)
+    }
+}
+
+async fn person(state: &AppState, member: &Member) -> Result<(String, String), ApiError> {
+    let row = sqlx::query!(
+        "SELECT email, name FROM people WHERE id = $1",
+        member.person_id
+    )
+    .fetch_one(&state.db)
+    .await?;
+    Ok((row.email, row.name))
+}
+
+/// Whether support inside the app is on, and where its answers go. Answers
+/// 404 when it is off, as on a self-hosted instance without support.
+#[utoipa::path(
+    get,
+    path = "/support",
+    tag = "customer_relations",
+    responses(
+        (status = OK, body = SupportView),
+        (status = NOT_FOUND, description = "Support inside the app is off", body = ErrorBody),
+    ),
+)]
+pub async fn support(
+    State(state): State<AppState>,
+    member: Member,
+) -> Result<Json<SupportView>, ApiError> {
+    support_on(&state)?;
+    let (answer_to, _) = person(&state, &member).await?;
+    Ok(Json(SupportView { answer_to }))
+}
+
+/// Writes to support from inside the app. The answer comes by mail to the
+/// member's address, like an answer to the contact form.
+#[utoipa::path(
+    post,
+    path = "/support/messages",
+    tag = "customer_relations",
+    request_body = SupportMessage,
+    responses(
+        (status = ACCEPTED, description = "Received; the answer comes by mail"),
+        (status = BAD_REQUEST, body = ErrorBody),
+        (status = NOT_FOUND, description = "Support inside the app is off", body = ErrorBody),
+        (status = TOO_MANY_REQUESTS, body = ErrorBody),
+    ),
+)]
+pub async fn support_message(
+    State(state): State<AppState>,
+    member: Member,
+    Json(message): Json<SupportMessage>,
+) -> Result<StatusCode, ApiError> {
+    member.require_session()?;
+    support_on(&state)?;
+    let text = message.message.trim();
+    if text.is_empty() {
+        return Err(ApiError::BadRequest("Write a message.".to_owned()));
+    }
+    if text.chars().count() > MAX_MESSAGE {
+        return Err(ApiError::BadRequest(format!(
+            "Keep the message under {MAX_MESSAGE} characters."
+        )));
+    }
+    if !app_limit().allow(&member.person_id.to_string()) {
+        return Err(ApiError::TooManyRequests(
+            "Too many messages at once. Try again in an hour.".to_owned(),
+        ));
+    }
+    let (email, name) = person(&state, &member).await?;
+    support::receive_message(&state.db, support::Channel::App, &email, Some(&name), text).await?;
+    super::wake();
+    Ok(StatusCode::ACCEPTED)
 }
 
 #[cfg(test)]

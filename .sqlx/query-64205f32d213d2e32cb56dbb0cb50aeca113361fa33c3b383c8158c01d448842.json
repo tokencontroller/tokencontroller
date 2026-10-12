@@ -1,0 +1,114 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT i.id, i.subject, i.body, i.status, i.created_at, i.send_started_at, i.sent_at,\n                  (SELECT count(*) FROM newsletter_deliveries d WHERE d.issue_id = i.id) AS \"recipients!\",\n                  (SELECT count(*) FROM newsletter_deliveries d\n                   WHERE d.issue_id = i.id AND d.sent_at IS NOT NULL) AS \"delivered!\"\n           FROM newsletter_issues i\n           WHERE $1::uuid IS NULL OR i.id = $1\n           ORDER BY i.created_at DESC, i.id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "newsletter_issues",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "subject",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "newsletter_issues",
+            "name": "subject"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "body",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "newsletter_issues",
+            "name": "body"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "status",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "newsletter_issues",
+            "name": "status"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "newsletter_issues",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "send_started_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "newsletter_issues",
+            "name": "send_started_at"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "sent_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "newsletter_issues",
+            "name": "sent_at"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "recipients!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 8,
+        "name": "delivered!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      null,
+      null
+    ]
+  },
+  "hash": "64205f32d213d2e32cb56dbb0cb50aeca113361fa33c3b383c8158c01d448842"
+}

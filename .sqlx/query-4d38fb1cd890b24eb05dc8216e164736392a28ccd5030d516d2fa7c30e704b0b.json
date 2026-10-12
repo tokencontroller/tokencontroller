@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE feedback_reports\n         SET status = $2, answer = coalesce($3, answer), fixed_in = coalesce($4, fixed_in),\n             updated_at = now(),\n             reporter_notified_at = CASE WHEN $5 THEN NULL ELSE reporter_notified_at END\n         WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text",
+        "Text",
+        "Bool"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "4d38fb1cd890b24eb05dc8216e164736392a28ccd5030d516d2fa7c30e704b0b"
+}

@@ -1,0 +1,193 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT f.id, f.kind, f.body, f.screenshot IS NOT NULL AS \"has_screenshot!\",\n                  f.diagnostics AS \"diagnostics: JsonColumn<Diagnostics>\", f.status, f.answer,\n                  f.fixed_in, f.created_at, f.updated_at,\n                  o.id AS organization_id, o.name AS organization_name,\n                  p.id AS person_id, p.name AS person_name, p.email\n           FROM feedback_reports f\n           JOIN organizations o ON o.id = f.organization_id\n           JOIN people p ON p.id = f.person_id\n           WHERE ($1::uuid IS NULL OR f.organization_id = $1)\n             AND ($2::text IS NULL OR f.status = $2)\n             AND ($3::uuid IS NULL OR f.id = $3)\n           ORDER BY f.created_at DESC, f.id\n           LIMIT 200",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "feedback_reports",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "kind",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "feedback_reports",
+            "name": "kind"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "body",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "feedback_reports",
+            "name": "body"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "has_screenshot!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 4,
+        "name": "diagnostics: JsonColumn<Diagnostics>",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "feedback_reports",
+            "name": "diagnostics"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "status",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "feedback_reports",
+            "name": "status"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "answer",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "feedback_reports",
+            "name": "answer"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "fixed_in",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "feedback_reports",
+            "name": "fixed_in"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "feedback_reports",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "updated_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "feedback_reports",
+            "name": "updated_at"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "organization_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "organizations",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "organization_name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "organizations",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "ordinal": 12,
+        "name": "person_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "people",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 13,
+        "name": "person_name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "people",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "ordinal": 14,
+        "name": "email",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "people",
+            "name": "email"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      null,
+      false,
+      false,
+      true,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "21bfa8da1e3f1e61e12c250e6dd0b93893f2a96829053a904a073662df465095"
+}

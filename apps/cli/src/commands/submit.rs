@@ -219,17 +219,7 @@ pub fn run(app: &mut App<'_>, tags: &[String], signals: &[String]) -> Result<()>
     app.prepare()?;
     let entries = app.entries(&[Status::Draft, Status::Rejected])?;
     if entries.is_empty() {
-        if app.json {
-            return output::json(
-                app.out,
-                &serde_json::json!({"submitted": 0, "list_value": "0.00", "currency": CURRENCY.code(), "share_on_tickets_percent": 0}),
-            );
-        }
-        writeln!(
-            app.out,
-            "Nothing to submit: there are no draft token entries."
-        )?;
-        return Ok(());
+        return nothing_to_submit(app);
     }
     let connection = app.connection().ok_or_else(|| {
         Error::usage(
@@ -299,6 +289,34 @@ pub fn run(app: &mut App<'_>, tags: &[String], signals: &[String]) -> Result<()>
         "{what} · {count} {noun} · {} · {share}% on tickets",
         crate::amounts::display(total, CURRENCY)
     )?;
+    Ok(())
+}
+
+/// No drafts. Signed in as a person, `tc` still submits the empty token
+/// sheet: the service then knows there was nothing to report this cadence
+/// period, and the sheet is not late.
+fn nothing_to_submit(app: &mut App<'_>) -> Result<()> {
+    let connection = app
+        .connection()
+        .filter(|connection| !connection.is_service_token());
+    if let Some(connection) = &connection {
+        let client = crate::api::Client::new(&connection.service, Some(connection.token.clone()));
+        client.submit::<Outgoing>(&[])?;
+    }
+    if app.json {
+        return output::json(
+            app.out,
+            &serde_json::json!({"submitted": 0, "list_value": "0.00", "currency": CURRENCY.code(), "share_on_tickets_percent": 0}),
+        );
+    }
+    if connection.is_some() {
+        writeln!(app.out, "submitted token sheet · nothing to report")?;
+    } else {
+        writeln!(
+            app.out,
+            "Nothing to submit: there are no draft token entries."
+        )?;
+    }
     Ok(())
 }
 

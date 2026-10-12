@@ -3,9 +3,10 @@
 
 use sqlx::PgPool;
 
-/// Deletes site assistant questions and raw support mail after 90 days, and
-/// support conversations two years after their last message. A message's
-/// text stays with its conversation when its raw mail is deleted.
+/// Deletes site assistant questions, raw support mail and feedback
+/// screenshots after 90 days, and support conversations and feedback reports
+/// two years after their last message or change. A message's text stays
+/// with its conversation when its raw mail is deleted.
 ///
 /// # Errors
 ///
@@ -27,5 +28,14 @@ pub async fn forget(db: &PgPool) -> Result<(), sqlx::Error> {
     )
     .execute(db)
     .await?;
+    sqlx::query!(
+        "UPDATE feedback_reports SET screenshot = NULL, screenshot_type = NULL
+         WHERE screenshot IS NOT NULL AND created_at < now() - interval '90 days'"
+    )
+    .execute(db)
+    .await?;
+    sqlx::query!("DELETE FROM feedback_reports WHERE updated_at < now() - interval '2 years'")
+        .execute(db)
+        .await?;
     Ok(())
 }

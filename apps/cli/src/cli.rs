@@ -215,7 +215,7 @@ fn rules_command() -> ClapCommand {
                         .arg(pairs_arg(
                             "rule",
                             "RULE",
-                            "SIGNAL TEST VALUE NAME=VALUE… The signal is branch, directory, repository, pull-request, subagent or agent-harness. The test is is, starts-with, ends-with, contains or matches (a regular expression); without one, a value with ^ $ * + ? ( ) [ ] { } | or \\ is a regular expression and any other must match exactly.",
+                            "SIGNAL TEST VALUE NAME=VALUE… The signal is branch, directory, repository, pull-request, subagent or ticket. The test is is, starts-with, contains, matches (a regular expression) or is-set (no value); without one, a value with ^ $ * + ? ( ) [ ] { } | or \\ is a regular expression and any other must match exactly.",
                         )),
                 )
                 .subcommand(
