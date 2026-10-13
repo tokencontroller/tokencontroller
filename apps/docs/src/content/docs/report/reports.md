@@ -5,6 +5,8 @@ description: "The reports, what they answer, and how summaries and status show i
 
 Reports show cost from both sides: by person and team, and by client, project and ticket. A report is a saved [tag filter](/account/tags#filters) with a grouping, so any tag works, such as cost per feature for `client: acme`. Every report can be shown in another currency, or as shares of the period instead of money. Each person sees the reports for what their role covers.
 
+![Reports: cost by person for the month, with the filter and grouping above](/screens/10-reports.png)
+
 ## The reports {#list}
 
 | Report | Answers |

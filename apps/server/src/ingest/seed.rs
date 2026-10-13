@@ -59,7 +59,7 @@ const WORK: [Work; 6] = [
         project: None,
         summary: "Worked on the checkout",
         sessions: 2,
-        input: 42_000,
+        input: 168_000,
     },
     Work {
         person: ids::JONAS,
@@ -77,7 +77,7 @@ const WORK: [Work; 6] = [
         project: None,
         summary: "Built the address features",
         sessions: 2,
-        input: 36_000,
+        input: 144_000,
     },
     Work {
         person: ids::SAM,
@@ -91,7 +91,7 @@ const WORK: [Work; 6] = [
         project: None,
         summary: "Built the claim upload form",
         sessions: 1,
-        input: 51_000,
+        input: 204_000,
     },
     Work {
         person: ids::LENA,
@@ -105,7 +105,7 @@ const WORK: [Work; 6] = [
         project: None,
         summary: "Wrote the claim status emails",
         sessions: 1,
-        input: 64_000,
+        input: 256_000,
     },
     Work {
         person: ids::PRIYA,
@@ -122,7 +122,7 @@ const WORK: [Work; 6] = [
         project: None,
         summary: "Reviewed a pull request",
         sessions: 1,
-        input: 18_000,
+        input: 72_000,
     },
     Work {
         person: ids::NADIA,
@@ -136,7 +136,7 @@ const WORK: [Work; 6] = [
         project: Some("support"),
         summary: "Answered customer email",
         sessions: 3,
-        input: 6_000,
+        input: 24_000,
     },
 ];
 
@@ -265,9 +265,9 @@ fn entry_json(
     let input = work.input.saturating_mul(percent) / 100;
     let tokens = Tokens {
         input,
-        output: input / 9,
+        output: input / 4,
         cache_write: input / 4,
-        cache_read: input.saturating_mul(6),
+        cache_read: input.saturating_mul(60),
     };
     let ticket = usize::try_from(turn)
         .ok()

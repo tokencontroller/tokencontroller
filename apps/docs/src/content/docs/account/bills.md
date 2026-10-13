@@ -5,6 +5,8 @@ description: "Where bills come from, reconciliation, and list value against bill
 
 A bill is a provider's figure for one period's metered usage: gross, discount, credit and net. Metered usage is everything priced per use: tokens, and per-call fees such as web search. Token entries must add up to it. Seats, subscriptions and other flat fees are not usage: they stay off the bill and off the cost sheet, and finance handles them as before.
 
+![Bills for a closed month and the reconciliation: bill, token entries, residual and attribution per provider](/screens/06-bills-and-reconciliation.png)
+
 ## Where bills come from {#sources}
 
 | Provider | How |

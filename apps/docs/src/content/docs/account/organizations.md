@@ -11,6 +11,8 @@ next:
 
 An organization is one customer of Token Controller: its people, projects, tags and periods. A controller sets it up once.
 
+![Settings: name, cost source, reporting currency, approval, cadence and sign-in domains](/screens/16-settings.png)
+
 ## Organization settings {#settings}
 
 | Setting | What it does |

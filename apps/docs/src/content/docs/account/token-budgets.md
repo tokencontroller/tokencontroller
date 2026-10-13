@@ -5,6 +5,8 @@ description: "Plan money for people, tickets, projects and periods, or accept a 
 
 A token budget is money a person has planned. A token forecast is money Token Controller predicts. Both are compared with actual cost, and neither ever stops spending.
 
+![Token budgets: a monthly one for team web and the token forecasts below](/screens/09-token-budgets.png)
+
 ## Token budgets {#budgets}
 
 Put a token budget on any tag filter for a period: a person (for example 1,500 EUR a month), a ticket, a project, a team, or a set of tags such as `team: web` and `client: acme`. Type it, or accept a token forecast for a ticket. People managers set token budgets within the filters they are assigned. Token budgets can overlap, so two of them can count the same money; never add them up.

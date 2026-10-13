@@ -5,6 +5,8 @@ description: "Check draft token entries, fix the exceptions, submit the token sh
 
 Before you submit, you see every draft token entry and its tags. You only fix the exceptions.
 
+![Review and submit: draft token entries with their tickets and tags, and the Submit token sheet button](/screens/01-review-and-submit.png)
+
 ## Review {#review}
 
 ```text

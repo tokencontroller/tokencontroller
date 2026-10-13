@@ -11,6 +11,8 @@ next:
 
 Projects and tickets are the two built-in tags with records behind them. Their values are real projects and tickets, so they can carry a ticket key pattern, repositories, a title and a parent.
 
+![A project with its ticket key pattern, repositories and tickets with their cost](/screens/12-project-and-tickets.png)
+
 ## What a project has {#project}
 
 - a [ticket key pattern](/attribute/ticket-keys), such as `^KD-\d+`

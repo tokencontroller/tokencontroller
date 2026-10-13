@@ -5,6 +5,8 @@ description: "How rules turn signals into postings, in which order, and what hap
 
 Rules set the tags of token entries: their ticket and project, and any other tag, such as `purpose: code-review` for sessions on a `review/` branch. They work like the rules in a banking app: set once, every new token entry lands where it belongs, and people only handle the exceptions.
 
+![Rules: the organization rules in order, personal rules and the summary match](/screens/14-rules.png)
+
 ## Signals {#signals}
 
 A signal is a fact about a session that hints at where its cost belongs:
