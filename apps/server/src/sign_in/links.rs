@@ -233,7 +233,9 @@ fn sign_up_url(config: &Config, token: &str) -> String {
 
 fn sign_in_mail(config: &Config, email: &str, url: &str) -> Mail {
     let minutes = LINK_MINUTES.to_string();
+    let logo = mail::logo_url(&config.public_url);
     let values = [
+        ("logo_url", logo.as_str()),
         ("email", email),
         ("sign_in_url", url),
         ("host", mail::host_of(&config.public_url)),
@@ -252,7 +254,9 @@ fn sign_in_mail(config: &Config, email: &str, url: &str) -> Mail {
 /// into the sign-up form. The link page shows it.
 fn sign_up_mail(config: &Config, email: &str, url: &str) -> Mail {
     let minutes = LINK_MINUTES.to_string();
+    let logo = mail::logo_url(&config.public_url);
     let values = [
+        ("logo_url", logo.as_str()),
         ("email", email),
         ("sign_up_url", url),
         ("host", mail::host_of(&config.public_url)),
@@ -269,7 +273,9 @@ fn sign_up_mail(config: &Config, email: &str, url: &str) -> Mail {
 
 fn no_account_mail(config: &Config, email: &str, url: &str) -> Mail {
     let minutes = LINK_MINUTES.to_string();
+    let logo = mail::logo_url(&config.public_url);
     let values = [
+        ("logo_url", logo.as_str()),
         ("email", email),
         ("sign_up_url", url),
         ("host", mail::host_of(&config.public_url)),
@@ -989,17 +995,16 @@ fn page(status: StatusCode, title: &str, body: &str) -> Response {
 <meta name="referrer" content="no-referrer">
 <title>{title} · Token Controller</title>
 <style>
-body{{margin:0;background:#F6F7F8;color:#0E1116;font:16px/1.5 Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}}
+body{{margin:0;background:#F6F7F8;color:#1C2030;font:16px/1.5 Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}}
 main{{max-width:440px;margin:12vh auto;padding:32px 36px;background:#fff;border:1px solid #E7E9EC;border-radius:14px}}
 h1{{margin:0 0 12px;font-size:24px;line-height:1.25;letter-spacing:-.02em}}
 .brand{{display:flex;align-items:center;gap:10px;margin-bottom:28px;font-size:15px;font-weight:600}}
-.mark{{display:flex;flex-direction:column;justify-content:center;gap:3px;width:24px;height:24px;background:#0E1116;border-radius:7px}}
-.mark i{{display:block;width:12px;height:3px;margin:0 auto;background:#fff;border-radius:2px}}
-button{{margin-top:12px;padding:13px 22px;font-family:inherit;font-size:16px;font-weight:600;line-height:1;color:#fff;background:#0E1116;border:0;border-radius:10px;cursor:pointer}}
-a{{color:#0E7C66}}
+.mark{{display:block;width:24px;height:24px}}
+button{{margin-top:12px;padding:13px 22px;font-family:inherit;font-size:16px;font-weight:600;line-height:1;color:#fff;background:#1C2030;border:0;border-radius:10px;cursor:pointer}}
+a{{color:#2563CF}}
 </style>
 </head>
-<body><main><div class="brand"><span class="mark"><i></i><i></i></span>Token Controller</div>
+<body><main><div class="brand"><img class="mark" src="/logo-light-48.png" width="24" height="24" alt="">Token Controller</div>
 <h1>{title}</h1>
 {body}
 </main></body>
@@ -1064,6 +1069,10 @@ mod tests {
         assert!(mail.html.contains(&url));
         assert!(mail.text.contains("works once and for 15 minutes"));
         assert!(mail.html.contains("app.tokencontroller.com"));
+        assert!(
+            mail.html
+                .contains("src=\"https://app.tokencontroller.com/logo-light-48.png\"")
+        );
         assert!(!mail.html.contains("{{"));
         assert!(!mail.text.contains("{{"));
         let sign_up = sign_up_url(&config, "tc_link_abc");
