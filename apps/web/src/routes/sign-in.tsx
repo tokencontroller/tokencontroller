@@ -267,7 +267,7 @@ export function SignUpPage(): ReactNode {
         </Field>
         <Field label="Work email">
           {confirmed ? (
-            <Input type="email" readOnly value={confirmed} />
+            <Input type="email" disabled value={confirmed} />
           ) : (
             <Input type="email" required autoComplete="email" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} />
           )}
