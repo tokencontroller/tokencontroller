@@ -1,0 +1,47 @@
+# Submits a published tc release to winget on request: renders the manifest
+# from the release's SHA256SUMS with the release.py on this branch, attaches
+# winget-manifest.zip to the release again, and submits it with wingetcreate
+# when the WINGET_TOKEN secret exists. release.yml does the same on a tag;
+# this workflow is for when that job failed and the tag must not move.
+name: Submit to winget
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "The release tag, such as v1.0.0"
+        required: true
+        default: v1.0.0
+
+permissions:
+  contents: write
+
+jobs:
+  winget:
+    name: winget manifest
+    runs-on: windows-2022
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - name: Write the manifest and attach it to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          version="${TAG#v}"
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern SHA256SUMS --dir release
+          python3 apps/cli/packaging/release.py winget "$version" release/SHA256SUMS winget
+          7z a winget-manifest.zip ./winget/*
+          gh release upload "$TAG" winget-manifest.zip --repo "$GITHUB_REPOSITORY" --clobber
+      - name: Submit it to winget
+        env:
+          WINGET_TOKEN: ${{ secrets.WINGET_TOKEN }}
+        run: |
+          if [ -z "$WINGET_TOKEN" ]; then
+            echo "No WINGET_TOKEN secret: the manifest is on the release, not submitted." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          curl -sSfL -o wingetcreate.exe https://aka.ms/wingetcreate/latest
+          ./wingetcreate.exe submit --token "$WINGET_TOKEN" winget
