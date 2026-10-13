@@ -31,6 +31,7 @@ pub use members::{MemberLimitView, MemberStatus, MemberView, clean_name, filters
 pub use provisioning::{add_member, member_by_email, only_organization, remove_member};
 pub use role::{Role, UnknownRole};
 pub use rules::{OrganizationRules, change_rule_tags, organization_rules, personal_rules};
+pub(crate) use settings::validate_currency;
 pub use settings::{CostSource, Organization};
 
 /// The longest organization name.

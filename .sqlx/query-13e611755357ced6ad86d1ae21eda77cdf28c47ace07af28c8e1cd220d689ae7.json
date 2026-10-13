@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE people SET name = coalesce($2, name) WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "13e611755357ced6ad86d1ae21eda77cdf28c47ace07af28c8e1cd220d689ae7"
+}

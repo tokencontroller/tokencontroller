@@ -11,6 +11,7 @@
 pub mod caller;
 pub mod links;
 pub mod secret;
+pub mod sign_up;
 pub mod tokens;
 
 use utoipa::openapi::security::{ApiKey, ApiKeyValue, HttpAuthScheme, HttpBuilder, SecurityScheme};
@@ -27,7 +28,8 @@ pub use links::{domain_allowed, link_for_member, normalize_email, start_session}
 pub fn routes() -> OpenApiRouter<AppState> {
     OpenApiRouter::new()
         .routes(routes!(links::sign_in))
-        .routes(routes!(links::sign_up))
+        .routes(routes!(sign_up::sign_up))
+        .routes(routes!(sign_up::link, sign_up::use_link))
         .routes(routes!(links::link_page, links::use_link))
         .routes(routes!(links::poll))
         .routes(routes!(links::providers))

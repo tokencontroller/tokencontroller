@@ -1,0 +1,9 @@
+Create your organization
+
+Open this link to create your organization on Token Controller. You are signed in as {{email}} right after:
+
+{{sign_up_url}}
+
+The link works once and for {{expires_minutes}} minutes. If you did not sign up, ignore this email and nothing is created.
+
+Token Controller · {{host}}

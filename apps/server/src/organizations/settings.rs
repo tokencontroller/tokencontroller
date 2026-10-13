@@ -28,7 +28,7 @@ pub enum CostSource {
 }
 
 impl CostSource {
-    const fn as_str(self) -> &'static str {
+    pub(crate) const fn as_str(self) -> &'static str {
         match self {
             Self::Subscription => "subscription",
             Self::Seat => "seat",
@@ -39,7 +39,7 @@ impl CostSource {
         }
     }
 
-    fn from_db(value: &str) -> Option<Self> {
+    pub(crate) fn from_db(value: &str) -> Option<Self> {
         [
             Self::Subscription,
             Self::Seat,
@@ -200,7 +200,7 @@ pub(super) async fn load(
     })
 }
 
-fn validate_currency(code: &str) -> Result<String, ApiError> {
+pub(crate) fn validate_currency(code: &str) -> Result<String, ApiError> {
     let code = code.trim().to_uppercase();
     tokencontroller_core::Currency::new(&code)
         .map(tokencontroller_core::Currency::code)
