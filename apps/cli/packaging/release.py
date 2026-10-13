@@ -177,6 +177,11 @@ end
 """
 
 
+def yaml_string(text: str) -> str:
+    """Quote a YAML value: the summary holds a colon, which bare YAML reads as a key."""
+    return '"' + text.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
 def winget(version: str, sums_path: str, out: str) -> None:
     found = read_sums(sums_path)
     identifier = "TokenController.tc"
@@ -203,7 +208,7 @@ def winget(version: str, sums_path: str, out: str) -> None:
         f"PublisherUrl: https://tokencontroller.com\nPackageName: tc\n"
         f"PackageUrl: {HOMEPAGE}\nLicense: MIT\n"
         f"LicenseUrl: {REPOSITORY}/blob/main/apps/cli/LICENSE\n"
-        f"ShortDescription: {SUMMARY}\nMoniker: tc\n"
+        f"ShortDescription: {yaml_string(SUMMARY)}\nMoniker: tc\n"
         f"Tags:\n  - ai-agents\n  - cost-accounting\n  - tokens\n"
         f"ManifestType: defaultLocale\n{tail}"
     )
