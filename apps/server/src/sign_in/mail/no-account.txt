@@ -1,6 +1,6 @@
 No account for this address yet
 
-You asked to sign in to Token Controller as {{email}}. No organization has this address as a member yet. Create your own organization with this link, and you are signed in right after:
+You asked to sign in to Token Controller as {{email}}. No organization has this address as a member yet. Create your own organization with this link:
 
 {{sign_up_url}}
 

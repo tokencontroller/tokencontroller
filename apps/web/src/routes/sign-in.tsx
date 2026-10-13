@@ -2,7 +2,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { getRouteApi, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState, type ReactNode, type SubmitEvent } from "react";
 import type { CostSource, Manages, NewOrganization } from "@/api/contract";
-import { API_PREFIX, call } from "@/api/client";
+import { API_PREFIX, ApiError, call } from "@/api/client";
 import { api } from "@/api/endpoints";
 import { Button, buttonClass } from "@/components/ui/button";
 import { ErrorBox, Loading, Note } from "@/components/ui/display";
@@ -76,19 +76,22 @@ function MockLink() {
 
 /**
  * Waits for the link from the mail. Once the link signs this browser in, in
- * another tab, the page moves on by itself.
+ * another tab, the page moves on by itself. A browser that was signed in
+ * all along, such as a controller trying an invite, stays here.
  */
-function CheckYourEmail({ lead, next = "/", back }: { lead: ReactNode; next?: string; back: "/sign-in" | "/signup" }) {
+function CheckYourEmail({ lead, onBack }: { lead: ReactNode; onBack: () => void }) {
   const navigate = useNavigate();
   const signedIn = useQuery({ ...meQuery, refetchInterval: 3_000, refetchOnWindowFocus: true, retry: false });
+  // Signed in after an answer that said "not signed in".
+  const justSignedIn = signedIn.isSuccess && signedIn.errorUpdatedAt > 0;
   useEffect(() => {
-    if (signedIn.isSuccess) void navigate({ href: next, replace: true });
-  }, [signedIn.isSuccess, navigate, next]);
+    if (justSignedIn) void navigate({ to: "/", replace: true });
+  }, [justSignedIn, navigate]);
   return (
     <Frame title="Check your email" lead={lead}>
-      <Link to={back} className="text-sm text-accent hover:underline">
+      <button type="button" onClick={onBack} className="text-sm text-accent hover:underline">
         Use another email
-      </Link>
+      </button>
       <MockLink />
     </Frame>
   );
@@ -124,7 +127,12 @@ export function SignInPage(): ReactNode {
   });
   if (sent) {
     // The same words whether or not the address has an account: the mail says which.
-    return <CheckYourEmail back="/sign-in" lead={<>We sent a link to <b className="text-ink">{sent}</b>. It works once, for 15 minutes.</>} />;
+    return (
+      <CheckYourEmail
+        onBack={() => void navigate({ to: "/sign-in", search: {} })}
+        lead={<>We sent a link to <b className="text-ink">{sent}</b>. It works once, for 15 minutes.</>}
+      />
+    );
   }
   const submit = (event: SubmitEvent) => {
     event.preventDefault();
@@ -155,17 +163,18 @@ export function SignInPage(): ReactNode {
 /** The link in an invite mail: the organization and the address it was sent to. */
 export function InvitePage(): ReactNode {
   const { code } = inviteRoute.useParams();
-  const navigate = useNavigate();
   const invite = useQuery({ queryKey: ["invite", code], queryFn: () => api.invite(code), retry: false });
-  const signIn = useMutation({
-    mutationFn: (email: string) => api.signIn(email),
-    onSuccess: (_, email) => navigate({ to: "/sign-in", search: { sent: email } }),
-  });
+  const signIn = useMutation({ mutationFn: (email: string) => api.signIn(email) });
   if (invite.isPending) {
     return (
       <Frame title="Your invite">
         <Loading />
       </Frame>
+    );
+  }
+  if (signIn.isSuccess) {
+    return (
+      <CheckYourEmail onBack={() => signIn.reset()} lead={<>We sent a sign-in link to <b className="text-ink">{signIn.variables}</b>. It works once, for 15 minutes.</>} />
     );
   }
   if (invite.isError) {
@@ -207,7 +216,9 @@ export function SignUpPage(): ReactNode {
   const { token } = signUpRoute.useSearch();
   const navigate = useNavigate();
   const link = useQuery({ queryKey: ["sign-up-link", token], queryFn: () => api.signUpLink(token ?? ""), enabled: Boolean(token), retry: false, staleTime: Infinity });
-  const confirmed = token ? link.data?.email : undefined;
+  // The link can stop working while the form is open: then it is the normal form.
+  const [linkGone, setLinkGone] = useState(false);
+  const confirmed = token && !linkGone ? link.data?.email : undefined;
   const [form, setForm] = useState({ organization: "", email: "", name: "" });
   const [choices, setChoices] = useState<Choices>({ manages: "people", cost_source: "usage_at_api_rates", reporting_currency: "USD" });
   const [sentTo, setSentTo] = useState<string | null>(null);
@@ -221,6 +232,12 @@ export function SignUpPage(): ReactNode {
       }
       await api.signUp(form.email.trim(), organization);
       return "sent";
+    },
+    onError: (error) => {
+      if (confirmed && error instanceof ApiError && error.status === 410) {
+        setLinkGone(true);
+        setForm((f) => ({ ...f, email: confirmed }));
+      }
     },
     onSuccess: async (result) => {
       if (result === "sent") {
@@ -243,16 +260,15 @@ export function SignUpPage(): ReactNode {
   if (sentTo) {
     return (
       <CheckYourEmail
-        back="/signup"
-        next={start}
+        onBack={() => setSentTo(null)}
         lead={<>We sent a link to <b className="text-ink">{sentTo}</b>. Open it to create {form.organization.trim()}. It works once, for 15 minutes.</>}
       />
     );
   }
   return (
-    <Frame title="Create your organization" lead={confirmed ? "Your email is confirmed. No card needed." : "No card needed."}>
+    <Frame title="Create your organization" lead={confirmed ? <>Your email, <b className="text-ink">{confirmed}</b>, is confirmed. No card needed.</> : "No card needed."}>
       {SignUpNote ? <SignUpNote /> : null}
-      {token && link.isError ? (
+      {token && (link.isError || linkGone) ? (
         <Note>That link no longer works: it was used, or it is older than 15 minutes. Fill in your email and we send a new one.</Note>
       ) : null}
       <form

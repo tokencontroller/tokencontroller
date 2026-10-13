@@ -29,7 +29,7 @@ const rootRoute = createRootRoute({ component: Outlet, notFoundComponent: NotFou
 /** Someone already signed in has no use for the sign-in and sign-up forms. */
 async function startPageIfSignedIn(): Promise<void> {
   try {
-    await queryClient.query({ ...meQuery, staleTime: "static" });
+    await queryClient.query({ ...meQuery, staleTime: "static", retry: false });
   } catch {
     // Not signed in, which is what these pages are for.
     return;

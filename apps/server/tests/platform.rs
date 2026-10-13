@@ -475,6 +475,32 @@ async fn only_a_no_account_link_opens_the_sign_up_form(pool: PgPool) {
     assert_eq!(read(&named).await, StatusCode::GONE);
     assert_eq!(create(&named).await, StatusCode::GONE);
 
+    // A local tool's link: whoever started `tc connect` would collect a
+    // session in the organization the person creates.
+    let tool = send(
+        &app,
+        Method::POST,
+        "/api/v1/sign-in",
+        Auth::None,
+        Some(json!({"email": "victim@example.com", "local_tool": true})),
+    )
+    .await
+    .unwrap();
+    let poll_token = tool.json["poll_token"].as_str().unwrap().to_owned();
+    let tool_link = readable_link(&pool, "victim@example.com").await.unwrap();
+    assert_eq!(read(&tool_link).await, StatusCode::GONE);
+    assert_eq!(create(&tool_link).await, StatusCode::GONE);
+    let poll = send(
+        &app,
+        Method::POST,
+        "/api/v1/sign-in/poll",
+        Auth::None,
+        Some(json!({"poll_token": poll_token})),
+    )
+    .await
+    .unwrap();
+    assert_eq!(poll.status, StatusCode::ACCEPTED);
+
     // An expired link from the no-account mail.
     send(
         &app,

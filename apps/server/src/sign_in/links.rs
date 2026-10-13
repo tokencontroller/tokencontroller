@@ -136,8 +136,14 @@ pub(super) async fn request_link(
         Some(sign_in_mail(&state.config, email, &url))
     } else if member.is_none() {
         // Its link opens the web app's sign-up form, which creates the
-        // organization with this link: no second mail.
-        let url = sign_up_url(&state.config, &link.secret.token);
+        // organization with this link: no second mail. Not for a local
+        // tool's link: whoever started `tc connect` would collect a session
+        // in the organization the person creates.
+        let url = if local_tool {
+            format!("{}/signup", state.config.public_url)
+        } else {
+            sign_up_url(&state.config, &link.secret.token)
+        };
         Some(no_account_mail(&state.config, email, &url))
     } else {
         None
@@ -326,10 +332,18 @@ pub(super) async fn link_page(
     };
     let email = escape_html(&row.email);
     let (title, what, button) = match (&row.sign_up_organization_name, row.local_tool) {
-        (Some(name), _) => (
+        (Some(name), false) => (
             "Create your organization",
             format!(
                 "Create <strong>{}</strong> and sign in as <strong>{email}</strong>.",
+                escape_html(name)
+            ),
+            "Create organization",
+        ),
+        (Some(name), true) => (
+            "Create your organization",
+            format!(
+                "Create <strong>{}</strong> and sign in your command line tool as <strong>{email}</strong>.",
                 escape_html(name)
             ),
             "Create organization",
@@ -438,11 +452,10 @@ pub(super) async fn sign_up_with_link(
     sign_up: SignUp,
 ) -> Result<Option<Response>, ApiError> {
     let mut tx = state.db.begin().await?;
-    let signed_in = match consume_link(&mut tx, &state.config, token, Use::SignUp(sign_up)).await? {
-        Used::Gone => return Ok(None),
-        // A link `tc connect` asked for also signs in this browser; the
-        // tool still collects its own session with the poll.
-        Used::Browser(signed_in) | Used::LocalTool(signed_in) => signed_in,
+    let Used::Browser(signed_in) =
+        consume_link(&mut tx, &state.config, token, Use::SignUp(sign_up)).await?
+    else {
+        return Ok(None);
     };
     let session = create_session(&mut tx, &state.config, signed_in.person_id, false).await?;
     let mut response = StatusCode::NO_CONTENT.into_response();
@@ -455,8 +468,8 @@ pub(super) async fn sign_up_with_link(
 }
 
 /// The address behind a link that can still create an organization: unused
-/// and in time, not a sign-up that already names its organization, and not
-/// a member's address.
+/// and in time, not a sign-up that already names its organization, not a
+/// local tool's, and not a member's address.
 pub(super) async fn sign_up_address(
     db: &PgPool,
     config: &Config,
@@ -466,7 +479,7 @@ pub(super) async fn sign_up_address(
     Ok(sqlx::query_scalar!(
         r#"SELECT l.email FROM sign_in_links l
            WHERE l.token_hash = $1 AND l.used_at IS NULL AND l.expires_at > now()
-             AND l.sign_up_organization_name IS NULL
+             AND l.sign_up_organization_name IS NULL AND l.poll_hash IS NULL
              AND NOT EXISTS (
                  SELECT 1 FROM people p WHERE p.email = l.email AND p.removed_at IS NULL
              )"#,
@@ -599,6 +612,11 @@ async fn consume_link(
             manages: link.sign_up_manages.as_deref().and_then(Manages::from_db),
         });
 
+    // The form never takes a local tool's link: whoever started the tool
+    // would collect a session in the organization the person creates.
+    if link.local_tool && matches!(how, Use::SignUp(_)) {
+        return Ok(Used::Gone);
+    }
     let member = sqlx::query!(
         "SELECT id, organization_id FROM people WHERE email = $1 AND removed_at IS NULL",
         link.email
