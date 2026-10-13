@@ -73,6 +73,13 @@ pub fn sender(config: &Config) -> String {
         .unwrap_or_else(|| format!("Token Controller <noreply@{}>", host_of(&config.public_url)))
 }
 
+/// The brand mark for mail headers: `logo-light-48.png`, which the web app
+/// serves next to the service (`apps/web/public`). Mail apps show no SVG.
+#[must_use]
+pub fn logo_url(public_url: &str) -> String {
+    format!("{}/logo-light-48.png", public_url.trim_end_matches('/'))
+}
+
 /// The host part of a URL such as `https://tc.example.com:8443/x`.
 #[must_use]
 pub fn host_of(url: &str) -> &str {

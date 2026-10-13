@@ -386,7 +386,9 @@ async fn send_invite(
         .parse::<Role>()
         .map_err(|error| ApiError::Internal(error.into()))?
         .to_string();
+    let logo = mail::logo_url(&state.config.public_url);
     let values = [
+        ("logo_url", logo.as_str()),
         ("email", row.email.as_str()),
         ("organization", row.organization.as_str()),
         ("inviter", row.inviter.as_str()),

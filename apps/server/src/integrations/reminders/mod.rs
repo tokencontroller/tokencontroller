@@ -122,6 +122,7 @@ pub fn late_sheet_reminder(sheet: &LateSheet, public_url: &str) -> Reminder {
         ("waiting", waiting_words(sheet.token_entries)),
         ("token_sheet_url", url),
         ("host", host),
+        ("logo_url", format!("{public_url}/logo-light-48.png")),
     ];
     let escaped: Vec<(&str, String)> = values
         .iter()
