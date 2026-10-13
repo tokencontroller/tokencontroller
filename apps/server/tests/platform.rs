@@ -154,6 +154,9 @@ async fn a_sign_up_link_creates_the_organization_and_signs_in(pool: PgPool) {
             "email": "N.Berger@Kestrel.Example",
             "organization_name": "Kestrel Digital",
             "name": " Nora Berger ",
+            "cost_source": "seat",
+            "reporting_currency": "eur",
+            "manages": "people",
         })),
     )
     .await
@@ -184,6 +187,8 @@ async fn a_sign_up_link_creates_the_organization_and_signs_in(pool: PgPool) {
     assert_eq!(page.status, StatusCode::OK);
     assert!(page.text.contains("Kestrel Digital"));
     assert!(page.text.contains(r#"method="post""#));
+    // Worded as a sign-up, not a sign-in.
+    assert!(page.text.contains("Create organization</button>"));
     // Opening the page twice, as a mail scanner would, uses nothing up.
     let again = send(
         &app,
@@ -204,7 +209,8 @@ async fn a_sign_up_link_creates_the_organization_and_signs_in(pool: PgPool) {
     .await
     .unwrap();
     assert_eq!(used.status, StatusCode::SEE_OTHER);
-    assert_eq!(used.headers[header::LOCATION], "/");
+    // On to the first steps for what the founder manages.
+    assert_eq!(used.headers[header::LOCATION], "/?first_steps=people");
     let set_cookie = used.headers[header::SET_COOKIE].to_str().unwrap();
     assert!(set_cookie.contains("HttpOnly"));
     assert!(set_cookie.contains("SameSite=Lax"));
@@ -226,6 +232,18 @@ async fn a_sign_up_link_creates_the_organization_and_signs_in(pool: PgPool) {
     assert_eq!(me.json["person"]["status"], "joined");
     assert_eq!(me.json["organization"]["name"], "Kestrel Digital");
     assert_eq!(me.json["organization"]["slug"], "kestrel-digital");
+    // The answers to the sign-up questions came with the link.
+    let settings = send(
+        &app,
+        Method::GET,
+        "/api/v1/organization",
+        Auth::Cookie(&session),
+        None,
+    )
+    .await
+    .unwrap();
+    assert_eq!(settings.json["cost_source"], "seat");
+    assert_eq!(settings.json["reporting_currency"], "EUR");
 
     let map = send(
         &app,
@@ -269,6 +287,243 @@ async fn a_sign_up_link_creates_the_organization_and_signs_in(pool: PgPool) {
     .await
     .unwrap();
     assert_eq!(gone.status, StatusCode::UNAUTHORIZED);
+}
+
+/// Gives the newest link for `email` a token the test knows: the mail
+/// that carries the real one is not readable here.
+async fn readable_link(pool: &PgPool, email: &str) -> TestResult<String> {
+    let token = secret::generate(secret::LINK, KEY)?;
+    sqlx::query(
+        "UPDATE sign_in_links SET token_hash = $1
+         WHERE token_hash = (SELECT token_hash FROM sign_in_links WHERE email = $2
+                             ORDER BY created_at DESC LIMIT 1)",
+    )
+    .bind(&token.hash)
+    .bind(email)
+    .execute(pool)
+    .await?;
+    Ok(token.token)
+}
+
+#[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
+async fn the_no_account_mail_creates_the_organization_without_a_second_mail(pool: PgPool) {
+    let app = app(&pool);
+    let sent = send(
+        &app,
+        Method::POST,
+        "/api/v1/sign-in",
+        Auth::None,
+        Some(json!({"email": "Jan@Example.com"})),
+    )
+    .await
+    .unwrap();
+    assert_eq!(sent.status, StatusCode::ACCEPTED);
+    let token = readable_link(&pool, "jan@example.com").await.unwrap();
+
+    // The web app's sign-up form reads the address; that uses nothing up.
+    for _ in 0..2 {
+        let link = send(
+            &app,
+            Method::GET,
+            &format!("/api/v1/sign-up/link?token={token}"),
+            Auth::None,
+            None,
+        )
+        .await
+        .unwrap();
+        assert_eq!(link.status, StatusCode::OK);
+        assert_eq!(link.json, json!({"email": "jan@example.com"}));
+    }
+
+    let bad_currency = send(
+        &app,
+        Method::POST,
+        "/api/v1/sign-up/link",
+        Auth::None,
+        Some(json!({"token": token, "organization_name": "Kestrel", "reporting_currency": "EURO"})),
+    )
+    .await
+    .unwrap();
+    assert_eq!(bad_currency.status, StatusCode::BAD_REQUEST);
+
+    let created = send(
+        &app,
+        Method::POST,
+        "/api/v1/sign-up/link",
+        Auth::None,
+        Some(json!({
+            "token": token,
+            "organization_name": "Kestrel Digital",
+            "name": "Jan",
+            "cost_source": "usage_at_api_rates",
+            "reporting_currency": "EUR",
+            "manages": "agents",
+        })),
+    )
+    .await
+    .unwrap();
+    assert_eq!(created.status, StatusCode::NO_CONTENT);
+    let session = cookie_token(&created.headers).unwrap();
+    let me = send(
+        &app,
+        Method::GET,
+        "/api/v1/me",
+        Auth::Cookie(&session),
+        None,
+    )
+    .await
+    .unwrap();
+    assert_eq!(me.status, StatusCode::OK);
+    assert_eq!(me.json["person"]["email"], "jan@example.com");
+    assert_eq!(me.json["person"]["name"], "Jan");
+    assert_eq!(me.json["person"]["role"], "controller");
+    assert_eq!(me.json["organization"]["name"], "Kestrel Digital");
+    let settings = send(
+        &app,
+        Method::GET,
+        "/api/v1/organization",
+        Auth::Cookie(&session),
+        None,
+    )
+    .await
+    .unwrap();
+    assert_eq!(settings.json["cost_source"], "usage_at_api_rates");
+    assert_eq!(settings.json["reporting_currency"], "EUR");
+    // One link, one mail: nothing else was asked for.
+    let links: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM sign_in_links WHERE email = 'jan@example.com'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(links, 1);
+
+    // The link works once, for the form as for the page.
+    let twice = send(
+        &app,
+        Method::POST,
+        "/api/v1/sign-up/link",
+        Auth::None,
+        Some(json!({"token": token, "organization_name": "Kestrel Two"})),
+    )
+    .await
+    .unwrap();
+    assert_eq!(twice.status, StatusCode::GONE);
+    let read = send(
+        &app,
+        Method::GET,
+        &format!("/api/v1/sign-up/link?token={token}"),
+        Auth::None,
+        None,
+    )
+    .await
+    .unwrap();
+    assert_eq!(read.status, StatusCode::GONE);
+}
+
+#[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
+async fn only_a_no_account_link_opens_the_sign_up_form(pool: PgPool) {
+    let app = app(&pool);
+    let read = async |token: &str| {
+        send(
+            &app,
+            Method::GET,
+            &format!("/api/v1/sign-up/link?token={token}"),
+            Auth::None,
+            None,
+        )
+        .await
+        .unwrap()
+        .status
+    };
+    let create = async |token: &str| {
+        send(
+            &app,
+            Method::POST,
+            "/api/v1/sign-up/link",
+            Auth::None,
+            Some(json!({"token": token, "organization_name": "Elsewhere"})),
+        )
+        .await
+        .unwrap()
+        .status
+    };
+
+    // A member's sign-in link creates nothing, and still signs them in.
+    organization(&pool, "Kestrel Digital", "n.berger@kestrel.example")
+        .await
+        .unwrap();
+    let member = link_for(&pool, "n.berger@kestrel.example").await.unwrap();
+    assert_eq!(read(&member).await, StatusCode::GONE);
+    assert_eq!(create(&member).await, StatusCode::GONE);
+    let used = post_form(&app, "/api/v1/sign-in/link", &format!("token={member}"))
+        .await
+        .unwrap();
+    assert_eq!(used.status, StatusCode::SEE_OTHER);
+    assert_eq!(used.headers[header::LOCATION], "/");
+
+    // A sign-up link from the form already names its organization.
+    send(
+        &app,
+        Method::POST,
+        "/api/v1/sign-up",
+        Auth::None,
+        Some(json!({"email": "founder@acme.example", "organization_name": "Acme"})),
+    )
+    .await
+    .unwrap();
+    let named = readable_link(&pool, "founder@acme.example").await.unwrap();
+    assert_eq!(read(&named).await, StatusCode::GONE);
+    assert_eq!(create(&named).await, StatusCode::GONE);
+
+    // A local tool's link: whoever started `tc connect` would collect a
+    // session in the organization the person creates.
+    let tool = send(
+        &app,
+        Method::POST,
+        "/api/v1/sign-in",
+        Auth::None,
+        Some(json!({"email": "victim@example.com", "local_tool": true})),
+    )
+    .await
+    .unwrap();
+    let poll_token = tool.json["poll_token"].as_str().unwrap().to_owned();
+    let tool_link = readable_link(&pool, "victim@example.com").await.unwrap();
+    assert_eq!(read(&tool_link).await, StatusCode::GONE);
+    assert_eq!(create(&tool_link).await, StatusCode::GONE);
+    let poll = send(
+        &app,
+        Method::POST,
+        "/api/v1/sign-in/poll",
+        Auth::None,
+        Some(json!({"poll_token": poll_token})),
+    )
+    .await
+    .unwrap();
+    assert_eq!(poll.status, StatusCode::ACCEPTED);
+
+    // An expired link from the no-account mail.
+    send(
+        &app,
+        Method::POST,
+        "/api/v1/sign-in",
+        Auth::None,
+        Some(json!({"email": "late@example.com"})),
+    )
+    .await
+    .unwrap();
+    let late = readable_link(&pool, "late@example.com").await.unwrap();
+    sqlx::query("UPDATE sign_in_links SET expires_at = now() - interval '1 second' WHERE email = 'late@example.com'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(read(&late).await, StatusCode::GONE);
+    assert_eq!(create(&late).await, StatusCode::GONE);
+    assert_eq!(read("tc_link_made_up").await, StatusCode::GONE);
+    let organizations: i64 = sqlx::query_scalar("SELECT count(*) FROM organizations")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(organizations, 1);
 }
 
 #[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]

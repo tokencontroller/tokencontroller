@@ -166,7 +166,7 @@ async fn status(State(state): State<AppState>) -> (StatusCode, Json<ServiceStatu
         r#"SELECT count(*) AS "total!", count(*) FILTER (WHERE NOT sent) AS "failed!"
            FROM mail_deliveries
            WHERE created_at > now() - interval '15 minutes'
-             AND kind IN ('sign_in', 'no_account', 'invite')"#
+             AND kind IN ('sign_in', 'sign_up', 'no_account', 'invite')"#
     )
     .fetch_one(&state.db)
     .await;

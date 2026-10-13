@@ -1,0 +1,95 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT email, sign_up_organization_name, sign_up_person_name,\n                  sign_up_cost_source, sign_up_reporting_currency, sign_up_manages,\n                  poll_hash IS NOT NULL AS \"local_tool!\"\n           FROM sign_in_links\n           WHERE token_hash = $1 AND used_at IS NULL AND expires_at > now()\n           FOR UPDATE",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "email",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "sign_in_links",
+            "name": "email"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "sign_up_organization_name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "sign_in_links",
+            "name": "sign_up_organization_name"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "sign_up_person_name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "sign_in_links",
+            "name": "sign_up_person_name"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "sign_up_cost_source",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "sign_in_links",
+            "name": "sign_up_cost_source"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "sign_up_reporting_currency",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "sign_in_links",
+            "name": "sign_up_reporting_currency"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "sign_up_manages",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "sign_in_links",
+            "name": "sign_up_manages"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "local_tool!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Bytea"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      null
+    ]
+  },
+  "hash": "47bb8d74a8b06bf8ba4fc0b674103da5b1a3a417daafa93725e87362dc17661a"
+}

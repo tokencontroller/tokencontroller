@@ -182,8 +182,12 @@ export interface Db {
   /** Token forecasts: on unless a controller switched them off; `model` null is an instance without an embeddings model. */
   forecasts: { enabled: boolean; model: string | null; made: ForecastRecord[] };
   session: string | null;
-  /** The last magic link "sent", so the mock sign-in page can offer it. */
-  pendingLink: { token: string; email: string } | null;
+  /**
+   * The last magic link "sent", so the mock sign-in page can offer it. `url`
+   * is the "no account" mail's link to the sign-up form; `start` is where the
+   * link page sends the browser.
+   */
+  pendingLink: { token: string; email: string; url?: string; start?: string } | null;
   people: Person[];
   /** Invite codes, as in `/i/kestrel-4f2a`. */
   invites: { code: string; person: string }[];

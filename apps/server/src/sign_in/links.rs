@@ -1,5 +1,6 @@
-//! Magic links: sign-up, sign-in, the page behind the link, the local tool's
-//! poll, sign-out and `GET /me`.
+//! Magic links: sign-in, the page behind the link, the local tool's poll,
+//! sign-out and `GET /me`. Sign-up has its own module, [`super::sign_up`],
+//! and uses the links from here.
 //!
 //! A link works once and for 15 minutes. A GET on the link only shows a page
 //! with a "Sign in" button; the POST from that button uses the link up. Mail
@@ -19,9 +20,10 @@ use uuid::Uuid;
 
 use super::caller::{Member, SESSION_COOKIE, bearer_token, session_cookie};
 use super::secret;
+use super::sign_up::{Manages, SignUp};
 use crate::error::ApiError;
 use crate::mail::{self, Mail, escape_html, render};
-use crate::organizations::{self, Role};
+use crate::organizations::{self, CostSource, Role};
 use crate::{AppState, Config};
 
 /// How long a sign-in link works.
@@ -35,6 +37,8 @@ const LOCAL_TOOL_SESSION_DAYS: i64 = 365;
 
 const SIGN_IN_HTML: &str = include_str!("mail/sign-in.html");
 const SIGN_IN_TEXT: &str = include_str!("mail/sign-in.txt");
+const SIGN_UP_HTML: &str = include_str!("mail/sign-up.html");
+const SIGN_UP_TEXT: &str = include_str!("mail/sign-up.txt");
 const NO_ACCOUNT_HTML: &str = include_str!("mail/no-account.html");
 const NO_ACCOUNT_TEXT: &str = include_str!("mail/no-account.txt");
 
@@ -48,25 +52,6 @@ pub struct SignInRequest {
     pub local_tool: bool,
 }
 
-/// Create an organization: the link signs in its first controller.
-#[derive(Debug, Deserialize, ToSchema)]
-pub struct SignUpRequest {
-    pub email: String,
-    /// Such as `Kestrel Digital`.
-    pub organization_name: String,
-    /// Your own name, as your colleagues will see it. Can be set later.
-    #[serde(default)]
-    pub name: Option<String>,
-    #[serde(default)]
-    pub local_tool: bool,
-}
-
-/// What a sign-up link creates once it is used.
-struct SignUp {
-    organization_name: String,
-    person_name: Option<String>,
-}
-
 /// The same answer whether or not the address belongs to anyone.
 #[derive(Debug, Serialize, ToSchema)]
 pub struct LinkSent {
@@ -78,7 +63,8 @@ pub struct LinkSent {
 /// Send a sign-in link to a member.
 ///
 /// Always answers 202, so nobody learns whether an address is a member. An
-/// address that belongs to no organization gets a mail that says so.
+/// address that belongs to no organization gets a mail that says so, with a
+/// link to create one.
 #[utoipa::path(
     post,
     path = "/sign-in",
@@ -99,42 +85,7 @@ pub(super) async fn sign_in(
     Ok((StatusCode::ACCEPTED, Json(sent)))
 }
 
-/// Create an organization and send its first controller a sign-in link.
-///
-/// The organization exists once the link is used. An address that is
-/// already a member gets an ordinary sign-in link instead: one account
-/// belongs to one organization.
-#[utoipa::path(
-    post,
-    path = "/sign-up",
-    operation_id = "sign_up_organization",
-    tag = "sign-in",
-    request_body = SignUpRequest,
-    responses(
-        (status = ACCEPTED, description = "A mail is on its way", body = LinkSent),
-        (status = BAD_REQUEST, description = "Not an email address, or no name", body = crate::error::ErrorBody),
-        (status = TOO_MANY_REQUESTS, description = "Too many links for this address", body = crate::error::ErrorBody),
-    ),
-)]
-pub(super) async fn sign_up(
-    State(state): State<AppState>,
-    Json(request): Json<SignUpRequest>,
-) -> Result<(StatusCode, Json<LinkSent>), ApiError> {
-    let email = normalize_email(&request.email)?;
-    let sign_up = SignUp {
-        organization_name: organizations::validate_name(&request.organization_name)?,
-        person_name: request
-            .name
-            .as_deref()
-            .map(organizations::clean_name)
-            .transpose()?
-            .filter(|name| !name.is_empty()),
-    };
-    let sent = request_link(&state, &email, Some(sign_up), request.local_tool).await?;
-    Ok((StatusCode::ACCEPTED, Json(sent)))
-}
-
-async fn request_link(
+pub(super) async fn request_link(
     state: &AppState,
     email: &str,
     sign_up: Option<SignUp>,
@@ -178,21 +129,27 @@ async fn request_link(
     .await?;
     let poll_token = link.poll.map(|poll| poll.token);
 
-    if allowed || sign_up.is_some() {
-        let url = link_url(&state.config, &link.secret.token);
-        send_quietly(
-            &state.db,
-            &state.config,
-            sign_in_mail(&state.config, email, &url),
-        )
-        .await;
+    let url = link_url(&state.config, &link.secret.token);
+    let mail = if sign_up.is_some() {
+        Some(sign_up_mail(&state.config, email, &url))
+    } else if allowed {
+        Some(sign_in_mail(&state.config, email, &url))
     } else if member.is_none() {
-        send_quietly(
-            &state.db,
-            &state.config,
-            no_account_mail(&state.config, email),
-        )
-        .await;
+        // Its link opens the web app's sign-up form, which creates the
+        // organization with this link: no second mail. Not for a local
+        // tool's link: whoever started `tc connect` would collect a session
+        // in the organization the person creates.
+        let url = if local_tool {
+            format!("{}/signup", state.config.public_url)
+        } else {
+            sign_up_url(&state.config, &link.secret.token)
+        };
+        Some(no_account_mail(&state.config, email, &url))
+    } else {
+        None
+    };
+    if let Some(mail) = mail {
+        send_quietly(&state.db, &state.config, mail).await;
     }
     Ok(LinkSent { poll_token })
 }
@@ -218,12 +175,22 @@ async fn new_link(
     };
     sqlx::query!(
         r#"INSERT INTO sign_in_links
-             (token_hash, email, sign_up_organization_name, sign_up_person_name, poll_hash, expires_at)
-           VALUES ($1, $2, $3, $4, $5, now() + make_interval(mins => $6::bigint::int))"#,
+             (token_hash, email, sign_up_organization_name, sign_up_person_name,
+              sign_up_cost_source, sign_up_reporting_currency, sign_up_manages,
+              poll_hash, expires_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8,
+                   now() + make_interval(mins => $9::bigint::int))"#,
         secret.hash,
         email,
         sign_up.map(|sign_up| sign_up.organization_name.as_str()),
         sign_up.and_then(|sign_up| sign_up.person_name.as_deref()),
+        sign_up
+            .and_then(|sign_up| sign_up.cost_source)
+            .map(CostSource::as_str),
+        sign_up.and_then(|sign_up| sign_up.reporting_currency.as_deref()),
+        sign_up
+            .and_then(|sign_up| sign_up.manages)
+            .map(Manages::as_str),
         poll.as_ref().map(|poll| poll.hash.clone()),
         LINK_MINUTES
     )
@@ -259,6 +226,11 @@ fn link_url(config: &Config, token: &str) -> String {
     format!("{}/api/v1/sign-in/link?token={token}", config.public_url)
 }
 
+/// The web app's sign-up form, for an address without an account.
+fn sign_up_url(config: &Config, token: &str) -> String {
+    format!("{}/signup?token={token}", config.public_url)
+}
+
 fn sign_in_mail(config: &Config, email: &str, url: &str) -> Mail {
     let minutes = LINK_MINUTES.to_string();
     let values = [
@@ -276,17 +248,37 @@ fn sign_in_mail(config: &Config, email: &str, url: &str) -> Mail {
     }
 }
 
-fn no_account_mail(config: &Config, email: &str) -> Mail {
-    let sign_up_url = format!("{}/signup", config.public_url);
+/// The organization's name stays out of the mail: anyone can type any name
+/// into the sign-up form. The link page shows it.
+fn sign_up_mail(config: &Config, email: &str, url: &str) -> Mail {
+    let minutes = LINK_MINUTES.to_string();
     let values = [
         ("email", email),
-        ("sign_up_url", sign_up_url.as_str()),
+        ("sign_up_url", url),
         ("host", mail::host_of(&config.public_url)),
+        ("expires_minutes", minutes.as_str()),
+    ];
+    Mail {
+        kind: "sign_up",
+        to: email.to_owned(),
+        subject: "Create your Token Controller organization".to_owned(),
+        text: render(SIGN_UP_TEXT, &values, false),
+        html: render(SIGN_UP_HTML, &values, true),
+    }
+}
+
+fn no_account_mail(config: &Config, email: &str, url: &str) -> Mail {
+    let minutes = LINK_MINUTES.to_string();
+    let values = [
+        ("email", email),
+        ("sign_up_url", url),
+        ("host", mail::host_of(&config.public_url)),
+        ("expires_minutes", minutes.as_str()),
     ];
     Mail {
         kind: "no_account",
         to: email.to_owned(),
-        subject: "No Token Controller account for this address".to_owned(),
+        subject: "No Token Controller account for this address yet".to_owned(),
         text: render(NO_ACCOUNT_TEXT, &values, false),
         html: render(NO_ACCOUNT_HTML, &values, true),
     }
@@ -338,34 +330,51 @@ pub(super) async fn link_page(
             &expired_text(&state.config),
         ));
     };
-    let what = match (&row.sign_up_organization_name, row.local_tool) {
-        (Some(name), _) => format!(
-            "Create <strong>{}</strong> and sign in as <strong>{}</strong>.",
-            escape_html(name),
-            escape_html(&row.email)
+    let email = escape_html(&row.email);
+    let (title, what, button) = match (&row.sign_up_organization_name, row.local_tool) {
+        (Some(name), false) => (
+            "Create your organization",
+            format!(
+                "Create <strong>{}</strong> and sign in as <strong>{email}</strong>.",
+                escape_html(name)
+            ),
+            "Create organization",
         ),
-        (None, true) => format!(
-            "Sign in your command line tool as <strong>{}</strong>.",
-            escape_html(&row.email)
+        (Some(name), true) => (
+            "Create your organization",
+            format!(
+                "Create <strong>{}</strong> and sign in your command line tool as <strong>{email}</strong>.",
+                escape_html(name)
+            ),
+            "Create organization",
         ),
-        (None, false) => format!("Sign in as <strong>{}</strong>.", escape_html(&row.email)),
+        (None, true) => (
+            "Sign in to Token Controller",
+            format!("Sign in your command line tool as <strong>{email}</strong>."),
+            "Sign in",
+        ),
+        (None, false) => (
+            "Sign in to Token Controller",
+            format!("Sign in as <strong>{email}</strong>."),
+            "Sign in",
+        ),
     };
     let body = format!(
         r#"<p>{what}</p>
 <form method="post" action="/api/v1/sign-in/link">
 <input type="hidden" name="token" value="{}">
-<button type="submit">Sign in</button>
+<button type="submit">{button}</button>
 </form>"#,
         escape_html(&link.token)
     );
-    Ok(page(StatusCode::OK, "Sign in to Token Controller", &body))
+    Ok(page(StatusCode::OK, title, &body))
 }
 
 /// Use a sign-in link: the form on the link's page posts here.
 ///
-/// A browser gets its session cookie and goes to the web app. A local tool's
-/// link only marks the link used; the tool collects its session with
-/// `POST /sign-in/poll`.
+/// A browser gets its session cookie and goes to the web app, after a
+/// sign-up to its first steps. A local tool's link only marks the link
+/// used; the tool collects its session with `POST /sign-in/poll`.
 #[utoipa::path(
     post,
     path = "/sign-in/link",
@@ -382,7 +391,7 @@ pub(super) async fn use_link(
     Form(link): Form<LinkToken>,
 ) -> Result<Response, ApiError> {
     let mut tx = state.db.begin().await?;
-    let used = consume_link(&mut tx, &state.config, &link.token).await?;
+    let used = consume_link(&mut tx, &state.config, &link.token, Use::AsSent).await?;
     let (response, signed_in) = match used {
         Used::Gone => (
             page(
@@ -401,7 +410,13 @@ pub(super) async fn use_link(
             Some(signed_in),
         ),
         Used::Browser(signed_in) => (
-            browser_session(&mut tx, &state.config, signed_in.person_id).await?,
+            browser_session(
+                &mut tx,
+                &state.config,
+                signed_in.person_id,
+                signed_in.start_page(),
+            )
+            .await?,
             Some(signed_in),
         ),
     };
@@ -413,18 +428,65 @@ pub(super) async fn use_link(
 }
 
 /// A new browser session for the person: sets the cookie and sends the
-/// browser on to the web app.
+/// browser on to `page` in the web app.
 async fn browser_session(
     tx: &mut PgConnection,
     config: &Config,
     person_id: Uuid,
+    page: &'static str,
 ) -> Result<Response, ApiError> {
     let session = create_session(&mut *tx, config, person_id, false).await?;
     let mut response = StatusCode::SEE_OTHER.into_response();
     let headers = response.headers_mut();
-    headers.insert(LOCATION, HeaderValue::from_static("/"));
+    headers.insert(LOCATION, HeaderValue::from_static(page));
     headers.insert(SET_COOKIE, session_cookie_header(config, &session)?);
     Ok(response)
+}
+
+/// Uses a link to create the organization the web app's sign-up form sent,
+/// and signs the founder in to this browser. `None` when the link cannot
+/// create an organization.
+pub(super) async fn sign_up_with_link(
+    state: &AppState,
+    token: &str,
+    sign_up: SignUp,
+) -> Result<Option<Response>, ApiError> {
+    let mut tx = state.db.begin().await?;
+    let Used::Browser(signed_in) =
+        consume_link(&mut tx, &state.config, token, Use::SignUp(sign_up)).await?
+    else {
+        return Ok(None);
+    };
+    let session = create_session(&mut tx, &state.config, signed_in.person_id, false).await?;
+    let mut response = StatusCode::NO_CONTENT.into_response();
+    response
+        .headers_mut()
+        .insert(SET_COOKIE, session_cookie_header(&state.config, &session)?);
+    tx.commit().await?;
+    record_sign_in(state, signed_in);
+    Ok(Some(response))
+}
+
+/// The address behind a link that can still create an organization: unused
+/// and in time, not a sign-up that already names its organization, not a
+/// local tool's, and not a member's address.
+pub(super) async fn sign_up_address(
+    db: &PgPool,
+    config: &Config,
+    token: &str,
+) -> Result<Option<String>, ApiError> {
+    let hash = secret::hash(token, &config.secret_key);
+    Ok(sqlx::query_scalar!(
+        r#"SELECT l.email FROM sign_in_links l
+           WHERE l.token_hash = $1 AND l.used_at IS NULL AND l.expires_at > now()
+             AND l.sign_up_organization_name IS NULL AND l.poll_hash IS NULL
+             AND NOT EXISTS (
+                 SELECT 1 FROM people p WHERE p.email = l.email AND p.removed_at IS NULL
+             )"#,
+        hash
+    )
+    .fetch_optional(db)
+    .await?)
 }
 
 fn record_sign_in(state: &AppState, signed_in: SignedIn) {
@@ -432,6 +494,7 @@ fn record_sign_in(state: &AppState, signed_in: SignedIn) {
         organization_id,
         person_id,
         signed_up,
+        manages: _,
     } = signed_in;
     if signed_up {
         organizations::record_audit_event(
@@ -470,7 +533,7 @@ pub async fn start_session(state: &AppState, person_id: Uuid) -> Result<Response
     .fetch_optional(&mut *tx)
     .await?
     .ok_or(ApiError::NotFound)?;
-    let response = browser_session(&mut tx, &state.config, person_id).await?;
+    let response = browser_session(&mut tx, &state.config, person_id, "/").await?;
     tx.commit().await?;
     record_sign_in(
         state,
@@ -478,6 +541,7 @@ pub async fn start_session(state: &AppState, person_id: Uuid) -> Result<Response
             organization_id,
             person_id,
             signed_up: false,
+            manages: None,
         },
     );
     Ok(response)
@@ -489,6 +553,13 @@ enum Used {
     LocalTool(SignedIn),
 }
 
+/// How a link is used: as it was sent, or by the web app's sign-up form
+/// with the organization to create.
+enum Use {
+    AsSent,
+    SignUp(SignUp),
+}
+
 /// Who a used link signed in, and whether it also created their
 /// organization.
 #[derive(Clone, Copy)]
@@ -496,16 +567,27 @@ struct SignedIn {
     organization_id: Uuid,
     person_id: Uuid,
     signed_up: bool,
+    /// From the sign-up questions, for the first steps.
+    manages: Option<Manages>,
+}
+
+impl SignedIn {
+    /// Where the browser goes once signed in.
+    fn start_page(self) -> &'static str {
+        self.manages.map_or("/", Manages::start_page)
+    }
 }
 
 async fn consume_link(
     tx: &mut PgConnection,
     config: &Config,
     token: &str,
+    how: Use,
 ) -> Result<Used, ApiError> {
     let hash = secret::hash(token, &config.secret_key);
     let Some(link) = sqlx::query!(
         r#"SELECT email, sign_up_organization_name, sign_up_person_name,
+                  sign_up_cost_source, sign_up_reporting_currency, sign_up_manages,
                   poll_hash IS NOT NULL AS "local_tool!"
            FROM sign_in_links
            WHERE token_hash = $1 AND used_at IS NULL AND expires_at > now()
@@ -517,15 +599,32 @@ async fn consume_link(
     else {
         return Ok(Used::Gone);
     };
+    let stored = link
+        .sign_up_organization_name
+        .map(|organization_name| SignUp {
+            organization_name,
+            person_name: link.sign_up_person_name,
+            cost_source: link
+                .sign_up_cost_source
+                .as_deref()
+                .and_then(CostSource::from_db),
+            reporting_currency: link.sign_up_reporting_currency,
+            manages: link.sign_up_manages.as_deref().and_then(Manages::from_db),
+        });
 
+    // The form never takes a local tool's link: whoever started the tool
+    // would collect a session in the organization the person creates.
+    if link.local_tool && matches!(how, Use::SignUp(_)) {
+        return Ok(Used::Gone);
+    }
     let member = sqlx::query!(
         "SELECT id, organization_id FROM people WHERE email = $1 AND removed_at IS NULL",
         link.email
     )
     .fetch_optional(&mut *tx)
     .await?;
-    let signed_in = match (member, link.sign_up_organization_name) {
-        (Some(member), _) => {
+    let signed_in = match (member, stored, how) {
+        (Some(member), _, Use::AsSent) => {
             sqlx::query!(
                 "UPDATE people SET joined_at = coalesce(joined_at, now()) WHERE id = $1",
                 member.id
@@ -536,27 +635,16 @@ async fn consume_link(
                 organization_id: member.organization_id,
                 person_id: member.id,
                 signed_up: false,
+                manages: None,
             }
         }
-        (None, Some(name)) => {
-            let created = organizations::create(&mut *tx, &name, &link.email).await?;
-            if let Some(founder) = link.sign_up_person_name {
-                sqlx::query!(
-                    "UPDATE people SET name = $2 WHERE id = $1",
-                    created.person_id,
-                    founder
-                )
-                .execute(&mut *tx)
-                .await?;
-            }
-            SignedIn {
-                organization_id: created.organization_id,
-                person_id: created.person_id,
-                signed_up: true,
-            }
+        (None, Some(sign_up), Use::AsSent) | (None, None, Use::SignUp(sign_up)) => {
+            create_organization(&mut *tx, &link.email, &sign_up).await?
         }
-        // The person was removed after the link went out.
-        (None, None) => return Ok(Used::Gone),
+        // The person was removed after the link went out, the form sent a
+        // link that already names its organization, or the address became
+        // a member in the meantime.
+        _ => return Ok(Used::Gone),
     };
 
     sqlx::query!(
@@ -570,6 +658,39 @@ async fn consume_link(
         Used::LocalTool(signed_in)
     } else {
         Used::Browser(signed_in)
+    })
+}
+
+/// Creates the organization a sign-up asked for, with the founder as its
+/// first controller and the answers to the sign-up questions applied.
+async fn create_organization(
+    tx: &mut PgConnection,
+    email: &str,
+    sign_up: &SignUp,
+) -> Result<SignedIn, ApiError> {
+    let created = organizations::create(&mut *tx, &sign_up.organization_name, email).await?;
+    sqlx::query!(
+        "UPDATE people SET name = coalesce($2, name) WHERE id = $1",
+        created.person_id,
+        sign_up.person_name.as_deref()
+    )
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query!(
+        r#"UPDATE organizations
+           SET cost_source = $2, reporting_currency = coalesce($3, reporting_currency)
+           WHERE id = $1"#,
+        created.organization_id,
+        sign_up.cost_source.map(CostSource::as_str),
+        sign_up.reporting_currency.as_deref()
+    )
+    .execute(&mut *tx)
+    .await?;
+    Ok(SignedIn {
+        organization_id: created.organization_id,
+        person_id: created.person_id,
+        signed_up: true,
+        manages: sign_up.manages,
     })
 }
 
@@ -945,8 +1066,21 @@ mod tests {
         assert!(mail.html.contains("app.tokencontroller.com"));
         assert!(!mail.html.contains("{{"));
         assert!(!mail.text.contains("{{"));
-        let none = no_account_mail(&config, "x@y.example");
-        assert!(none.text.contains("https://app.tokencontroller.com/signup"));
+        let sign_up = sign_up_url(&config, "tc_link_abc");
+        assert_eq!(
+            sign_up,
+            "https://app.tokencontroller.com/signup?token=tc_link_abc"
+        );
+        let none = no_account_mail(&config, "x@y.example", &sign_up);
+        assert!(none.text.contains(&sign_up));
+        assert!(none.html.contains(&sign_up));
         assert!(!none.html.contains("{{"));
+        assert!(!none.text.contains("{{"));
+        let new = sign_up_mail(&config, "x@y.example", &url);
+        assert_eq!(new.kind, "sign_up");
+        assert!(new.text.contains(&url));
+        assert!(new.html.contains(&url));
+        assert!(!new.html.contains("{{"));
+        assert!(!new.text.contains("{{"));
     }
 }

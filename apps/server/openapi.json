@@ -3170,7 +3170,7 @@
           "sign-in"
         ],
         "summary": "Send a sign-in link to a member.",
-        "description": "Always answers 202, so nobody learns whether an address is a member. An\naddress that belongs to no organization gets a mail that says so.",
+        "description": "Always answers 202, so nobody learns whether an address is a member. An\naddress that belongs to no organization gets a mail that says so, with a\nlink to create one.",
         "operationId": "sign_in",
         "requestBody": {
           "content": {
@@ -3261,7 +3261,7 @@
           "sign-in"
         ],
         "summary": "Use a sign-in link: the form on the link's page posts here.",
-        "description": "A browser gets its session cookie and goes to the web app. A local tool's\nlink only marks the link used; the tool collects its session with\n`POST /sign-in/poll`.",
+        "description": "A browser gets its session cookie and goes to the web app, after a\nsign-up to its first steps. A local tool's link only marks the link\nused; the tool collects its session with `POST /sign-in/poll`.",
         "operationId": "use_link",
         "requestBody": {
           "content": {
@@ -3403,8 +3403,8 @@
         "tags": [
           "sign-in"
         ],
-        "summary": "Create an organization and send its first controller a sign-in link.",
-        "description": "The organization exists once the link is used. An address that is\nalready a member gets an ordinary sign-in link instead: one account\nbelongs to one organization.",
+        "summary": "Create an organization and email its first controller a link.",
+        "description": "The organization exists once the link is used, in any browser. An\naddress that is already a member gets an ordinary sign-in link instead:\none account belongs to one organization.",
         "operationId": "sign_up_organization",
         "requestBody": {
           "content": {
@@ -3428,7 +3428,7 @@
             }
           },
           "400": {
-            "description": "Not an email address, or no name",
+            "description": "Not an email address, no name, or not a currency",
             "content": {
               "application/json": {
                 "schema": {
@@ -3439,6 +3439,88 @@
           },
           "429": {
             "description": "Too many links for this address",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/sign-up/link": {
+      "get": {
+        "tags": [
+          "sign-in"
+        ],
+        "summary": "The address behind the link in the \"no account\" mail, for the web app's\nsign-up form. Reading it uses nothing up.",
+        "operationId": "sign_up_link",
+        "parameters": [
+          {
+            "name": "token",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SignUpLink"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "The link was used, has expired, or cannot create an organization",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "sign-in"
+        ],
+        "summary": "Create an organization with the link from the \"no account\" mail. The\nfounder is signed in at once: the answer sets the session cookie, and\nno second mail goes out.",
+        "operationId": "use_sign_up_link",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SignUpWithLink"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Created and signed in; the session cookie is set"
+          },
+          "400": {
+            "description": "No name, or not a currency",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "The link was used, has expired, or cannot create an organization",
             "content": {
               "application/json": {
                 "schema": {
@@ -7139,6 +7221,14 @@
           }
         }
       },
+      "Manages": {
+        "type": "string",
+        "description": "What the founder manages. It picks the first steps the web app shows\nafter sign-up.",
+        "enum": [
+          "agents",
+          "people"
+        ]
+      },
       "Mapping": {
         "type": "object",
         "description": "One project of a ticket system mapped to a Token Controller project.",
@@ -7433,6 +7523,55 @@
           }
         },
         "additionalProperties": false
+      },
+      "NewOrganization": {
+        "type": "object",
+        "description": "The organization a sign-up creates, with the answers to the sign-up\nquestions.",
+        "required": [
+          "organization_name"
+        ],
+        "properties": {
+          "cost_source": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/CostSource",
+                "description": "How the provider charges. Left out, it stays \"none yet\"."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "manages": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Manages",
+                "description": "Picks the first steps the web app shows after sign-up."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Your own name, as your colleagues will see it. Can be set later."
+          },
+          "organization_name": {
+            "type": "string",
+            "description": "Such as `Kestrel Digital`."
+          },
+          "reporting_currency": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The one currency the organization computes in, such as `EUR`. Left\nout, it is `USD`."
+          }
+        }
       },
       "NewProject": {
         "type": "object",
@@ -8979,32 +9118,58 @@
           }
         }
       },
-      "SignUpRequest": {
+      "SignUpLink": {
         "type": "object",
-        "description": "Create an organization: the link signs in its first controller.",
+        "description": "The address a sign-up link was sent to.",
         "required": [
-          "email",
-          "organization_name"
+          "email"
         ],
         "properties": {
           "email": {
             "type": "string"
-          },
-          "local_tool": {
-            "type": "boolean"
-          },
-          "name": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Your own name, as your colleagues will see it. Can be set later."
-          },
-          "organization_name": {
-            "type": "string",
-            "description": "Such as `Kestrel Digital`."
           }
         }
+      },
+      "SignUpRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/NewOrganization"
+          },
+          {
+            "type": "object",
+            "required": [
+              "email"
+            ],
+            "properties": {
+              "email": {
+                "type": "string"
+              },
+              "local_tool": {
+                "type": "boolean"
+              }
+            }
+          }
+        ],
+        "description": "Create an organization: the link signs in its first controller."
+      },
+      "SignUpWithLink": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/NewOrganization"
+          },
+          {
+            "type": "object",
+            "required": [
+              "token"
+            ],
+            "properties": {
+              "token": {
+                "type": "string"
+              }
+            }
+          }
+        ],
+        "description": "Create an organization with the link from the \"no account\" mail."
       },
       "Signals": {
         "type": "object",

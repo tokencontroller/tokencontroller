@@ -4,10 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light">
-<title>No Token Controller account for this address</title>
+<title>No Token Controller account for this address yet</title>
 </head>
 <body style="margin:0;padding:0;background:#F6F7F8;">
-<div style="display:none;max-height:0;overflow:hidden;">Someone asked to sign in with this address.</div>
+<div style="display:none;max-height:0;overflow:hidden;">Create your organization with this link.</div>
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#F6F7F8;">
   <tr><td align="center" style="padding:40px 16px;">
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;background:#FFFFFF;border:1px solid #E7E9EC;border-radius:14px;">
@@ -21,14 +21,14 @@
         </tr></table>
       </td></tr>
       <tr><td style="padding:28px 36px 0 36px;font-family:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#0E1116;">
-        <h1 style="margin:0 0 12px 0;font-size:24px;line-height:1.25;letter-spacing:-0.02em;font-weight:700;">No account for this address</h1>
-        <p style="margin:0 0 24px 0;font-size:16px;line-height:1.5;">Someone asked to sign in to Token Controller as <strong>{{email}}</strong>, but no organization has this address as a member. Ask your controller for an invite, or create your own organization.</p>
+        <h1 style="margin:0 0 12px 0;font-size:24px;line-height:1.25;letter-spacing:-0.02em;font-weight:700;">No account for this address yet</h1>
+        <p style="margin:0 0 24px 0;font-size:16px;line-height:1.5;">You asked to sign in to Token Controller as <strong>{{email}}</strong>. No organization has this address as a member yet. Create your own organization with the button below.</p>
         <table role="presentation" cellpadding="0" cellspacing="0"><tr>
           <td style="background:#0E1116;border-radius:10px;">
-            <a href="{{sign_up_url}}" style="display:inline-block;padding:13px 22px;font-size:16px;font-weight:600;color:#FFFFFF;text-decoration:none;">Create an organization</a>
+            <a href="{{sign_up_url}}" style="display:inline-block;padding:13px 22px;font-size:16px;font-weight:600;color:#FFFFFF;text-decoration:none;">Create organization</a>
           </td>
         </tr></table>
-        <p style="margin:24px 0 0 0;font-size:14px;line-height:1.5;color:#3F4650;">If you did not ask to sign in, ignore this email.</p>
+        <p style="margin:24px 0 0 0;font-size:14px;line-height:1.5;color:#3F4650;">The link works once and for {{expires_minutes}} minutes. Joining your team instead? Ask your controller for an invite. If you did not ask to sign in, ignore this email.</p>
       </td></tr>
       <tr><td style="padding:24px 36px 32px 36px;font-family:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
         <p style="margin:0;padding-top:20px;border-top:1px solid #E7E9EC;font-size:13px;line-height:1.5;color:#5B6470;">Button not working? Paste this link into your browser:<br><a href="{{sign_up_url}}" style="color:#0E7C66;word-break:break-all;">{{sign_up_url}}</a></p>

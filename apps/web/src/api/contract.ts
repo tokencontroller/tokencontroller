@@ -38,6 +38,9 @@ export type Person = Schemas["MemberView"];
 
 export type Me = Schemas["Me"];
 export type SignUpRequest = Schemas["SignUpRequest"];
+export type NewOrganization = Schemas["NewOrganization"];
+export type Manages = Schemas["Manages"];
+export type SignUpWithLink = Schemas["SignUpWithLink"];
 
 /** One token entry as it arrives (docs: Reference > Token entry). */
 export type NewTokenEntry = Schemas["NewTokenEntry"];
