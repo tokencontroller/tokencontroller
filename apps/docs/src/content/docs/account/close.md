@@ -5,6 +5,8 @@ description: "Closing a period and what happens after."
 
 The close locks a period, a calendar month, so its token entries and their tags can no longer change. The period keeps the tag map it was closed with. It produces the cost sheet.
 
+![Monthly close: the checks before the close and the periods below](/screens/07-monthly-close.png)
+
 ## Closing a period {#steps}
 
 <ol class="steps">

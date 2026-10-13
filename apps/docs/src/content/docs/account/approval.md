@@ -5,6 +5,8 @@ description: "Approval on or off, and rejecting token entries with a reason."
 
 Approval lets people managers accept submitted token entries before the period closes. Each organization switches it on or off.
 
+![Approval: submitted token entries of the people a people manager answers for](/screens/04-approval.png)
+
 ## With approval off {#off}
 
 Submitted token entries count in reports at once. People managers can still reject one.

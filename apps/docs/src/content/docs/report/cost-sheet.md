@@ -5,6 +5,8 @@ description: "The locked account of one closed period, adding up to the bill."
 
 The cost sheet is the locked account of one closed period for the whole organization: cost per project and ticket, adding up to the bill.
 
+![The cost sheet of a closed month: cost per project and ticket, overhead and the bill](/screens/08-cost-sheet.png)
+
 ## What it shows {#contains}
 
 - cost per rung of your [ladder](/account/tags#map), by default per project and ticket, by cost kind

@@ -11,6 +11,8 @@ next:
 
 Every token entry carries tags, such as `team: web` or `client: acme`. Reports, token budgets and who sees what are all tag filters. The tag map says which tags fill the cost center and the cost object.
 
+![Tags and the tag map: tag names with their values, and the ladders that fill cost center and cost object](/screens/13-tags-and-tag-map.png)
+
 ## Tags {#tags}
 
 A tag is a name and a value. A token entry has at most one value per tag name, so cost grouped by one tag name always adds up to the total. An entry cannot be `team: web` and `team: data` at once. Work for two clients in one session is [split](#splits).

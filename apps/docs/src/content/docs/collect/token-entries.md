@@ -5,6 +5,8 @@ description: "Report token entries from any agent with one HTTP call per session
 
 Any agent that can make an HTTP call can report its own token entries. Send one per session.
 
+![Token entries: every session with its agent, model, tickets and tags](/screens/11-token-entries.png)
+
 ## The call {#call}
 
 ```http

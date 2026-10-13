@@ -300,6 +300,7 @@ pub async fn load(db: &PgPool) -> anyhow::Result<()> {
     tx.commit().await?;
     tracing::info!("seed data loaded: Kestrel Digital");
     crate::ingest::seed::load(db).await?;
+    crate::close::seed::load(db).await?;
     Ok(())
 }
 

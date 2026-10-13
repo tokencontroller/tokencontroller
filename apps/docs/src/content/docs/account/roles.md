@@ -11,6 +11,8 @@ next:
 
 Roles decide what you see. The two sides decide where cost sits. At sign-up there is one question: do you manage agents, or do you manage people?
 
+![People: members with their role and tags](/screens/15-people.png)
+
 ## The three roles {#roles}
 
 Roles stack: each one includes everything the one before it can do. A member is anyone in the organization, whatever their role.
