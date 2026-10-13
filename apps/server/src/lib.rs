@@ -130,6 +130,7 @@ where
     F: FnOnce(AppState) -> Fut,
     Fut: Future<Output = anyhow::Result<Additions>>,
 {
+    let _sentry = init_error_reports();
     init_tracing();
     let config = Config::from_env()?;
     tracing::info!(
@@ -232,14 +233,48 @@ async fn connect(database_url: &str) -> anyhow::Result<PgPool> {
     }
 }
 
+/// Starts error reporting to Sentry when `SENTRY_DSN` is set, with
+/// `SENTRY_ENVIRONMENT` (such as `production` or `staging`) as the
+/// environment. Without the variable the service reports nowhere, so a
+/// self-hosted install sends nothing unless its operator asks for it. Only
+/// errors go: no request bodies, no user data (`send_default_pii` stays off),
+/// no tracing or performance samples. The guard must live as long as the
+/// service, so the caller keeps it.
+fn init_error_reports() -> Option<sentry::ClientInitGuard> {
+    let dsn = std::env::var("SENTRY_DSN")
+        .ok()
+        .filter(|dsn| !dsn.trim().is_empty())?;
+    let environment = std::env::var("SENTRY_ENVIRONMENT")
+        .ok()
+        .filter(|name| !name.trim().is_empty())
+        .map(std::borrow::Cow::Owned);
+    let mut options = sentry::ClientOptions::new()
+        .dsn(&dsn)
+        .send_default_pii(false)
+        .traces_sample_rate(0.0)
+        .attach_stacktrace(true);
+    options.release = Some(concat!("tokencontroller@", env!("CARGO_PKG_VERSION")).into());
+    options.environment = environment;
+    Some(sentry::init(options))
+}
+
 fn init_tracing() {
+    use tracing_subscriber::layer::SubscriberExt as _;
+    use tracing_subscriber::util::SubscriberInitExt as _;
+
     let filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
-    // A second call (in tests) keeps the first subscriber.
-    let _already_set = tracing_subscriber::fmt()
-        .with_env_filter(filter)
+    let stdout = tracing_subscriber::fmt::layer()
         .with_target(false)
-        .with_ansi(std::io::stdout().is_terminal())
+        .with_ansi(std::io::stdout().is_terminal());
+    // `error!` events become Sentry reports, `warn!` and above breadcrumbs;
+    // without a DSN the layer does nothing.
+    let reports = sentry::integrations::tracing::layer();
+    // A second call (in tests) keeps the first subscriber.
+    let _already_set = tracing_subscriber::registry()
+        .with(filter)
+        .with(stdout)
+        .with(reports)
         .try_init();
 }
 
