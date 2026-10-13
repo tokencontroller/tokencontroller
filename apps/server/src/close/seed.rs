@@ -48,21 +48,20 @@ async fn bills(db: &PgPool, period: Period, usd: Currency) -> anyhow::Result<()>
     let to = period
         .ends_at()
         .map_err(|_| anyhow::anyhow!("period out of range"))?;
-    // Plain queries: the seed is the only reader of these sums, and a
-    // checked query here would need its own offline cache entry.
-    let reported: Vec<(String, i64)> = sqlx::query_as(
-        "SELECT provider, COALESCE(SUM(reported_cost_nanos), 0)::BIGINT
+    let reported = sqlx::query!(
+        r#"SELECT provider, COALESCE(SUM(reported_cost_nanos), 0)::BIGINT AS "nanos!"
            FROM token_entries
            WHERE organization_id = $1 AND started_at >= $2 AND started_at < $3
-           GROUP BY provider ORDER BY provider",
+           GROUP BY provider ORDER BY provider"#,
+        ids::ORGANIZATION,
+        from,
+        to
     )
-    .bind(ids::ORGANIZATION)
-    .bind(from)
-    .bind(to)
     .fetch_all(db)
     .await?;
-    for (provider, nanos) in reported {
-        let cents = nanos.checked_div(10_000_000).unwrap_or_default();
+    for row in reported {
+        let provider = row.provider;
+        let cents = row.nanos.checked_div(10_000_000).unwrap_or_default();
         let residual = cents
             .saturating_mul(15)
             .checked_div(1000)
@@ -93,11 +92,12 @@ async fn bills(db: &PgPool, period: Period, usd: Currency) -> anyhow::Result<()>
 
 /// A token budget for the checkout ticket and a monthly one for team web.
 async fn token_budgets(db: &PgPool, period: Period, usd: Currency) -> anyhow::Result<()> {
-    let existing: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM token_budgets WHERE organization_id = $1")
-            .bind(ids::ORGANIZATION)
-            .fetch_one(db)
-            .await?;
+    let existing = sqlx::query_scalar!(
+        r#"SELECT COUNT(*) AS "count!" FROM token_budgets WHERE organization_id = $1"#,
+        ids::ORGANIZATION
+    )
+    .fetch_one(db)
+    .await?;
     if existing > 0 {
         return Ok(());
     }
