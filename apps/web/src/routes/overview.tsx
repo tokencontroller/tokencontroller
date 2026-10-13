@@ -1,7 +1,7 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
-import type { CostKind, CostReport, Filter, Reconciliation } from "@/api/contract";
+import type { CostKind, CostReport, Filter, Manages, Reconciliation } from "@/api/contract";
 import { api } from "@/api/endpoints";
 import { FilterTags } from "@/routes/budgets";
 import { Badge } from "@/components/ui/badge";
@@ -12,7 +12,7 @@ import { additions } from "@/lib/additions";
 import { formatMoney, formatShare, fromDecimal, nanosOf, shareOf, sum } from "@/lib/money";
 import { refreshAll, useFirstOpenPeriod, useMe, usePeriods, usePersonName } from "@/lib/queries";
 import { Field, FormError, Input } from "@/components/ui/form";
-import { forgetSignUp, readSignUp, rememberSignUp, type SignUpChoices } from "@/lib/remember";
+import { forgetFirstSteps, readFirstSteps } from "@/lib/remember";
 import { hasRole } from "@/lib/roles";
 import { thisPeriod } from "@/lib/today";
 
@@ -219,7 +219,7 @@ function YourName() {
   );
 }
 
-const firstSteps: Record<SignUpChoices["manages"], { label: string; to?: "/bills" | "/people" | "/close" | "/review"; href?: string }[]> = {
+const firstSteps: Record<Manages, { label: string; to?: "/bills" | "/people" | "/close" | "/review"; href?: string }[]> = {
   people: [
     { label: "Connect the bill", to: "/bills" },
     { label: "Invite people", to: "/people" },
@@ -231,31 +231,12 @@ const firstSteps: Record<SignUpChoices["manages"], { label: string; to?: "/bills
   ],
 };
 
-/**
- * The first steps after sign-up. The service takes only the name and the
- * email at sign-up, so the cost source and currency picked there are sent
- * here, once, by the controller who created the organization.
- */
+/** The first steps after sign-up, for what the founder manages, until hidden. */
 function FirstSteps() {
   const me = useMe();
-  const [choices, setChoices] = useState(readSignUp);
-  const sent = useRef(false);
-  const apply = useMutation({
-    mutationFn: (c: SignUpChoices) => api.updateOrganization({ cost_source: c.cost_source, reporting_currency: c.reporting_currency }),
-    onSuccess: async (_, c) => {
-      const done = { ...c, applied: true };
-      rememberSignUp(done);
-      setChoices(done);
-      await refreshAll();
-    },
-  });
+  const [manages, setManages] = useState(readFirstSteps);
   const controller = hasRole(me.person, "controller");
-  useEffect(() => {
-    if (!choices || choices.applied || !controller || sent.current) return;
-    sent.current = true;
-    apply.mutate(choices);
-  }, [choices, controller, apply]);
-  if (!choices) {
+  if (!manages) {
     return controller && !me.organization.cost_source ? (
       <Note>
         Pick a cost source so the close knows what to check against.{" "}
@@ -266,9 +247,9 @@ function FirstSteps() {
     ) : null;
   }
   return (
-    <Section title="First steps" actions={<Button size="sm" variant="ghost" onClick={() => { forgetSignUp(); setChoices(null); }}>Hide</Button>}>
+    <Section title="First steps" actions={<Button size="sm" variant="ghost" onClick={() => { forgetFirstSteps(); setManages(null); }}>Hide</Button>}>
       <ol className="grid gap-2 sm:grid-cols-3">
-        {firstSteps[choices.manages].map((step, i) => (
+        {firstSteps[manages].map((step, i) => (
           <li key={step.label}>
             {step.to ? (
               <Link to={step.to} className="flex h-full items-center gap-3 rounded-lg border border-line p-3 text-sm font-medium hover:bg-sand">

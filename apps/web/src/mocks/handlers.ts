@@ -16,7 +16,9 @@ import type {
   Role,
   OrganizationRulesChange,
   Rule,
+  NewOrganization,
   SignUpRequest,
+  SignUpWithLink,
   Tags,
   TicketMapping,
   TicketSystem,
@@ -250,7 +252,10 @@ function addEntry(db: Db, me: Person, body: NewTokenEntry): StoredEntry {
 
 const now = () => `${TODAY}T12:00:00Z`;
 
-function organizationOf(db: Db, name: string, email: string, founderName: string): Db {
+/** A sign-up as the service takes it: the organization and the answers to its questions. */
+function organizationOf(db: Db, email: string, sign_up: NewOrganization): Db {
+  const name = sign_up.organization_name.trim();
+  const founderName = sign_up.name?.trim() ?? "";
   // A new organization: one person who holds every role, no data yet.
   const founder: Person = {
     id: "f0d0e000-0000-4000-8000-000000000001",
@@ -266,7 +271,17 @@ function organizationOf(db: Db, name: string, email: string, founderName: string
   };
   return {
     ...db,
-    organization: { ...db.organization, id: "0e000000-0000-4000-8000-000000000002", name, slug: name.toLowerCase().replace(/[^a-z0-9]+/g, "-"), cost_source: null, approval: false, sign_in_domains: [], created_at: now() },
+    organization: {
+      ...db.organization,
+      id: "0e000000-0000-4000-8000-000000000002",
+      name,
+      slug: name.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
+      cost_source: sign_up.cost_source ?? null,
+      reporting_currency: sign_up.reporting_currency?.toUpperCase() ?? "USD",
+      approval: false,
+      sign_in_domains: [],
+      created_at: now(),
+    },
     people: [founder],
     invites: [],
     projects: [],
@@ -286,7 +301,7 @@ function organizationOf(db: Db, name: string, email: string, founderName: string
     rules: { rules: defaultRules(), several_keys: "most_often", summary_match: true },
     personalRules: {},
     periods: [{ id: TODAY.slice(0, 7), status: "open", closed_at: null, closed_by: null, tag_map: null }],
-    pendingLink: { token: `link_${founder.id}`, email },
+    pendingLink: { token: `link_${founder.id}`, email, start: sign_up.manages ? `/?first_steps=${sign_up.manages}` : "/" },
     session: null,
   };
 }
@@ -322,15 +337,37 @@ export const handlers = [
     const { email } = (await request.json()) as { email: string };
     const person = db.people.find((p) => p.email.toLowerCase() === email.trim().toLowerCase() && p.status !== "removed");
     // The service answers the same either way, so nobody can probe for members.
-    db.pendingLink = person ? { token: `link_${person.id}`, email: person.email } : null;
+    // An address without an account gets a link to the sign-up form.
+    const token = person ? `link_${person.id}` : `signup_${crypto.randomUUID()}`;
+    db.pendingLink = person ? { token, email: person.email } : { token, email: email.trim().toLowerCase(), url: `/signup?token=${token}` };
     save(db);
     return HttpResponse.json({ poll_token: null }, { status: 202 });
   }),
   http.post(`${API}/sign-up`, async ({ request }) => {
     const body = (await request.json()) as SignUpRequest;
     if (!body.organization_name.trim()) return error(400, "bad_request", "Give the organization a name.");
-    save(organizationOf(createDb(), body.organization_name.trim(), body.email.trim(), body.name?.trim() ?? ""));
+    save(organizationOf(createDb(), body.email.trim(), body));
     return HttpResponse.json({ poll_token: null }, { status: 202 });
+  }),
+  // The "no account" mail's link: the sign-up form reads the address, then creates the organization with it.
+  http.get(`${API}/sign-up/link`, ({ request }) => {
+    const token = new URL(request.url).searchParams.get("token");
+    const link = load().pendingLink;
+    if (!link?.url || link.token !== token) return error(410, "gone", "This link no longer works: it was used, or it is older than 15 minutes.");
+    return HttpResponse.json({ email: link.email });
+  }),
+  http.post(`${API}/sign-up/link`, async ({ request }) => {
+    const body = (await request.json()) as SignUpWithLink;
+    const link = load().pendingLink;
+    if (!link?.url || link.token !== body.token) return error(410, "gone", "This link no longer works: it was used, or it is older than 15 minutes.");
+    if (!body.organization_name.trim()) return error(400, "bad_request", "Give the organization a name.");
+    const db = organizationOf(createDb(), link.email, body);
+    const founder = db.people[0];
+    if (founder) Object.assign(founder, { status: "joined", joined_at: now() });
+    db.session = founder?.id ?? null;
+    db.pendingLink = null;
+    save(db);
+    return new HttpResponse(null, { status: 204 });
   }),
   // The button on the link page: signs the browser in, then 303 to the start page.
   http.post(`${API}/sign-in/link`, async ({ request }) => {
@@ -338,11 +375,12 @@ export const handlers = [
     const token = new URLSearchParams(await request.text()).get("token") ?? "";
     const person = db.people.find((p) => `link_${p.id}` === token);
     if (!person) return new HttpResponse("This sign-in link has expired. Ask for a new one.", { status: 410, headers: { "content-type": "text/html" } });
+    const start = db.pendingLink?.start ?? "/";
     db.session = person.id;
     db.pendingLink = null;
     if (person.status === "invited") Object.assign(person, { status: "joined", joined_at: now() });
     save(db);
-    return new HttpResponse(null, { status: 303, headers: { location: "/" } });
+    return new HttpResponse(null, { status: 303, headers: { location: start } });
   }),
   http.post(`${API}/sign-out`, () => {
     const db = load();

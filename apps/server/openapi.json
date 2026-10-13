@@ -3456,7 +3456,7 @@
           "sign-in"
         ],
         "summary": "The address behind the link in the \"no account\" mail, for the web app's\nsign-up form. Reading it uses nothing up.",
-        "operationId": "link",
+        "operationId": "sign_up_link",
         "parameters": [
           {
             "name": "token",
@@ -3494,7 +3494,7 @@
           "sign-in"
         ],
         "summary": "Create an organization with the link from the \"no account\" mail. The\nfounder is signed in at once: the answer sets the session cookie, and\nno second mail goes out.",
-        "operationId": "use_link",
+        "operationId": "use_sign_up_link",
         "requestBody": {
           "content": {
             "application/json": {

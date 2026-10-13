@@ -1,17 +1,18 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { getRouteApi, Link, useNavigate } from "@tanstack/react-router";
-import { useState, type ReactNode, type SubmitEvent } from "react";
-import type { CostSource } from "@/api/contract";
+import { useEffect, useState, type ReactNode, type SubmitEvent } from "react";
+import type { CostSource, Manages, NewOrganization } from "@/api/contract";
 import { API_PREFIX, call } from "@/api/client";
 import { api } from "@/api/endpoints";
 import { Button, buttonClass } from "@/components/ui/button";
-import { ErrorBox, Loading } from "@/components/ui/display";
+import { ErrorBox, Loading, Note } from "@/components/ui/display";
 import { Field, FormError, Input, Select } from "@/components/ui/form";
 import { additions } from "@/lib/additions";
 import { costSourceOrder, costSourceText } from "@/lib/cost-source";
-import { rememberSignUp, type SignUpChoices } from "@/lib/remember";
+import { meQuery, queryClient } from "@/lib/queries";
 
 const signInRoute = getRouteApi("/sign-in");
+const signUpRoute = getRouteApi("/signup");
 const inviteRoute = getRouteApi("/i/$code");
 
 function Frame({ title, lead, children }: { title: string; lead?: ReactNode; children: ReactNode }) {
@@ -32,6 +33,16 @@ function Frame({ title, lead, children }: { title: string; lead?: ReactNode; chi
   );
 }
 
+/** The link the mock build would have mailed. */
+interface MockMail {
+  token: string;
+  email: string;
+  /** The "no account" mail's link to the sign-up form. */
+  url?: string;
+  /** Where the service's link page sends the browser. */
+  start?: string;
+}
+
 /**
  * In mock mode there is no inbox, so the page offers the link it would have
  * sent. Like the service's link page, its button signs the browser in and
@@ -40,14 +51,18 @@ function Frame({ title, lead, children }: { title: string; lead?: ReactNode; chi
 function MockLink() {
   const { data } = useQuery({
     queryKey: ["mock-link"],
-    queryFn: () => call<{ token: string; email: string } | null>("GET", "/__mock/last-link"),
+    queryFn: () => call<MockMail | null>("GET", "/__mock/last-link"),
     enabled: Boolean(import.meta.env.VITE_API_MOCK),
   });
   if (!import.meta.env.VITE_API_MOCK || !data) return null;
   const open = async () => {
+    if (data.url) {
+      window.location.assign(data.url);
+      return;
+    }
     // The service answers with a redirect to the start page; the browser goes there itself.
     await fetch(`${API_PREFIX}/sign-in/link`, { method: "POST", body: new URLSearchParams({ token: data.token }), redirect: "manual", credentials: "include" });
-    window.location.assign("/");
+    window.location.assign(data.start ?? "/");
   };
   return (
     <div className="mt-4 rounded-md border border-dashed border-line-strong p-3 text-xs text-muted">
@@ -59,10 +74,19 @@ function MockLink() {
   );
 }
 
-function CheckYourEmail({ email }: { email: string }) {
+/**
+ * Waits for the link from the mail. Once the link signs this browser in, in
+ * another tab, the page moves on by itself.
+ */
+function CheckYourEmail({ lead, next = "/", back }: { lead: ReactNode; next?: string; back: "/sign-in" | "/signup" }) {
+  const navigate = useNavigate();
+  const signedIn = useQuery({ ...meQuery, refetchInterval: 3_000, refetchOnWindowFocus: true, retry: false });
+  useEffect(() => {
+    if (signedIn.isSuccess) void navigate({ href: next, replace: true });
+  }, [signedIn.isSuccess, navigate, next]);
   return (
-    <Frame title="Check your email" lead={<>We sent a sign-in link to <b className="text-ink">{email}</b>. It works once, for 15 minutes.</>}>
-      <Link to="/sign-in" className="text-sm text-accent hover:underline">
+    <Frame title="Check your email" lead={lead}>
+      <Link to={back} className="text-sm text-accent hover:underline">
         Use another email
       </Link>
       <MockLink />
@@ -98,7 +122,10 @@ export function SignInPage(): ReactNode {
     mutationFn: () => api.signIn(email),
     onSuccess: () => navigate({ to: "/sign-in", search: { sent: email } }),
   });
-  if (sent) return <CheckYourEmail email={sent} />;
+  if (sent) {
+    // The same words whether or not the address has an account: the mail says which.
+    return <CheckYourEmail back="/sign-in" lead={<>We sent a link to <b className="text-ink">{sent}</b>. It works once, for 15 minutes.</>} />;
+  }
   const submit = (event: SubmitEvent) => {
     event.preventDefault();
     signIn.mutate();
@@ -164,22 +191,70 @@ export function InvitePage(): ReactNode {
 
 const currencies = ["USD", "EUR", "GBP", "CHF"];
 
+/** The sign-up questions. The service applies them when the link is used. */
+interface Choices {
+  manages: Manages;
+  cost_source: CostSource | null;
+  reporting_currency: string;
+}
+
+/**
+ * Creates an organization. With the token from the "no account" mail, the
+ * address is already confirmed: the form creates the organization and signs
+ * in at once. Without it, the service mails a link that does the same.
+ */
 export function SignUpPage(): ReactNode {
+  const { token } = signUpRoute.useSearch();
   const navigate = useNavigate();
+  const link = useQuery({ queryKey: ["sign-up-link", token], queryFn: () => api.signUpLink(token ?? ""), enabled: Boolean(token), retry: false, staleTime: Infinity });
+  const confirmed = token ? link.data?.email : undefined;
   const [form, setForm] = useState({ organization: "", email: "", name: "" });
-  const [choices, setChoices] = useState<SignUpChoices>({ manages: "people", cost_source: "usage_at_api_rates", reporting_currency: "USD" });
+  const [choices, setChoices] = useState<Choices>({ manages: "people", cost_source: "usage_at_api_rates", reporting_currency: "USD" });
+  const [sentTo, setSentTo] = useState<string | null>(null);
+  const start = `/?first_steps=${choices.manages}`;
   const signUp = useMutation({
-    mutationFn: () => api.signUp(form.email.trim(), form.organization.trim(), form.name.trim()),
-    onSuccess: async () => {
-      // The service takes the names and the email; the rest is set once signed in.
-      rememberSignUp(choices);
-      await navigate({ to: "/sign-in", search: { sent: form.email.trim() } });
+    mutationFn: async (): Promise<"signed_in" | "sent"> => {
+      const organization: NewOrganization = { organization_name: form.organization.trim(), ...(form.name.trim() ? { name: form.name.trim() } : {}), ...choices };
+      if (token && confirmed) {
+        await api.signUpWithLink(token, organization);
+        return "signed_in";
+      }
+      await api.signUp(form.email.trim(), organization);
+      return "sent";
+    },
+    onSuccess: async (result) => {
+      if (result === "sent") {
+        setSentTo(form.email.trim());
+        return;
+      }
+      // Signed in now: forget the "not signed in" answer from before.
+      queryClient.removeQueries({ queryKey: meQuery.queryKey });
+      await navigate({ href: start, replace: true });
     },
   });
   const { SignUpNote } = additions.parts;
+  if (token && link.isPending) {
+    return (
+      <Frame title="Create your organization">
+        <Loading />
+      </Frame>
+    );
+  }
+  if (sentTo) {
+    return (
+      <CheckYourEmail
+        back="/signup"
+        next={start}
+        lead={<>We sent a link to <b className="text-ink">{sentTo}</b>. Open it to create {form.organization.trim()}. It works once, for 15 minutes.</>}
+      />
+    );
+  }
   return (
-    <Frame title="Create your organization" lead="No card needed.">
+    <Frame title="Create your organization" lead={confirmed ? "Your email is confirmed. No card needed." : "No card needed."}>
       {SignUpNote ? <SignUpNote /> : null}
+      {token && link.isError ? (
+        <Note>That link no longer works: it was used, or it is older than 15 minutes. Fill in your email and we send a new one.</Note>
+      ) : null}
       <form
         onSubmit={(e) => {
           e.preventDefault();
@@ -191,7 +266,11 @@ export function SignUpPage(): ReactNode {
           <Input required value={form.organization} onChange={(e) => setForm((f) => ({ ...f, organization: e.target.value }))} placeholder="Kestrel Digital" />
         </Field>
         <Field label="Work email">
-          <Input type="email" required autoComplete="email" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} />
+          {confirmed ? (
+            <Input type="email" readOnly value={confirmed} />
+          ) : (
+            <Input type="email" required autoComplete="email" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} />
+          )}
         </Field>
         <Field label="Your name" hint="As your colleagues will see it. You can also add it later.">
           <Input autoComplete="name" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />

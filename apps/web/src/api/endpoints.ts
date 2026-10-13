@@ -11,6 +11,7 @@ import type {
   MemberChange,
   NewBillConnection,
   NewMember,
+  NewOrganization,
   NewProject,
   NewTicket,
   NewTokenEntry,
@@ -86,8 +87,11 @@ export const api = {
   // Sign-in. The link in the mail opens a page of the service, which signs
   // the browser in and sends it to the start page.
   signIn: (email: string) => ok(typed.POST("/api/v1/sign-in", { body: { email } })),
-  signUp: (email: string, organization_name: string, name: string) =>
-    ok(typed.POST("/api/v1/sign-up", { body: { email, organization_name, ...(name ? { name } : {}) } })),
+  signUp: (email: string, organization: NewOrganization) => ok(typed.POST("/api/v1/sign-up", { body: { email, ...organization } })),
+  /** The address behind the link in the "no account" mail; 410 once it no longer works. */
+  signUpLink: (token: string) => ok(typed.GET("/api/v1/sign-up/link", { params: { query: { token } } })),
+  /** Creates the organization with that link and signs this browser in: no second mail. */
+  signUpWithLink: (token: string, organization: NewOrganization) => ok(typed.POST("/api/v1/sign-up/link", { body: { token, ...organization } })),
   signOut: () => ok(typed.POST("/api/v1/sign-out")),
   /** Ways to sign in besides the magic link; empty on the open edition. */
   signInProviders: () => ok(typed.GET("/api/v1/sign-in/providers")),

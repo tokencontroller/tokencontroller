@@ -153,6 +153,7 @@ pub struct SignUpLink {
 #[utoipa::path(
     get,
     path = "/sign-up/link",
+    operation_id = "sign_up_link",
     tag = "sign-in",
     params(LinkToken),
     responses(
@@ -184,6 +185,7 @@ pub struct SignUpWithLink {
 #[utoipa::path(
     post,
     path = "/sign-up/link",
+    operation_id = "use_sign_up_link",
     tag = "sign-in",
     request_body = SignUpWithLink,
     responses(

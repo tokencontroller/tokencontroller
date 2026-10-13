@@ -4,7 +4,7 @@ import { AppShell } from "@/components/app-shell";
 import { ErrorBox } from "@/components/ui/display";
 import { addedRoutes } from "@/lib/additions";
 import { meQuery, queryClient } from "@/lib/queries";
-import { rememberNext, takeNext } from "@/lib/remember";
+import { rememberFirstSteps, rememberNext, takeNext } from "@/lib/remember";
 import { hasRole } from "@/lib/roles";
 import type { Role } from "@/api/contract";
 import { ApprovalPage } from "@/routes/approval";
@@ -26,14 +26,35 @@ import { NotFoundPage } from "@/routes/not-found";
 
 const rootRoute = createRootRoute({ component: Outlet, notFoundComponent: NotFoundPage });
 
+/** Someone already signed in has no use for the sign-in and sign-up forms. */
+async function startPageIfSignedIn(): Promise<void> {
+  try {
+    await queryClient.query({ ...meQuery, staleTime: "static" });
+  } catch {
+    // Not signed in, which is what these pages are for.
+    return;
+  }
+  // eslint-disable-next-line @typescript-eslint/only-throw-error -- the router's way to redirect
+  throw redirect({ to: "/" });
+}
+
 const signInRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/sign-in",
   validateSearch: (search: Record<string, unknown>): { sent?: string } => (typeof search.sent === "string" ? { sent: search.sent } : {}),
+  beforeLoad: startPageIfSignedIn,
   component: SignInPage,
 });
 
-const signUpRoute = createRoute({ getParentRoute: () => rootRoute, path: "/signup", component: SignUpPage });
+// With a token, the link from the "no account" mail: the form then creates
+// the organization at once.
+const signUpRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/signup",
+  validateSearch: (search: Record<string, unknown>): { token?: string } => (typeof search.token === "string" ? { token: search.token } : {}),
+  beforeLoad: startPageIfSignedIn,
+  component: SignUpPage,
+});
 
 // The link in an invite mail: who invited whom, then a sign-in link.
 const inviteRoute = createRoute({ getParentRoute: () => rootRoute, path: "/i/$code", component: InvitePage });
@@ -56,6 +77,14 @@ const appRoute = createRoute({
         throw redirect({ to: "/sign-in" });
       }
       throw error;
+    }
+    // A sign-up link lands on /?first_steps=people: keep the pick for the
+    // start page's first steps.
+    const { first_steps: firstSteps } = location.search as { first_steps?: unknown };
+    if (firstSteps === "agents" || firstSteps === "people") {
+      rememberFirstSteps(firstSteps);
+      // eslint-disable-next-line @typescript-eslint/only-throw-error -- the router's way to redirect
+      throw redirect({ to: "/" });
     }
     // The magic link lands on the start page; go on to the page asked for.
     const next = location.pathname === "/" ? takeNext() : null;

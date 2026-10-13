@@ -1,4 +1,4 @@
-import type { CostSource } from "@/api/contract";
+import type { Manages } from "@/api/contract";
 
 // Small things the browser keeps between the sign-in page and the page the
 // magic link opens. The link opens the service's own page, which sends the
@@ -6,7 +6,7 @@ import type { CostSource } from "@/api/contract";
 // Storage can be missing or blocked; then the app simply forgets.
 
 const NEXT = "tc.next";
-const SIGN_UP = "tc.sign-up";
+const FIRST_STEPS = "tc.first-steps";
 /** As long as a sign-in link works. */
 const LINK_LIFETIME = 15 * 60_000;
 
@@ -46,23 +46,20 @@ export function takeNext(): string | null {
   return Date.now() - stored.at < LINK_LIFETIME ? safeNext(stored.path) : null;
 }
 
-/** What someone picked at sign-up, applied once they are signed in. */
-export interface SignUpChoices {
-  cost_source: CostSource | null;
-  reporting_currency: string;
-  manages: "agents" | "people";
-  /** Set once the cost source and currency went to the service. */
-  applied?: boolean;
+/**
+ * The first steps to show on the start page until hidden, picked by what the
+ * founder manages. A sign-up link lands on /?first_steps=people, in whichever
+ * browser opens it; the service already applied the other sign-up answers.
+ */
+export function rememberFirstSteps(manages: Manages): void {
+  write(FIRST_STEPS, manages);
 }
 
-export function rememberSignUp(choices: SignUpChoices): void {
-  write(SIGN_UP, choices);
+export function readFirstSteps(): Manages | null {
+  const stored = read(FIRST_STEPS);
+  return stored === "agents" || stored === "people" ? stored : null;
 }
 
-export function readSignUp(): SignUpChoices | null {
-  return read(SIGN_UP) as SignUpChoices | null;
-}
-
-export function forgetSignUp(): void {
-  write(SIGN_UP, null);
+export function forgetFirstSteps(): void {
+  write(FIRST_STEPS, null);
 }

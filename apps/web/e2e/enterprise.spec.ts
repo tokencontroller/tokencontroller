@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { signIn } from "./helpers";
+import { mainMenu, signIn } from "./helpers";
 
 // Docs: Self-hosting > OIDC and SCIM. On an Enterprise plan instance a
 // controller adds the identity provider and a SCIM token under Settings; the
@@ -31,7 +31,8 @@ test("a controller sets up sign-in with the identity provider and SCIM", async (
   await expect(log.getByText("Created a SCIM token")).toBeVisible();
   await expect(log.getByText("Changed sign-in with the identity provider")).toBeVisible();
 
-  await page.goto("/sign-in");
+  await mainMenu(page);
+  await page.getByRole("button", { name: "Sign out" }).click();
   await expect(page.getByRole("link", { name: "Sign in with your company account" })).toBeVisible();
 });
 
