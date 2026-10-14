@@ -228,7 +228,7 @@ fn decode_failure(error: &DecodeError) -> Response {
 }
 
 /// One OTLP export: checks the organization token, hands the batch to the
-/// extension, drops what carries prompt text and stores each model call.
+/// extension, drops prompt text and stores each model call.
 async fn receive(
     state: &AppState,
     caller: &Caller,
@@ -290,15 +290,22 @@ async fn receive(
         known = outcome.known_messages,
         late = outcome.late_messages,
         dropped = extracted.dropped_with_prompt_text,
+        stripped = extracted.stripped_prompt_text,
         "telemetry received"
     );
     let rejected = i64::from(extracted.dropped_with_prompt_text);
-    let message = if rejected > 0 {
-        format!(
+    let stripped = extracted.stripped_prompt_text;
+    let message = match (rejected, stripped) {
+        (0, 0) => String::new(),
+        (_, 0) => format!(
             "{rejected} events carried prompt text and were dropped; turn off prompt logging in the agent's telemetry settings"
-        )
-    } else {
-        String::new()
+        ),
+        (0, _) => format!(
+            "{stripped} model calls carried prompt text, which was removed before they were counted; turn off prompt logging in the agent's telemetry settings"
+        ),
+        (_, _) => format!(
+            "{rejected} events carried prompt text and were dropped, and {stripped} model calls had theirs removed before they were counted; turn off prompt logging in the agent's telemetry settings"
+        ),
     };
     let (content_type, answer) = otlp::encode_response(signal, rejected, &message, encoding);
     Ok(([(CONTENT_TYPE, content_type)], answer).into_response())

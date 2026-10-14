@@ -1,7 +1,7 @@
 //! The OpenTelemetry receiver's decoding: OTLP over HTTP, as protobuf or
 //! JSON, turned into one [`TelemetryMessage`](super::model::TelemetryMessage)
-//! per model call, per agent harness as the Collect pages describe. Events
-//! that carry prompt text are dropped here, before anything is stored.
+//! per model call, per agent harness as the Collect pages describe. Prompt
+//! text is dropped here, before anything is stored.
 //!
 //! A request goes through [`Encoding::from_content_type`], [`decompress`],
 //! one of the `decode_*` functions and, for logs and traces, `extract_from_*`;

@@ -423,7 +423,7 @@ fn responses_report_partial_success_only_when_rejecting() {
     assert_eq!(partial.rejected_data_points, 1);
 
     for signal in [Signal::Logs, Signal::Traces, Signal::Metrics] {
-        let (content_type, body) = encode_response(signal, 0, "ignored", Encoding::Json);
+        let (content_type, body) = encode_response(signal, 0, "", Encoding::Json);
         assert_eq!(
             (content_type, body.as_slice()),
             ("application/json", b"{}".as_slice())
@@ -431,6 +431,21 @@ fn responses_report_partial_success_only_when_rejecting() {
         let (_, body) = encode_response(signal, -1, "", Encoding::Protobuf);
         assert!(body.is_empty());
     }
+    // A message with nothing rejected is a warning.
+    let (_, body) = encode_response(Signal::Logs, 0, "text removed", Encoding::Json);
+    assert_eq!(
+        body,
+        br#"{"partialSuccess":{"errorMessage":"text removed","rejectedLogRecords":0}}"#
+    );
+    let (_, body) = encode_response(Signal::Traces, 0, "text removed", Encoding::Protobuf);
+    let partial = ExportTraceServiceResponse::decode(body.as_slice())
+        .unwrap()
+        .partial_success
+        .unwrap();
+    assert_eq!(
+        (partial.rejected_spans, partial.error_message.as_str()),
+        (0, "text removed")
+    );
     let (_, body) = encode_response(
         Signal::Logs,
         3,
@@ -850,6 +865,28 @@ fn gemini_cli_api_responses_become_messages() {
     assert_eq!(extracted.ignored, 2);
 }
 
+#[test]
+fn gemini_cli_with_prompt_logging_on_keeps_its_counts() {
+    // Gemini CLI logs prompts unless `logPrompts` is false: the response
+    // event then carries the response text.
+    let mut request = gemini_cli_request();
+    let records = &mut request.resource_logs[0].scope_logs[0].log_records;
+    records[0]
+        .attributes
+        .push(text("response_text", "Fixed the build."));
+    records[1]
+        .attributes
+        .push(text("gen_ai.output.messages", "[{\"role\":\"model\"}]"));
+    let extracted = extract_from_logs(&through_protobuf_logs(&request).unwrap());
+    let plain = extract_from_logs(&through_protobuf_logs(&gemini_cli_request()).unwrap());
+    // The same message as without the text, and no text in its attributes.
+    assert_eq!(extracted.messages, plain.messages);
+    assert_eq!(extracted.stripped_prompt_text, 1);
+    // The tool call, the request text and the GenAI details.
+    assert_eq!(extracted.dropped_with_prompt_text, 3);
+    assert_eq!(extracted.ignored, 1);
+}
+
 // Copilot CLI.
 
 fn copilot_cli_calls() -> [TelemetryMessage; 2] {
@@ -916,10 +953,24 @@ fn copilot_cli_calls() -> [TelemetryMessage; 2] {
 fn copilot_cli_chat_spans_become_messages() {
     let request = decode_traces(COPILOT_CLI_TRACES.as_bytes(), Encoding::Json).unwrap();
     let extracted = extract_from_traces(&request);
-    assert_eq!(extracted.messages, copilot_cli_calls());
-    // A chat span with its input messages, and the agent span whose
-    // compaction event carries a summary.
-    assert_eq!(extracted.dropped_with_prompt_text, 2);
+    let [first, second] = copilot_cli_calls();
+    // The chat span with its input messages counts without them.
+    let summarize = TelemetryMessage {
+        message_id: "otel:c48d506110bf2edffa3a4aca0456f1af".to_owned(),
+        model: "gpt-5-mini".to_owned(),
+        occurred_at: datetime!(2026-10-05 13:05:13 UTC),
+        tokens: TokenCounts {
+            input: 900,
+            output: 40,
+            cache_write: 0,
+            cache_read: 0,
+        },
+        ..second.clone()
+    };
+    assert_eq!(extracted.messages, [first, second, summarize]);
+    assert_eq!(extracted.stripped_prompt_text, 1);
+    // The agent span, whose compaction event carries a summary.
+    assert_eq!(extracted.dropped_with_prompt_text, 1);
     // The tool span.
     assert_eq!(extracted.ignored, 1);
     assert_eq!(
@@ -1422,6 +1473,62 @@ fn prompt_text_in_any_attribute_drops_the_event() {
         assert_eq!(dropped(attributes.clone()), expected, "{attributes:?}");
     }
     assert!(PROMPT_TEXT_ATTRIBUTES.contains(&"gen_ai.input.messages"));
+}
+
+#[test]
+fn a_model_call_loses_only_what_carries_text() {
+    let mut record = log(
+        1,
+        "claude_code.api_request",
+        vec![
+            text("event.name", "api_request"),
+            text("session.id", "s"),
+            text("model", "m"),
+            int("input_tokens", 10),
+            int("output_tokens", 20),
+            text("prompt", "Fix the build"),
+            attribute("metadata", secret_map()),
+            text("team", "web"),
+        ],
+    );
+    record.body = Some(any(list(vec![Value::StringValue("Hi".to_owned())])));
+    let claude_code = || vec![text("service.name", "claude-code")];
+    let extracted = extract_from_logs(&logs_request(claude_code(), "x", vec![record]));
+    assert_eq!(
+        (
+            extracted.stripped_prompt_text,
+            extracted.dropped_with_prompt_text
+        ),
+        (1, 0)
+    );
+    let message = &extracted.messages[0];
+    assert_eq!((message.tokens.input, message.tokens.output), (10, 20));
+    assert_eq!(
+        message.attributes,
+        tags(&[("service.name", "claude-code"), ("team", "web")])
+    );
+
+    // A body that is the message text names nothing, so no call is read
+    // from it.
+    let mut named_by_text = log(
+        1,
+        "claude_code.api_request",
+        vec![
+            text("session.id", "s"),
+            text("model", "m"),
+            int("input_tokens", 10),
+            int("output_tokens", 20),
+        ],
+    );
+    named_by_text.event_name = "gen_ai.user.message".to_owned();
+    let extracted = extract_from_logs(&logs_request(claude_code(), "x", vec![named_by_text]));
+    assert_eq!(
+        (
+            extracted.stripped_prompt_text,
+            extracted.dropped_with_prompt_text
+        ),
+        (0, 1)
+    );
 }
 
 #[test]

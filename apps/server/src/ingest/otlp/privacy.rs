@@ -1,7 +1,8 @@
-//! The prompt text rule: the docs promise that the ingest endpoint drops any
-//! event that carries prompt text. An event or span that carries prompt,
-//! completion or message text, tool input or output, or system instructions
-//! is dropped whole, before anything is read from it.
+//! The prompt text rule: prompt text never enters. An event or span that
+//! carries prompt, completion or message text, tool input or output, or
+//! system instructions is dropped whole, before anything is read from it,
+//! unless it is a model call: a model call loses every attribute and the body
+//! that carry text, and keeps its token counts (ADR 0021).
 
 use opentelemetry_proto::tonic::common::v1::any_value::Value;
 use opentelemetry_proto::tonic::common::v1::{AnyValue, KeyValue};
@@ -92,9 +93,23 @@ pub(super) fn carries_prompt_text<'a>(
     event_names: &[&str],
 ) -> bool {
     attribute_lists.into_iter().any(attributes_carry_text)
-        || body
-            .and_then(|body| body.value.as_ref())
-            .is_some_and(|body| body_carries_text(body, event_names))
+        || body_carries_prompt_text(body, event_names)
+}
+
+/// Whether a log body carries prompt text, as [`carries_prompt_text`] reads it.
+pub(super) fn body_carries_prompt_text(body: Option<&AnyValue>, event_names: &[&str]) -> bool {
+    body.and_then(|body| body.value.as_ref())
+        .is_some_and(|body| body_carries_text(body, event_names))
+}
+
+/// The attributes without each one that carries prompt text: what a model
+/// call keeps of an event or span that carried some.
+pub(super) fn without_prompt_text(attributes: &[KeyValue]) -> Vec<KeyValue> {
+    attributes
+        .iter()
+        .filter(|attribute| !attribute_carries_text(attribute))
+        .cloned()
+        .collect()
 }
 
 fn body_carries_text(body: &Value, event_names: &[&str]) -> bool {
@@ -114,16 +129,18 @@ fn body_carries_text(body: &Value, event_names: &[&str]) -> bool {
 }
 
 fn attributes_carry_text(attributes: &[KeyValue]) -> bool {
-    attributes.iter().any(|attribute| {
-        let Some(value) = attribute
-            .value
-            .as_ref()
-            .and_then(|value| value.value.as_ref())
-        else {
-            return false;
-        };
-        (is_prompt_text_attribute(&attribute.key) && holds_text(value)) || nested_carry_text(value)
-    })
+    attributes.iter().any(attribute_carries_text)
+}
+
+fn attribute_carries_text(attribute: &KeyValue) -> bool {
+    let Some(value) = attribute
+        .value
+        .as_ref()
+        .and_then(|value| value.value.as_ref())
+    else {
+        return false;
+    };
+    (is_prompt_text_attribute(&attribute.key) && holds_text(value)) || nested_carry_text(value)
 }
 
 /// Maps inside attribute values, such as a `metadata` map, are checked by
