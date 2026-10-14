@@ -186,12 +186,15 @@ pub struct MemberLimitView {
     /// Everyone invited or joined who has not left. Every member counts the
     /// same, whatever their role.
     pub members: i64,
-    /// The most members the organization may have: the plan's, the Enterprise
-    /// plan license's or the instance's.
-    pub member_limit: i64,
+    /// The most members the organization may have: the plan's or the
+    /// Enterprise plan license's. `null` when there is no limit, as on the
+    /// open build.
+    #[schema(required = true)]
+    pub member_limit: Option<i64>,
     /// What an invite past the limit is refused with, such as "This instance
-    /// allows no more members."
-    pub message: String,
+    /// allows no more members." `null` when there is no limit.
+    #[schema(required = true)]
+    pub message: Option<String>,
 }
 
 /// The organization's member count and member limit.
@@ -206,10 +209,11 @@ pub(super) async fn get_member_limit(
     member: Member,
 ) -> Result<Json<MemberLimitView>, ApiError> {
     let limit = super::member_limit(&state, member.organization_id).await?;
+    let (member_limit, message) = limit.map(|limit| (limit.max, limit.message)).unzip();
     Ok(Json(MemberLimitView {
         members: super::member_count(&state.db, member.organization_id).await?,
-        member_limit: limit.max,
-        message: limit.message,
+        member_limit,
+        message,
     }))
 }
 
@@ -223,7 +227,7 @@ pub(super) async fn get_member_limit(
     responses(
         (status = CREATED, body = Invited),
         (status = BAD_REQUEST, body = crate::error::ErrorBody),
-        (status = CONFLICT, description = "Already a member, or the plan's member limit is reached", body = crate::error::ErrorBody),
+        (status = CONFLICT, description = "Already a member, or the member limit is reached", body = crate::error::ErrorBody),
     ),
 )]
 pub(super) async fn invite_member(
@@ -266,10 +270,7 @@ pub(super) async fn invite_member(
         }
         None => {}
     }
-    let limit = super::member_limit(&state, member.organization_id).await?;
-    if super::member_count(&state.db, member.organization_id).await? >= limit.max {
-        return Err(ApiError::Conflict(limit.message));
-    }
+    super::check_room_for_one_more(&state, member.organization_id).await?;
 
     let code = format!(
         "{}-{}",

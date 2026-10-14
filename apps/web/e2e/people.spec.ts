@@ -17,14 +17,14 @@ test("a controller invites a person by email", async ({ page }) => {
   await expect(page.getByRole("table", { name: "People" }).getByText("Lena Graf").filter({ visible: true }).first()).toBeVisible();
 });
 
-// An open instance allows 150 members. At the limit, People says so and no
-// one more can be invited.
-test("an open instance at its member limit invites no one more", async ({ page }) => {
+// An open instance has no member limit.
+test("an open instance has no member limit", async ({ page }) => {
   await signIn(page, "nadia");
-  await fillToMemberLimit(page);
+  const limit = await page.evaluate(async () => (await fetch("/api/v1/organization/member-limit")).json() as Promise<{ member_limit: number | null }>);
+  expect(limit.member_limit).toBeNull();
   await page.goto("/people");
-  await expect(page.getByText("150 of 150 members. This instance allows no more members.")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Invite a person" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Invite a person" })).toBeEnabled();
+  await expect(page.getByText(/members\. /)).toHaveCount(0);
 });
 
 // The example license allows 250 members.

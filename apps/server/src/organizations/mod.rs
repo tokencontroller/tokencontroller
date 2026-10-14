@@ -235,12 +235,9 @@ pub async fn member_count(db: &PgPool, organization_id: Uuid) -> Result<i64, sql
     .await
 }
 
-/// The most members an organization may have unless the extension or a
-/// hook says otherwise: the Team plan's 150 (docs: Plans and limits).
-pub const DEFAULT_MEMBER_LIMIT: u32 = 150;
-
 /// The member limit of an organization: what the build's hooks say (such
-/// as a plan), else what the extension says, else [`DEFAULT_MEMBER_LIMIT`].
+/// as a plan), else what the extension says, else none. The open build has
+/// no member limit (docs: Plans and limits).
 ///
 /// # Errors
 ///
@@ -248,18 +245,35 @@ pub const DEFAULT_MEMBER_LIMIT: u32 = 150;
 pub async fn member_limit(
     state: &AppState,
     organization_id: Uuid,
-) -> Result<crate::hooks::MemberLimit, ApiError> {
+) -> Result<Option<crate::hooks::MemberLimit>, ApiError> {
     if let Some(limit) = state.hooks.member_limit(state, organization_id).await? {
-        return Ok(limit);
+        return Ok(Some(limit));
     }
-    let max = state
+    Ok(state
         .extension
         .member_limit()
-        .unwrap_or(DEFAULT_MEMBER_LIMIT);
-    Ok(crate::hooks::MemberLimit {
-        max: i64::from(max),
-        message: "This instance allows no more members.".to_owned(),
-    })
+        .map(|max| crate::hooks::MemberLimit {
+            max: i64::from(max),
+            message: "This instance allows no more members.".to_owned(),
+        }))
+}
+
+/// Refuses one more member when the organization's limit is reached.
+///
+/// # Errors
+///
+/// [`ApiError::Conflict`] with the limit's message, or whatever a query or
+/// hook fails with.
+pub async fn check_room_for_one_more(
+    state: &AppState,
+    organization_id: Uuid,
+) -> Result<(), ApiError> {
+    if let Some(limit) = member_limit(state, organization_id).await?
+        && member_count(&state.db, organization_id).await? >= limit.max
+    {
+        return Err(ApiError::Conflict(limit.message));
+    }
+    Ok(())
 }
 
 #[cfg(test)]

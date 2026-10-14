@@ -27,7 +27,7 @@ pub struct MemberLimit {
 /// The plug-in points. Each has a default that keeps the open behavior.
 pub trait ServiceHooks: Send + Sync + 'static {
     /// The member limit of one organization, or `None` to keep the
-    /// instance's own (`Extension::member_limit`, else the Team plan's 150).
+    /// instance's own (`Extension::member_limit`, else no limit).
     fn member_limit<'a>(
         &'a self,
         state: &'a AppState,

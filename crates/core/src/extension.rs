@@ -20,8 +20,8 @@ pub trait Extension: Send + Sync + 'static {
         "open"
     }
 
-    /// The most members one organization may have, or `None` to keep the
-    /// limit the service applies on its own (the Team plan's 150).
+    /// The most members one organization may have, or `None` for no limit,
+    /// as in the open edition.
     fn member_limit(&self) -> Option<u32> {
         None
     }
