@@ -18,7 +18,7 @@ import { TagRow } from "@/components/ui/tag";
 import { notify } from "@/components/ui/toast";
 import { describeFilter, filterToText, formatDay, formatPeriod } from "@/lib/format";
 import { formatShare, fromDecimal, nanosOf } from "@/lib/money";
-import { refreshAll, useMe, usePersonName, useTagNames } from "@/lib/queries";
+import { refreshAll, useMe, usePersonName, useTagNames, useTickets } from "@/lib/queries";
 import { hasRole } from "@/lib/roles";
 import { thisPeriod } from "@/lib/today";
 import { isFlatFee } from "@/lib/cost-source";
@@ -41,12 +41,18 @@ const groupLabel = (by: string) => groupings[by] ?? by;
 /** A report line's value in words: a person's name, a cost kind, a day, or the value as it is. */
 function useValueLabel(by: string): (row: Pick<CostReportRow, "value" | "adjustment">) => string {
   const name = usePersonName();
+  const tickets = useTickets();
+  const titles = new Map((tickets.data ?? []).map((t) => [t.key, t.title]));
   return (row) => {
     const value = row.value ?? null;
     if (value === null) return row.adjustment ? "adjustments" : `no ${groupLabel(by)}`;
     if (by === "person") return name(value);
     if (by === "cost_kind") return Object.hasOwn(costKindLabel, value) ? costKindLabel[value as CostKind] : value;
     if (by === "day") return formatDay(value);
+    if (by === "ticket") {
+      const title = titles.get(value);
+      return title ? `${value} ${title}` : value;
+    }
     return value;
   };
 }

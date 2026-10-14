@@ -170,7 +170,9 @@ function attribution(recon: Reconciliation): string {
 function ControllerView() {
   const periods = usePeriods();
   const period = thisPeriod();
-  const last = addMonths(period, -1);
+  // A new organization has no last month yet: its first close is this month's.
+  const previous = addMonths(period, -1);
+  const last = periods.data && !periods.data.some((p) => p.period === previous) ? period : previous;
   const recon = useQuery({ queryKey: ["reconciliation", last], queryFn: () => api.reconciliation(last) });
   const kinds = useCostKinds(period, {});
   const lastPeriod = periods.data?.find((p) => p.period === last);
