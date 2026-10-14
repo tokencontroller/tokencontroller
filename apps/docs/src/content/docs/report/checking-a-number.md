@@ -43,4 +43,4 @@ Most unexpected figures have one of a few causes: residual, filters that overlap
 | You see | Why | What to do |
 | --- | --- | --- |
 | A closed period did not follow a price change, a new rule or a changed tag map | A period keeps the [price table and tag map](/account/close#after) it was closed with. Rules only run again on [open periods](/attribute/rules#changes). | Correct it with an [adjustment](/account/close#adjustments). |
-| A closed period gained a line marked late | A token sheet submitted after the close becomes an [adjustment](/account/cadence#late) to that month, marked late. | Nothing. Adjustments are their own lines. |
+| A closed period gained a line marked late | A token sheet submitted after the close becomes an [adjustment](/account/cadence#late) to that period, marked late. | Nothing. Adjustments are their own lines. |

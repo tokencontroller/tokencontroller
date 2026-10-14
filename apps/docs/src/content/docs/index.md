@@ -3,7 +3,7 @@ title: "Overview"
 description: "What Token Controller is, how its pieces fit, and how to get started as a people manager, an agent manager or a self-hoster."
 ---
 
-Token Controller is cost accounting and management control for AI agents. Agents report what each session cost, rules place that cost on its ticket, project and team, and each month closes against the bill your provider actually sent. Every part is optional: you can start by only collecting cost and matching it to the bill.
+Token Controller is cost accounting and management control for AI agents. Agents report what each session cost, rules place that cost on its ticket, project and team, and each period closes against the bill your provider actually sent. Every part is optional: you can start by only collecting cost and matching it to the bill.
 
 <div class="cards">
   <a class="card" href="#managers"><i></i><b>I manage people</b><span>Create the organization, connect the bill, invite people, close the first period.</span></a>
