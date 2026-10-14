@@ -17,8 +17,8 @@ tc config classifier "~/bin/pick-ticket"
 
 ## The reference script {#reference}
 
-One reference script ships with the CLI. It uses Laya, an open local model under Apache-2.0. Use it as it is or as a starting point. It is `pick-ticket` in every CLI download, and in `$(brew --prefix)/share/tc/` with Homebrew. It needs Python 3.10 or later and `pip install laya`; the model downloads on first use.
+The CLI ships one reference script, `pick-ticket`, in every download, and in `$(brew --prefix)/share/tc/` with Homebrew. It uses Laya, an open local model under Apache-2.0. It needs Python 3.10 or later and `pip install laya`; the model downloads on first use. Use it as it is or as a starting point.
 
 ## You always have the last word {#override}
 
-Whatever the classifier picks shows in your review list, and you can place it differently by hand.
+The classifier's pick shows in your [review list](/attribute/review), and you can place the token entry differently by hand.

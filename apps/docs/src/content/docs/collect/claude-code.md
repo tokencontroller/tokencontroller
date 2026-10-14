@@ -13,7 +13,7 @@ The Claude Code mod records what Claude Code spends, turn by turn, and shows whe
 /plugin install token-controller
 ```
 
-The mod keeps its token entries through the [CLI](/collect/cli), so install `tc` too. Then connect it to your organization with `tc connect`, or leave it local.
+The mod keeps its token entries through the CLI, so [install `tc`](/collect/cli#install) too. Then [connect it](/collect/cli#connect) to your organization, or leave it local.
 
 ## Where it runs {#where}
 
@@ -27,7 +27,7 @@ Nothing shows while no Claude Code session is open. People who use other agents 
 
 ## What it records {#records}
 
-After every turn the mod has the CLI read Claude Code's own usage figures from its session files: tokens by kind and the model. Together they make the session's draft token entry. During the session the mod writes the summary with a small model call of its own, so the summary exists even if the session is closed abruptly. A session is split into segments when the branch or working directory changes; see [Sessions and subagents](/attribute/sessions).
+After every turn the mod has the CLI read Claude Code's own usage figures from its session files: tokens by kind and the model. Together they make the session's draft token entry. The mod writes the summary during the session, with a small model call of its own, so the summary exists even if the session is closed abruptly. A session is split into segments when the branch or working directory changes; see [Sessions and subagents](/attribute/rules#sessions).
 
 ## What it shows {#shows}
 

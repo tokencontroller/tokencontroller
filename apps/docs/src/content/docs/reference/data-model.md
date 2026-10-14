@@ -1,15 +1,9 @@
 ---
 title: "Data model"
 description: "The records Token Controller keeps and the rules that hold between them."
-prev:
-  link: "/concepts"
-  label: "Concepts"
-next:
-  link: "/reference/token-entry"
-  label: "Token entry schema"
 ---
 
-The records Token Controller keeps, and the rules that hold between them. For what the terms mean, see [Concepts](/concepts) and the [glossary](/glossary).
+The records Token Controller keeps, and the rules that hold between them. The terms are defined in the [glossary](/glossary); [How it works](/concepts) shows them together.
 
 ## Records {#records}
 
@@ -19,7 +13,7 @@ The records Token Controller keeps, and the rules that hold between them. For wh
 | Person | A member. The default cost center. Carries tags, such as `team`, that its token entries inherit. |
 | Project | Tags such as `client`, mapped repositories, ticket key pattern. |
 | Ticket | Synced from a ticket system or created by hand. A key; optionally a title, a description, a parent ticket and an assignee. |
-| Token entry | Agent harness, optional agent name, model, tokens by kind, optional reported cost, list value, billed value, start and end time, summary, agent manager, splits, whether it arrived automatically or on a token sheet, status, evidence. |
+| Token entry | Agent harness, optional agent name, model, tokens by kind, optional reported cost, list value, billed value, start and end time, summary, agent manager, splits, whether it arrived automatically or on a token sheet, status, evidence. See [Token entry schema](/reference/token-entry). |
 | Split | One share of a token entry with its own tags. Most token entries are one split. |
 | Tag | A tag name and a value on a split, a person, a project or a ticket. One value per tag name. Built in: `person`, `ticket`, `project`. All optional except `person`. |
 | Tag map | Which tag fills the cost center, and the ladder of tags that fills the cost object. |
@@ -30,7 +24,7 @@ The records Token Controller keeps, and the rules that hold between them. For wh
 | Token forecast | Money suggested for a ticket from similar past work, with the matched tickets and a confidence. Becomes a token budget when a person accepts it. |
 | Telemetry event | One model call. Joins to token entries by session and message ID. |
 | Cost source | One way a provider charges: subscription, seat, usage at API rates, API key, cloud marketplace or reseller. |
-| Bill | A provider's figure for one period: gross, discount, credit, net, currency and exchange rate, cost source, revision. |
+| Bill | A provider's figure for one period: gross, discount, credit, net, currency and exchange rate, cost source, revision. See [Bill schema](/reference/bill). |
 | Period | One calendar month, open or closed. |
 | Cost sheet | The locked account of one closed period, adding up to the bill. |
 | Rule | Ordered. Organization rules run before personal ones. |
@@ -55,5 +49,3 @@ There is no agent record. An agent is whatever caused a token entry, described o
   <li><b>One value per tag name.</b><p>A split never carries two values of the same tag name, so cost grouped by one tag name adds up to the total.</p></li>
   <li><b>History stays as it was.</b><p>When an automation gets a new agent manager, or a person, project or ticket changes its tags, only future token entries follow the change. Past splits keep the agent manager and tags they had. A closed period keeps the tag map it closed with.</p></li>
 </ol>
-
-## Where to next {#next}

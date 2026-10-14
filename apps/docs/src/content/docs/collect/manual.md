@@ -3,7 +3,7 @@ title: "Manual entry and CSV import"
 description: "Add token entries by hand or from a CSV file in the web app."
 ---
 
-The web app takes token entries by hand or from a CSV file, so Token Controller is useful even where no agent or local tool can report.
+For usage that no agent or tool reports, add token entries in the web app by hand or from a CSV file.
 
 ## Manual entry {#manual}
 

@@ -7,7 +7,7 @@ Price tables hold the published price per model. They turn token counts into lis
 
 ## Where prices come from {#source}
 
-Token Controller refreshes prices daily from LiteLLM and models.dev. Every change makes a new version.
+Token Controller refreshes prices daily from LiteLLM and models.dev; if one source fails, the refresh carries on with the other. Every change makes a new version. A self-hosted instance without internet access switches the refresh off with [`TC_PRICES_REFRESH`](/self-hosting/configuration#vars).
 
 ## Prices and closed periods {#periods}
 

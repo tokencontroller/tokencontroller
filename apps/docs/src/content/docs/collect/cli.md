@@ -37,8 +37,8 @@ tc report --by team       # cost per value of any tag
 tc export --csv           # everything as CSV, for a spreadsheet
 ```
 
-The export is enough to report by hand when your organization has no service. The full list of commands is in the [CLI reference](/reference/cli).
+With no service, the export is enough to report by hand. Every command and setting is in the [CLI reference](/reference/cli).
 
 ## What it reads {#sources}
 
-Session files of Claude Code and Codex, counted the way the open source ccusage project counts them. Reading the same files twice changes nothing, so you can run it as often as you like. There is no background process and no sync between your machines: each machine submits its own token entries.
+Session files of Claude Code and Codex, counted the way the open source ccusage project counts them. Every other agent reports by [telemetry](/collect/telemetry) or through the [token entries endpoint](/collect/token-entries). Reading the same files twice changes nothing, so run it as often as you like. There is no background process and no sync between your machines: each machine submits its own token entries.
