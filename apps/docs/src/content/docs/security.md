@@ -40,7 +40,7 @@ A report goes to us and is stored in the EU. It is deleted two years after its l
 
 ## Telemetry {#telemetry}
 
-[Telemetry push](/collect/telemetry) sends numbers and identifiers only. The ingest endpoint drops any event that carries prompt text.
+[Telemetry push](/collect/telemetry) sends numbers and identifiers only. The ingest endpoint never stores prompt text: it removes it from model call events and drops any other event that carries it.
 
 ## Who sees what {#who-sees}
 
