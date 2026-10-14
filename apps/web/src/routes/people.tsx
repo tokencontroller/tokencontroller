@@ -176,10 +176,11 @@ export function PeoplePage(): ReactNode {
   const remove = useMutation({ mutationFn: api.removeMember, onSuccess: async () => { await refreshAll(); notify("Removed", "Their past token entries keep their agent manager."); } });
   const resend = useMutation({ mutationFn: api.resendInvite, onSuccess: async (r) => { await refreshAll(); setInvited(r); } });
   const controller = hasRole(me.person, "controller");
-  // The service refuses an invite past the limit: a build's, the license's or
-  // the instance's. The button waits for the limit; if it cannot be read, the
-  // service's refusal still says why.
-  const full = limit.data ? limit.data.members >= limit.data.member_limit : false;
+  // The service refuses an invite past the limit: a build's or the license's.
+  // The open build has none. The button waits for the limit; if it cannot be
+  // read, the service's refusal still says why.
+  const max = limit.data?.member_limit ?? null;
+  const full = limit.data && max !== null ? limit.data.members >= max : false;
   // The limit shows once reached, with what an invite past it gets.
   const atLimit = full && controller;
   const { PeopleNote } = additions.parts;
@@ -209,7 +210,7 @@ export function PeoplePage(): ReactNode {
       {PeopleNote ? <PeopleNote /> : null}
       {atLimit && limit.data ? (
         <p className="mb-4 text-[13px] text-muted">
-          {limit.data.members} of {limit.data.member_limit} members. {limit.data.message}
+          {limit.data.members} of {max} members. {limit.data.message}
         </p>
       ) : null}
       <FormError error={remove.error ?? resend.error} />

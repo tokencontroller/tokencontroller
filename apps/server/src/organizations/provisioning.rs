@@ -8,7 +8,7 @@ use uuid::Uuid;
 
 use super::audit::record_audit_event;
 use super::members::{clean_name, keep_a_controller};
-use super::{MemberStatus, member, member_count};
+use super::{MemberStatus, member};
 use crate::AppState;
 use crate::error::ApiError;
 use crate::sign_in::normalize_email;
@@ -90,10 +90,7 @@ pub async fn add_member(
         }
         return Ok(active.id);
     }
-    let limit = super::member_limit(state, organization_id).await?;
-    if member_count(&state.db, organization_id).await? >= limit.max {
-        return Err(ApiError::Conflict(limit.message));
-    }
+    super::check_room_for_one_more(state, organization_id).await?;
     let removed = sqlx::query_scalar!(
         r#"SELECT id FROM people
            WHERE organization_id = $1 AND email = $2 AND removed_at IS NOT NULL

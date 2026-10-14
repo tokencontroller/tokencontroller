@@ -75,7 +75,8 @@ export async function fillToMemberLimit(page: Page): Promise<void> {
   await page.evaluate(async () => {
     const limit = (await (
       await fetch("/api/v1/organization/member-limit")
-    ).json()) as { members: number; member_limit: number };
+    ).json()) as { members: number; member_limit: number | null };
+    if (limit.member_limit === null) throw new Error("this instance has no member limit");
     for (let n = limit.members; n < limit.member_limit; n += 1) {
       const invited = await fetch("/api/v1/members", {
         method: "POST",

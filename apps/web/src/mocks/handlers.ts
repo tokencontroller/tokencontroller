@@ -306,10 +306,12 @@ function organizationOf(db: Db, email: string, sign_up: NewOrganization): Db {
   };
 }
 
-/** As the service works it out: the license's, else the instance's 150. */
+/** As the service works it out: the license's, else no limit. */
 function memberLimit(db: Db): MemberLimit {
   const members = db.people.filter((p) => p.status !== "removed").length;
-  return { members, member_limit: mockEdition() === "enterprise" ? LICENSE_MEMBERS : 150, message: "This instance allows no more members." };
+  return mockEdition() === "enterprise"
+    ? { members, member_limit: LICENSE_MEMBERS, message: "This instance allows no more members." }
+    : { members, member_limit: null, message: null };
 }
 
 function tagValues(db: Db, name: string) {
@@ -436,7 +438,7 @@ export const handlers = [
     const body = (await request.json()) as { email: string; name?: string; role?: Role; tags?: Tags };
     if (db.people.some((p) => p.email.toLowerCase() === body.email.toLowerCase() && p.status !== "removed")) return error(409, "conflict", "Someone with this email is already a member.");
     const limit = memberLimit(db);
-    if (limit.members >= limit.member_limit) return error(409, "conflict", limit.message);
+    if (limit.member_limit !== null && limit.members >= limit.member_limit) return error(409, "conflict", limit.message ?? "");
     const person: Person = { id: `p0000000-0000-4000-8000-${String(db.nextId++).padStart(12, "0")}`, name: body.name?.trim() || (body.email.split("@")[0] ?? body.email), email: body.email, role: body.role ?? "agent_manager", tags: body.tags ?? {}, filters: [], status: "invited", invited_at: now(), joined_at: null };
     db.people.push(person);
     const code = `${db.organization.slug}-${String(db.nextId++).slice(-4)}`;

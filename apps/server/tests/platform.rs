@@ -2522,15 +2522,12 @@ async fn a_hook_sets_the_member_limit(pool: PgPool) {
     assert_eq!(refused.status, StatusCode::CONFLICT);
     assert_eq!(refused.json["message"], "This plan is for one person.");
 
-    // Without hooks the instance's own limit holds.
+    // Without hooks the open build has no member limit.
     let state = AppState::new(pool.clone(), config(), Arc::new(NoExtension));
     let limit = tokencontroller_server::organizations::member_limit(&state, organization_id)
         .await
         .unwrap();
-    assert_eq!(
-        limit.max,
-        i64::from(tokencontroller_server::organizations::DEFAULT_MEMBER_LIMIT)
-    );
+    assert_eq!(limit, None);
     let invited = send(
         &app(&pool),
         Method::POST,
@@ -2569,15 +2566,14 @@ async fn every_member_reads_the_member_limit(pool: PgPool) {
         .await
         .unwrap();
 
-    // The open build: the instance's own limit, and what an invite past it
-    // is refused with.
+    // The open build has no member limit.
     let open = member_limit_of(&app(&pool), Auth::Cookie(&controller))
         .await
         .unwrap();
     assert_eq!(open.status, StatusCode::OK, "{}", open.text);
     assert_eq!(
         open.json,
-        json!({"members": 1, "member_limit": 150, "message": "This instance allows no more members."})
+        json!({"members": 1, "member_limit": null, "message": null})
     );
 
     // Invited people count before they join. An agent manager reads it, and

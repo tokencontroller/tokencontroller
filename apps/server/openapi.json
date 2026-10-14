@@ -1284,7 +1284,7 @@
             }
           },
           "409": {
-            "description": "Already a member, or the plan's member limit is reached",
+            "description": "Already a member, or the member limit is reached",
             "content": {
               "application/json": {
                 "schema": {
@@ -7324,9 +7324,12 @@
         ],
         "properties": {
           "member_limit": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int64",
-            "description": "The most members the organization may have: the plan's, the Enterprise\nplan license's or the instance's."
+            "description": "The most members the organization may have: the plan's or the\nEnterprise plan license's. `null` when there is no limit, as on the\nopen build."
           },
           "members": {
             "type": "integer",
@@ -7334,8 +7337,11 @@
             "description": "Everyone invited or joined who has not left. Every member counts the\nsame, whatever their role."
           },
           "message": {
-            "type": "string",
-            "description": "What an invite past the limit is refused with, such as \"This instance\nallows no more members.\""
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "What an invite past the limit is refused with, such as \"This instance\nallows no more members.\" `null` when there is no limit."
           }
         }
       },
