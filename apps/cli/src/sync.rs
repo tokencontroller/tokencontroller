@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
 use crate::error::Result;
+use crate::folders::Scope;
 use crate::keys::{KeyPattern, find_all};
 use crate::placing::KeyCount;
 use crate::sources::{self, FileContents, Harness};
@@ -27,15 +28,21 @@ impl Sources {
     }
 }
 
+/// What to read and which sessions get a draft token entry.
+pub struct Reading<'a> {
+    pub patterns: &'a [KeyPattern],
+    pub pattern_text: &'a str,
+    /// Sessions that started earlier get no draft.
+    pub since_ms: i64,
+    /// Sessions outside these folders get no draft.
+    pub scope: Scope,
+}
+
 /// Reads new and changed session files and creates draft token entries for
-/// sessions that started on or after `since_ms`.
-pub fn sync(
-    store: &mut Store,
-    found: &Sources,
-    patterns: &[KeyPattern],
-    pattern_text: &str,
-    since_ms: i64,
-) -> Result<()> {
+/// the sessions that count.
+pub fn sync(store: &mut Store, found: &Sources, reading: &mut Reading<'_>) -> Result<()> {
+    let patterns = reading.patterns;
+    let pattern_text = reading.pattern_text;
     // Keys are found while reading, so new patterns mean reading again.
     if store.meta("key_patterns")?.as_deref() != Some(pattern_text) {
         store.forget_files()?;
@@ -72,7 +79,7 @@ pub fn sync(
         )?;
     }
     batch.commit()?;
-    store.create_entries(since_ms)?;
+    store.create_entries(reading.since_ms, &mut reading.scope)?;
     Ok(())
 }
 
@@ -146,6 +153,15 @@ mod tests {
     use crate::sources::Prompt;
     use crate::store::Status;
 
+    fn everything<'a>(patterns: &'a [KeyPattern], text: &'a str) -> Reading<'a> {
+        Reading {
+            patterns,
+            pattern_text: text,
+            since_ms: 0,
+            scope: Scope::new(&[]),
+        }
+    }
+
     fn patterns() -> Vec<KeyPattern> {
         vec![KeyPattern::new(Some("storefront".into()), r"^KD-\d+").unwrap()]
     }
@@ -195,8 +211,9 @@ mod tests {
             files: vec![(Harness::ClaudeCode, file.clone())],
         };
         let mut store = Store::open(&dir.path().join("tc.sqlite")).unwrap();
-        sync(&mut store, &found, &patterns(), "p1", 0).unwrap();
-        sync(&mut store, &found, &patterns(), "p1", 0).unwrap();
+        let first = patterns();
+        sync(&mut store, &found, &mut everything(&first, "p1")).unwrap();
+        sync(&mut store, &found, &mut everything(&first, "p1")).unwrap();
         let entries = store.entries(&[Status::Draft]).unwrap();
         assert_eq!(entries.len(), 1);
         let keys = store.keys(Harness::ClaudeCode, "s1").unwrap();
@@ -204,7 +221,7 @@ mod tests {
 
         // New patterns: the file is read again and keys follow them.
         let other = vec![KeyPattern::new(None, r"OPS-\d+").unwrap()];
-        sync(&mut store, &found, &other, "p2", 0).unwrap();
+        sync(&mut store, &found, &mut everything(&other, "p2")).unwrap();
         assert!(store.keys(Harness::ClaudeCode, "s1").unwrap().is_empty());
         assert_eq!(store.entries(&[Status::Draft]).unwrap().len(), 1);
 
@@ -212,6 +229,14 @@ mod tests {
         let gone = Sources {
             files: vec![(Harness::ClaudeCode, dir.path().join("gone.jsonl"))],
         };
-        sync(&mut store, &gone, &other, "p2", 0).unwrap();
+        sync(&mut store, &gone, &mut everything(&other, "p2")).unwrap();
+
+        // Once another folder is tracked, the draft goes away.
+        let mut elsewhere = Reading {
+            scope: Scope::new(&["/somewhere".into()]),
+            ..everything(&other, "p2")
+        };
+        sync(&mut store, &found, &mut elsewhere).unwrap();
+        assert!(store.entries(&[Status::Draft]).unwrap().is_empty());
     }
 }

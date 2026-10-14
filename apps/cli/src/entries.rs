@@ -619,7 +619,9 @@ mod tests {
             .add_file("/f", Harness::ClaudeCode, 1, 1, &contents, &keys)
             .unwrap();
         batch.commit().unwrap();
-        store.create_entries(0).unwrap();
+        store
+            .create_entries(0, &mut crate::folders::Scope::new(&[]))
+            .unwrap();
         store
     }
 

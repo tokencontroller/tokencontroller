@@ -2,12 +2,13 @@
 //! token entries built from them, and what was set by hand. No prompt text is
 //! ever written here; only the ticket keys found in it.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::path::Path;
 
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 
 use crate::error::{Error, Result};
+use crate::folders::Scope;
 use crate::placing::KeyCount;
 use crate::sources::{FileContents, Harness};
 use crate::tokens::Tokens;
@@ -94,6 +95,23 @@ CREATE TABLE meta (
 ";
 
 const SCHEMA_VERSION: i64 = 1;
+
+/// Sessions `tc record` was told about are kept in `meta` under this prefix.
+const RECORDED: &str = "recorded:";
+
+/// The folder a session ran in: that of its first model call that names
+/// one. Used inside a query over `messages m` grouped by session.
+const SESSION_FOLDER: &str = "(SELECT d.directory FROM messages d
+      WHERE d.harness = m.harness AND d.session_id = m.session_id AND d.directory IS NOT NULL
+      ORDER BY d.at_ms, d.message_key LIMIT 1)";
+
+/// A session read from the files, as `tc list` groups them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionFolder {
+    pub harness: Harness,
+    pub folder: Option<String>,
+    pub last_ms: i64,
+}
 
 /// One stored model call, with the subagent type resolved.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -311,23 +329,36 @@ impl Store {
         Ok(())
     }
 
-    /// Creates a draft token entry for every session that has none and
-    /// started at or after `since_ms`, numbered in the order they started.
-    /// A submitted entry whose session went on after it was submitted becomes
-    /// a draft again.
-    pub fn create_entries(&mut self, since_ms: i64) -> Result<()> {
+    /// Creates a draft token entry for every session that has none, started
+    /// at or after `since_ms` and counts by `scope` or was recorded,
+    /// numbered in the order they started. A submitted entry whose session
+    /// went on after it was submitted becomes a draft again. A draft that
+    /// was never sent goes away once its session no longer counts; a sent
+    /// entry is never touched.
+    pub fn create_entries(&mut self, since_ms: i64, scope: &mut Scope) -> Result<()> {
+        let recorded: HashSet<String> = self
+            .meta_with_prefix(RECORDED)?
+            .into_iter()
+            .filter_map(|(key, _)| key.strip_prefix(RECORDED).map(str::to_owned))
+            .collect();
         let transaction = self.connection.transaction()?;
-        let sessions: Vec<(String, String, i64, String)> = {
-            let mut statement = transaction.prepare(
+        let sessions: Vec<(String, String, i64, String, Option<String>)> = {
+            let mut statement = transaction.prepare(&format!(
                 "SELECT m.harness, m.session_id, MIN(m.at_ms),
-                        COUNT(*) || ':' || MAX(m.at_ms)
+                        COUNT(*) || ':' || MAX(m.at_ms), {SESSION_FOLDER}
                  FROM messages m
                  GROUP BY m.harness, m.session_id
-                 ORDER BY MIN(m.at_ms), m.harness, m.session_id",
-            )?;
+                 ORDER BY MIN(m.at_ms), m.harness, m.session_id"
+            ))?;
             statement
                 .query_map([], |row| {
-                    Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                    ))
                 })?
                 .collect::<std::result::Result<Vec<_>, _>>()?
         };
@@ -335,8 +366,16 @@ impl Store {
             transaction.query_row("SELECT COALESCE(MAX(number), 0) FROM entries", [], |row| {
                 row.get(0)
             })?;
-        for (harness, session_id, started_ms, fingerprint) in sessions {
+        for (harness, session_id, started_ms, fingerprint, folder) in sessions {
             let local = format!("{harness}:{session_id}");
+            if !recorded.contains(&local) && !scope.includes(folder.as_deref()) {
+                transaction.execute(
+                    "DELETE FROM entries
+                     WHERE local_id = ?1 AND status = 'draft' AND remote_id IS NULL",
+                    [&local],
+                )?;
+                continue;
+            }
             let existing: Option<(String, Option<String>)> = transaction
                 .query_row(
                     "SELECT status, submitted_fingerprint FROM entries WHERE local_id = ?1",
@@ -368,6 +407,41 @@ impl Store {
         }
         transaction.commit()?;
         Ok(())
+    }
+
+    /// Remembers that `tc record` was told about a session, so it counts
+    /// whatever folder it ran in.
+    pub fn mark_recorded(&self, harness: Harness, session_id: &str) -> Result<()> {
+        self.set_meta(&format!("{RECORDED}{}", local_id(harness, session_id)), "1")
+    }
+
+    /// Every session read: its agent harness, the folder it ran in and when
+    /// it was last active.
+    pub fn session_folders(&self) -> Result<Vec<SessionFolder>> {
+        let mut statement = self.connection.prepare(&format!(
+            "SELECT m.harness, {SESSION_FOLDER}, MAX(m.at_ms)
+             FROM messages m
+             GROUP BY m.harness, m.session_id"
+        ))?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, Option<String>>(1)?,
+                    row.get::<_, i64>(2)?,
+                ))
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(rows
+            .into_iter()
+            .filter_map(|(harness, folder, last_ms)| {
+                Some(SessionFolder {
+                    harness: Harness::from_name(&harness)?,
+                    folder,
+                    last_ms,
+                })
+            })
+            .collect())
     }
 
     /// Token entries with one of the given statuses, oldest first.
@@ -800,14 +874,14 @@ mod tests {
             ..FileContents::default()
         };
         add(&mut store, "/f", &contents, &[]);
-        store.create_entries(50).unwrap();
+        store.create_entries(50, &mut Scope::new(&[])).unwrap();
         let entries = store.entries(&[Status::Draft]).unwrap();
         let sessions: Vec<(i64, &str)> = entries
             .iter()
             .map(|e| (e.number, e.session_id.as_str()))
             .collect();
         assert_eq!(sessions, [(1, "early"), (2, "late")]);
-        store.create_entries(50).unwrap();
+        store.create_entries(50, &mut Scope::new(&[])).unwrap();
         assert_eq!(store.entries(&[Status::Draft]).unwrap().len(), 2);
     }
 
@@ -819,12 +893,12 @@ mod tests {
             ..FileContents::default()
         };
         add(&mut store, "/f", &contents, &[]);
-        store.create_entries(0).unwrap();
+        store.create_entries(0, &mut Scope::new(&[])).unwrap();
         let local = local_id(Harness::ClaudeCode, "s1");
         store
             .mark_submitted(&[(local.clone(), Some("te_1".into()))], 500)
             .unwrap();
-        store.create_entries(0).unwrap();
+        store.create_entries(0, &mut Scope::new(&[])).unwrap();
         let entry = store.entry(1).unwrap().unwrap();
         assert_eq!(entry.status, Status::Submitted);
         assert_eq!(entry.remote_id.as_deref(), Some("te_1"));
@@ -837,7 +911,7 @@ mod tests {
 
         contents.messages.push(message("b", "s1", 200, false, 1));
         add(&mut store, "/f", &contents, &[]);
-        store.create_entries(0).unwrap();
+        store.create_entries(0, &mut Scope::new(&[])).unwrap();
         let entry = store.entry(1).unwrap().unwrap();
         assert_eq!(entry.status, Status::Draft);
         assert_eq!(entry.remote_id.as_deref(), Some("te_1"));
@@ -863,7 +937,7 @@ mod tests {
         )];
         add(&mut store, "/f", &contents, &keys);
         add(&mut store, "/f", &contents, &keys);
-        store.create_entries(0).unwrap();
+        store.create_entries(0, &mut Scope::new(&[])).unwrap();
         let local = local_id(Harness::ClaudeCode, "s1");
         store
             .set_named_tags(&local, &BTreeMap::from([("ticket".into(), "KD-3".into())]))
@@ -911,6 +985,54 @@ mod tests {
             [("claude-code".to_owned(), 1)]
         );
         assert!(store.entry(99).unwrap().is_none());
+    }
+
+    #[test]
+    fn only_sessions_in_tracked_folders_or_recorded_ones_become_entries() {
+        let mut store = Store::in_memory().unwrap();
+        let mut elsewhere = message("b", "other", 200, false, 1);
+        elsewhere.directory = Some("/elsewhere".into());
+        let mut sent = message("c", "sent", 300, false, 1);
+        sent.directory = Some("/elsewhere".into());
+        let mut nowhere = message("d", "nowhere", 400, false, 1);
+        nowhere.directory = None;
+        let contents = FileContents {
+            messages: vec![
+                message("a", "here", 100, false, 1),
+                elsewhere,
+                sent,
+                nowhere,
+            ],
+            ..FileContents::default()
+        };
+        add(&mut store, "/f", &contents, &[]);
+        store.create_entries(0, &mut Scope::new(&[])).unwrap();
+        assert_eq!(store.entries(&[Status::Draft]).unwrap().len(), 4);
+        let sent_id = local_id(Harness::ClaudeCode, "sent");
+        store.mark_submitted(&[(sent_id, None)], 500).unwrap();
+
+        // Tracking /w: drafts elsewhere go, the submitted entry stays.
+        let mut tracked = Scope::new(&["/w".into()]);
+        store.create_entries(0, &mut tracked).unwrap();
+        let drafts: Vec<String> = store
+            .entries(&[Status::Draft])
+            .unwrap()
+            .into_iter()
+            .map(|e| e.session_id)
+            .collect();
+        assert_eq!(drafts, ["here"]);
+        assert_eq!(store.entries(&[Status::Submitted]).unwrap().len(), 1);
+
+        // A recorded session counts wherever it ran.
+        store.mark_recorded(Harness::ClaudeCode, "other").unwrap();
+        store.create_entries(0, &mut tracked).unwrap();
+        assert_eq!(store.entries(&[Status::Draft]).unwrap().len(), 2);
+
+        let mut folders = store.session_folders().unwrap();
+        folders.sort_by_key(|f| f.last_ms);
+        assert_eq!(folders.len(), 4);
+        assert_eq!(folders.first().unwrap().folder.as_deref(), Some("/w"));
+        assert_eq!(folders.last().unwrap().folder, None);
     }
 
     #[test]
