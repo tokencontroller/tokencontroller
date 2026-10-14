@@ -19,7 +19,7 @@ A door is a way token entries or telemetry reach Token Controller. Most organiza
 
 | Door | Who installs what | Where cost lands |
 | --- | --- | --- |
-| Telemetry push | An administrator sets it once in managed settings; nobody installs anything. | On projects, by repository. |
+| Telemetry push | An administrator sets it once; nobody installs anything. | On projects, by repository. |
 | The mod or the CLI | Each person installs it. | On tickets, from the branch, the pull request and the summary, which telemetry cannot see. Agent managers review before they submit. |
 | The GitHub Action, the token entries endpoint | Set up once per agent. | Where the call or the job names it, else by your rules. For agents that run without a person: CI, cloud and support agents. |
 
