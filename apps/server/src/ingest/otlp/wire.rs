@@ -239,8 +239,9 @@ fn repair_all<'a>(values: impl Iterator<Item = &'a mut serde_json::Value>) -> bo
 }
 
 /// The response to an export request of `signal`, in the request's encoding:
-/// its content type and body. When `rejected` is above zero the response
-/// reports a partial success with that count and `message`.
+/// its content type and body. When `rejected` is above zero or `message` is
+/// set, the response reports a partial success with that count and
+/// `message`; with zero rejected, the message is a warning.
 #[must_use]
 pub fn encode_response(
     signal: Signal,
@@ -248,7 +249,7 @@ pub fn encode_response(
     message: &str,
     encoding: Encoding,
 ) -> (&'static str, Vec<u8>) {
-    let partial = rejected.is_positive();
+    let partial = rejected.is_positive() || !message.is_empty();
     let body = match encoding {
         Encoding::Protobuf => match signal {
             Signal::Logs => ExportLogsServiceResponse {

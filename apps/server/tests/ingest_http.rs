@@ -298,6 +298,63 @@ async fn claude_code_telemetry_builds_a_token_entry_once(pool: PgPool) {
 }
 
 #[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
+async fn gemini_cli_with_default_settings_is_counted_without_its_text(pool: PgPool) {
+    let kestrel = kestrel(&pool).await.unwrap();
+    // Gemini CLI logs prompts by default, so its response event carries the
+    // response text next to the token counts.
+    let text = |key: &str, value: &str| json!({ "key": key, "value": { "stringValue": value } });
+    let int = |key: &str, value: i64| json!({ "key": key, "value": { "intValue": value } });
+    let export = json!({ "resourceLogs": [{
+        "resource": { "attributes": [text("service.name", "gemini-cli")] },
+        "scopeLogs": [{ "scope": { "name": "gemini-cli" }, "logRecords": [{
+            "timeUnixNano": "1791199800250000000",
+            "body": { "stringValue": "API response from gemini-2.5-pro. Status: 200. Duration: 2310ms." },
+            "attributes": [
+                text("event.name", "gemini_cli.api_response"),
+                text("session.id", "c0ffee00-1111-4222-8333-444455556666"),
+                text("model", "gemini-2.5-pro"),
+                int("input_token_count", 9000),
+                int("output_token_count", 420),
+                text("response_text", "Fixed the build."),
+            ],
+        }] }],
+    }] });
+    let answer = send(
+        &kestrel.app,
+        "/api/v1/ingest/otlp/v1/logs",
+        &kestrel.organization_token,
+        "application/json",
+        serde_json::to_vec(&export).unwrap(),
+        false,
+    )
+    .await
+    .unwrap();
+    assert_eq!(answer.status, StatusCode::OK);
+    // Nothing rejected, and a warning to turn prompt logging off.
+    let partial = &answer.json["partialSuccess"];
+    assert_eq!(partial["rejectedLogRecords"], json!(0));
+    assert!(
+        partial["errorMessage"]
+            .as_str()
+            .unwrap()
+            .contains("1 model calls carried prompt text")
+    );
+
+    let rows: Vec<(i64, i64, String)> = sqlx::query_as(
+        "SELECT m.input_tokens, m.output_tokens, e.telemetry_attributes::text
+         FROM messages m JOIN token_entries e ON e.id = m.token_entry_id
+         WHERE m.organization_id = $1",
+    )
+    .bind(kestrel.organization_id)
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!((rows[0].0, rows[0].1), (9000, 420));
+    assert!(!rows[0].2.contains("Fixed the build"), "{rows:?}");
+}
+
+#[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
 async fn the_receiver_takes_only_the_organization_token_and_known_formats(pool: PgPool) {
     let kestrel = kestrel(&pool).await.unwrap();
     let body = CLAUDE_CODE_LOGS.as_bytes().to_vec();

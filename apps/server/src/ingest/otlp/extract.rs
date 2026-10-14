@@ -11,7 +11,7 @@ use time::OffsetDateTime;
 
 use super::fields::Fields;
 use super::harness::{self, Door};
-use super::privacy::carries_prompt_text;
+use super::privacy::{body_carries_prompt_text, carries_prompt_text, without_prompt_text};
 use crate::ingest::model::{TelemetryMessage, TokenCounts};
 
 /// Where the person who made a call is named, in order.
@@ -50,6 +50,9 @@ pub struct Extracted {
     pub messages: Vec<TelemetryMessage>,
     /// Events and spans dropped whole because they carried prompt text.
     pub dropped_with_prompt_text: u32,
+    /// Model calls in [`Self::messages`] that carried prompt text and kept
+    /// only what carries none.
+    pub stripped_prompt_text: u32,
     /// Events and spans that are no model call, or one without a session or
     /// with token counts that cannot be read.
     pub ignored: u32,
@@ -99,6 +102,10 @@ impl Extracted {
     fn add(&mut self, record: &Record<'_>) {
         match record.outcome() {
             Outcome::Message(message) => self.messages.push(*message),
+            Outcome::Stripped(message) => {
+                self.messages.push(*message);
+                self.stripped_prompt_text = self.stripped_prompt_text.saturating_add(1);
+            }
             Outcome::Dropped => {
                 self.dropped_with_prompt_text = self.dropped_with_prompt_text.saturating_add(1);
             }
@@ -109,6 +116,8 @@ impl Extracted {
 
 enum Outcome {
     Message(Box<TelemetryMessage>),
+    /// A model call that carried prompt text, read without it.
+    Stripped(Box<TelemetryMessage>),
     Dropped,
     Ignored,
 }
@@ -189,11 +198,38 @@ impl<'a> Record<'a> {
             .into_iter()
             .chain(self.inner_attributes.iter().copied());
         if carries_prompt_text(attribute_lists, self.body, &self.names) {
-            return Outcome::Dropped;
+            return self
+                .without_prompt_text()
+                .map_or(Outcome::Dropped, |message| {
+                    Outcome::Stripped(Box::new(message))
+                });
         }
         self.message().map_or(Outcome::Ignored, |message| {
             Outcome::Message(Box::new(message))
         })
+    }
+
+    /// The model call read from what carries no prompt text: the attributes
+    /// without those that carry some, no body, no span events, and no name
+    /// taken from a body that is text. `None` when that is no model call.
+    fn without_prompt_text(&self) -> Option<TelemetryMessage> {
+        let attributes = without_prompt_text(self.attributes);
+        let body_is_text = body_carries_prompt_text(self.body, &self.names);
+        let body_text = self.body.and_then(|body| string_value(Some(body)));
+        let names = self
+            .names
+            .iter()
+            .copied()
+            .filter(|name| !(body_is_text && Some(*name) == body_text))
+            .collect();
+        Record {
+            attributes: &attributes,
+            inner_attributes: Vec::new(),
+            body: None,
+            names,
+            ..*self
+        }
+        .message()
     }
 
     fn message(&self) -> Option<TelemetryMessage> {
