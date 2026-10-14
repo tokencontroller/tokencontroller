@@ -4,7 +4,7 @@ The service, the web app, the CLI, the mods, the GitHub Action, the SDK and the 
 
 ## The plug-in points
 
-The `core` crate defines one Rust trait, `Extension`, with a default implementation that does nothing. The service calls it at a fixed, small set of hooks that need no database: sign-in providers, audit events, telemetry forwarding, bill connectors, member limits. Hooks that need the database sit in the service's `ServiceHooks` trait (`apps/server/src/hooks.rs`), also with defaults that do nothing. A build adds its own routes with `serve_with_additions`, and its own web app pages through the web app's `src/additions/` slot. The open-source binary uses the defaults, so the open image carries no private code. The enterprise binary links its own implementation at build time as a normal Cargo dependency. There is no runtime plug-in loading. How the enterprise build is unlocked and delivered is recorded in the private repo.
+The `core` crate defines one Rust trait, `Extension`, with a default implementation that does nothing. The service calls it at a fixed, small set of hooks that need no database: sign-in providers, audit events, telemetry forwarding, bill connectors. Hooks that need the database sit in the service's `ServiceHooks` trait (`apps/server/src/hooks.rs`), also with defaults that do nothing. A build adds its own routes with `serve_with_additions`, and its own web app pages through the web app's `src/additions/` slot. The open-source binary uses the defaults, so the open image carries no private code. The enterprise binary links its own implementation at build time as a normal Cargo dependency. There is no runtime plug-in loading. How the enterprise build is unlocked and delivered is recorded in the private repo.
 
 ## Why
 

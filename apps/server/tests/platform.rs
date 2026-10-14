@@ -2540,15 +2540,6 @@ async fn a_hook_sets_the_member_limit(pool: PgPool) {
     assert_eq!(invited.status, StatusCode::CREATED, "{}", invited.text);
 }
 
-/// An Enterprise plan license for 250 members.
-struct Licensed;
-
-impl tokencontroller_core::Extension for Licensed {
-    fn member_limit(&self) -> Option<u32> {
-        Some(250)
-    }
-}
-
 async fn member_limit_of(app: &Router, auth: Auth<'_>) -> TestResult<Answer> {
     send(
         app,
@@ -2611,13 +2602,7 @@ async fn every_member_reads_the_member_limit(pool: PgPool) {
     let signed_out = member_limit_of(&app(&pool), Auth::None).await.unwrap();
     assert_eq!(signed_out.status, StatusCode::UNAUTHORIZED);
 
-    // An Enterprise plan license sets the limit, and a build's hook comes
-    // before it.
-    let licensed = router(AppState::new(pool.clone(), config(), Arc::new(Licensed)));
-    let licensed = member_limit_of(&licensed, Auth::Cookie(&controller))
-        .await
-        .unwrap();
-    assert_eq!(licensed.json["member_limit"], 250);
+    // A build's hook sets a limit.
     let hooked = member_limit_of(&hooked_app(&pool), Auth::Cookie(&controller))
         .await
         .unwrap();

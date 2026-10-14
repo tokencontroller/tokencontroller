@@ -7329,7 +7329,7 @@
               "null"
             ],
             "format": "int64",
-            "description": "The most members the organization may have: the plan's or the\nEnterprise plan license's. `null` when there is no limit, as on the\nopen build."
+            "description": "The most members the organization may have, such as a hosted plan's.\n`null` when there is no limit, as on the open build."
           },
           "members": {
             "type": "integer",

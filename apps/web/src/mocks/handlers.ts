@@ -25,7 +25,7 @@ import type {
 } from "@/api/contract";
 import { parseCsv } from "@/lib/csv";
 import { closeHandlers } from "./close";
-import { enterpriseHandlers, LICENSE_MEMBERS, mockEdition } from "./enterprise";
+import { enterpriseHandlers, mockEdition } from "./enterprise";
 import { reportsHandlers } from "./reports";
 import { tokenEntryHandlers } from "./token-entries";
 import { createDb, defaultRules, TODAY, type Db, type EntryRecord } from "./seed";
@@ -306,12 +306,10 @@ function organizationOf(db: Db, email: string, sign_up: NewOrganization): Db {
   };
 }
 
-/** As the service works it out: the license's, else no limit. */
+/** As the open service works it out: no member limit. */
 function memberLimit(db: Db): MemberLimit {
   const members = db.people.filter((p) => p.status !== "removed").length;
-  return mockEdition() === "enterprise"
-    ? { members, member_limit: LICENSE_MEMBERS, message: "This instance allows no more members." }
-    : { members, member_limit: null, message: null };
+  return { members, member_limit: null, message: null };
 }
 
 function tagValues(db: Db, name: string) {

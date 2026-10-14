@@ -14,7 +14,6 @@ export interface License {
   edition: string;
   standing: Standing | null;
   organization: string | null;
-  member_limit: number | null;
   /** Dates, `YYYY-MM-DD`. */
   support_ends: string | null;
   /** The last day the features run. */

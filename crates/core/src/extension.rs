@@ -9,8 +9,7 @@
 //! Every hook has a default that keeps the open behavior, so adding a hook
 //! never breaks an implementation. Add a hook only where the docs name an
 //! Enterprise plan feature: sign-in providers, audit events, telemetry
-//! forwarding, bill connectors, member limits and the notices that go with
-//! them.
+//! forwarding, bill connectors and the notices that go with them.
 
 /// Hooks the service calls. Implementations must be cheap and must not block:
 /// a hook that needs the network spawns its own work.
@@ -18,12 +17,6 @@ pub trait Extension: Send + Sync + 'static {
     /// The edition name the service reports in its health response and logs.
     fn edition(&self) -> &'static str {
         "open"
-    }
-
-    /// The most members one organization may have, or `None` for no limit,
-    /// as in the open edition.
-    fn member_limit(&self) -> Option<u32> {
-        None
     }
 
     /// Sign-in providers offered next to the magic link, such as an OIDC
@@ -122,7 +115,6 @@ mod tests {
     fn the_open_edition_changes_nothing() {
         let extension = NoExtension;
         assert_eq!(extension.edition(), "open");
-        assert_eq!(extension.member_limit(), None);
         assert!(extension.sign_in_providers().is_empty());
         assert_eq!(extension.controller_notice(), None);
         extension.record_audit_event(&AuditEvent {

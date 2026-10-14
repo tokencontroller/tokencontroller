@@ -186,9 +186,8 @@ pub struct MemberLimitView {
     /// Everyone invited or joined who has not left. Every member counts the
     /// same, whatever their role.
     pub members: i64,
-    /// The most members the organization may have: the plan's or the
-    /// Enterprise plan license's. `null` when there is no limit, as on the
-    /// open build.
+    /// The most members the organization may have, such as a hosted plan's.
+    /// `null` when there is no limit, as on the open build.
     #[schema(required = true)]
     pub member_limit: Option<i64>,
     /// What an invite past the limit is refused with, such as "This instance
