@@ -4,6 +4,7 @@
 pub mod config;
 pub mod connect;
 pub mod export;
+pub mod folders;
 pub mod record;
 pub mod report;
 pub mod review;
@@ -35,6 +36,9 @@ pub fn run(args: Args, out: &mut dyn Write) -> Result<()> {
         Command::Rules { action } => rules::run(&mut app, action),
         Command::Config { key, value } => config::run(&mut app, key.as_deref(), value.as_deref()),
         Command::Record => record::run(&mut app, &mut std::io::stdin().lock()),
+        Command::Track { dir } => folders::track(&mut app, dir.as_deref()),
+        Command::Untrack { dir } => folders::untrack(&mut app, &dir),
+        Command::List => folders::list(&mut app),
     }
 }
 

@@ -15,6 +15,7 @@ mod commands;
 mod context;
 mod entries;
 mod error;
+mod folders;
 mod home;
 mod keys;
 mod output;

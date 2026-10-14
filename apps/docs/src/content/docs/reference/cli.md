@@ -20,6 +20,25 @@ Every `tc` command. Each takes `--help`, and `tc` works with no service connecte
 | `tc rules` | List, add, move and remove personal rules. See [Rules](#rules). |
 | `tc config [KEY [VALUE]]` | Show or change a setting. Without a key it lists every setting; an empty value removes one. See [Settings](#settings). |
 | `tc record` | Add what the Claude Code mod or another tool knows about a session, as JSON on standard input. The mod runs it for you. |
+| `tc track [DIR]` | Count only sessions in tracked folders and the folders below them; this adds DIR, default the current folder. See [Folders](#folders). |
+| `tc untrack DIR` | Stop tracking a folder. Once none is left, every folder counts again. |
+| `tc list` | The folders sessions ran in: agents, number of sessions, last activity and whether they count. |
+
+## Folders {#folders}
+
+```sh
+tc list                          # where your sessions ran
+tc track ~/work/storefront       # count only this folder and the folders below it
+tc untrack ~/work/storefront
+```
+
+With no folder tracked, `tc` counts every Claude Code and Codex session on the machine. Once one is, a session counts only when it ran in a tracked folder or below it: `~/work/shop` covers `~/work/shop/api` but not `~/work/shop-old`. A session the [Claude Code mod](/collect/claude-code) reports counts wherever it ran. The folder is the working directory the session file names.
+
+Drafts of sessions that no longer count are removed on the next run, along with anything set on them by hand. Submitted token entries stay as they are.
+
+The first time a command reads sessions at a terminal while nothing is tracked, `tc` asks `Track sessions in <current folder>? [Y/n]`. Yes tracks that folder; no counts every folder and is not asked again. Scripts, CI, the GitHub Action and `--json` are never asked, and count every folder until you track one.
+
+`tc track` and `tc untrack` print the tracked folders; with `--json`, `{"folders": [...]}`, empty when every folder counts. `tc track` exits with 1 when the folder does not exist, `tc untrack` when it was not tracked. `tc list --json` prints an array, most recent first, of `{"folder", "harnesses", "sessions", "last_at", "tracked"}`: `harnesses` holds `claude-code` and `codex`, `last_at` is a UTC time, `folder` is `null` for sessions whose files name none, and `tracked` is `true` when sessions there count.
 
 ## Rules {#rules}
 
@@ -43,6 +62,7 @@ Settings are kept in `config.toml` in the `tc` folder (see `TC_HOME` below).
 | `classifier` | A program that picks the ticket when rules cannot. Empty switches it off. See [Classifier](/attribute/classifier). |
 | `ticket-key-pattern` | A ticket key pattern, such as `^(KD\|OPS)-\d+`, for use with no service connected. Once connected, each project's pattern applies. |
 | `since` | A day, such as `2026-09-01`. Sessions that started earlier get no token entry. Without it, the first run reaches back 31 days. |
+| `folders` | The tracked folders, set with `tc track` and `tc untrack`. `all` counts every folder without asking; an empty value removes the choice, so `tc` asks again. See [Folders](#folders). |
 | `service` | The service `tc` is connected to. Set by `tc connect`. |
 
 ## In CI and scripts {#scripts}

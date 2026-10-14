@@ -50,6 +50,13 @@ pub enum Command {
         value: Option<String>,
     },
     Record,
+    Track {
+        dir: Option<String>,
+    },
+    Untrack {
+        dir: String,
+    },
+    List,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -179,6 +186,29 @@ pub fn command() -> ClapCommand {
         .subcommand(ClapCommand::new("record").about(
             "Add what the Claude Code mod or another tool knows about a session, as JSON on standard input.",
         ))
+        .subcommands(folder_commands())
+}
+
+/// `tc track`, `tc untrack` and `tc list`.
+fn folder_commands() -> [ClapCommand; 3] {
+    [
+        ClapCommand::new("track")
+            .about("Count only sessions in tracked folders and below; this adds one. Without any, every folder counts.")
+            .arg(Arg::new("dir").value_name("DIR").help(
+                "The folder, such as ~/work/storefront. Default: the current folder.",
+            )),
+        ClapCommand::new("untrack")
+            .about("Stop tracking a folder. Once none is left, every folder counts again.")
+            .arg(
+                Arg::new("dir")
+                    .value_name("DIR")
+                    .required(true)
+                    .help("A tracked folder, as tc config folders lists it."),
+            ),
+        ClapCommand::new("list").about(
+            "The folders sessions ran in: agents, sessions, last activity and whether they are tracked.",
+        ),
+    ]
 }
 
 fn report_command() -> ClapCommand {
@@ -304,6 +334,13 @@ pub fn from_matches(matches: &ArgMatches) -> Result<Args> {
             value: text(sub, "value"),
         },
         "record" => Command::Record,
+        "track" => Command::Track {
+            dir: text(sub, "dir"),
+        },
+        "untrack" => Command::Untrack {
+            dir: required(sub, "dir")?,
+        },
+        "list" => Command::List,
         other => return Err(Error::usage(format!("there is no command {other}"))),
     };
     Ok(Args { json, command })
@@ -437,6 +474,23 @@ mod tests {
             }
         );
         assert_eq!(parse("tc record").unwrap().command, Command::Record);
+        assert_eq!(
+            parse("tc track").unwrap().command,
+            Command::Track { dir: None }
+        );
+        assert_eq!(
+            parse("tc track ~/work/storefront").unwrap().command,
+            Command::Track {
+                dir: Some("~/work/storefront".into())
+            }
+        );
+        assert_eq!(
+            parse("tc untrack ~/work/storefront").unwrap().command,
+            Command::Untrack {
+                dir: "~/work/storefront".into()
+            }
+        );
+        assert_eq!(parse("tc list --json").unwrap().command, Command::List);
         assert!(parse("tc --json review").unwrap().json);
         assert!(parse("tc review --json").unwrap().json);
         assert!(!parse("tc review").unwrap().json);
@@ -449,5 +503,6 @@ mod tests {
         assert!(parse("tc export").is_err());
         assert!(parse("tc report").is_err());
         assert!(parse("tc fly").is_err());
+        assert!(parse("tc untrack").is_err());
     }
 }

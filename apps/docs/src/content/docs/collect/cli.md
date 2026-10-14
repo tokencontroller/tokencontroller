@@ -38,6 +38,17 @@ tc export --csv           # everything as CSV, for a spreadsheet
 
 With no service, the export is enough to report by hand. Every command and setting is in the [CLI reference](/reference/cli).
 
+## Only some folders {#folders}
+
+If you work for several clients, or want one project counted, track its folder:
+
+```sh
+tc list                       # the folders your sessions ran in
+tc track ~/work/storefront    # count only sessions there and below
+```
+
+Without a tracked folder, `tc` counts every session on the machine. The first time you run it at a terminal, it asks whether to track the folder you are in. Sessions the Claude Code mod reports always count. Details are in the [CLI reference](/reference/cli#folders).
+
 ## What it reads {#sources}
 
 Session files of Claude Code and Codex, counted the way the open source ccusage project counts them. Every other agent reports by [telemetry](/collect/telemetry) or through the [token entries endpoint](/collect/token-entries). Reading the same files twice changes nothing, so run it as often as you like. There is no background process and no sync between your machines: each machine submits its own token entries.

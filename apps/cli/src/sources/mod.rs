@@ -36,6 +36,14 @@ impl Harness {
         }
     }
 
+    /// The name people know, for tables.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::ClaudeCode => "Claude Code",
+            Self::Codex => "Codex",
+        }
+    }
+
     pub fn from_name(name: &str) -> Option<Self> {
         Self::ALL.into_iter().find(|harness| harness.name() == name)
     }
@@ -184,6 +192,7 @@ mod tests {
         for harness in Harness::ALL {
             assert_eq!(Harness::from_name(harness.name()), Some(harness));
             assert_eq!(harness.to_string(), harness.name());
+            assert_ne!(harness.label(), harness.name());
         }
         assert_eq!(Harness::from_name("cursor"), None);
     }

@@ -115,10 +115,16 @@ pub struct Config {
     /// Sessions that started before this day get no draft token entry.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub since: Option<String>,
+    /// The folders whose sessions count. Empty: every folder.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub folders: Vec<String>,
+    /// The person chose every folder, so tc does not ask which to track.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub all_folders: bool,
 }
 
 /// The settings `tc config` can show and change, and what each means.
-pub const SETTINGS: [(&str, &str); 4] = [
+pub const SETTINGS: [(&str, &str); 5] = [
     (
         "classifier",
         "A program that picks a ticket when rules cannot decide. Empty switches it off.",
@@ -132,6 +138,10 @@ pub const SETTINGS: [(&str, &str); 4] = [
         "A day, such as 2026-09-01. Sessions that started earlier get no token entry.",
     ),
     (
+        "folders",
+        "The folders whose sessions count; all for every folder. Change it with tc track and tc untrack.",
+    ),
+    (
         "service",
         "The service tc is connected to. Set by tc connect.",
     ),
@@ -143,6 +153,7 @@ impl Config {
             "classifier" => self.classifier.clone(),
             "ticket-key-pattern" => self.ticket_key_pattern.clone(),
             "since" => self.since.clone(),
+            "folders" => self.folders_text(),
             "service" => self.service.clone(),
             _ => return Err(unknown_setting(key)),
         })
@@ -173,6 +184,21 @@ impl Config {
                 }
                 self.since = value;
             }
+            "folders" => match value.as_deref() {
+                None => {
+                    self.folders.clear();
+                    self.all_folders = false;
+                }
+                Some("all") => {
+                    self.folders.clear();
+                    self.all_folders = true;
+                }
+                Some(_) => {
+                    return Err(Error::usage(
+                        "folders takes all or an empty value; add and remove folders with tc track DIR and tc untrack DIR",
+                    ));
+                }
+            },
             "service" => {
                 return Err(Error::usage(
                     "the service is set by tc connect; run tc connect URL",
@@ -181,6 +207,18 @@ impl Config {
             _ => return Err(unknown_setting(key)),
         }
         Ok(())
+    }
+
+    /// The tracked folders as `tc config` shows them: `all` when every
+    /// folder counts by choice, nothing when no choice was made yet.
+    fn folders_text(&self) -> Option<String> {
+        if !self.folders.is_empty() {
+            Some(self.folders.join(", "))
+        } else if self.all_folders {
+            Some("all".to_owned())
+        } else {
+            None
+        }
     }
 
     /// Every setting and its value, for `tc config` with no key.
@@ -231,7 +269,17 @@ mod tests {
         config.set("classifier", " ").unwrap();
         assert_eq!(config.classifier, None);
         let all = config.all();
-        assert_eq!(all.len(), 4);
+        assert_eq!(all.len(), 5);
+        assert_eq!(all.get("folders"), Some(&None));
+        config.set("folders", "all").unwrap();
+        assert_eq!(config.get("folders").unwrap().as_deref(), Some("all"));
+        assert!(config.all_folders);
+        assert!(config.set("folders", "/work").is_err());
+        config.folders = vec!["/a".into(), "/b".into()];
+        assert_eq!(config.get("folders").unwrap().as_deref(), Some("/a, /b"));
+        config.set("folders", "").unwrap();
+        assert!(config.folders.is_empty());
+        assert!(!config.all_folders);
         assert_eq!(all.get("classifier"), Some(&None));
     }
 
