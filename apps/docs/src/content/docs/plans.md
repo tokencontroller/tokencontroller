@@ -24,7 +24,7 @@ The Team plan stops at 150 members; an organization that needs more moves to the
 
 ## Payment and currency {#payment}
 
-The Team plan is paid by card through Stripe. The Enterprise plan is paid by invoice. Customers in the EU pay in EUR; everyone else pays in USD.
+A controller chooses the Team plan under _Billing_ in the app menu and pays by card through Stripe. Invoices and the card are under _Billing_ too. The Enterprise plan is paid by invoice. Customers in the EU pay in EUR; everyone else pays in USD.
 
 ## Where your data lives {#region}
 
