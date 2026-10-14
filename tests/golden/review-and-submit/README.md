@@ -1,6 +1,6 @@
 # Review and submit
 
-From the docs pages [Quick start](https://docs.tokencontroller.com/#review) and [Review and submit](https://docs.tokencontroller.com/attribute/review).
+From the docs page [Review and submit](https://docs.tokencontroller.com/attribute/review).
 
 Mara, at Kestrel Digital, runs five Claude Code sessions on 14 October. Rules place four of them:
 

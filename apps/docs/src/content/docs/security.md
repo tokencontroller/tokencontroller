@@ -1,15 +1,9 @@
 ---
 title: "Security and privacy"
 description: "What leaves a person's machine, what a token entry contains, and who can see it."
-prev:
-  link: "/reference/open-source"
-  label: "Open source and licenses"
-next:
-  link: "/faq"
-  label: "FAQ"
 ---
 
-What leaves a person's machine, what Token Controller stores, and who can see it.
+Token Controller stores numbers, identifiers, a one-line summary per session and tags, never what an agent read or wrote.
 
 ## What never leaves the machine {#never}
 
@@ -17,7 +11,7 @@ Transcripts, prompts, tool output and file contents. Nothing in Token Controller
 
 ## What a token entry contains {#token-entry}
 
-This is the full list. The summary and the tag values are the only text. The agent writes the summary, and on a token sheet you see it and the tags before you submit. Tag values are the names your organization uses, such as a team or a client.
+This is the full list. The summary and the tag values are the only text. The agent writes the summary, and on a token sheet you see it and the tags before you submit. Tag values are the names your organization uses, such as a team or a client. Every field is in the [token entry reference](/reference/token-entry).
 
 | Field | Example |
 | --- | --- |
@@ -46,14 +40,12 @@ A report goes to us and is stored in the EU. It is deleted two years after its l
 
 ## Telemetry {#telemetry}
 
-Telemetry push sends numbers and identifiers only, with the exact settings shown in the [quick start](/#telemetry). The ingest endpoint drops any event that carries prompt text.
+[Telemetry push](/collect/telemetry) sends numbers and identifiers only. The ingest endpoint drops any event that carries prompt text.
 
 ## Who sees what {#who-sees}
 
-An agent manager sees their own cost. A people manager sees cost per person for the filters they are assigned, such as a team or a client. A controller sees everything. See [Roles](/account/roles).
+An agent manager sees their own cost. A people manager sees cost per person for the filters they are assigned, such as a team or a client. A controller sees everything. See [Roles](/account/roles), and [Scope](/scope#out) for why there is no aggregate-only mode.
 
 ## Where data is stored {#hosting}
 
-Solo and the Team plan are hosted in the EU. On the Enterprise plan you choose the region; self-hosted runs where you run it. See [Plans and limits](/plans).
-
-## Where to next {#next}
+Solo and the Team plan are hosted in the EU. On the Enterprise plan you choose the region; self-hosted runs where you run it. See [Plans and limits](/plans#region).

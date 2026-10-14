@@ -1,6 +1,6 @@
 ---
 title: "Token budgets and forecasts"
-description: "Plan money for people, tickets, projects and periods, or accept a token forecast."
+description: "Plan money for people, tickets, projects and periods, accept a token forecast, and compare both with actual cost."
 ---
 
 A token budget is money a person has planned. A token forecast is money Token Controller predicts. Both are compared with actual cost, and neither ever stops spending.
@@ -17,11 +17,15 @@ A token forecast is a suggestion from similar past work. Token Controller compar
 
 The hosted service runs the comparison with a model on its own key. A self-hosted instance sets its own, or does without forecasts.
 
-The more periods you close, the better the forecasts get, and a new client project can be quoted from what similar work cost before.
+Each closed period feeds the next forecasts, so a new client project can be quoted from what similar work cost before.
+
+## Token budget vs actual {#actual}
+
+The _Token budget vs actual_ report shows each token budget, whatever filter it sits on, with its actual cost and the difference. Overrun is actual above the token budget; underrun is actual below. Each row opens down to tickets and token entries.
 
 ## Comparing {#compare}
 
-See [Token budget vs actual](/report/token-budget-vs-actual). Overruns and underruns both get a look: an underrun may mean someone can teach the others, or that the next forecast should be lower.
+Look at overruns and underruns alike. An overrun may be a problem. An underrun may mean someone can teach the others, or that the next token forecast should be lower.
 
 ## No caps {#no-caps}
 

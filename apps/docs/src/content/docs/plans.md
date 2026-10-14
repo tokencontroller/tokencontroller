@@ -1,15 +1,9 @@
 ---
 title: "Plans and limits"
 description: "Solo, Team plan, Enterprise plan and self-hosted: prices, limits, payment and region."
-prev:
-  link: "/scope"
-  label: "Scope"
-next:
-  link: "/self-hosting"
-  label: "Overview"
 ---
 
-There are four ways to run Token Controller. Prices are per organization. Nothing is priced per seat.
+Prices are per organization. Nothing is priced per seat.
 
 ## The four plans {#plans}
 
@@ -26,7 +20,7 @@ One account belongs to one organization. An agency whose clients each have their
 
 ## The 150-member limit {#members}
 
-The Team plan stops at 150 members. There is no member 151 on the Team plan: an organization that needs more moves to the Enterprise plan. Every member counts the same, whatever their role.
+The Team plan stops at 150 members; an organization that needs more moves to the Enterprise plan. Every member counts the same, whatever their role.
 
 ## Payment and currency {#payment}
 
@@ -35,5 +29,3 @@ The Team plan is paid by card through Stripe. The Enterprise plan is paid by inv
 ## Where your data lives {#region}
 
 Solo and the Team plan are hosted in the EU. On the Enterprise plan you choose the region. Self-hosted runs wherever you run it.
-
-## Where to next {#next}
