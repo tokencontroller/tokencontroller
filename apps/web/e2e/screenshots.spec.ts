@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { fillToMemberLimit, signIn } from "./helpers";
+import { signIn } from "./helpers";
 
 // Pictures of the main screens with the example organization, for people who
 // read the product rather than run it. Not a test of anything: run with
@@ -216,20 +216,4 @@ test("enterprise settings", async ({ page }) => {
     path: `${dir}/30-enterprise-settings.png`,
     fullPage: true,
   });
-});
-
-test("people at the member limit", async ({ page }) => {
-  await signIn(page, "nadia");
-  await page.evaluate(() =>
-    fetch("/api/v1/__mock/edition", {
-      method: "POST",
-      body: JSON.stringify({ edition: "enterprise" }),
-    }),
-  );
-  await fillToMemberLimit(page);
-  await page.goto("/people");
-  await expect(
-    page.getByText(/This instance allows no more members/),
-  ).toBeVisible();
-  await page.screenshot({ path: `${dir}/36-people-at-member-limit.png` });
 });

@@ -235,9 +235,9 @@ pub async fn member_count(db: &PgPool, organization_id: Uuid) -> Result<i64, sql
     .await
 }
 
-/// The member limit of an organization: what the build's hooks say (such
-/// as a plan), else what the extension says, else none. The open build has
-/// no member limit (docs: Plans and limits).
+/// The member limit of an organization: what the build's hooks say, such as
+/// the hosted service's plan. The open build and the Enterprise plan have no
+/// member limit (docs: Plans and limits).
 ///
 /// # Errors
 ///
@@ -246,16 +246,7 @@ pub async fn member_limit(
     state: &AppState,
     organization_id: Uuid,
 ) -> Result<Option<crate::hooks::MemberLimit>, ApiError> {
-    if let Some(limit) = state.hooks.member_limit(state, organization_id).await? {
-        return Ok(Some(limit));
-    }
-    Ok(state
-        .extension
-        .member_limit()
-        .map(|max| crate::hooks::MemberLimit {
-            max: i64::from(max),
-            message: "This instance allows no more members.".to_owned(),
-        }))
+    state.hooks.member_limit(state, organization_id).await
 }
 
 /// Refuses one more member when the organization's limit is reached.

@@ -62,7 +62,6 @@ function LicenseFacts({ license }: { license: License }) {
       <div className="rounded-lg border border-line px-4">
         <Row label="License">{standing ? <Badge tone={standing.tone}>{standing.label}</Badge> : <Badge tone="exception">No license key</Badge>}</Row>
         {license.organization ? <Row label="Licensed to">{license.organization}</Row> : null}
-        {license.member_limit !== null ? <Row label="Member limit">{license.member_limit}</Row> : null}
         {license.support_ends ? <Row label="Support until">{formatDate(license.support_ends)}</Row> : null}
         {license.features_end ? <Row label="Features until">{formatDate(license.features_end)}</Row> : null}
       </div>
