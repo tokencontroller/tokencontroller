@@ -20,7 +20,7 @@ One account belongs to one organization. An agency whose clients each have their
 
 ## The 150-member limit {#members}
 
-The Team plan stops at 150 members; an organization that needs more moves to the Enterprise plan. Every member counts the same, whatever their role. Self-hosted has no member limit.
+The Team plan stops at 150 members; an organization that needs more moves to the Enterprise plan. Every member counts the same, whatever their role. The Enterprise plan and self-hosted have no member limit.
 
 ## Payment and currency {#payment}
 
