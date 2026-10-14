@@ -1,6 +1,6 @@
 # Sessions and subagents
 
-From the docs pages [Sessions and subagents](https://docs.tokencontroller.com/attribute/rules#sessions) and [Rules](https://docs.tokencontroller.com/attribute/rules), and ADR 0006 and ADR 0015.
+From the docs pages [Sessions and subagents](https://docs.tokencontroller.com/attribute/sessions) and [Rules](https://docs.tokencontroller.com/attribute/rules), and ADR 0006 and ADR 0015.
 
 Kestrel Digital has a rule that tags a code review subagent's work `purpose: code-review`, and splits cost equally when prompts name several tickets. Claude Code reports no cost here, so every message is valued from its token counts.
 

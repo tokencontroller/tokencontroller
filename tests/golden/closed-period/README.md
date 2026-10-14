@@ -1,6 +1,6 @@
 # A closed period keeps its prices
 
-From the docs pages [Monthly close](https://docs.tokencontroller.com/account/close), [Adjustments](https://docs.tokencontroller.com/account/close#adjustments), [Price tables](https://docs.tokencontroller.com/reference/pricing-tables) and [Bills](https://docs.tokencontroller.com/account/bills).
+From the docs pages [Monthly close](https://docs.tokencontroller.com/account/close), [Adjustments](https://docs.tokencontroller.com/account/adjustments), [Price tables](https://docs.tokencontroller.com/reference/pricing-tables) and [Bills](https://docs.tokencontroller.com/account/bills).
 
 Kestrel Digital closes October. Codex reports no cost of its own, so its token entries are valued with the price table, and October closed with version 1 of it. Version 2, a made-up price cut for `openai/gpt-5` in November, must not change October: entry 1 stays 7.50 USD instead of 6.00.
 

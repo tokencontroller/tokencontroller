@@ -1,6 +1,6 @@
 # A bill in another currency
 
-From the docs pages [Bills](https://docs.tokencontroller.com/account/bills) and [The cost sheet](https://docs.tokencontroller.com/account/close#cost-sheet), and ADR 0004 and ADR 0016.
+From the docs pages [Bills](https://docs.tokencontroller.com/account/bills) and [The cost sheet](https://docs.tokencontroller.com/report/cost-sheet), and ADR 0004 and ADR 0016.
 
 Halden reports in euros. Its two bills are in US dollars, each with the exchange rate of its date.
 

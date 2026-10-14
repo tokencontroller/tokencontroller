@@ -1,6 +1,6 @@
 # CI review bot
 
-From the docs pages [CI agents](https://docs.tokencontroller.com/collect/github-action#ci) and [GitHub Action](https://docs.tokencontroller.com/collect/github-action).
+From the docs pages [CI agents](https://docs.tokencontroller.com/attribute/ci) and [GitHub Action](https://docs.tokencontroller.com/collect/github-action).
 
 Tom, a tech lead at Kestrel Digital, created the service token the GitHub Action reports with, so he is the agent manager of everything it reports. The Action sends `purpose=code-review` with its reviews. Everything it reports arrives automatically, submitted.
 
