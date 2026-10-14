@@ -12,8 +12,7 @@ The CLI, `tc`, reads session files, places token entries with your rules, and su
 brew tap tokencontroller/tap https://github.com/tokencontroller/tokencontroller
 brew install tc
 
-# Windows
-winget install TokenController.tc
+# Windows: tc-x86_64-pc-windows-msvc.zip from the GitHub releases
 ```
 
 Binaries for macOS, Windows and Linux, on Intel and ARM, are on [GitHub](https://github.com/tokencontroller/tokencontroller/releases).

@@ -51,8 +51,7 @@ Your sessions become draft token entries as you work, and your organization's ru
 brew tap tokencontroller/tap https://github.com/tokencontroller/tokencontroller
 brew install tc
 
-# Windows
-winget install TokenController.tc
+# Windows: tc-x86_64-pc-windows-msvc.zip from the GitHub releases
 
 # connect with your invite link, or skip this to stay local
 tc connect https://app.tokencontroller.com/i/kestrel-4f2a
