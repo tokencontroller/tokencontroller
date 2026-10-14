@@ -33,8 +33,8 @@ export default defineConfig({
       ],
       customCss: ['./src/styles/fonts.css', './src/styles/docs.css'],
       sidebar,
-      // Prev/next links appear only where a page sets them in its frontmatter.
-      pagination: false,
+      // Prev/next links follow the sidebar order.
+      pagination: true,
       lastUpdated: true,
       editLink: { baseUrl: 'https://github.com/tokencontroller/tokencontroller/blob/main/apps/docs/' },
       markdown: { headingLinks: false },
