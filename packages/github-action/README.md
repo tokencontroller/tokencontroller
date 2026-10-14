@@ -22,7 +22,7 @@ Reports what agents spend in CI, such as a pull request review bot, to [Token Co
 
 The output `token-entries` says how many token entries the step reported, and the job summary says it in a line.
 
-A review of a pull request is placed on the ticket of that pull request: the Action hands `tc` the pull request's number and title on the runner, and only the ticket keys found in the title leave it. Token entries from the Action arrive submitted and never go on a token sheet. More in the docs: [GitHub Action](https://docs.tokencontroller.com/collect/github-action) and [CI agents](https://docs.tokencontroller.com/attribute/ci).
+A review of a pull request is placed on the ticket of that pull request: the Action hands `tc` the pull request's number and title on the runner, and only the ticket keys found in the title leave it. Token entries from the Action arrive submitted and never go on a token sheet. More in the docs: [GitHub Action](https://docs.tokencontroller.com/collect/github-action) and [CI agents](https://docs.tokencontroller.com/collect/github-action#ci).
 
 ## Working on it
 

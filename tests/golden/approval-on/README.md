@@ -1,6 +1,6 @@
 # Approval on
 
-From the docs pages [Approval](https://docs.tokencontroller.com/account/approval) and [Monthly close](https://docs.tokencontroller.com/account/close).
+From the docs pages [Approval](https://docs.tokencontroller.com/account/cadence#approval) and [Monthly close](https://docs.tokencontroller.com/account/close).
 
 Kestrel Digital switches approval on. At the end of October:
 

@@ -1,6 +1,6 @@
 # Rules in order
 
-From the docs pages [Rules](https://docs.tokencontroller.com/attribute/rules), [Ticket key patterns](https://docs.tokencontroller.com/attribute/ticket-keys) and [Projects and tickets](https://docs.tokencontroller.com/account/projects), and ADR 0015.
+From the docs pages [Rules](https://docs.tokencontroller.com/attribute/rules), [Ticket key patterns](https://docs.tokencontroller.com/account/projects#ticket-keys) and [Projects and tickets](https://docs.tokencontroller.com/account/projects), and ADR 0015.
 
 Kestrel Digital's storefront project finds keys with `^(KD|OPS)-[0-9]+`. Besides the default rules, the organization has three rules that set `purpose`, in this order: `review/` branches are code review, branches containing `spike` are research, and OPS tickets are operations. Mara has a personal rule: her `spike/` branches are learning. The epic KD-299 carries `feature: wishlist`; its story KD-300 sits inside it. The last ticket sync did not find KD-998.
 

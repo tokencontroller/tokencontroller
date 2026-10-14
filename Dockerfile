@@ -29,7 +29,7 @@ FROM gcr.io/distroless/cc-debian12:nonroot
 LABEL org.opencontainers.image.title="Token Controller" \
       org.opencontainers.image.description="Cost accounting and management control for AI agents" \
       org.opencontainers.image.source="https://github.com/tokencontroller/tokencontroller" \
-      org.opencontainers.image.url="https://docs.tokencontroller.com/self-hosting/docker" \
+      org.opencontainers.image.url="https://docs.tokencontroller.com/self-hosting#docker" \
       org.opencontainers.image.licenses="AGPL-3.0-only"
 COPY --from=build /tokencontroller /usr/local/bin/tokencontroller
 COPY --from=web /src/apps/web/dist /usr/share/tokencontroller/web
