@@ -11,13 +11,13 @@ Claude Code, Codex CLI, Gemini CLI, Copilot CLI and Cursor Enterprise can push t
 | --- | --- | --- | --- | --- |
 | [Claude Code](#claude-code) | Managed settings, `env` | `OTEL_EXPORTER_OTLP_ENDPOINT` | `OTEL_EXPORTER_OTLP_HEADERS` | `CLAUDE_CODE_ENABLE_TELEMETRY`, `OTEL_LOGS_EXPORTER`, `OTEL_METRICS_INCLUDE_REPOSITORY` |
 | [Codex CLI](#codex) | `[otel]` in `config.toml` | `exporter.otlp-http.endpoint`, ending in `/v1/logs` | `headers` | `protocol = "binary"`, `log_user_prompt = false` |
-| [Gemini CLI](#gemini-cli) | `GEMINI_TELEMETRY_*` variables, or `telemetry` in `settings.json` | `GEMINI_TELEMETRY_OTLP_ENDPOINT` | `GEMINI_TELEMETRY_OTLP_HEADERS` | `GEMINI_TELEMETRY_ENABLED`, `GEMINI_TELEMETRY_OTLP_PROTOCOL=http`, `GEMINI_TELEMETRY_LOG_PROMPTS=false` |
+| [Gemini CLI](#gemini-cli) | `GEMINI_TELEMETRY_*` variables, or `telemetry` in `settings.json` | `GEMINI_TELEMETRY_OTLP_ENDPOINT` | `GEMINI_TELEMETRY_OTLP_HEADERS` | `GEMINI_TELEMETRY_ENABLED`, `GEMINI_TELEMETRY_OTLP_PROTOCOL=http` |
 | [Copilot CLI](#copilot-cli) | Environment variables | `OTEL_EXPORTER_OTLP_ENDPOINT` | `OTEL_EXPORTER_OTLP_HEADERS` | Nothing; leave message content capture off. |
 | [Cursor Enterprise](#cursor) | _Team Settings_ > _OpenTelemetry Export_ in Cursor | Base URL | Auth header | Logs on; conversation content off. |
 
 The ingest endpoint takes OTLP over HTTP, as protobuf or JSON, plain or gzip. It does not take gRPC.
 
-<div class="note"><b>Keep prompt logging off.</b> The ingest endpoint drops any event that carries prompt or response text, whole, before it reads the tokens. An agent that logs prompts into its model call events is then not counted at all. Gemini CLI does this unless <code>GEMINI_TELEMETRY_LOG_PROMPTS</code> is <code>false</code>.</div>
+The ingest endpoint never stores prompt text: it removes it from model call events and drops any other event that carries it. Turning prompt logging off in the agent still sends less data.
 
 Only Claude Code sends a cost with each model call. For the other agents Token Controller computes the list value from the model and the [price table](/reference/pricing-tables).
 
@@ -67,7 +67,7 @@ GEMINI_TELEMETRY_OTLP_HEADERS="Authorization=Bearer tc_org_…"
 GEMINI_TELEMETRY_LOG_PROMPTS=false
 ```
 
-The same settings go in `settings.json` under `telemetry`: `enabled`, `otlpEndpoint`, `otlpProtocol`, `otlpHeaders` and `logPrompts`. Gemini CLI sends gRPC and logs prompts unless told otherwise, so `http` and `false` are required. Session files are not read.
+The same settings go in `settings.json` under `telemetry`: `enabled`, `otlpEndpoint`, `otlpProtocol`, `otlpHeaders` and `logPrompts`. Gemini CLI sends gRPC unless told otherwise, so `http` is required. `logPrompts` set to `false` is optional and sends less data. Session files are not read.
 
 ## Copilot CLI {#copilot-cli}
 
@@ -76,7 +76,7 @@ OTEL_EXPORTER_OTLP_ENDPOINT=https://app.tokencontroller.com/api/v1/ingest/otlp
 OTEL_EXPORTER_OTLP_HEADERS="Authorization=Bearer tc_org_…"
 ```
 
-Setting the endpoint switches telemetry on. Copilot CLI reports each model call as a trace span, which Token Controller reads; leave `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT` off, or the spans carry message text and are dropped. Session files are not read.
+Setting the endpoint switches telemetry on. Copilot CLI reports each model call as a trace span, which Token Controller reads. Leave `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT` off to send less data; the calls count either way. Session files are not read.
 
 ## Cursor Enterprise {#cursor}
 
