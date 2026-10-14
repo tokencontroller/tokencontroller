@@ -20,7 +20,7 @@ First release.
 - [Rules](/attribute/rules), [repository mappings](/account/projects#repositories) and [ticket key patterns](/account/projects#ticket-keys) that place token entries on tickets and projects, and an optional [classifier](/attribute/classifier) on your own machine.
 - [Bills](/account/bills) from Anthropic and OpenAI, and any bill by CSV.
 - Ticket sync from [Jira Cloud](/account/projects#jira), [Azure DevOps](/account/projects#azure-devops) and [GitHub Issues](/account/projects#github-issues).
-- [Token budgets and token forecasts](/account/token-budgets), compared with actual cost.
+- [Token budgets and token estimates](/account/token-budgets), compared with actual cost.
 - [Approval](/account/cadence#approval), the [close](/account/close), [adjustments](/account/close#adjustments) and the [cost sheet](/account/close#cost-sheet).
 - [Reports](/report/reports) by person, team and any tag and by client, project and ticket, [tags](/account/tags) with a tag map for the cost center and the cost object, the [outliers](/report/reports#outliers) report and the [agent harness](/report/reports#agent-harness) report.
 - [CSV exports](/report/exports), the [reporting API](/report/exports#reporting-api) and the [raw export](/report/exports#raw-export).

@@ -58,10 +58,10 @@ The whole bill is always accounted for. Every token entry has a person, so every
 On top of the accounting sits the classic budgeting loop: plan, record, reconcile, learn.
 
 <ol class="steps">
-  <li><b>Plan.</b><p>A <a href="/account/token-budgets">token budget</a> on a person (for example 1,500 EUR a month), a ticket, a project, a team or any other tag filter, for a period. You type it, or accept a token forecast: what similar past work cost, found by comparing the ticket with the summaries of past token entries.</p></li>
+  <li><b>Plan.</b><p>A <a href="/account/token-budgets">token budget</a> on a person (for example 1,500 EUR a month), a ticket, a project, a team or any other tag filter, for a period. You type it, or accept a token estimate: what similar past work cost, found by comparing the ticket with the summaries of past token entries.</p></li>
   <li><b>Record.</b><p>Token entries come in, automatically or on token sheets.</p></li>
   <li><b>Reconcile.</b><p>Rules tag each token entry with its ticket or project, people review and submit, the bills come in, both sides are checked against each other, and the month is closed.</p></li>
-  <li><b>Learn.</b><p>Actual against token budget, per person, ticket, project or any tag. An overrun may be a problem. An underrun may mean someone can teach the others, or that the next token forecast should be lower. History feeds the next token forecast, so a new client project can be quoted from what similar work cost before.</p></li>
+  <li><b>Learn.</b><p>Actual against token budget, per person, ticket, project or any tag. An overrun may be a problem. An underrun may mean someone can teach the others, or that the next token estimate should be lower. History feeds the next token estimate, so a new client project can be quoted from what similar work cost before.</p></li>
 </ol>
 
 Every part of the loop is optional: you can only collect token entries and match them to the bill, and add token budgets later. A token budget never stops spending.

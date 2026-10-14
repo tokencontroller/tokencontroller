@@ -15,7 +15,7 @@ The service reads its settings from environment variables. It refuses to start w
 | `TC_SMTP_URL` | The mail server for sign-in links, invites and reminders, such as `smtps://user:password@smtp.example.com:465`. Required for magic links. |
 | `TC_SMTP_FROM` | The sender of that mail, such as `Token Controller <tc@example.com>`. Without it, mail comes from `noreply@` and the host of `TC_PUBLIC_URL`. |
 | `TC_PRICES_REFRESH` | `on` (the default) or `off`. `off` stops the daily [price table](/reference/pricing-tables) and exchange rate refresh, for instances without internet access. Bills in another currency then need their exchange rate. |
-| `TC_EMBEDDINGS_URL` | An OpenAI-compatible embeddings API for [token forecasts](/account/token-budgets#forecasts), such as `https://api.openai.com/v1` or a model server of your own. Without it, the instance has no forecasts. Needs `TC_EMBEDDINGS_MODEL`. |
+| `TC_EMBEDDINGS_URL` | An OpenAI-compatible embeddings API for [token estimates](/account/token-budgets#estimates), such as `https://api.openai.com/v1` or a model server of your own. Without it, the instance has no estimates. Needs `TC_EMBEDDINGS_MODEL`. |
 | `TC_EMBEDDINGS_MODEL` | The embeddings model, such as `text-embedding-3-small`. Needs `TC_EMBEDDINGS_URL`. |
 | `TC_EMBEDDINGS_KEY` | The API key for `TC_EMBEDDINGS_URL`, if it needs one. |
 

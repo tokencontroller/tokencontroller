@@ -279,9 +279,13 @@ A signed correction a controller posts to a closed period.
 Money a human has planned for a filter (a person, a ticket, a project, a team, any set of tags) and a period. It is compared with actual cost and never stops spending. Token budgets can overlap: one for `team: web` and one for `project: acme-shop` may count the same money.
 _Avoid_: Budget, limit, cap, allowance
 
+**Token estimate**:
+What a described piece of work, such as a ticket or a client project, will likely cost, given before the work starts and taken from what similar past work actually cost. An estimate can come as a range: a low, a likely and a high figure. For a ticket, Token Controller compares its title and description with the summaries of past token entries, shows the tickets they belong to with a confidence, and proposes their median cost. It becomes a token budget only when a person accepts it.
+_Avoid_: Forecast, quote, prediction
+
 **Token forecast**:
-Money Token Controller suggests for a ticket from similar past work. It compares the ticket's title and description with the summaries of past token entries, shows the tickets they belong to with a confidence, and proposes their median cost. It becomes a token budget only when a person accepts it.
-_Avoid_: Forecast, estimate, prediction
+Where running cost is heading: the cost of a filter, such as the organization, a team or a person, in the coming periods, extrapolated from the trend of past periods. For example, 30,000 USD last month and 35,000 USD expected next month. A token forecast looks at periods; a token estimate looks at one piece of work.
+_Avoid_: Estimate, projection, prediction
 
 **Actual**:
 What was spent against a token budget.

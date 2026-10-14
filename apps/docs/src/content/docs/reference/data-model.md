@@ -21,7 +21,7 @@ The records Token Controller keeps, and the rules that hold between them. The te
 | Token sheet | One agent manager, one cadence period, their reviewed token entries. Submitted or late. |
 | Cadence | The rhythm in which token sheets are due, set per project or organization by a people manager. |
 | Token budget | Money a human has planned for a filter and a period. |
-| Token forecast | Money suggested for a ticket from similar past work, with the matched tickets and a confidence. Becomes a token budget when a person accepts it. |
+| Token estimate | Money suggested for a ticket from similar past work, with the matched tickets and a confidence. Becomes a token budget when a person accepts it. |
 | Telemetry event | One model call. Joins to token entries by session and message ID. |
 | Cost source | One way a provider charges: subscription, seat, usage at API rates, API key, cloud marketplace or reseller. |
 | Bill | A provider's figure for one period: gross, discount, credit, net, currency and exchange rate, cost source, revision. See [Bill schema](/reference/bill). |
