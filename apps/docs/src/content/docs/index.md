@@ -64,7 +64,7 @@ More on the [CLI](/collect/cli) page.
 ```sh
 # inside Claude Code
 /plugin marketplace add tokencontroller/tokencontroller
-/plugin install token-org manager
+/plugin install token-controller
 ```
 
 After every turn the mod records Claude Code's usage, writes the one-line summary and places the draft token entry. A band above the prompt shows what you spent and how much is on tickets. See [Claude Code mod](/collect/claude-code).

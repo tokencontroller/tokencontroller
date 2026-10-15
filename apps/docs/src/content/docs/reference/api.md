@@ -68,7 +68,7 @@ Every report answers within the caller's role. Paths are under `/api/v1`.
 `/api/v1/mcp` is a Model Context Protocol server, so an AI agent can read your organization: its settings and tag map, members, projects, clients and tickets. It only reads, and it sees what the token's creator sees. Connect Claude Code with a read token:
 
 ```bash
-claude mcp add --transport http token-org manager \
+claude mcp add --transport http token-controller \
   https://app.tokencontroller.com/api/v1/mcp \
   --header "Authorization: Bearer tc_read_…"
 ```

@@ -10,7 +10,7 @@ The Claude Code mod records what Claude Code spends, turn by turn, and shows whe
 ```sh
 # inside Claude Code
 /plugin marketplace add tokencontroller/tokencontroller
-/plugin install token-org manager
+/plugin install token-controller
 ```
 
 The mod keeps its token entries through the CLI, so [install `tc`](/collect/cli#install) too. Then [connect it](/collect/cli#connect) to your organization, or leave it local.
