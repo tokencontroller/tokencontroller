@@ -57,7 +57,7 @@ A name and a value on a token entry, such as `team: growth` or `client: acme`. A
 _Avoid_: Label, dimension, attribute
 
 **Tag name**:
-The left half of a tag, such as `team`. The organization manager keeps the list of tag names; anyone may add new values.
+The left half of a tag, such as `team`. The org manager keeps the list of tag names; anyone may add new values.
 _Avoid_: Key
 
 **Built-in tag**:
@@ -144,9 +144,9 @@ _Avoid_: Member, supervisor, owner, orchestrator, prompter, developer
 The role that manages people and projects: reads reports, sets token budgets and cadence, and approves or rejects token entries, for the filters it is assigned, such as `team: web` or `client: acme`. A people manager is also an agent manager.
 _Avoid_: Manager
 
-**Organization manager**:
+**Org manager**:
 The role that sees everything, sets up the organization, runs the close and posts adjustments. With agent managers and people managers, one of three kinds of manager.
-_Avoid_: Controller, owner, admin
+_Avoid_: Controller, organization manager, owner, admin
 
 **Assignee**:
 The person a ticket is assigned to.
@@ -181,7 +181,7 @@ A stretch of a session on one branch and one working directory.
 The full text of a session. It never leaves the machine.
 
 **Summary**:
-What an agent writes about what a session did, like a pull request description: what was asked, what was built, what was left out or added, and what went wrong, such as a loop or a failing test. It is the text the System 1 classifier matches with tickets and estimates. With the tag values, it is the only text in a token entry. On a token sheet, the agent manager sees it before submitting.
+Free text an agent writes about what a session did, like a pull request description. It has no fixed parts; the System 1 classifier reads it as it is and matches it with estimates and tags. With the tag values, it is the only text in a token entry. On a token sheet, the agent manager sees it before submitting.
 
 **Telemetry event**:
 One model call as reported live by the agent: tokens, cost and IDs, no text.
@@ -200,7 +200,7 @@ An instruction that turns signals into tags. Organization rules run before perso
 _Avoid_: Filter, mapping
 
 **System 1 classifier**:
-A model that reads text in one pass and answers only with probabilities: which of the given choices fits, a score on a scale, or yes or no. It never writes text, so nothing it was trained on can come back out. Token Controller's classifier is trained on the token entries and estimates of all organizations. It makes token estimates, finds similar past work, places token entries on tickets and estimates, and explains each delta.
+A model that reads text in one pass and answers only with probabilities: which of the given choices fits, a score on a scale, or yes or no. It never writes text, so nothing it was trained on can come back out. Token Controller's classifier is trained on the text of all organizations: summaries, estimate descriptions and the tags they got. It makes token estimates, finds similar past work, places token entries on tickets and estimates, and explains each delta.
 _Avoid_: LLM, AI model, embeddings
 
 **Classifier**:
@@ -208,7 +208,7 @@ An optional program on a person's machine that picks among candidate tickets whe
 _Avoid_: System 1 classifier
 
 **Summary match**:
-Token Controller's System 1 classifier placing a token entry on the open ticket or estimate its summary fits, when no rule found a ticket. Always marked as such.
+Token Controller's System 1 classifier placing a token entry on the estimate and tags its summary fits, when no rule set them. Always marked as such.
 _Avoid_: Auto-match, AI match
 
 **Report**:
@@ -281,7 +281,7 @@ Locking a period so its token entries, splits and tags can no longer change. It 
 _Avoid_: Month-end, lock
 
 **Adjustment**:
-A signed correction an organization manager posts to a closed period.
+A signed correction an org manager posts to a closed period.
 
 ### Management control
 
@@ -290,7 +290,7 @@ Money a human has planned for a filter (a person, a ticket, a project, a team, a
 _Avoid_: Budget, limit, cap, allowance
 
 **Token estimate**:
-What a described piece of work, such as a ticket or a client project, will cost, given before the work starts: a probability distribution in dollars, the chance of each cost band, with its median. The System 1 classifier makes it from the description, and from optional context such as the summaries and cost of earlier work. A token estimate is its own object: it can stand alone, or be linked to a ticket or a project later, and tags reach it through that link. Anyone can ask for one through the Estimates API, without recording anything. It becomes a token budget only when a person accepts it.
+What a described piece of work, such as a ticket or a client project, will cost, given before the work starts: a probability distribution in dollars, the chance of each cost band, with its median. The System 1 classifier makes it from the description, and from optional context such as the summaries and cost of earlier work. A token estimate is its own object: it can stand alone, or be tagged later with any tag, such as a project, an epic or a ticket. No tag name ranks above another. Anyone can ask for one through the Estimates API, without recording anything. It becomes a token budget only when a person accepts it.
 _Avoid_: Forecast, quote, prediction
 
 **Token forecast**:
@@ -298,7 +298,7 @@ Where running cost is heading: the cost of a filter, such as the organization, a
 _Avoid_: Estimate, projection, prediction
 
 **Delta**:
-The difference between a token estimate's median and the actual cost of the token entries placed on it. The classifier labels why: scope (more or less was built than described), trouble (loops, failures, rework), or the estimate itself.
+The difference between a token estimate's median and the actual cost of the token entries matched to it. The classifier labels why: scope (more or less was built than described), trouble (loops, failures, rework), or the estimate itself.
 _Avoid_: Variance, error
 
 **Benchmark**:

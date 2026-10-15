@@ -49,7 +49,7 @@ volumes:
 docker compose up -d
 ```
 
-The service listens on port 8080; put a reverse proxy with TLS in front of it. The person who signs up creates the organization and becomes its organization manager. Every variable is listed under [Configuration](/self-hosting/configuration).
+The service listens on port 8080; put a reverse proxy with TLS in front of it. The person who signs up creates the organization and becomes its org manager. Every variable is listed under [Configuration](/self-hosting/configuration).
 
 ## Postgres {#postgres}
 

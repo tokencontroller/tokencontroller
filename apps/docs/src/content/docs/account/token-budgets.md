@@ -15,9 +15,9 @@ Put a token budget on any tag filter for a period: a person (for example 1,500 E
 
 ## Token estimates {#estimates}
 
-A token estimate is a probability distribution of what a piece of work will cost: the chance of each cost band in dollars, with its median. Token Controller's System 1 classifier makes it from the ticket's title and description, trained on the token entries and estimates of all organizations. It answers with probabilities only, so no description, name or client of another organization can come back out. Accept the median, or set your own figure; it becomes a token budget only when a person accepts it.
+A token estimate is a probability distribution of what a piece of work will cost: the chance of each cost band in dollars, with its median. Token Controller's System 1 classifier makes it from the description of the work, trained on the text of all organizations: summaries, estimate descriptions and their tags. It answers with probabilities only, so no description, name or client of another organization can come back out. Accept the median, or set your own figure; it becomes a token budget only when a person accepts it.
 
-An estimate does not need a ticket. Ask for one through the [Estimates API](/reference/api#estimates), keep it on its own, and link it to a ticket or project later. Token entries placed on it give its [delta](#delta).
+An estimate needs no tag. Ask for one through the [Estimates API](/reference/api#estimates), keep it on its own, and tag it later with any tag, such as a project, an epic or a ticket. Token entries matched to it give its [delta](#delta).
 
 The hosted service runs the classifier. A self-hosted instance points to a classifier of its own (see [Configuration](/self-hosting/configuration)).
 

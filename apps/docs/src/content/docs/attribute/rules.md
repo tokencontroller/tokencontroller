@@ -56,7 +56,7 @@ By default the ticket named most often wins; on a tie, the one named last. Keys 
 
 ## Summary match {#summary}
 
-When no rule finds a ticket, Token Controller's [System 1 classifier](/glossary#system-1-classifier) reads the token entry's summary and gives each open ticket and estimate in the project the repository maps to, or else in the whole organization, a probability. If one clearly fits, the token entry goes there, marked _matched by summary_ in the review list and in reports; otherwise the next step runs. An organization can switch summary matching off under _Rules_.
+When no rule finds a ticket, Token Controller's [System 1 classifier](/glossary#system-1-classifier) reads the token entry's summary and gives each open estimate and ticket in the project the repository maps to, or else in the whole organization, a probability. If one clearly fits, the token entry goes there, marked _matched by summary_ in the review list and in reports; otherwise the next step runs. An organization can switch summary matching off under _Rules_.
 
 ## When rules change {#changes}
 

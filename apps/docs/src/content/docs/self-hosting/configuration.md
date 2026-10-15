@@ -31,7 +31,7 @@ These switch on the [Enterprise plan](/self-hosting/enterprise) features in the 
 
 | Variable | Meaning |
 | --- | --- |
-| `TC_LICENSE_KEY` | The license key that comes with the contract. Without a valid key, the image works like the open-source one. From 30 days before the key's last day of support, organization managers see a renewal notice. The features keep working for 30 days after that day. |
+| `TC_LICENSE_KEY` | The license key that comes with the contract. Without a valid key, the image works like the open-source one. From 30 days before the key's last day of support, org managers see a renewal notice. The features keep working for 30 days after that day. |
 | `TC_TELEMETRY_FORWARD_URL` | Your collector's OTLP HTTP endpoint, such as `https://otel.example.com:4318`. Every telemetry batch the service accepts goes there unchanged, before the service drops prompt text. |
 | `TC_TELEMETRY_FORWARD_HEADERS` | Headers for your collector, as `name=value,name2=value2`, the same as `OTEL_EXPORTER_OTLP_HEADERS`. |
 

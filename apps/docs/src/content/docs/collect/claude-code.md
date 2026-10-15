@@ -10,7 +10,7 @@ The Claude Code mod records what Claude Code spends, turn by turn, and shows whe
 ```sh
 # inside Claude Code
 /plugin marketplace add tokencontroller/tokencontroller
-/plugin install token-organization manager
+/plugin install token-org manager
 ```
 
 The mod keeps its token entries through the CLI, so [install `tc`](/collect/cli#install) too. Then [connect it](/collect/cli#connect) to your organization, or leave it local.
@@ -31,7 +31,7 @@ After every turn the mod has the CLI read Claude Code's own usage figures from i
 
 ## What it shows {#shows}
 
-- **A band above the prompt** with the headline number, the share on tickets, and a note when your token sheet is late or the organization manager asks everyone to submit before the close.
+- **A band above the prompt** with the headline number, the share on tickets, and a note when your token sheet is late or the org manager asks everyone to submit before the close.
 - **A pane** beside the conversation with small charts and filters, the review list, submit, and rule editing.
 
 ## Commands {#commands}

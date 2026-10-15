@@ -35,7 +35,7 @@ About fifteen minutes, once. To connect the bill you need an admin key from Anth
   <li><b>Choose your tags.</b><p>Under <em>Tags</em>, list the tag names you report by, such as <code>team</code> and <code>client</code>. The default <a href="/account/tags#map">tag map</a> works as it is; change it if teams answer for money or you want client as its own level.</p></li>
   <li><b>Create your projects.</b><p>Give each project its client tag, a ticket key pattern such as <code>^KD-\d+</code>, and its repositories, and connect Jira Cloud, Azure DevOps or GitHub Issues. See <a href="/account/projects">Projects and tickets</a>. Optionally set <a href="/account/token-budgets">token budgets</a> now.</p></li>
   <li><b>Invite people.</b><p>Give each member a <a href="/account/roles">role</a> and their team tag. They install the mod or the CLI (<a href="#engineers">below</a>), or you cover everyone on Claude Code at once with <a href="/collect/telemetry">telemetry push</a> in managed settings. Optionally set a <a href="/account/cadence">cadence</a> for token sheets.</p></li>
-  <li><b>Close the first period.</b><p>When the period's bill is final, an organization manager checks what is open, rejects wrong token entries back to their agent manager, and closes. Anthropic Enterprise bills are final <a href="/account/bills#anthropic-enterprise">about 30 days</a> after the period ends. Hand finance the cost sheet. See <a href="/account/close">Closing a period</a>.</p></li>
+  <li><b>Close the first period.</b><p>When the period's bill is final, an org manager checks what is open, rejects wrong token entries back to their agent manager, and closes. Anthropic Enterprise bills are final <a href="/account/bills#anthropic-enterprise">about 30 days</a> after the period ends. Hand finance the cost sheet. See <a href="/account/close">Closing a period</a>.</p></li>
 </ol>
 
 ## Quick start for agent managers {#engineers}
@@ -64,7 +64,7 @@ More on the [CLI](/collect/cli) page.
 ```sh
 # inside Claude Code
 /plugin marketplace add tokencontroller/tokencontroller
-/plugin install token-organization manager
+/plugin install token-org manager
 ```
 
 After every turn the mod records Claude Code's usage, writes the one-line summary and places the draft token entry. A band above the prompt shows what you spent and how much is on tickets. See [Claude Code mod](/collect/claude-code).

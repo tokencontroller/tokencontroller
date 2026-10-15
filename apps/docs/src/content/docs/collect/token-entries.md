@@ -48,9 +48,9 @@ To send several token entries in one call, send a list of up to 1,000. Either al
 
 `list_value` is `null` for an unknown model until the price table knows it. Token Controller accepts every token entry and fits the pieces together afterwards:
 
-- A tag that is not on your organization's list is kept, and `new_tags` names it. The organization manager adds it to the list or maps it to an existing one.
+- A tag that is not on your organization's list is kept, and `new_tags` names it. The org manager adds it to the list or maps it to an existing one.
 - A token entry for a session Token Controller already has is a [duplicate](/glossary#duplicate): accepted, counted once, and shown greyed out behind a toggle.
-- A token entry for a closed period is accepted and waits for the organization manager to post it as an [adjustment](/account/close#adjustments).
+- A token entry for a closed period is accepted and waits for the org manager to post it as an [adjustment](/account/close#adjustments).
 
 Only a request that is not a token entry at all, such as broken JSON, gets `400`.
 
