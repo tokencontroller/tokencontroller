@@ -265,6 +265,7 @@ enum Cred {
 }
 
 struct Alpha {
+    organization_id: Uuid,
     person_id: Uuid,
     ticket_id: Uuid,
     service_token_id: Uuid,
@@ -291,7 +292,8 @@ impl Alpha {
 }
 
 async fn alpha(app: &Router, pool: &PgPool) -> TestResult<Alpha> {
-    let (_, person_id) = organization(pool, "Alpha Works", "alice@alpha.example").await?;
+    let (organization_id, person_id) =
+        organization(pool, "Alpha Works", "alice@alpha.example").await?;
     let session = session_for(pool, person_id, secret::SESSION).await?;
     let token = |kind: &'static str| {
         let session = session.clone();
@@ -357,6 +359,7 @@ async fn alpha(app: &Router, pool: &PgPool) -> TestResult<Alpha> {
     )
     .await?;
     Ok(Alpha {
+        organization_id,
         person_id,
         ticket_id: id_at(&ticket, "/id")?,
         service_token_id: id_at(&service, "/id")?,
@@ -866,8 +869,14 @@ struct Ask {
     /// The statuses that count as refused or answered; empty takes any
     /// status below 500.
     expect: &'static [u16],
-    /// A JSON pointer into the answer and the value it must have.
-    check: Option<(&'static str, Value)>,
+    /// JSON pointers into the answer and the values they must have.
+    checks: Vec<(&'static str, Value)>,
+    /// The checks in place of [`Self::checks`] once Alpha has written: for
+    /// Alpha's own lists, which its writes fill.
+    after: Option<Vec<(&'static str, Value)>>,
+    /// Bravo's names this answer may hold because Alpha stored them as its
+    /// own: each counts only while Alpha's rows hold it.
+    allow: Vec<&'static str>,
 }
 
 impl Ask {
@@ -892,7 +901,19 @@ impl Ask {
     }
 
     fn check(mut self, pointer: &'static str, value: Value) -> Self {
-        self.check = Some((pointer, value));
+        self.checks.push((pointer, value));
+        self
+    }
+
+    fn after(mut self, pointer: &'static str, value: Value) -> Self {
+        self.after
+            .get_or_insert_with(Vec::new)
+            .push((pointer, value));
+        self
+    }
+
+    fn allow(mut self, names: &[&'static str]) -> Self {
+        self.allow.extend_from_slice(names);
         self
     }
 }
@@ -904,7 +925,9 @@ fn ask(method: Method, path: impl Into<String>) -> Ask {
         cred: Cred::Session,
         payload: Payload::Empty,
         expect: &[],
-        check: None,
+        checks: Vec::new(),
+        after: None,
+        allow: Vec::new(),
     }
 }
 
@@ -942,6 +965,22 @@ fn case(method: &'static str, template: &'static str, asks: Vec<Ask>) -> Case {
         asks,
     }
 }
+
+/// Bravo's names Alpha stored as its own with its writes: its project's
+/// repository, its token entries' tickets, sender IDs and sessions, its
+/// filters. Only Alpha's raw export holds them all.
+const ALPHA_STORED: [&str; 10] = [
+    "bravo-ledger",
+    "bravo/ledger",
+    "BRAVO-7",
+    "bravo-local-1",
+    "bravo-local-3",
+    "bravo-local-4",
+    "bravo-session-1",
+    "bravo-session-2",
+    "bravo-session-3",
+    "bravo-session-4",
+];
 
 const OK: &[u16] = &[200];
 const CREATED: &[u16] = &[201];
@@ -1059,8 +1098,13 @@ fn member_cases(alpha: &Alpha, b: &Bravo) -> Vec<Case> {
             "GET",
             "/api/v1/me/context",
             vec![
-                get("/api/v1/me/context").expect(OK),
-                get("/api/v1/me/context").by(Cred::Cli).expect(OK),
+                get("/api/v1/me/context")
+                    .expect(OK)
+                    .allow(&["bravo/ledger"]),
+                get("/api/v1/me/context")
+                    .by(Cred::Cli)
+                    .expect(OK)
+                    .allow(&["bravo/ledger"]),
             ],
         ),
         case(
@@ -1203,8 +1247,11 @@ fn project_cases(b: &Bravo) -> Vec<Case> {
             "GET",
             "/api/v1/projects",
             vec![
-                get("/api/v1/projects").expect(OK),
-                get("/api/v1/projects?archived=true").expect(OK),
+                // Alpha's project names Bravo's repository as its own.
+                get("/api/v1/projects").expect(OK).allow(&["bravo/ledger"]),
+                get("/api/v1/projects?archived=true")
+                    .expect(OK)
+                    .allow(&["bravo/ledger"]),
             ],
         ),
         case(
@@ -1397,8 +1444,13 @@ fn decision_cases(b: &Bravo) -> Vec<Case> {
             "GET",
             "/api/v1/token-entries/approval",
             vec![
-                get(format!("{entries}/approval")).expect(OK),
-                get(format!("{entries}/approval?format=csv")).expect(OK),
+                // Alpha's token entries carry Bravo's ticket key as their own.
+                get(format!("{entries}/approval"))
+                    .expect(OK)
+                    .allow(&["BRAVO-7"]),
+                get(format!("{entries}/approval?format=csv"))
+                    .expect(OK)
+                    .allow(&["BRAVO-7"]),
             ],
         ),
         case(
@@ -1466,7 +1518,7 @@ fn telemetry_cases() -> Vec<Case> {
         case(
             "POST",
             "/api/v1/ingest/otlp/v1/traces",
-            vec![otlp("traces").json(json!({"resourceSpans": []})).expect(OK)],
+            vec![otlp("traces").json(trace_with_bravos_session()).expect(OK)],
         ),
         case(
             "POST",
@@ -1500,15 +1552,50 @@ fn telemetry_with_bravos_session() -> Value {
     }] })
 }
 
+/// A Copilot CLI `chat` span that names Bravo's session and Bravo's member.
+fn trace_with_bravos_session() -> Value {
+    let text = |key: &str, value: &str| json!({ "key": key, "value": { "stringValue": value } });
+    let int = |key: &str, value: i64| json!({ "key": key, "value": { "intValue": value } });
+    json!({ "resourceSpans": [{
+        "resource": { "attributes": [
+            text("service.name", "github-copilot"),
+            text("user.email", "bruno@bravo.example"),
+        ] },
+        "scopeSpans": [{ "scope": { "name": "github.copilot" }, "spans": [{
+            "traceId": "4bf92f3577b34da6a3ce929d0e0e4736",
+            "spanId": "00f067aa0ba902b7",
+            "name": "chat claude-sonnet-5",
+            "kind": 3,
+            "startTimeUnixNano": "1791199900000000000",
+            "endTimeUnixNano": "1791199907000000000",
+            "attributes": [
+                text("gen_ai.operation.name", "chat"),
+                text("gen_ai.request.model", "claude-sonnet-5"),
+                text("gen_ai.conversation.id", "bravo-session-2"),
+                text("gen_ai.response.id", "alpha-span-1"),
+                int("gen_ai.usage.input_tokens", 5200),
+                int("gen_ai.usage.output_tokens", 140),
+            ],
+        }] }],
+    }] })
+}
+
 fn sheet_cases(b: &Bravo) -> Vec<Case> {
     vec![
         case(
             "GET",
             "/api/v1/token-sheets/current",
             vec![
-                get("/api/v1/token-sheets/current").expect(OK),
-                get("/api/v1/token-sheets/current").by(Cred::Cli).expect(OK),
-                get("/api/v1/token-sheets/current?format=csv").expect(OK),
+                get("/api/v1/token-sheets/current")
+                    .expect(OK)
+                    .allow(&["BRAVO-7"]),
+                get("/api/v1/token-sheets/current")
+                    .by(Cred::Cli)
+                    .expect(OK)
+                    .allow(&["BRAVO-7"]),
+                get("/api/v1/token-sheets/current?format=csv")
+                    .expect(OK)
+                    .allow(&["BRAVO-7"]),
             ],
         ),
         case(
@@ -1678,7 +1765,9 @@ fn bill_cases(b: &Bravo) -> Vec<Case> {
             vec![
                 get("/api/v1/bill-connections")
                     .expect(OK)
-                    .check("", json!([])),
+                    .check("", json!([]))
+                    .after("/0/key_hint", json!("…A1B2"))
+                    .after("/1", Value::Null),
             ],
         ),
         case(
@@ -1714,7 +1803,7 @@ fn bill_cases(b: &Bravo) -> Vec<Case> {
 fn integration_cases(b: &Bravo) -> Vec<Case> {
     let system = format!("/api/v1/ticket-systems/{}", b.ticket_system);
     vec![
-        case("GET", "/api/v1/ticket-systems", vec![get("/api/v1/ticket-systems").expect(OK).check("", json!([]))]),
+        case("GET", "/api/v1/ticket-systems", vec![get("/api/v1/ticket-systems").expect(OK).check("", json!([])).after("/0/site", json!("https://alpha-works.atlassian.net")).after("/1", Value::Null)]),
         case(
             "POST",
             "/api/v1/ticket-systems",
@@ -1756,7 +1845,7 @@ fn report_cases(b: &Bravo) -> Vec<Case> {
             "/api/v1/reports/outliers",
             vec![get("/api/v1/reports/outliers?period=2026-09").expect(OK), get("/api/v1/reports/outliers?period=2026-10").expect(OK)],
         ),
-        case("GET", "/api/v1/reports/saved", vec![get("/api/v1/reports/saved").expect(OK).check("", json!([]))]),
+        case("GET", "/api/v1/reports/saved", vec![get("/api/v1/reports/saved").expect(OK).check("", json!([])).after("/0/name", json!("Alpha copy")).after("/1", Value::Null).allow(&["bravo-ledger"])]),
         case(
             "POST",
             "/api/v1/reports/saved",
@@ -1770,21 +1859,21 @@ fn report_cases(b: &Bravo) -> Vec<Case> {
             vec![
                 get(format!("{entries}?person={}", b.bruno)).expect(OK).check("/total", json!(0)),
                 get(format!("{entries}?filter=project:bravo-ledger")).expect(OK).check("/total", json!(0)),
-                get(format!("{entries}?status=submitted,approved,rejected,locked")).expect(OK),
-                get(format!("{entries}?format=csv")).expect(OK),
+                get(format!("{entries}?status=submitted,approved,rejected,locked")).expect(OK).allow(&["BRAVO-7"]),
+                get(format!("{entries}?format=csv")).expect(OK).allow(&["BRAVO-7"]),
             ],
         ),
         case(
             "GET",
             "/api/v1/reports/token-budgets",
-            vec![get("/api/v1/reports/token-budgets?period=2026-10").expect(OK), get("/api/v1/reports/token-budgets?period=2026-09").expect(OK)],
+            vec![get("/api/v1/reports/token-budgets?period=2026-10").expect(OK).allow(&["bravo-ledger"]), get("/api/v1/reports/token-budgets?period=2026-09").expect(OK).allow(&["bravo-ledger"])],
         ),
         case(
             "GET",
             "/api/v1/reports/token-budgets/{id}",
             vec![get(format!("/api/v1/reports/token-budgets/{}?period=2026-10", b.budget)).expect(NOT_FOUND)],
         ),
-        case("GET", "/api/v1/token-budgets", vec![get("/api/v1/token-budgets").expect(OK).check("", json!([])), get("/api/v1/token-budgets?format=csv").expect(OK)]),
+        case("GET", "/api/v1/token-budgets", vec![get("/api/v1/token-budgets").expect(OK).check("", json!([])).after("/0/name", json!("Alpha watch")).after("/1", Value::Null).allow(&["bravo-ledger"]), get("/api/v1/token-budgets?format=csv").expect(OK).allow(&["bravo-ledger"])]),
         case(
             "POST",
             "/api/v1/token-budgets",
@@ -1798,7 +1887,7 @@ fn report_cases(b: &Bravo) -> Vec<Case> {
             vec![put(format!("/api/v1/token-budgets/{}", b.budget)).json(json!({"every_month": true, "period": "2026-09", "amount": "1.00"})).expect(NOT_FOUND)],
         ),
         case("DELETE", "/api/v1/token-budgets/{id}", vec![delete(format!("/api/v1/token-budgets/{}", b.budget)).expect(NOT_FOUND)]),
-        case("GET", "/api/v1/exports/raw", vec![get("/api/v1/exports/raw").expect(OK)]),
+        case("GET", "/api/v1/exports/raw", vec![get("/api/v1/exports/raw").expect(OK).allow(&ALPHA_STORED)]),
     ]
 }
 
@@ -1915,12 +2004,24 @@ fn mcp_cases() -> Vec<Case> {
             .check("/result/structuredContent/result", json!({})),
     ];
     for tool in MCP_TOOLS {
-        asks.push(post(mcp).json(mcp_call(tool, &json!({}))).expect(OK));
+        // Alpha's project names Bravo's repository as its own.
+        let stored: &[&str] = if tool == "projects" {
+            &["bravo/ledger"]
+        } else {
+            &[]
+        };
+        asks.push(
+            post(mcp)
+                .json(mcp_call(tool, &json!({})))
+                .expect(OK)
+                .allow(stored),
+        );
         asks.push(
             post(mcp)
                 .by(Cred::Read)
                 .json(mcp_call(tool, &json!({})))
-                .expect(OK),
+                .expect(OK)
+                .allow(stored),
         );
     }
     vec![case("POST", "/api/v1/mcp", asks)]
@@ -1984,99 +2085,111 @@ fn documented_routes() -> TestResult<BTreeSet<(String, String)>> {
     Ok(routes)
 }
 
+/// The two organizations and the service they share.
+struct Tenants<'a> {
+    app: &'a Router,
+    pool: &'a PgPool,
+    alpha: &'a Alpha,
+    bravo: &'a Bravo,
+}
+
 /// What Alpha's calls found: one line per problem.
 #[derive(Default)]
 struct Findings {
     problems: Vec<String>,
-    /// Everything Alpha stored with a successful write: Bravo's strings in
-    /// it are Alpha's own data from then on.
-    written: String,
     calls: usize,
 }
 
-impl Findings {
-    fn leaks(&self, bravo: &Bravo, request: &str, answer: &str) -> Vec<String> {
-        bravo
-            .secrets
-            .iter()
-            .filter(|secret| !secret.is_empty())
-            .filter(|secret| {
-                !request.contains(secret.as_str()) && !self.written.contains(secret.as_str())
-            })
-            .filter(|secret| answer.contains(secret.as_str()))
+/// Bravo's names and IDs in `answer`, but for those `request` itself sent.
+fn leaks(bravo: &Bravo, request: &str, answer: &str) -> Vec<String> {
+    bravo
+        .secrets
+        .iter()
+        .filter(|secret| !secret.is_empty())
+        .filter(|secret| !request.contains(secret.as_str()))
+        .filter(|secret| answer.contains(secret.as_str()))
+        .cloned()
+        .collect()
+}
+
+/// Whether the status and the check of `ask` hold for `answer`.
+fn expectations(ask: &Ask, label: &str, answer: &Answer, findings: &mut Findings) {
+    let status = answer.status.as_u16();
+    if !ask.expect.is_empty() && !ask.expect.contains(&status) {
+        findings.problems.push(format!(
+            "{label}: {status}, expected {:?}: {}",
+            ask.expect,
+            answer.text()
+        ));
+    }
+    for (pointer, want) in &ask.checks {
+        let got = answer
+            .json()
+            .pointer(pointer)
             .cloned()
-            .collect()
+            .unwrap_or(Value::Null);
+        if got != *want {
+            findings
+                .problems
+                .push(format!("{label}: {pointer:?} is {got}, expected {want}"));
+        }
     }
 }
 
 async fn run_ask(
-    app: &Router,
-    alpha: &Alpha,
-    bravo: &Bravo,
+    tenants: &Tenants<'_>,
     ask: &Ask,
     cred: Cred,
     findings: &mut Findings,
 ) -> TestResult<()> {
     let answer = call(
-        app,
+        tenants.app,
         ask.method.clone(),
         &ask.path,
-        alpha.token(cred),
+        tenants.alpha.token(cred),
         &ask.payload,
     )
     .await?;
     findings.calls = findings.calls.saturating_add(1);
     let label = format!("{} {} as {cred:?}", ask.method, ask.path);
     let request = format!("{} {}", ask.path, ask.payload.text());
-    let status = answer.status.as_u16();
     if answer.status.is_server_error() {
         findings
             .problems
-            .push(format!("{label}: {status} {}", answer.text()));
+            .push(format!("{label}: {} {}", answer.status, answer.text()));
     }
-    // A second credential only has to keep Bravo's data out.
-    if cred == ask.cred {
-        if !ask.expect.is_empty() && !ask.expect.contains(&status) {
-            findings.problems.push(format!(
-                "{label}: {status}, expected {:?}: {}",
-                ask.expect,
-                answer.text()
-            ));
-        }
-        if let Some((pointer, want)) = &ask.check {
-            let got = answer
-                .json()
-                .pointer(pointer)
-                .cloned()
-                .unwrap_or(Value::Null);
-            if got != *want {
-                findings
-                    .problems
-                    .push(format!("{label}: {pointer:?} is {got}, expected {want}"));
-            }
-        }
+    // A read token may be refused by design; what it is answered must hold
+    // as for the session.
+    let refused_by_design = cred != ask.cred
+        && matches!(
+            answer.status,
+            StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN
+        );
+    if !refused_by_design {
+        expectations(ask, &label, &answer, findings);
     }
-    let leaks = findings.leaks(bravo, &request, &answer.readable()?);
-    if !leaks.is_empty() {
+    let mut leaked = leaks(tenants.bravo, &request, &answer.readable()?);
+    if leaked
+        .iter()
+        .any(|secret| ask.allow.contains(&secret.as_str()))
+    {
+        let alphas = organization_rows(tenants.pool, tenants.alpha.organization_id)
+            .await?
+            .join("\n");
+        leaked.retain(|secret| {
+            !(ask.allow.contains(&secret.as_str()) && alphas.contains(secret.as_str()))
+        });
+    }
+    if !leaked.is_empty() {
         findings.problems.push(format!(
-            "{label} answers with Bravo's {leaks:?}: {}",
+            "{label} answers with Bravo's {leaked:?}: {}",
             answer.text()
         ));
-    }
-    if ask.method != Method::GET && answer.status.is_success() {
-        findings.written.push_str(&request);
-        findings.written.push('\n');
     }
     Ok(())
 }
 
-async fn run(
-    app: &Router,
-    alpha: &Alpha,
-    bravo: &Bravo,
-    cases: &[Case],
-    findings: &mut Findings,
-) -> TestResult<()> {
+async fn run(tenants: &Tenants<'_>, cases: &[Case], findings: &mut Findings) -> TestResult<()> {
     for case in cases {
         for ask in &case.asks {
             if ask.method.as_str() != case.method || !fits(case.template, &ask.path) {
@@ -2085,14 +2198,57 @@ async fn run(
                     ask.method, ask.path, case.method, case.template
                 ));
             }
-            run_ask(app, alpha, bravo, ask, ask.cred, findings).await?;
+            run_ask(tenants, ask, ask.cred, findings).await?;
             // Every read again with Alpha's read token.
             if ask.method == Method::GET && ask.cred == Cred::Session {
-                run_ask(app, alpha, bravo, ask, Cred::Read, findings).await?;
+                run_ask(tenants, ask, Cred::Read, findings).await?;
             }
         }
     }
     Ok(())
+}
+
+/// Alpha's reads that count and total its usage: an organization lost from
+/// one of their queries would take in Bravo's without naming any of it.
+const ALPHA_AGGREGATES: [&str; 22] = [
+    "/api/v1/reports/cost?period=2026-09&by=project",
+    "/api/v1/reports/cost?period=2026-10&by=project",
+    "/api/v1/reports/cost?period=2026-10&by=ticket",
+    "/api/v1/reports/cost?period=2026-10&by=client",
+    "/api/v1/reports/agent-harness?period=2026-09",
+    "/api/v1/reports/agent-harness?period=2026-10",
+    "/api/v1/reports/outliers?period=2026-10",
+    "/api/v1/reports/token-budgets?period=2026-10",
+    "/api/v1/reports/token-entries?status=submitted,approved,rejected,locked",
+    "/api/v1/reconciliation?period=2026-09",
+    "/api/v1/reconciliation?period=2026-10",
+    "/api/v1/periods",
+    "/api/v1/periods/2026-09/cost-sheet",
+    "/api/v1/token-entries/approval",
+    "/api/v1/token-sheets/current",
+    "/api/v1/token-sheets/late?period=2026-10",
+    "/api/v1/organization/member-limit",
+    "/api/v1/me/context",
+    "/api/v1/clients",
+    "/api/v1/tags/client/values",
+    "/api/v1/tickets/ALPHA-1/token-forecast",
+    "/api/v1/exports/raw",
+];
+
+/// Alpha's counts and totals, read as Alpha.
+async fn alpha_totals(app: &Router, alpha: &Alpha) -> TestResult<Vec<String>> {
+    let mut totals = Vec::new();
+    for path in ALPHA_AGGREGATES {
+        let answer = call(app, Method::GET, path, &alpha.session, &Payload::Empty).await?;
+        // The export's own time is no total.
+        let readable = answer.readable()?;
+        let kept: Vec<&str> = readable
+            .lines()
+            .filter(|line| !line.contains("\"exported_at\""))
+            .collect();
+        totals.push(format!("{path}: {} {}", answer.status, kept.join("\n")));
+    }
+    Ok(totals)
 }
 
 /// Bravo's own view of its data, read through the API as Bravo.
@@ -2164,9 +2320,9 @@ async fn bravo_view(app: &Router, bravo: &Bravo) -> TestResult<Vec<String>> {
     Ok(view)
 }
 
-/// Bravo's rows in every table that has an organization, and in the tables
+/// An organization's rows in every table that has one, and in the tables
 /// that hang off them, as text.
-async fn bravo_rows(pool: &PgPool, organization_id: Uuid) -> TestResult<Vec<String>> {
+async fn organization_rows(pool: &PgPool, organization_id: Uuid) -> TestResult<Vec<String>> {
     let tables: Vec<String> = sqlx::query_scalar(
         "SELECT table_name::text FROM information_schema.columns
          WHERE table_schema = 'public' AND column_name = 'organization_id' ORDER BY 1",
@@ -2215,14 +2371,28 @@ fn differences(before: &[String], after: &[String]) -> Vec<String> {
 async fn every_route_refuses_another_organizations_data(pool: PgPool) {
     let app = router(AppState::new(pool.clone(), config(), Arc::new(NoExtension)));
     let alpha = alpha(&app, &pool).await.unwrap();
+    let alone = alpha_totals(&app, &alpha).await.unwrap();
     let bravo = bravo(&app, &pool).await.unwrap();
-    let cases = all_cases(&alpha, &bravo);
+    let changed = differences(&alone, &alpha_totals(&app, &alpha).await.unwrap());
+    assert!(
+        changed.is_empty(),
+        "Alpha's totals moved with Bravo's usage:\n{}",
+        changed.join("\n\n")
+    );
+    let tenants = Tenants {
+        app: &app,
+        pool: &pool,
+        alpha: &alpha,
+        bravo: &bravo,
+    };
 
-    let rows_before = bravo_rows(&pool, bravo.organization_id).await.unwrap();
+    let rows_before = organization_rows(&pool, bravo.organization_id)
+        .await
+        .unwrap();
     let view_before = bravo_view(&app, &bravo).await.unwrap();
 
     let mut findings = Findings::default();
-    run(&app, &alpha, &bravo, &cases, &mut findings)
+    run(&tenants, &all_cases(&alpha, &bravo), &mut findings)
         .await
         .unwrap();
     // Every read once more, now that Alpha has written with Bravo's IDs.
@@ -2231,35 +2401,16 @@ async fn every_route_refuses_another_organizations_data(pool: PgPool) {
         .map(|mut case| {
             case.asks
                 .retain(|ask| ask.method == Method::GET && ask.cred != Cred::Nobody);
-            // Alpha's own lists are no longer empty.
             for ask in &mut case.asks {
-                ask.check = None;
+                if let Some(after) = ask.after.take() {
+                    ask.checks = after;
+                }
             }
             case
         })
         .collect();
-    run(&app, &alpha, &bravo, &reads, &mut findings)
-        .await
-        .unwrap();
+    run(&tenants, &reads, &mut findings).await.unwrap();
     assert!(findings.calls > 200, "only {} calls", findings.calls);
-    // The same reads as Bravo do show Bravo's data, so the check above can
-    // see a leak when there is one.
-    for path in [
-        "/api/v1/tickets".to_owned(),
-        format!("/api/v1/tickets/{}", bravo.ticket),
-        "/api/v1/reports/token-entries?status=submitted,approved,rejected,locked".to_owned(),
-        "/api/v1/exports/raw".to_owned(),
-        "/api/v1/members".to_owned(),
-    ] {
-        let answer = call(&app, Method::GET, &path, &bravo.boss, &Payload::Empty)
-            .await
-            .unwrap();
-        let readable = answer.readable().unwrap();
-        assert!(
-            !Findings::default().leaks(&bravo, "", &readable).is_empty(),
-            "{path} as Bravo shows nothing the check knows: {readable}"
-        );
-    }
     assert!(
         findings.problems.is_empty(),
         "{} problems:\n{}",
@@ -2275,13 +2426,113 @@ async fn every_route_refuses_another_organizations_data(pool: PgPool) {
     );
     let changed = differences(
         &rows_before,
-        &bravo_rows(&pool, bravo.organization_id).await.unwrap(),
+        &organization_rows(&pool, bravo.organization_id)
+            .await
+            .unwrap(),
     );
     assert!(
         changed.is_empty(),
         "Bravo's rows changed:\n{}",
         changed.join("\n\n")
     );
+    // The telemetry Alpha sent with Bravo's session and member is Alpha's
+    // alone: both model calls are stored for Alpha and none for Bravo.
+    assert_eq!(
+        telemetry_with_bravos_session_id(&pool).await.unwrap(),
+        vec![
+            (alpha.organization_id, "claude-sonnet-5".to_owned()),
+            (alpha.organization_id, "gemini-2.5-pro".to_owned()),
+        ]
+    );
+
+    // Bravo's usage grows; Alpha's totals stay.
+    let with_bravo = alpha_totals(&app, &alpha).await.unwrap();
+    let bravos_cost = "/api/v1/reports/cost?period=2026-10&by=project";
+    let before = call(&app, Method::GET, bravos_cost, &bravo.boss, &Payload::Empty)
+        .await
+        .unwrap();
+    bravo_grows(&app, &bravo).await.unwrap();
+    let after = call(&app, Method::GET, bravos_cost, &bravo.boss, &Payload::Empty)
+        .await
+        .unwrap();
+    assert_ne!(before.json(), after.json(), "Bravo's own cost did not grow");
+    let changed = differences(&with_bravo, &alpha_totals(&app, &alpha).await.unwrap());
+    assert!(
+        changed.is_empty(),
+        "Alpha's totals counted Bravo's usage:\n{}",
+        changed.join("\n\n")
+    );
+}
+
+/// One more approved token entry for Bravo, in October like Alpha's.
+async fn bravo_grows(app: &Router, bravo: &Bravo) -> TestResult<()> {
+    let service = must(
+        app,
+        Method::POST,
+        "/api/v1/api-tokens",
+        &bravo.boss,
+        Payload::Json(json!({"kind": "service", "name": "Bravo second bot"})),
+    )
+    .await?;
+    let entry = must(
+        app,
+        Method::POST,
+        "/api/v1/token-entries",
+        &text_at(&service, "/token")?,
+        Payload::Json(session_entry(
+            "bravo-local-5",
+            "bravo-session-5",
+            "2026-10-08T09:00:00Z",
+            "BRAVO-7",
+            "Bravo later summary",
+        )),
+    )
+    .await?;
+    must(
+        app,
+        Method::POST,
+        "/api/v1/token-entries/approve",
+        &bravo.boss,
+        Payload::Json(json!({"token_entry_ids": [id_at(&entry, "/id")?]})),
+    )
+    .await?;
+    Ok(())
+}
+
+/// The model calls stored from telemetry with Bravo's session ID, and for
+/// which organization.
+async fn telemetry_with_bravos_session_id(pool: &PgPool) -> TestResult<Vec<(Uuid, String)>> {
+    Ok(sqlx::query_as(
+        "SELECT organization_id, model FROM messages
+         WHERE session_id = 'bravo-session-2' AND from_telemetry ORDER BY model",
+    )
+    .fetch_all(pool)
+    .await?)
+}
+
+/// The leak check sees Bravo's data where it is: the reads Alpha makes
+/// show it to Bravo.
+#[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
+async fn the_leak_check_sees_bravos_data(pool: PgPool) {
+    let app = router(AppState::new(pool.clone(), config(), Arc::new(NoExtension)));
+    let bravo = bravo(&app, &pool).await.unwrap();
+    for path in [
+        "/api/v1/tickets".to_owned(),
+        format!("/api/v1/tickets/{}", bravo.ticket),
+        "/api/v1/reports/token-entries?status=submitted,approved,rejected,locked".to_owned(),
+        "/api/v1/exports/raw".to_owned(),
+        "/api/v1/members".to_owned(),
+    ] {
+        let answer = call(&app, Method::GET, &path, &bravo.boss, &Payload::Empty)
+            .await
+            .unwrap();
+        let found = leaks(&bravo, "", &answer.readable().unwrap());
+        assert!(
+            !found.is_empty(),
+            "{path} as Bravo shows nothing the check knows ({})",
+            answer.status
+        );
+    }
 }
 
 #[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
