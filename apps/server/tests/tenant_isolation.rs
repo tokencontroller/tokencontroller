@@ -35,13 +35,15 @@ use uuid::Uuid;
 
 type TestResult<T> = Result<T, Box<dyn std::error::Error>>;
 
-const KEY: &str = "0123456789abcdef0123456789abcdef";
+/// The server's secret key for this test run: 32 hex characters, new each run.
+static KEY: std::sync::LazyLock<String> =
+    std::sync::LazyLock::new(|| Uuid::new_v4().simple().to_string());
 
 fn config() -> Config {
     Config {
         database_url: "postgres://unused".to_owned(),
         public_url: "http://localhost:8080".to_owned(),
-        secret_key: KEY.to_owned(),
+        secret_key: KEY.clone(),
         smtp_url: None,
         smtp_from: None,
         prices_refresh: false,
@@ -203,7 +205,7 @@ async fn session_for(pool: &PgPool, person_id: Uuid, prefix: &str) -> TestResult
     } else {
         "browser"
     };
-    let session = secret::generate(prefix, KEY)?;
+    let session = secret::generate(prefix, &KEY)?;
     sqlx::query("INSERT INTO sessions (token_hash, person_id, client, expires_at) VALUES ($1, $2, $3, now() + interval '1 day')")
         .bind(&session.hash)
         .bind(person_id)
@@ -2636,12 +2638,8 @@ async fn a_filter_on_another_organizations_names_counts_nothing(pool: PgPool) {
             .await
             .unwrap();
         assert_eq!(answer.status, StatusCode::OK, "{}", answer.text());
-        for secret in ["BRAVO-7", "777.77", &bravo.ticket.to_string()] {
-            assert!(
-                !answer.text().contains(secret),
-                "{secret} in {}",
-                answer.text()
-            );
+        for marker in ["BRAVO-7", "777.77", &bravo.ticket.to_string()] {
+            assert!(!answer.text().contains(marker), "{marker} in {run}");
         }
     }
 }
