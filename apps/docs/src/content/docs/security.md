@@ -3,11 +3,13 @@ title: "Security and privacy"
 description: "What leaves a person's machine, what a token entry contains, and who can see it."
 ---
 
-Token Controller stores numbers, identifiers, a one-line summary per session and tags, never what an agent read or wrote.
+Token Controller stores numbers, identifiers, a free-text summary per session, tags and the estimate descriptions you send, never what an agent read or wrote.
 
 ## What never leaves the machine {#never}
 
 Transcripts, prompts, tool output and file contents. Nothing in Token Controller reads them off the machine, and no door accepts them.
+
+The [Estimates API](/reference/api#estimates) is the one place you send text on purpose: the description of the work and any context. Token Controller keeps it and trains its [System 1 classifier](/glossary#system-1-classifier) on it, together with the summaries of all organizations. The classifier answers with probabilities only.
 
 ## What a token entry contains {#token-entry}
 
