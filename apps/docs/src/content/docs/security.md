@@ -44,7 +44,7 @@ A report goes to us and is stored in the EU. It is deleted two years after its l
 
 ## Who sees what {#who-sees}
 
-An agent manager sees their own cost. A people manager sees cost per person for the filters they are assigned, such as a team or a client. A controller sees everything. See [Roles](/account/roles), and [Scope](/scope#out) for why there is no aggregate-only mode.
+An agent manager sees their own cost. A people manager sees cost per person for the filters they are assigned, such as a team or a client. An organization manager sees everything. See [Roles](/account/roles), and [Scope](/scope#out) for why there is no aggregate-only mode.
 
 ## Where data is stored {#hosting}
 

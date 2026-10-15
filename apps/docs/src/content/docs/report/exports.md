@@ -26,6 +26,6 @@ Create a read token in the web app under _Settings_. It sees what its creator's 
 
 ## Raw export {#raw-export}
 
-Leaving must be easy. A controller chooses _Raw export_ under _Settings_ and gets a zip of JSON files with every token entry, split, tag, bill, rule, ticket and period.
+Leaving must be easy. An organization manager chooses _Raw export_ under _Settings_ and gets a zip of JSON files with every token entry, split, tag, bill, rule, ticket and period.
 
 Formatted exports beyond CSV and the raw export are part of the Enterprise plan.

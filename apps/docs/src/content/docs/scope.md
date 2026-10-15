@@ -28,7 +28,7 @@ The scope is fixed: what is not listed here will not be built.
 | Ticket systems | Only Jira Cloud, Azure DevOps and GitHub Issues. Tickets from other systems can be created by hand. |
 | Enterprise only | Cloud bill connectors and telemetry passthrough to your own collector exist only on an Enterprise plan contract. |
 | Organization | One account is one organization. An agency with a separate AI account per client runs one organization per client. The Team plan stops at 150 members. See [Plans and limits](/plans). |
-| Privacy modes | No aggregate-only mode, such as the team totals works councils sometimes ask for. People managers see cost per person within their scope, and controllers see all of it. Clients are billed for work per person, and the providers' own admin tools already show cost per person. |
+| Privacy modes | No aggregate-only mode, such as the team totals works councils sometimes ask for. People managers see cost per person within their scope, and organization managers see all of it. Clients are billed for work per person, and the providers' own admin tools already show cost per person. |
 | Local tool | No sync between one person's machines. Each machine submits its token entries on its own. |
 | Flat fees | Only metered usage is accounted for: tokens and per-call fees. Seats, subscriptions and other flat fees stay off the bill and off the cost sheet. What the agent harness does not report shows as residual. |
 | Org chart | No team tree. Teams and departments are tags on people, one value per tag name. |

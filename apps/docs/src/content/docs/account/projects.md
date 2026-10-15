@@ -57,7 +57,7 @@ A ticket can sit inside another, such as a story inside an epic. Cost rolls up: 
 
 ## Ticket systems {#ticket-systems}
 
-A controller connects a ticket system under _Settings_, then _Ticket systems_. All three work the same way:
+An organization manager connects a ticket system under _Settings_, then _Ticket systems_. All three work the same way:
 
 | | Jira Cloud, Azure DevOps and GitHub Issues |
 | --- | --- |

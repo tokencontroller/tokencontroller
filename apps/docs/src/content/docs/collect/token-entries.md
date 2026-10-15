@@ -42,11 +42,17 @@ To send several token entries in one call, send a list of up to 1,000. Either al
   "list_value": "0.03",
   "currency": "USD",
   "cost_kind": "project_overhead",
-  "dropped_tags": []
+  "new_tags": []
 }
 ```
 
-`list_value` is `null` for an unknown model until the price table knows it. `dropped_tags` names tags that are not on your organization's list; they were left out. A token entry the service cannot take gets `400` with the field and the problem, and nothing is saved. A token entry in a closed period gets `409`; a controller posts an [adjustment](/account/close#adjustments) instead.
+`list_value` is `null` for an unknown model until the price table knows it. Token Controller accepts every token entry and fits the pieces together afterwards:
+
+- A tag that is not on your organization's list is kept, and `new_tags` names it. The organization manager adds it to the list or maps it to an existing one.
+- A token entry for a session Token Controller already has is a [duplicate](/glossary#duplicate): accepted, counted once, and shown greyed out behind a toggle.
+- A token entry for a closed period is accepted and waits for the organization manager to post it as an [adjustment](/account/close#adjustments).
+
+Only a request that is not a token entry at all, such as broken JSON, gets `400`.
 
 ## Tags {#placing}
 

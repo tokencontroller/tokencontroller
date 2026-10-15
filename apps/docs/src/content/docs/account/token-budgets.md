@@ -15,11 +15,17 @@ Put a token budget on any tag filter for a period: a person (for example 1,500 E
 
 ## Token estimates {#estimates}
 
-A token estimate is a suggestion from similar past work. Token Controller compares the new ticket's title and description with the summaries of past token entries, shows the tickets they belong to with a confidence, and proposes their median cost. You pick the matches that fit, or take the proposal as it is. It becomes a token budget only when a person accepts it.
+A token estimate is a probability distribution of what a piece of work will cost: the chance of each cost band in dollars, with its median. Token Controller's System 1 classifier makes it from the ticket's title and description, trained on the token entries and estimates of all organizations. It answers with probabilities only, so no description, name or client of another organization can come back out. Accept the median, or set your own figure; it becomes a token budget only when a person accepts it.
 
-The hosted service runs the comparison with a model on its own key. A self-hosted instance sets its own, or does without estimates.
+An estimate does not need a ticket. Ask for one through the [Estimates API](/reference/api#estimates), keep it on its own, and link it to a ticket or project later. Token entries placed on it give its [delta](#delta).
+
+The hosted service runs the classifier. A self-hosted instance points to a classifier of its own (see [Configuration](/self-hosting/configuration)).
 
 Each closed period feeds the next estimates, so a new client project can be quoted from what similar work cost before.
+
+## Delta {#delta}
+
+Once the work is done, every estimate sits next to the actual cost of its token entries. The classifier reads the estimate's description and the entries' summaries and labels the delta: scope when more or less was built than described, trouble when agents looped, failed or redid work, or the estimate itself. Each delta trains the next estimate.
 
 ## Token budget vs actual {#actual}
 

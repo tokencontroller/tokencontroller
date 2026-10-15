@@ -1,9 +1,9 @@
 ---
 title: "Organization settings"
-description: "What a controller sets up once, inviting people, and how members sign in."
+description: "What an organization manager sets up once, inviting people, and how members sign in."
 ---
 
-An organization is one customer of Token Controller: its people, projects, tags and periods. A controller sets it up once.
+An organization is one customer of Token Controller: its people, projects, tags and periods. An organization manager sets it up once.
 
 ![Settings: name, cost source, reporting currency, approval, cadence and sign-in domains](/screens/16-settings.png)
 
