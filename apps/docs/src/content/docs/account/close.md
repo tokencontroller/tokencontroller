@@ -13,7 +13,7 @@ The close locks a period, a calendar month, so its token entries and their tags 
   <li><b>Check the bill.</b><p>The period's bill is in, from the API, as CSV or pulled, and final. Some pulled bills take weeks to be final, such as <a href="/account/bills#anthropic-enterprise">Anthropic Enterprise</a>, and the close waits for them.</p></li>
   <li><b>Look at what is open.</b><p>Organization overhead that should be on a project, late token sheets, and with approval on, unapproved token entries.</p></li>
   <li><b>Send back what is wrong.</b><p>Reject a token entry to its agent manager with a reason.</p></li>
-  <li><b>Close.</b><p>A controller closes the period. Token entries and residual add up to the bill.</p></li>
+  <li><b>Close.</b><p>An org manager closes the period. Token entries and residual add up to the bill.</p></li>
 </ol>
 
 With [approval](/account/cadence#approval) on, a period cannot be closed while a token entry in it is unapproved.
@@ -40,7 +40,7 @@ With approval on, it holds approved cost only.
 
 ### For finance {#finance}
 
-A controller hands finance the cost sheet as a link or as CSV. The CSV can add any tag name as a column, such as `team` or `purpose`. Finance needs no login.
+An org manager hands finance the cost sheet as a link or as CSV. The CSV can add any tag name as a column, such as `team` or `purpose`. Finance needs no login.
 
 ### For your clients {#clients}
 
@@ -48,6 +48,6 @@ Token Controller ends at the cost sheet. Charging a client for what is on it hap
 
 ## Adjustments {#adjustments}
 
-A closed period does not change. A mistake found later is corrected with an adjustment: a signed correction a controller posts to the closed period. The controller chooses the period, the cost object, the amount (plus or minus) and a reason, and the adjustment carries their name and the time.
+A closed period does not change. A mistake found later is corrected with an adjustment: a signed correction an org manager posts to the closed period. The org manager chooses the period, the cost object, the amount (plus or minus) and a reason, and the adjustment carries their name and the time.
 
 Adjustments are their own lines on the cost sheet and in reports. The original token entries and their tags stay as they were.

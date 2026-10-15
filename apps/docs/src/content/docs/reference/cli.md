@@ -10,7 +10,7 @@ Every `tc` command. Each takes `--help`, and `tc` works with no service connecte
 | Command | What it does |
 | --- | --- |
 | `tc connect URL` | Connect to an organization with an invite link, such as `https://app.tokencontroller.com/i/kestrel-4f2a`, or to a self-hosted instance by its address. |
-| `tc status` | Organization, person, agents found, rules, today's cost and share on tickets, the token sheet's cadence period and whether it is late, and a controller's request to submit before the close. |
+| `tc status` | Organization, person, agents found, rules, today's cost and share on tickets, the token sheet's cadence period and whether it is late, and an org manager's request to submit before the close. |
 | `tc review` | List draft token entries and their tags. `--all` adds the submitted ones. |
 | `tc tag N NAME=VALUE…` | Set tags on token entry N (its number from `tc review`), such as `ticket=KD-214` or `purpose=learning`. An empty value, such as `purpose=`, removes a tag. |
 | `tc split N TICKET=SHARE…` | Split token entry N between two or more tickets, such as `KD-231=60 KD-240=40`. Shares are weights and need not add up to 100. |

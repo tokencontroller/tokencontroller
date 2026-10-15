@@ -53,11 +53,11 @@ A ticket is any unit of work: a feature, a story, an epic or a bug. It has a key
 - **Synced** from Jira Cloud, Azure DevOps or GitHub Issues; see [Ticket systems](#ticket-systems).
 - **By hand.** For work no ticket system knows, create a ticket in the web app. It works the same as a synced one.
 
-A ticket can sit inside another, such as a story inside an epic. Cost rolls up: an epic's cost is the sum of its stories, and a project's cost is the sum of its tickets. A ticket's title and description are what [token forecasts](/account/token-budgets#forecasts) compare.
+A ticket can sit inside another, such as a story inside an epic. Cost rolls up: an epic's cost is the sum of its stories, and a project's cost is the sum of its tickets. A ticket's title and description are what [token estimates](/account/token-budgets#estimates) compare.
 
 ## Ticket systems {#ticket-systems}
 
-A controller connects a ticket system under _Settings_, then _Ticket systems_. All three work the same way:
+An org manager connects a ticket system under _Settings_, then _Ticket systems_. All three work the same way:
 
 | | Jira Cloud, Azure DevOps and GitHub Issues |
 | --- | --- |

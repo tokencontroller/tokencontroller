@@ -11,7 +11,7 @@ Every token entry carries tags, such as `team: web` or `client: acme`. Reports, 
 
 A token entry has at most one value per tag name, so cost grouped by one tag name always adds up to the total. An entry cannot be `team: web` and `team: data` at once; work for two clients in one session is [split](#splits).
 
-The controller keeps the list of tag names; values are free, so a new client needs no setting. Three tag names are built in and have records behind them:
+The org manager keeps the list of tag names; values are free, so a new client needs no setting. Three tag names are built in and have records behind them:
 
 | Built-in tag | Value |
 | --- | --- |
@@ -85,4 +85,4 @@ Residual has no tags, so a report filtered to one client never reaches the bill 
 
 ## Keeping values clean {#values}
 
-`acme`, `Acme` and `acme-corp` are three values. Ticket sync, rules and config files give clean values; hand-typed ones drift. A controller can merge values in an open period. After the close, only an [adjustment](/account/close#adjustments) changes anything.
+`acme`, `Acme` and `acme-corp` are three values. Ticket sync, rules and config files give clean values; hand-typed ones drift. An org manager can merge values in an open period. After the close, only an [adjustment](/account/close#adjustments) changes anything.

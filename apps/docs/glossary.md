@@ -39,7 +39,12 @@ One way a provider charges an organization: subscription, seat, usage at API rat
 
 **Reconciliation**:
 Checking, per period and per bill, that token entries plus residual equal the bill. The cost sheet shows one line per bill and the organization total. In the loop, the step "Reconcile" is wider: it covers rules placing token entries, review, this check and the close.
+Token Controller accepts everything it receives, in any order: token entries for sessions it already has, tags not yet on the list, entries for closed periods. Fitting these loose pieces together is reconciliation's job, never a reason to refuse them.
 _Avoid_: Matching
+
+**Duplicate**:
+A token entry sent again for a session Token Controller already has. It is accepted and the session counts once. The copy stays visible, greyed out behind a toggle.
+_Avoid_: Rejected entry
 
 **Residual**:
 The part of a bill that no token entry explains, and so the only cost that is not attributed: usage in the provider's own chat app, per-call fees the agent harness does not report, a restated bill. Always shown as its own line.
@@ -52,7 +57,7 @@ A name and a value on a token entry, such as `team: growth` or `client: acme`. A
 _Avoid_: Label, dimension, attribute
 
 **Tag name**:
-The left half of a tag, such as `team`. The controller keeps the list of tag names; anyone may add new values.
+The left half of a tag, such as `team`. The org manager keeps the list of tag names; anyone may add new values.
 _Avoid_: Key
 
 **Built-in tag**:
@@ -139,9 +144,9 @@ _Avoid_: Member, supervisor, owner, orchestrator, prompter, developer
 The role that manages people and projects: reads reports, sets token budgets and cadence, and approves or rejects token entries, for the filters it is assigned, such as `team: web` or `client: acme`. A people manager is also an agent manager.
 _Avoid_: Manager
 
-**Controller**:
-The role that sees everything, runs the close and posts adjustments.
-_Avoid_: Owner, admin
+**Org manager**:
+The role that sees everything, sets up the organization, runs the close and posts adjustments. With agent managers and people managers, one of three kinds of manager.
+_Avoid_: Controller, organization manager, owner, admin
 
 **Assignee**:
 The person a ticket is assigned to.
@@ -176,7 +181,7 @@ A stretch of a session on one branch and one working directory.
 The full text of a session. It never leaves the machine.
 
 **Summary**:
-What an agent writes about what a session did, from one line to a short report. With the tag values, it is the only text in a token entry. On a token sheet, the agent manager sees it before submitting.
+Free text an agent writes about what a session did, like a pull request description. It has no fixed parts; the System 1 classifier reads it as it is and matches it with estimates and tags. With the tag values, it is the only text in a token entry. On a token sheet, the agent manager sees it before submitting.
 
 **Telemetry event**:
 One model call as reported live by the agent: tokens, cost and IDs, no text.
@@ -194,11 +199,16 @@ A fact about a session that hints at its tags: branch, working directory, reposi
 An instruction that turns signals into tags. Organization rules run before personal ones.
 _Avoid_: Filter, mapping
 
+**System 1 classifier**:
+A model that reads text in one pass and answers only with probabilities: which of the given choices fits, a score on a scale, or yes or no. It never writes text, so nothing it was trained on can come back out. Token Controller's classifier is trained on the text of all organizations: summaries, estimate descriptions and the tags they got. It makes token estimates, finds similar past work, places token entries on tickets and estimates, and explains each delta.
+_Avoid_: LLM, AI model, embeddings
+
 **Classifier**:
 An optional program on a person's machine that picks among candidate tickets when rules cannot.
+_Avoid_: System 1 classifier
 
 **Summary match**:
-Token Controller placing a token entry on the open ticket its summary clearly fits, when no rule found a ticket. Always marked as such.
+Token Controller's System 1 classifier placing a token entry on the estimate and tags its summary fits, when no rule set them. Always marked as such.
 _Avoid_: Auto-match, AI match
 
 **Report**:
@@ -271,7 +281,7 @@ Locking a period so its token entries, splits and tags can no longer change. It 
 _Avoid_: Month-end, lock
 
 **Adjustment**:
-A signed correction a controller posts to a closed period.
+A signed correction an org manager posts to a closed period.
 
 ### Management control
 
@@ -279,9 +289,20 @@ A signed correction a controller posts to a closed period.
 Money a human has planned for a filter (a person, a ticket, a project, a team, any set of tags) and a period. It is compared with actual cost and never stops spending. Token budgets can overlap: one for `team: web` and one for `project: acme-shop` may count the same money.
 _Avoid_: Budget, limit, cap, allowance
 
+**Token estimate**:
+What a described piece of work, such as a ticket or a client project, will cost, given before the work starts: a probability distribution in dollars, the chance of each cost band, with its median. The System 1 classifier makes it from the description, and from optional context such as the summaries and cost of earlier work. A token estimate is its own object: it can stand alone, or be tagged later with any tag, such as a project, an epic or a ticket. No tag name ranks above another. Anyone can ask for one through the Estimates API, without recording anything. It becomes a token budget only when a person accepts it.
+_Avoid_: Forecast, quote, prediction
+
 **Token forecast**:
-Money Token Controller suggests for a ticket from similar past work. It compares the ticket's title and description with the summaries of past token entries, shows the tickets they belong to with a confidence, and proposes their median cost. It becomes a token budget only when a person accepts it.
-_Avoid_: Forecast, estimate, prediction
+Where running cost is heading: the cost of a filter, such as the organization, a team or a person, in the coming periods, extrapolated from the trend of past periods. For example, 30,000 USD last month and 35,000 USD expected next month. A token forecast looks at periods; a token estimate looks at one piece of work.
+_Avoid_: Estimate, projection, prediction
+
+**Delta**:
+The difference between a token estimate's median and the actual cost of the token entries matched to it. The classifier labels why: scope (more or less was built than described), trouble (loops, failures, rework), or the estimate itself.
+_Avoid_: Variance, error
+
+**Benchmark**:
+A fixed set of described tasks that real agents run every month. Token Controller publishes how close its token estimates landed, next to a plain LLM's guess.
 
 **Actual**:
 What was spent against a token budget.

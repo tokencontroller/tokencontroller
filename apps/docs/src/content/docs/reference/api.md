@@ -32,7 +32,7 @@ Paths are under `/api/v1`.
 | `POST /bills/csv/preview`, `POST /bills/csv` | Read a CSV bill file or a cloud's cost export (`?cloud=bedrock&period=2026-09`) and show what it holds, then upload it. See [CSV bills](/account/bills#csv). |
 | `/bill-connections` | Connect Anthropic Enterprise, Anthropic Console or OpenAI with an admin key, and pull now. See [Bills](/account/bills#connect). |
 | `GET /reports/…` | Read reports. See [Reports](#reports) below and the [reporting API](/report/exports#reporting-api). |
-| `GET /exports/raw` | Everything the organization has, as a zip of JSON files. Controllers only. See [Raw export](/report/exports#raw-export). |
+| `GET /exports/raw` | Everything the organization has, as a zip of JSON files. Org managers only. See [Raw export](/report/exports#raw-export). |
 | `GET /me/context` | What the CLI needs to place token entries like the service does: the organization's rules and tag names, your own rules and tags, and the projects with their ticket key patterns and repositories. `PUT /me/rules` replaces your own rules. |
 | `GET /status` | The state of each part of the service, without signing in. status.tokencontroller.com shows it. |
 
@@ -49,7 +49,7 @@ Every report answers within the caller's role. Paths are under `/api/v1`.
 | `GET /reports/token-budgets/{id}` | One token budget opened down to the tickets and token entries behind its actual. With `format=csv`, `table` is `tickets` (the default) or `token_entries`. |
 | `GET /reports/token-entries` | Token entries with their splits, tags and summaries. `person` limits it to one agent manager; `limit` (up to 5000) and `offset` page through it. The CSV has one row per split. |
 | `GET /reports/saved`, `POST /reports/saved` | List saved reports, or save a tag filter with a grouping as a report. |
-| `GET /reports/saved/{id}`, `DELETE /reports/saved/{id}` | A saved report for one period, or remove it (its creator or a controller). |
+| `GET /reports/saved/{id}`, `DELETE /reports/saved/{id}` | A saved report for one period, or remove it (its creator or an org manager). |
 | `GET /reconciliation` | Each bill of a period against its token entries, with residual. |
 | `GET /periods/{period}/cost-sheet` | The cost sheet of a period: final once closed, a preview while open. `columns` adds tag names as columns, such as `team,purpose`. |
 
@@ -72,3 +72,35 @@ claude mcp add --transport http token-controller \
   https://app.tokencontroller.com/api/v1/mcp \
   --header "Authorization: Bearer tc_read_…"
 ```
+
+## Estimates API {#estimates}
+
+Ask what described work will cost before it starts. No recording is needed: any token can ask.
+
+```json
+POST /api/v1/estimates
+{
+  "work": "Refund checkout for a returns portal",
+  "model": "claude-opus-5-5",
+  "context": "Last flow: 702.40 USD, sandbox timeouts"
+}
+```
+
+`work` is the description: a prompt, a spec, a ticket or acceptance criteria. `context` is optional: anything that helps, such as the summaries and cost of earlier work. The answer is a probability distribution in the organization's reporting currency:
+
+```json
+{
+  "id": "est_4k2q9w",
+  "currency": "USD",
+  "median": "610.00",
+  "distribution": [
+    { "up_to": "250.00", "p": 0.04 },
+    { "up_to": "500.00", "p": 0.31 },
+    { "up_to": "750.00", "p": 0.41 },
+    { "up_to": "1000.00", "p": 0.17 },
+    { "up_to": null, "p": 0.07 }
+  ]
+}
+```
+
+Each estimate is billed once, whatever the length of `work` and `context`, so send all the context you have. `PATCH /estimates/{id}` tags an estimate with any tags; token entries matched to it give its [delta](/account/token-budgets#delta). `GET /estimates/{id}` returns it with its actual cost and delta.

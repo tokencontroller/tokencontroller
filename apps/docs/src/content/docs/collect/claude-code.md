@@ -31,7 +31,7 @@ After every turn the mod has the CLI read Claude Code's own usage figures from i
 
 ## What it shows {#shows}
 
-- **A band above the prompt** with the headline number, the share on tickets, and a note when your token sheet is late or the controller asks everyone to submit before the close.
+- **A band above the prompt** with the headline number, the share on tickets, and a note when your token sheet is late or the org manager asks everyone to submit before the close.
 - **A pane** beside the conversation with small charts and filters, the review list, submit, and rule editing.
 
 ## Commands {#commands}

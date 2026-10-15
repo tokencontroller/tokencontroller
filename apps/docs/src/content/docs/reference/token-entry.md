@@ -21,7 +21,7 @@ The fields of a token entry, as the [token entries endpoint](/collect/token-entr
 | `ticket`, `project` | Where it belongs: a ticket key such as `KD-214`, a project by name. Optional. A ticket named here wins over every rule; without one, [rules place it](/attribute/rules#order). |
 | `tags` | Any tags from the organization's list, such as `{"team": "web", "purpose": "code-review"}`. One value per tag name. Optional. Tags sent here win over inherited ones. |
 | `signals` | Facts about the session that hint at its tags. Optional. See [Signals](#signals). |
-| `session_id` | Joins the token entry to telemetry. Optional. Sending a token entry again with the same session ID updates it. |
+| `session_id` | Joins the token entry to telemetry. Optional. Sending a token entry again with the same session ID keeps both: the newer one counts, the older one is a [duplicate](/glossary#duplicate). |
 | `messages` | The session's model calls. Optional. With them, a session that telemetry also reported is counted exactly once, call by call. See [Messages](#messages). |
 | `splits` | How the token entry is split. Optional; without it the token entry is one split. See [Splits](#splits). |
 | `local_id` | The sender's own ID for the token entry, such as `claude-code:<session id>`. Optional. Sending it again replaces the earlier one. |
