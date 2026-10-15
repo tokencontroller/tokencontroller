@@ -4,6 +4,9 @@
 //! input: one object, or one object per line as the mod sends them. A pull
 //! request title is searched for ticket keys here and only the keys are kept.
 //!
+//! A session named here counts even outside the tracked folders: the mod
+//! knows its own session, wherever it runs.
+//!
 //! The mod also sends a `turn` line after every turn. tc counts tokens from
 //! the session files, which hold the same turns, so those lines are taken
 //! and not counted twice.
@@ -118,7 +121,12 @@ pub fn run(app: &mut App<'_>, input: &mut dyn Read) -> Result<()> {
             ))
         })?;
         taken = taken.saturating_add(1);
-        if record.kind.as_deref() == Some("turn") || record.session_id.trim().is_empty() {
+        if record.session_id.trim().is_empty() {
+            continue;
+        }
+        // A session the mod or another tool reports counts in any folder.
+        app.store.mark_recorded(harness, record.session_id.trim())?;
+        if record.kind.as_deref() == Some("turn") {
             continue;
         }
         let session = record.session_id.trim().to_owned();
@@ -148,7 +156,7 @@ pub fn run(app: &mut App<'_>, input: &mut dyn Read) -> Result<()> {
         app.store
             .set_meta(&key, &serde_json::to_string(&waiting)?)?;
     }
-    app.prepare()?;
+    app.prepare_without_asking()?;
 
     let mut entries = Vec::new();
     for (harness, session_id) in &sessions {

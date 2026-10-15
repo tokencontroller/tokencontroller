@@ -91,6 +91,19 @@ impl Machine {
         )
     }
 
+    /// A Claude Code session with one model call, run in `cwd`, which is
+    /// created.
+    fn claude_code_session_in(&self, session: &str, cwd: &Path) -> TestResult<()> {
+        std::fs::create_dir_all(cwd)?;
+        let cwd = cwd.display().to_string();
+        let call = json!({"type": "assistant", "sessionId": session, "timestamp": "2026-10-11T11:00:00Z", "cwd": cwd, "gitBranch": "main", "requestId": format!("req_{session}"),
+            "message": {"id": format!("msg_{session}"), "model": "claude-sonnet-4-5", "usage": {"input_tokens": 1000, "output_tokens": 100}}});
+        self.write(
+            &format!(".claude/projects/-work-x/{session}.jsonl"),
+            &[call],
+        )
+    }
+
     fn command(&self, args: &[&str]) -> Command {
         let mut command = Command::new(env!("CARGO_BIN_EXE_tc"));
         command
@@ -888,4 +901,134 @@ fn the_classifier_reads_the_prompts_that_name_a_ticket_and_has_the_last_word() {
             .unwrap()
             .contains("Rotate the deploy keys for OPS-7")
     );
+}
+
+/// The sessions of the draft token entries, sorted.
+fn sessions(machine: &Machine) -> TestResult<Vec<String>> {
+    let review = machine.json(&["review", "--json"])?;
+    let mut sessions: Vec<String> = review
+        .get("token_entries")
+        .and_then(Value::as_array)
+        .ok_or("no token_entries")?
+        .iter()
+        .filter_map(|entry| entry.get("session_id")?.as_str().map(str::to_owned))
+        .collect();
+    sessions.sort();
+    Ok(sessions)
+}
+
+#[test]
+fn tracking_a_folder_counts_only_its_sessions_those_below_and_recorded_ones() {
+    let machine = Machine::new().unwrap();
+    let client = machine.work("client-a");
+    machine.claude_code_session_in("in-a", &client).unwrap();
+    machine
+        .claude_code_session_in("below-a", &client.join("api"))
+        .unwrap();
+    machine
+        .claude_code_session_in("beside-a", &machine.work("client-a-other"))
+        .unwrap();
+    machine
+        .claude_code_session_in("in-b", &machine.work("client-b"))
+        .unwrap();
+    machine.tc(&["config", "since", "2026-10-01"]).unwrap();
+
+    // Nothing tracked: every folder counts, and a script is never asked.
+    let everything = ["below-a", "beside-a", "in-a", "in-b"];
+    let output = machine.run(&["review", "--json"], &[], "").unwrap();
+    assert!(output.status.success());
+    assert!(String::from_utf8(output.stderr).unwrap().is_empty());
+    assert_eq!(sessions(&machine).unwrap(), everything);
+
+    let client_text = client.display().to_string();
+    let tracked = machine.json(&["track", &client_text, "--json"]).unwrap();
+    let real = std::fs::canonicalize(&client).unwrap();
+    assert_eq!(tracked["folders"], json!([real.display().to_string()]));
+    assert_eq!(sessions(&machine).unwrap(), ["below-a", "in-a"]);
+    let config = machine.tc(&["config", "folders"]).unwrap();
+    assert_eq!(config.trim(), real.display().to_string());
+
+    // The mod knows its own session, wherever it runs.
+    machine
+        .tc_with(
+            &["record", "--json"],
+            &[],
+            &json!({"agent_harness": "claude-code", "session_id": "in-b", "summary": "Fixed it"})
+                .to_string(),
+        )
+        .unwrap();
+    assert_eq!(sessions(&machine).unwrap(), ["below-a", "in-a", "in-b"]);
+
+    let untracked = machine.json(&["untrack", &client_text, "--json"]).unwrap();
+    assert_eq!(untracked["folders"], json!([]));
+    assert_eq!(sessions(&machine).unwrap(), everything);
+    assert_eq!(machine.tc(&["config", "folders"]).unwrap().trim(), "all");
+
+    let missing = machine.work("no-such-client").display().to_string();
+    let output = machine.run(&["track", &missing], &[], "").unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    assert!(
+        String::from_utf8(output.stderr)
+            .unwrap()
+            .contains("does not exist")
+    );
+    let output = machine.run(&["untrack", &client_text], &[], "").unwrap();
+    assert_eq!(output.status.code(), Some(1));
+}
+
+#[test]
+fn track_with_no_folder_tracks_the_current_one() {
+    let machine = Machine::ready().unwrap();
+    let storefront = machine.work("storefront");
+    let output = machine
+        .command(&["track"])
+        .current_dir(&storefront)
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let real = std::fs::canonicalize(&storefront).unwrap();
+    let said = String::from_utf8(output.stdout).unwrap();
+    assert_eq!(said.trim(), format!("tracking {}", real.display()));
+    let review = machine.json(&["review", "--json"]).unwrap();
+    assert_eq!(
+        by_harness(&review).keys().collect::<Vec<_>>(),
+        ["claude-code"]
+    );
+}
+
+#[test]
+fn list_shows_where_sessions_ran_and_which_folders_are_tracked() {
+    let machine = Machine::ready().unwrap();
+    let list = machine.json(&["list", "--json"]).unwrap();
+    let rows = list.as_array().unwrap();
+    assert_eq!(rows.len(), 2);
+    // The most recent first: the Codex session in ops ran later.
+    let ops = &rows[0];
+    let fields: Vec<&str> = ops
+        .as_object()
+        .unwrap()
+        .keys()
+        .map(String::as_str)
+        .collect();
+    assert_eq!(
+        fields,
+        ["folder", "harnesses", "last_at", "sessions", "tracked"]
+    );
+    assert_eq!(ops["folder"], machine.work("ops").display().to_string());
+    assert_eq!(ops["harnesses"], json!(["codex"]));
+    assert_eq!(ops["sessions"], 1);
+    assert_eq!(ops["last_at"], "2026-10-11T10:05:00Z");
+    assert_eq!(ops["tracked"], true);
+    assert_eq!(rows[1]["harnesses"], json!(["claude-code"]));
+
+    machine
+        .tc(&["track", &machine.work("storefront").display().to_string()])
+        .unwrap();
+    let list = machine.json(&["list", "--json"]).unwrap();
+    assert_eq!(list[0]["tracked"], false);
+    assert_eq!(list[1]["tracked"], true);
+
+    let table = machine.tc(&["list"]).unwrap();
+    assert!(table.contains("Claude Code"), "{table}");
+    assert!(table.contains("2026-10-11"), "{table}");
 }

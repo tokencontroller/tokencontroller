@@ -2,7 +2,7 @@
 //! up to date with the session files, and what is known about the
 //! organization.
 
-use std::io::Write;
+use std::io::{BufRead as _, IsTerminal as _, Write};
 
 use tokencontroller_core::Rule;
 
@@ -11,12 +11,13 @@ use crate::classifier;
 use crate::context::Context;
 use crate::entries::{self, Entry, Placing, Run};
 use crate::error::{Error, Result};
+use crate::folders::{self, Scope};
 use crate::home::{Config, Home};
 use crate::keys::KeyPattern;
 use crate::placing::Placer;
 use crate::sources::Harness;
 use crate::store::{Status, Store};
-use crate::sync::{Sources, sync};
+use crate::sync::{Reading, Sources, sync};
 
 /// How long the organization's context is used before it is fetched again.
 const CONTEXT_MAX_AGE_MS: i64 = 10 * 60 * 1000;
@@ -195,21 +196,69 @@ impl<'a> App<'a> {
 
     /// Reads the session files, refreshes the context, and lets the
     /// classifier decide where it may. Every command that shows or sends
-    /// entries calls this first.
+    /// entries calls this first. At a terminal, it first asks once which
+    /// folder to track.
     pub fn prepare(&mut self) -> Result<()> {
+        self.ask_about_folders()?;
+        self.prepare_without_asking()
+    }
+
+    /// [`Self::prepare`] for input that is not a person's answer, such as
+    /// `tc record`'s.
+    pub fn prepare_without_asking(&mut self) -> Result<()> {
+        self.read_sessions()?;
+        self.classify()
+    }
+
+    /// Reads the session files and brings the drafts up to date with them.
+    pub fn read_sessions(&mut self) -> Result<()> {
         self.refresh_context(false)?;
         let patterns = self.patterns();
         let pattern_text = self.pattern_text();
-        let since = self.since_ms()?;
-        sync(
-            &mut self.store,
-            &self.sources,
-            &patterns,
-            &pattern_text,
-            since,
-        )?;
-        crate::commands::record::apply_pending(&self.store)?;
-        self.classify()
+        let mut reading = Reading {
+            patterns: &patterns,
+            pattern_text: &pattern_text,
+            since_ms: self.since_ms()?,
+            scope: Scope::new(&self.config.folders),
+        };
+        sync(&mut self.store, &self.sources, &mut reading)?;
+        crate::commands::record::apply_pending(&self.store)
+    }
+
+    /// While no folder was chosen, a person at a terminal is asked whether
+    /// to track only the folder they are in. Scripts, CI and the Claude Code
+    /// mod are never asked, and every folder counts for them.
+    fn ask_about_folders(&mut self) -> Result<()> {
+        let interactive =
+            !self.json && std::io::stdin().is_terminal() && std::io::stderr().is_terminal();
+        if !folders::should_ask(&self.config, interactive) {
+            return Ok(());
+        }
+        let here = folders::current()?;
+        eprintln!("tc reads the Claude Code and Codex sessions of every folder on this machine.");
+        eprint!("Track sessions in {}? [Y/n] ", here.display());
+        let mut line = String::new();
+        let read = std::io::stdin()
+            .lock()
+            .read_line(&mut line)
+            .map_err(|source| Error::file("standard input", source))?;
+        match folders::answer(&line).filter(|_| read > 0) {
+            Some(true) => {
+                folders::track(&mut self.config, &here);
+                self.home.write_config(&self.config)?;
+                eprintln!(
+                    "tc: tracking {}. tc track DIR adds a folder; tc list shows where sessions ran.",
+                    here.display()
+                );
+            }
+            Some(false) => {
+                self.config.all_folders = true;
+                self.home.write_config(&self.config)?;
+                eprintln!("tc: counting sessions in every folder. tc track DIR limits it.");
+            }
+            None => eprintln!("tc: nothing changed; tc asks again next time."),
+        }
+        Ok(())
     }
 
     pub fn placer(&self) -> Placer {
