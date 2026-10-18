@@ -894,6 +894,68 @@ async fn a_controller_invites_and_the_invitee_joins(pool: PgPool) {
 }
 
 #[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
+async fn a_controller_changes_a_members_email(pool: PgPool) {
+    let app = app(&pool);
+    let (_, controller) = organization(&pool, "Kestrel Digital", "n.berger@kestrel.example")
+        .await
+        .unwrap();
+    organization(&pool, "Osprey Labs", "o.lund@osprey.example")
+        .await
+        .unwrap();
+    let me = send(
+        &app,
+        Method::GET,
+        "/api/v1/me",
+        Auth::Cookie(&controller),
+        None,
+    )
+    .await
+    .unwrap();
+    let id = me.json["person"]["id"].as_str().unwrap().to_owned();
+    let path = format!("/api/v1/members/{id}");
+
+    for (email, status) in [
+        ("not an address", StatusCode::BAD_REQUEST),
+        ("o.lund@osprey.example", StatusCode::CONFLICT),
+    ] {
+        let refused = send(
+            &app,
+            Method::PATCH,
+            &path,
+            Auth::Cookie(&controller),
+            Some(json!({"email": email})),
+        )
+        .await
+        .unwrap();
+        assert_eq!(refused.status, status, "{email}");
+    }
+
+    let changed = send(
+        &app,
+        Method::PATCH,
+        &path,
+        Auth::Cookie(&controller),
+        Some(json!({"email": "  N.Berger+tc@Kestrel.example "})),
+    )
+    .await
+    .unwrap();
+    assert_eq!(changed.status, StatusCode::OK);
+    assert_eq!(changed.json["email"], "n.berger+tc@kestrel.example");
+    assert_eq!(changed.json["name"], me.json["person"]["name"]);
+
+    let same = send(
+        &app,
+        Method::PATCH,
+        &path,
+        Auth::Cookie(&controller),
+        Some(json!({"email": "n.berger+tc@kestrel.example"})),
+    )
+    .await
+    .unwrap();
+    assert_eq!(same.status, StatusCode::OK);
+}
+
+#[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
 async fn the_last_controller_stays(pool: PgPool) {
     let app = app(&pool);
     let (organization_id, controller) =
