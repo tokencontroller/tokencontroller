@@ -82,6 +82,9 @@ pub struct Invited {
 #[derive(Debug, Default, Deserialize, ToSchema)]
 pub struct MemberChange {
     pub name: Option<String>,
+    /// The address they sign in with and that telemetry names them by. It
+    /// must not belong to anyone else.
+    pub email: Option<String>,
     pub role: Option<Role>,
     pub tags: Option<Tags>,
 }
@@ -410,7 +413,7 @@ async fn send_invite(
     Ok(())
 }
 
-/// Change a member's name, role or tags. Controllers only.
+/// Change a member's name, email, role or tags. Controllers only.
 #[utoipa::path(
     patch,
     path = "/members/{id}",
@@ -440,6 +443,10 @@ pub(super) async fn update_member(
         keep_a_controller(&state.db, member.organization_id, id).await?;
     }
     let name = change.name.as_deref().map(clean_name).transpose()?;
+    let email = match change.email.as_deref() {
+        Some(email) => Some(check_new_email(&state.db, member.organization_id, id, email).await?),
+        None => None,
+    };
     let tags = match &change.tags {
         Some(tags) => Some(tags::validate(&state.db, member.organization_id, tags, false).await?),
         None => None,
@@ -448,13 +455,15 @@ pub(super) async fn update_member(
         r#"UPDATE people SET
              name = coalesce($3, name),
              role = coalesce($4, role),
-             tags = coalesce($5, tags)
+             tags = coalesce($5, tags),
+             email = coalesce($6, email)
            WHERE id = $1 AND organization_id = $2"#,
         id,
         member.organization_id,
         name,
         change.role.map(Role::as_str),
-        tags.map(JsonColumn) as _
+        tags.map(JsonColumn) as _,
+        email
     )
     .execute(&state.db)
     .await?;
@@ -468,6 +477,48 @@ pub(super) async fn update_member(
     Ok(Json(
         super::member(&state.db, member.organization_id, id).await?,
     ))
+}
+
+/// A new address for a member, checked like an invite's: well formed, inside
+/// the organization's sign-in domains and not used by anyone else.
+async fn check_new_email(
+    db: &PgPool,
+    organization_id: Uuid,
+    person_id: Uuid,
+    email: &str,
+) -> Result<String, ApiError> {
+    let email = normalize_email(email)?;
+    let domains = sqlx::query_scalar!(
+        "SELECT sign_in_domains FROM organizations WHERE id = $1",
+        organization_id
+    )
+    .fetch_one(db)
+    .await?;
+    if !domain_allowed(&email, &domains) {
+        return Err(ApiError::BadRequest(format!(
+            "Sign-in is limited to {}. Change the sign-in domains first.",
+            domains.join(", ")
+        )));
+    }
+    let holder = sqlx::query!(
+        "SELECT id, organization_id FROM people WHERE email = $1 AND removed_at IS NULL",
+        email
+    )
+    .fetch_optional(db)
+    .await?;
+    match holder {
+        Some(holder) if holder.id == person_id => {}
+        Some(holder) if holder.organization_id == organization_id => {
+            return Err(ApiError::Conflict(format!("{email} is already a member.")));
+        }
+        Some(_) => {
+            return Err(ApiError::Conflict(format!(
+                "{email} is a member of another organization. One account belongs to one organization."
+            )));
+        }
+        None => {}
+    }
+    Ok(email)
 }
 
 /// Remove a member. They can no longer sign in; their past token entries
