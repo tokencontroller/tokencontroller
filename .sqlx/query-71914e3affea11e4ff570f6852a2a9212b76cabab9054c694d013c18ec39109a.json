@@ -1,0 +1,19 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE people SET\n             name = coalesce($3, name),\n             role = coalesce($4, role),\n             tags = coalesce($5, tags),\n             email = coalesce($6, email)\n           WHERE id = $1 AND organization_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Text",
+        "Jsonb",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "71914e3affea11e4ff570f6852a2a9212b76cabab9054c694d013c18ec39109a"
+}

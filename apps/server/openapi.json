@@ -1343,7 +1343,7 @@
         "tags": [
           "members"
         ],
-        "summary": "Change a member's name, role or tags. Controllers only.",
+        "summary": "Change a member's name, email, role or tags. Controllers only.",
         "operationId": "update_member",
         "parameters": [
           {
@@ -7286,6 +7286,13 @@
         "type": "object",
         "description": "A change to a member. Fields left out stay as they are. Tags replace the\nmember's tags; only their future token entries follow.",
         "properties": {
+          "email": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The address they sign in with and that telemetry names them by. It\nmust not belong to anyone else."
+          },
           "name": {
             "type": [
               "string",
