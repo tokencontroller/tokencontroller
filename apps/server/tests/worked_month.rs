@@ -4587,3 +4587,78 @@ async fn the_status_page_lists_the_jobs(pool: PgPool) {
     .await;
     result.unwrap();
 }
+
+#[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
+async fn a_deviation_row_costs_its_own_lines(pool: PgPool) {
+    let k = Kestrel::load(&pool).await.unwrap();
+    let result: TestResult<()> = async {
+        let report = k
+            .get(&k.nadia, &format!("/reports/deviation?{MARCH}&by=project"))
+            .await?
+            .ok(StatusCode::OK)?;
+        assert_eq!(
+            text(row(&report, Some("shop")).ok_or("shop")?, "cost"),
+            "800.00"
+        );
+        let none = row(&report, None).ok_or("none")?;
+        assert_eq!(text(none, "cost"), "150.00");
+        assert!(none["plan"].is_null());
+        assert!(none["deviation"].is_null());
+        let report = k
+            .get(&k.nadia, &format!("/reports/deviation?{MARCH}&by=feature"))
+            .await?
+            .ok(StatusCode::OK)?;
+        assert_eq!(text(row(&report, None).ok_or("none")?, "cost"), "250.00");
+        // Without a grouping the one row is the whole filter, plan included.
+        let report = k
+            .get(
+                &k.nadia,
+                &format!("/reports/deviation?{MARCH}&filter=project:shop"),
+            )
+            .await?
+            .ok(StatusCode::OK)?;
+        let only = row(&report, None).ok_or("row")?;
+        assert_eq!(text(only, "cost"), "800.00");
+        assert_eq!(text(only, "plan"), "232.50");
+        Ok(())
+    }
+    .await;
+    result.unwrap();
+}
+
+#[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
+async fn estimates_list_newest_first_inside_the_view(pool: PgPool) {
+    let k = Kestrel::load(&pool).await.unwrap();
+    let result: TestResult<()> = async {
+        let estimates = k.get(&k.nadia, "/estimates").await?.ok(StatusCode::OK)?;
+        assert_eq!(count(&estimates), 2);
+        assert_eq!(estimates[0]["id"], "est_seed_kd_1");
+        assert_eq!(estimates[0]["accepted"], true);
+        assert_eq!(estimates[0]["cost"], "580.00");
+        assert_eq!(estimates[1]["id"], "est_seed_shop");
+        // A new estimate is first and not yet accepted.
+        let added = k
+            .post(
+                &k.nadia,
+                "/estimates",
+                json!({"work": "Returns portal", "tags": {"feature": "KD-2"}, "median": "200", "from": "2026-03-01", "to": "2026-03-31"}),
+            )
+            .await?
+            .ok(StatusCode::CREATED)?;
+        let estimates = k.get(&k.nadia, "/estimates").await?.ok(StatusCode::OK)?;
+        assert_eq!(count(&estimates), 3);
+        assert_eq!(estimates[0]["id"], added["id"]);
+        assert_eq!(estimates[0]["accepted"], false);
+        // Mara views only herself: nothing planned is inside that.
+        let mine = k.get(&k.mara, "/estimates").await?.ok(StatusCode::OK)?;
+        assert_eq!(count(&mine), 0);
+        let then = k
+            .get(&k.nadia, "/estimates?as_of=2026-02-20T12:00:00Z")
+            .await?
+            .ok(StatusCode::OK)?;
+        assert_eq!(count(&then), 1);
+        Ok(())
+    }
+    .await;
+    result.unwrap();
+}

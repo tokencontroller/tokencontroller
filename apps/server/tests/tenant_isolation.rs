@@ -1238,6 +1238,11 @@ fn plan_cases(alpha: &Alpha, b: &Bravo) -> Vec<Case> {
         ),
         case(
             "GET",
+            "/api/v1/estimates",
+            vec![get("/api/v1/estimates").expect(OK)],
+        ),
+        case(
+            "GET",
             "/api/v1/estimates/{id}",
             vec![
                 get(format!("/api/v1/estimates/{}", b.estimate)).expect(NOT_FOUND),
@@ -2306,7 +2311,7 @@ async fn every_route_is_called_across_tenants(pool: PgPool) {
         "cases for routes the API does not have: {unknown:?}"
     );
     // The committed OpenAPI file is the same document (api.rs checks it).
-    assert_eq!(documented.len(), 90, "{documented:?}");
+    assert_eq!(documented.len(), 91, "{documented:?}");
 }
 
 #[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]

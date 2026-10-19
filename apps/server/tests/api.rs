@@ -73,6 +73,17 @@ fn the_committed_openapi_document_is_current() {
 }
 
 #[test]
+fn tags_are_a_map_of_strings() {
+    // openapi-typescript needs `additionalProperties` to type the map;
+    // without it the client gets `Record<string, never>`.
+    let document: serde_json::Value =
+        serde_json::from_str(&tokencontroller_server::openapi_json().unwrap()).unwrap();
+    let tags = &document["components"]["schemas"]["Tags"];
+    assert_eq!(tags["type"], "object", "{tags}");
+    assert_eq!(tags["additionalProperties"]["type"], "string", "{tags}");
+}
+
+#[test]
 fn every_operation_has_its_own_id() {
     // Clients generated from the document, such as the web app's, refuse
     // two operations with the same id.
