@@ -262,7 +262,17 @@ jobs:
       contents: write
       pull-requests: write
       actions: write
+      checks: read
+      statuses: read
     steps:
+      - name: Wait for the other required checks
+        # The ruleset on main also requires the CodeQL analyses, which run in
+        # their own workflow and often finish after this job starts. Merging
+        # before they report is refused.
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: gh pr checks "$PR" --repo "$GITHUB_REPOSITORY" --required --watch --interval 20
       - name: Merge the pull request
         env:
           GH_TOKEN: ${{ github.token }}
