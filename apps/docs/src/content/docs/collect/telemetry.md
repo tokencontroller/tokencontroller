@@ -1,6 +1,6 @@
 ---
 title: "Telemetry push"
-description: "Settings for Claude Code, Codex CLI, Gemini CLI, Copilot CLI and Cursor Enterprise to push usage over OpenTelemetry, and what telemetry can and cannot see."
+description: "Settings for Claude Code, Codex CLI, Gemini CLI, Copilot CLI and Cursor Enterprise to push every model call over OpenTelemetry, and what telemetry can and cannot see."
 ---
 
 Claude Code, Codex CLI, Gemini CLI, Copilot CLI and Cursor Enterprise can push their usage straight to your organization over OpenTelemetry. Nothing is installed on anyone's machine. Every agent sends to the same ingest URL, `https://app.tokencontroller.com/api/v1/ingest/otlp`, with your organization token (`tc_org_…`, under _Settings_ in the web app).
@@ -19,7 +19,7 @@ The ingest endpoint takes OTLP over HTTP, as protobuf or JSON, plain or gzip. It
 
 The ingest endpoint never stores prompt text: it removes it from model call events and drops any other event that carries it. Turning prompt logging off in the agent still sends less data.
 
-Only Claude Code sends a cost with each model call. For the other agents Token Controller computes the list value from the model and the [price table](/reference/pricing-tables).
+Every event must carry the token counts by kind: input, output, cache read and cache write. Cost comes from the [price table](/account/price-table) for every agent; the cost figure Claude Code sends along is kept as a fact and never shown as the cost.
 
 ## Claude Code {#claude-code}
 
@@ -39,7 +39,7 @@ An administrator adds this to Claude Code's managed settings:
 }
 ```
 
-The exporter adds `/v1/metrics` and `/v1/logs` to the endpoint itself. Each model call is counted once, from its log event; metrics are accepted and not counted, because they repeat the same calls. `OTEL_METRICS_INCLUDE_REPOSITORY` adds the repository, which places cost on projects.
+The exporter adds `/v1/metrics` and `/v1/logs` to the endpoint itself. Each model call is one message, from its log event; metrics are accepted and not counted, because they repeat the same calls. `OTEL_METRICS_INCLUDE_REPOSITORY` adds the repository, a signal that a rule turns into the project.
 
 ## Codex CLI {#codex}
 
@@ -55,7 +55,7 @@ exporter = { otlp-http = {
 }}
 ```
 
-Codex sends the URL as written, so it ends in `/v1/logs`. The [CLI](/collect/cli) also reads Codex session files, which adds the branch and lets agent managers review before they submit.
+Codex sends the URL as written, so it ends in `/v1/logs`. The [CLI](/collect/cli) also reads Codex session files, which adds the branch and lets people check before they submit.
 
 ## Gemini CLI {#gemini-cli}
 
@@ -88,18 +88,18 @@ Cursor pushes from its own servers, so an administrator sets it up once in Curso
 
 Cursor uses its own names for the same fields; Token Controller maps them. Session files are not read.
 
-## Tags in telemetry {#tags}
+## Resource attributes are signals {#tags}
 
-Agents that read `OTEL_RESOURCE_ATTRIBUTES`, such as Claude Code and Copilot CLI, can tag everyone who gets the setting, for example with one managed settings file per team:
+Agents that read `OTEL_RESOURCE_ATTRIBUTES`, such as Claude Code and Copilot CLI, can send a value with every message from everyone who gets the setting, for example with one managed settings file per team:
 
 ```sh
-"OTEL_RESOURCE_ATTRIBUTES": "team=web,department=engineering"
+"OTEL_RESOURCE_ATTRIBUTES": "purpose=product"
 ```
 
-Attributes whose names are on your organization's tag list become tags on the token entries built from that telemetry. Others are ignored. Telemetry tags are the same for every session on a machine, so they suit team or department, not tickets.
+A resource attribute is a [signal](/attribute/rules#signals), not a tag: a rule such as "resource attribute `purpose` is tag `purpose` with that key" turns it into a tag value. A person's team and department come from their [attributes](/account/attributes), not from telemetry. Resource attributes are the same for every session on a machine, so they suit a purpose or an environment, not features.
 
 ## What telemetry sees, and what it does not {#sees}
 
-Each telemetry event is one model call: tokens, model, person, repository and the IDs of the session and message, plus cost from Claude Code. It does not see the branch, the pull request or a summary. Organizations that only push telemetry get cost on projects, by repository, and nobody fills in a token sheet: the token entries are [automatic](/collect#automatic). Adding the [mod](/collect/claude-code) or the [CLI](/collect/cli) puts cost on tickets, with the person's own review.
+Each telemetry event is one message: token counts by kind, model, person, repository and the ids of the session and message. It does not see the branch, the pull request or a summary. Organizations that only push telemetry get cost on projects, by repository, and nobody submits anything. Adding the [mod](/collect/claude-code) or the [CLI](/collect/cli) puts cost on features, with the person's own check.
 
-When telemetry and a token entry describe the same session, they are joined by session and message ID and counted once.
+When telemetry and a session file describe the same message, by session id and message id, they are one record, counted once.

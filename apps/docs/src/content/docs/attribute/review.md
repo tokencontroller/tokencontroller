@@ -1,41 +1,39 @@
 ---
-title: "Review and submit"
-description: "Check draft token entries, fix the exceptions, submit the token sheet."
+title: "Check and submit"
+description: "Check your sessions, fix the exceptions, submit."
 ---
 
-Before you submit, you see every draft token entry and how it was placed, in the CLI, the Claude Code mod's pane or the web app.
+Before you submit, you see every session since your last submit and how it was split, in the CLI, the Claude Code mod's pane or the web app.
 
-![Review and submit: draft token entries with their tickets and tags, and the Submit token sheet button](/screens/01-review-and-submit.png)
-
-## Review {#review}
+## Check {#review}
 
 ```text
 tc review
   #  when    cost     tags                              by
-  1  09:12   $41.87   ticket KD-214 · team web          rule: ticket key in branch
-  2  11:46   $12.10   ticket KD-214 · team web          rule: ticket key in branch
-  3  13:05   $88.30   ticket KD-231 · team web          rule: ticket key in PR title
-  4  15:20    $9.75   project storefront · team web     rule: repository
-  5  16:41   $60.38   team web                          no ticket, 2 candidates
+  1  09:12   $41.87   feature KD-214                    rule: key in branch
+  2  11:46   $12.10   feature KD-214                    rule: key in branch
+  3  13:05   $88.30   feature KD-231                    rule: key in PR title
+  4  15:20    $9.75   project shop                      rule: repository
+  5  16:41   $60.38   no project                        no rule matched
 ```
 
-_Candidates_ are tickets the session named, in its branch, a title or your prompts, but is not placed on. Pick one to place it there.
+Session 5 is organization overhead with your name on it until you assign it.
 
 ## Fix what is wrong {#fix}
 
 ```sh
-tc tag 5 ticket=KD-231              # set the ticket
-tc tag 4 purpose=learning           # any other tag on your organization's list
-tc split 3 KD-231=60 KD-240=40      # one session, two tickets
+tc tag 5 feature=KD-231             # put it on a feature
+tc tag 4 purpose=learning           # any other tag
+tc split 3 KD-231=60 KD-240=40      # one session, two features
 ```
 
-Project, client and the other inherited tags follow from the ticket. If the same fix keeps coming back, make it a [rule](/attribute/rules).
+The project and the client follow from the feature as default tags. Every fix is a new split that supersedes the rule's; the old one stays in the log. Add `--remember` to make the fix a [rule](/attribute/rules#remember) for next time.
 
 ## Submit {#submit}
 
 ```text
 tc submit
-submitted token sheet · 5 token entries · $212.40 · 95% on tickets
+submitted · 5 sessions · $212.40 · 95% on features
 ```
 
-Submit whenever you like; with a [cadence](/account/cadence), at least once per cadence period. Submitted token entries count in reports at once. If a people manager [rejects](/account/cadence#approval) one, it comes back to your review list with a reason.
+A submit covers every message of yours since your last submit. Submit whenever you like; before moving the cutoff, your org manager may ask everyone to. If your organization approves submissions and a people manager [rejects](/account/submit#approval) yours, it comes back to this list with a reason.
