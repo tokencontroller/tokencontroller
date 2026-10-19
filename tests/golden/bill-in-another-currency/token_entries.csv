@@ -1,6 +1,0 @@
-entry,person,agent_harness,agent_name,started_at,status,arrival,bill,tags,configured,signals,summary,hand_split
-1,anna,Claude Code,,2026-10-05T09:00:00Z,submitted,token_sheet,anthropic-enterprise-2026-10,,,branch=HAL-1-login;repository=halden/portal,Login page,
-2,felix,Claude Code,,2026-10-06T09:00:00Z,submitted,token_sheet,anthropic-enterprise-2026-10,,,branch=HAL-2-invoices;repository=halden/portal,Invoice download,
-3,anna,Claude Code,,2026-10-07T09:00:00Z,submitted,token_sheet,anthropic-enterprise-2026-10,,,branch=main;repository=halden/portal,Upgrade dependencies,
-4,felix,Claude Code,,2026-10-08T09:00:00Z,submitted,token_sheet,anthropic-enterprise-2026-10,,,branch=main;repository=felix/notes,Other work,
-5,felix,Codex,,2026-10-09T09:00:00Z,submitted,token_sheet,openai-2026-10,,,branch=HAL-2-invoices;repository=halden/portal,Invoice download,

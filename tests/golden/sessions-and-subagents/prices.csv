@@ -1,2 +1,0 @@
-version,model,input,output,cache_write,cache_read
-1,anthropic/claude-sonnet-4-5,3.00,15.00,3.75,0.30

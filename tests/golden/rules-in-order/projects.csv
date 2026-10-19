@@ -1,2 +1,0 @@
-project,ticket_key_pattern,repositories,tags
-storefront,^(KD|OPS)-[0-9]+,kestrel/storefront,

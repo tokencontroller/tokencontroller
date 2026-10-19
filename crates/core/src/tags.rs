@@ -1,8 +1,10 @@
-//! Tags: a name and a value on a split, a person, a project or a ticket.
+//! Tags and attributes: a name and a value, on a split or on a person.
 //!
-//! A set of tags has at most one value per tag name, so cost grouped by one
-//! tag name always adds up to the total. A filter is a set of tags that a
-//! view is limited to.
+//! A set of tags has at most one value per tag name, so cost partitioned by
+//! one tag name always adds up to the total (formula 5). Attributes of
+//! people (team, department) use the same names and values, so one filter
+//! can hold tags and attributes together. A filter is a set of tags and
+//! attributes a report or a grant is limited to.
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -51,16 +53,11 @@ impl TagName {
         }
     }
 
-    /// The built-in tag `person`: the token entry's agent manager.
+    /// The name `person`: the person whose message a split belongs to. It
+    /// is on every closed tag set and is never a tag value record.
     #[must_use]
     pub fn person() -> Self {
         Self("person".to_owned())
-    }
-
-    /// The built-in tag `ticket`.
-    #[must_use]
-    pub fn ticket() -> Self {
-        Self("ticket".to_owned())
     }
 
     /// The built-in tag `project`.
@@ -69,11 +66,23 @@ impl TagName {
         Self("project".to_owned())
     }
 
-    /// Whether this is one of the built-in tags `person`, `ticket` and
-    /// `project`, which have records behind them.
+    /// The built-in tag `feature`: a ticket, story, epic or task.
+    #[must_use]
+    pub fn feature() -> Self {
+        Self("feature".to_owned())
+    }
+
+    /// The built-in tag `client`.
+    #[must_use]
+    pub fn client() -> Self {
+        Self("client".to_owned())
+    }
+
+    /// Whether this is one of the built-in tag names `project`, `feature`
+    /// and `client`. An organization adds its own.
     #[must_use]
     pub fn is_built_in(&self) -> bool {
-        matches!(self.0.as_str(), "person" | "ticket" | "project")
+        matches!(self.0.as_str(), "project" | "feature" | "client")
     }
 
     #[must_use]
@@ -155,7 +164,7 @@ impl fmt::Display for TagValue {
 }
 
 /// A set of tags with at most one value per tag name, ordered by name.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct Tags(BTreeMap<TagName, TagValue>);
 
@@ -260,7 +269,7 @@ impl FromIterator<(TagName, TagValue)> for Tags {
 }
 
 impl fmt::Display for Tags {
-    /// Shows tags the way the review list does: `team web · ticket KD-214`.
+    /// Shows tags the way reports do: `feature KD-1 · team web`.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for (position, (name, value)) in self.0.iter().enumerate() {
             if position > 0 {
@@ -272,10 +281,10 @@ impl fmt::Display for Tags {
     }
 }
 
-/// A set of tags a view is limited to, such as `client: acme`. Reports,
-/// token budgets and people managers' access are filters. A token entry's
-/// split matches when it has every tag in the filter; an empty filter
-/// matches everything.
+/// A set of tags and attributes a report or a grant is limited to, such as
+/// `client: acme` or `team: web`. The filter `F` of the formulas. A split
+/// matches when its closed tag set has every tag in the filter
+/// (`F ⊆ T*(s)`); an empty filter matches everything.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct Filter(pub Tags);
@@ -287,6 +296,19 @@ impl Filter {
         self.0
             .iter()
             .all(|(name, value)| tags.get(name) == Some(value))
+    }
+
+    /// Whether every tag of this filter is in `other`: this filter is at
+    /// least as wide. A grant on `self` covers a question about `other`.
+    #[must_use]
+    pub fn covers(&self, other: &Self) -> bool {
+        self.matches(&other.0)
+    }
+
+    /// Whether the filter limits nothing.
+    #[must_use]
+    pub fn is_everything(&self) -> bool {
+        self.0.is_empty()
     }
 }
 
@@ -323,14 +345,16 @@ mod tests {
     }
 
     #[test]
-    fn built_in_tag_names_are_person_ticket_and_project() {
-        assert!(TagName::person().is_built_in());
-        assert!(TagName::ticket().is_built_in());
+    fn built_in_tag_names_are_project_feature_and_client() {
         assert!(TagName::project().is_built_in());
+        assert!(TagName::feature().is_built_in());
+        assert!(TagName::client().is_built_in());
+        assert!(!TagName::person().is_built_in());
         assert!(!TagName::new("team").unwrap().is_built_in());
         assert_eq!(TagName::person(), TagName::new("person").unwrap());
-        assert_eq!(TagName::ticket(), TagName::new("ticket").unwrap());
         assert_eq!(TagName::project(), TagName::new("project").unwrap());
+        assert_eq!(TagName::feature(), TagName::new("feature").unwrap());
+        assert_eq!(TagName::client(), TagName::new("client").unwrap());
     }
 
     #[test]
@@ -419,6 +443,19 @@ mod tests {
         assert!(!Filter(tags(&["team=web", "project=globex-app"])).matches(&entry));
         assert!(!Filter(tags(&["purpose=learning"])).matches(&entry));
         assert!(!Filter(tags(&["client=Acme"])).matches(&entry));
+    }
+
+    #[test]
+    fn a_wider_filter_covers_a_narrower_one() {
+        let acme = Filter(tags(&["client=acme"]));
+        let acme_web = Filter(tags(&["client=acme", "team=web"]));
+        assert!(Filter::default().covers(&acme));
+        assert!(acme.covers(&acme_web));
+        assert!(acme.covers(&acme));
+        assert!(!acme_web.covers(&acme));
+        assert!(!Filter(tags(&["client=globex"])).covers(&acme));
+        assert!(Filter::default().is_everything());
+        assert!(!acme.is_everything());
     }
 
     #[test]

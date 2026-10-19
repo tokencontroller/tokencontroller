@@ -1,3 +1,0 @@
-entry,person,agent_harness,agent_name,started_at,status,arrival,bill,tags,configured,signals,summary,hand_split
-1,mara,Claude Code,,2026-10-14T09:00:00Z,submitted,token_sheet,anthropic-2026-10,,,branch=KD-214-saved-card;working_directory=/work/storefront;repository=kestrel/storefront,Saved cards then autocomplete and delivery slots,
-2,lena,Claude Code,,2026-10-15T09:00:00Z,submitted,token_sheet,anthropic-2026-10,,,branch=main;working_directory=/work/storefront;repository=kestrel/storefront,Upgrade a shared library in two repositories,

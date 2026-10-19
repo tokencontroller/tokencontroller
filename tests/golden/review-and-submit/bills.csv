@@ -1,2 +1,0 @@
-bill,provider,cost_source,period,currency,gross,discount,credit,net,rate,revision
-anthropic-console-2026-10,anthropic,api_key,2026-10,USD,250.00,0,0,250.00,,1

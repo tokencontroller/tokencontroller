@@ -31,9 +31,9 @@ pub trait Extension: Send + Sync + 'static {
         let _ = event;
     }
 
-    /// A message the web app shows to every controller of the organization,
+    /// A message the web app shows to every org manager of the organization,
     /// such as an Enterprise plan renewal notice. The open edition has none.
-    fn controller_notice(&self) -> Option<String> {
+    fn org_manager_notice(&self) -> Option<String> {
         None
     }
 
@@ -66,9 +66,9 @@ pub struct AuditEvent {
     pub organization_id: String,
     /// The member who made the change, or `None` for the service itself.
     pub actor_id: Option<String>,
-    /// What happened, such as `token_sheet.submitted`.
+    /// What happened, such as `submission.approved`.
     pub action: String,
-    /// The record it happened to, such as a token sheet ID.
+    /// The event it happened to, such as a submit event's id.
     pub target_id: Option<String>,
 }
 
@@ -116,11 +116,11 @@ mod tests {
         let extension = NoExtension;
         assert_eq!(extension.edition(), "open");
         assert!(extension.sign_in_providers().is_empty());
-        assert_eq!(extension.controller_notice(), None);
+        assert_eq!(extension.org_manager_notice(), None);
         extension.record_audit_event(&AuditEvent {
             organization_id: "org".to_owned(),
             actor_id: None,
-            action: "token_sheet.submitted".to_owned(),
+            action: "submission.approved".to_owned(),
             target_id: None,
         });
         extension.forward_telemetry(&TelemetryBatch {

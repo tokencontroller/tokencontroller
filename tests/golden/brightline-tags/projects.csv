@@ -1,4 +1,0 @@
-project,ticket_key_pattern,repositories,tags
-acme-shop,^ACME-[0-9]+,brightline/acme-shop,client=acme
-globex-app,^GLOBEX-[0-9]+,brightline/globex-app,client=globex
-intranet,^INT-[0-9]+,brightline/intranet,

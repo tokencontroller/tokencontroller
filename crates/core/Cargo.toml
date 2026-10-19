@@ -1,6 +1,6 @@
 [package]
 name = "tokencontroller-core"
-description = "Money, rules and the extension point shared by the Token Controller service and the tc command"
+description = "The accounting core of Token Controller: the event log, its fold and the formulas of cost model 2"
 version = "1.0.0"
 license = "MIT"
 edition.workspace = true
@@ -12,7 +12,7 @@ publish.workspace = true
 regex.workspace = true
 serde.workspace = true
 thiserror.workspace = true
-time.workspace = true
+time = { workspace = true, features = ["serde-human-readable"] }
 
 [dev-dependencies]
 csv.workspace = true

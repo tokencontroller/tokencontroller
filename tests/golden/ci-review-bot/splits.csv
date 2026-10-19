@@ -1,6 +1,0 @@
-entry,tags,amount,placed_by,notes
-1,person=mara;project=storefront;team=web;ticket=KD-214,41.87,rule: ticket key in branch,
-2,person=tom;project=storefront;purpose=code-review;team=web;ticket=KD-214,3.40,rule: ticket key in pull request title,
-3,person=tom;project=storefront;purpose=code-review;team=web;ticket=KD-240,2.10,by hand,
-4,person=tom;project=storefront;team=web,1.25,rule: repository,
-5,person=tom;project=intranet;team=web,0.80,by hand,

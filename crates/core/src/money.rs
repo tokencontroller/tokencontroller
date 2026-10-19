@@ -216,7 +216,7 @@ impl Money {
             .ok_or(MoneyError::Overflow)
     }
 
-    /// The same amount with the opposite sign, as an adjustment books it.
+    /// The same amount with the opposite sign.
     ///
     /// # Errors
     ///
@@ -226,6 +226,27 @@ impl Money {
             .checked_neg()
             .map(|nanos| Self::from_nanos(nanos, self.currency))
             .ok_or(MoneyError::Overflow)
+    }
+
+    /// The amount times `numerator / denominator`, rounded half away from
+    /// zero to the nano-unit: a share of a plan, or a markup on top of it.
+    ///
+    /// # Errors
+    ///
+    /// [`MoneyError::Overflow`] if the result does not fit, or
+    /// [`MoneyError::NoWeights`] if the denominator is zero.
+    pub fn checked_mul_ratio(self, numerator: u64, denominator: u64) -> Result<Self, MoneyError> {
+        if denominator == 0 {
+            return Err(MoneyError::NoWeights);
+        }
+        let scaled = i128::from(self.nanos)
+            .checked_mul(i128::from(numerator))
+            .ok_or(MoneyError::Overflow)?;
+        let rounded =
+            divide_rounded(scaled, i128::from(denominator)).ok_or(MoneyError::Overflow)?;
+        i64::try_from(rounded)
+            .map(|nanos| Self::from_nanos(nanos, self.currency))
+            .map_err(|_| MoneyError::Overflow)
     }
 
     /// Adds up amounts. An empty list is zero in `currency`.
@@ -262,8 +283,8 @@ impl Money {
     }
 
     /// Rounds a list of amounts to the minor unit so that the rounded amounts
-    /// add up to the rounded total, as a cost sheet shows them. Each is at
-    /// most one minor unit from rounding it alone.
+    /// add up to the rounded total, as a report shows them. Each is at most
+    /// one minor unit from rounding it alone.
     ///
     /// # Errors
     ///
@@ -392,9 +413,8 @@ impl fmt::Display for Money {
 ///
 /// Each part is the rounded running total after it minus the rounded running
 /// total before it. So the parts always add up to the rounded total, and no
-/// part is more than one rounding step away from its own rounded value. The
-/// cost sheet uses it twice: to convert lines into the reporting currency and
-/// to show them in cents.
+/// part is more than one rounding step away from its own rounded value. It
+/// is used to convert lines into another currency and to show them in cents.
 fn running_round(
     values: impl IntoIterator<Item = i128>,
     round: impl Fn(i128) -> Option<i128>,
@@ -635,6 +655,28 @@ mod tests {
         assert!(eur(0).is_zero());
         assert!(!eur(-1).is_zero());
         assert!(!eur(1).is_zero());
+    }
+
+    #[test]
+    fn a_ratio_of_an_amount_rounds_half_away_from_zero() {
+        assert_eq!(
+            eur(750_000_000_000).checked_mul_ratio(31, 100).unwrap(),
+            eur(232_500_000_000)
+        );
+        assert_eq!(eur(3).checked_mul_ratio(1, 2).unwrap(), eur(2));
+        assert_eq!(eur(-3).checked_mul_ratio(1, 2).unwrap(), eur(-2));
+        assert_eq!(eur(1).checked_mul_ratio(1, 3).unwrap(), eur(0));
+        assert_eq!(eur(10).checked_mul_ratio(12_000, 10_000).unwrap(), eur(12));
+        assert_eq!(eur(10).checked_mul_ratio(0, 7).unwrap(), eur(0));
+        assert_eq!(eur(10).checked_mul_ratio(1, 0), Err(MoneyError::NoWeights));
+        assert_eq!(
+            eur(i64::MAX).checked_mul_ratio(2, 1),
+            Err(MoneyError::Overflow)
+        );
+        assert_eq!(
+            eur(i64::MAX).checked_mul_ratio(1, 1).unwrap(),
+            eur(i64::MAX)
+        );
     }
 
     #[test]

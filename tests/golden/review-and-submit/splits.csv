@@ -1,7 +1,0 @@
-entry,tags,amount,placed_by,notes
-1,person=mara;project=storefront;team=web;ticket=KD-214,41.87,rule: ticket key in branch,
-2,person=mara;project=storefront;team=web;ticket=KD-214,12.10,rule: ticket key in branch,
-3,person=mara;project=storefront;team=web;ticket=KD-231,52.98,by hand,
-3,person=mara;project=storefront;team=web;ticket=KD-240,35.32,by hand,
-4,person=mara;project=storefront;purpose=learning;team=web,9.75,rule: repository,
-5,person=mara;project=storefront;team=web;ticket=KD-231,60.38,by hand,

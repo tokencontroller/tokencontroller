@@ -1,9 +1,0 @@
-bill,line,cost_kind,project,ticket,person,amount,note
-anthropic-2026-10,cost,direct,storefront,KD-214,mara,20.00,
-anthropic-2026-10,cost,direct,storefront,KD-214,tom,3.00,
-anthropic-2026-10,residual,,,,,27.00,
-anthropic-2026-10,gross,,,,,50.00,
-anthropic-2026-10,discount,,,,,0.00,
-anthropic-2026-10,credit,,,,,0.00,
-anthropic-2026-10,net,,,,,50.00,
-,total,,,,,50.00,

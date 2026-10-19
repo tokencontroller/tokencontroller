@@ -1,3 +1,0 @@
-tags,amount,reason,posted_by,posted_at,late
-person=mara;ticket=KD-214;project=storefront,-2.25,"Entry 1 counted a test run twice, says Mara",priya,2026-11-10T10:00:00Z,false
-person=tom;ticket=KD-231;project=storefront,6.30,Token sheet for 30 October submitted after the close,tom,2026-11-04T08:00:00Z,true

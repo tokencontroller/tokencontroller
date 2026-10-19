@@ -1,7 +1,0 @@
-setting,value
-reporting_currency,USD
-cost_source,api_key
-tag_names,team;purpose
-several_keys,equal_split
-period,2026-10
-columns,person;purpose

@@ -1,6 +1,0 @@
-entry,person,agent_harness,agent_name,started_at,status,arrival,bill,tags,configured,signals,summary,hand_split
-1,mara,Claude Code,,2026-10-14T09:12:00Z,submitted,token_sheet,anthropic-console-2026-10,,,branch=KD-214-saved-card;repository=kestrel/storefront,Fix the checkout error with a saved card,
-2,mara,Claude Code,,2026-10-14T11:46:00Z,submitted,token_sheet,anthropic-console-2026-10,,,branch=KD-214-saved-card;repository=kestrel/storefront,Add a test for the saved card error,
-3,mara,Claude Code,,2026-10-14T13:05:00Z,submitted,token_sheet,anthropic-console-2026-10,,,branch=checkout-polish;repository=kestrel/storefront;pull_request=412;pull_request_title_keys=KD-231,Autocomplete and the slot picker,60 ticket=KD-231|40 ticket=KD-240
-4,mara,Claude Code,,2026-10-14T15:20:00Z,submitted,token_sheet,anthropic-console-2026-10,purpose=learning,,branch=main;repository=kestrel/storefront,Try the new router,
-5,mara,Claude Code,,2026-10-14T16:41:00Z,submitted,token_sheet,anthropic-console-2026-10,ticket=KD-231,,branch=main;repository=mara/scratch,Debug the address lookup,
