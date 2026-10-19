@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE organizations\n           SET reporting_currency = coalesce($2, reporting_currency)\n           WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "8e408ef7ac3dcaeb08e22d3a61d1da5bb5180bddb4a99a9d856b46e4c45f3cbc"
+}

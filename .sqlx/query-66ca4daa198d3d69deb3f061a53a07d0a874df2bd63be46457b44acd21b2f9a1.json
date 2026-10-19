@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE organizations SET\n             name = coalesce($2, name),\n             reporting_currency = coalesce($3, reporting_currency),\n             approval = coalesce($4, approval),\n             sign_in_domains = coalesce($5, sign_in_domains)\n           WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text",
+        "Bool",
+        "TextArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "66ca4daa198d3d69deb3f061a53a07d0a874df2bd63be46457b44acd21b2f9a1"
+}

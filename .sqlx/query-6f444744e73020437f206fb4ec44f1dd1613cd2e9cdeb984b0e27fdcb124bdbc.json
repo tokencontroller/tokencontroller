@@ -1,0 +1,41 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT name, built_in FROM tag_names\n           WHERE organization_id = $1 AND kind = $2\n           ORDER BY built_in DESC, name",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tag_names",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "built_in",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "tag_names",
+            "name": "built_in"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "6f444744e73020437f206fb4ec44f1dd1613cd2e9cdeb984b0e27fdcb124bdbc"
+}
