@@ -475,11 +475,11 @@ fn message_of(
     if let Some(directory) = &stored.directory {
         resource.insert("working_directory".to_owned(), directory.clone());
     }
-    if let Some(number) = run
+    let pull_request = run
         .pull_request()
-        .or_else(|| record.and_then(|record| record.pull_request.clone()))
-    {
-        resource.insert("pull_request".to_owned(), number);
+        .or_else(|| record.and_then(|record| record.pull_request.clone()));
+    if let Some(number) = &pull_request {
+        resource.insert("pull_request".to_owned(), number.clone());
     }
     let summary = record
         .and_then(|record| record.summary.clone())
@@ -506,7 +506,12 @@ fn message_of(
                 .and_then(crate::repo::name_from_url)
                 .or_else(|| run.signals.repository.clone())
                 .or_else(|| stored.repository.clone()),
+            working_directory: stored.directory.clone(),
+            pull_request: pull_request
+                .as_deref()
+                .and_then(|number| number.parse().ok()),
             pull_request_title,
+            subagent_type: None,
             prompt_keys,
             config,
             resource,

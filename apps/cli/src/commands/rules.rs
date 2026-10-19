@@ -89,7 +89,9 @@ fn signal_of(word: &str) -> Option<Signal> {
 fn signal_word(signal: &Signal) -> String {
     match signal {
         Signal::Branch => "branch".to_owned(),
+        Signal::WorkingDirectory => "directory".to_owned(),
         Signal::Repository => "repository".to_owned(),
+        Signal::SubagentType => "subagent-type".to_owned(),
         Signal::PullRequestTitle => "pull-request".to_owned(),
         Signal::PromptKeys => "feature".to_owned(),
         Signal::AgentName => "subagent".to_owned(),
