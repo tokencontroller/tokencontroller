@@ -22,7 +22,11 @@ use uuid::Uuid;
 
 type TestResult<T> = Result<T, Box<dyn std::error::Error>>;
 
-const KEY: &str = "0123456789abcdef0123456789abcdef";
+/// The secret key of this test run: made once, never written down.
+fn key() -> &'static str {
+    static KEY: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    KEY.get_or_init(|| uuid::Uuid::new_v4().simple().to_string())
+}
 const CLAUDE_CODE_LOGS: &str = include_str!("fixtures/otlp/claude_code_logs.json");
 
 /// Counts the telemetry batches handed to the extension.
@@ -43,7 +47,7 @@ fn config() -> Config {
     Config {
         database_url: "postgres://unused".to_owned(),
         public_url: "http://localhost:8080".to_owned(),
-        secret_key: KEY.to_owned(),
+        secret_key: key().to_owned(),
         smtp_url: None,
         smtp_from: None,
         price_table: None,
@@ -72,14 +76,14 @@ async fn kestrel(pool: &PgPool) -> TestResult<Kestrel> {
     )
     .await
     .map_err(|error| error.to_string())?;
-    let session = secret::generate(secret::SESSION, KEY)?;
+    let session = secret::generate(secret::SESSION, key())?;
     sqlx::query("INSERT INTO sessions (token_hash, person_id, client, expires_at) VALUES ($1, $2, 'browser', now() + interval '1 day')")
         .bind(&session.hash)
         .bind(created.person_id)
         .execute(pool)
         .await?;
     let token = |prefix: &str, kind: &str| -> TestResult<(String, Vec<u8>, String)> {
-        let secret = secret::generate(prefix, KEY)?;
+        let secret = secret::generate(prefix, key())?;
         Ok((secret.token.clone(), secret.hash.clone(), kind.to_owned()))
     };
     let mut tokens = Vec::new();

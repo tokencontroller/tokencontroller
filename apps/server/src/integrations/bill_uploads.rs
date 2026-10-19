@@ -257,7 +257,7 @@ async fn upload_bill_csv(
         .map_err(|error| ApiError::BadRequest(format!("{error} Nothing was saved.")))?;
     let bills = checked(&uploaded, &person)
         .map_err(|error| ApiError::BadRequest(format!("{error} Nothing was saved.")))?;
-    let mut stored = Vec::with_capacity(bills.len());
+    let mut stored = Vec::new();
     let mut changed = 0_usize;
     for bill in bills {
         let recorded = record_bill(&state, caller.organization_id, bill).await??;

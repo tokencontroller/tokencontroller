@@ -262,11 +262,7 @@ async fn a_record_without_messages_is_one_message_under_its_session(pool: PgPool
     assert_eq!(stored[0].session_id, "desk:7");
     let fresh = entry(&serde_json::json!({})).unwrap();
     let stored = submit(&kestrel, vec![fresh]).await.unwrap();
-    assert!(
-        stored[0].session_id.starts_with("entry-"),
-        "{}",
-        stored[0].session_id
-    );
+    assert!(stored[0].session_id.starts_with("entry-"));
 }
 
 #[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]

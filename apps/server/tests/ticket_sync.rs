@@ -23,7 +23,11 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 
 type TestResult<T> = Result<T, Box<dyn std::error::Error>>;
 
-const KEY: &str = "0123456789abcdef0123456789abcdef";
+/// The secret key of this test run: made once, never written down.
+fn key() -> &'static str {
+    static KEY: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    KEY.get_or_init(|| uuid::Uuid::new_v4().simple().to_string())
+}
 const SEARCH_PAGE_1: &str = include_str!("fixtures/tickets/jira/search_page_1.json");
 const SEARCH_PAGE_2: &str = include_str!("fixtures/tickets/jira/search_page_2.json");
 
@@ -31,7 +35,7 @@ fn config() -> Config {
     Config {
         database_url: "postgres://unused".to_owned(),
         public_url: "http://localhost:8080".to_owned(),
-        secret_key: KEY.to_owned(),
+        secret_key: key().to_owned(),
         smtp_url: None,
         smtp_from: None,
         price_table: None,
@@ -49,7 +53,7 @@ struct Kestrel {
 }
 
 async fn session(pool: &PgPool, person_id: Uuid) -> TestResult<String> {
-    let session = secret::generate(secret::SESSION, KEY)?;
+    let session = secret::generate(secret::SESSION, key())?;
     sqlx::query("INSERT INTO sessions (token_hash, person_id, client, expires_at) VALUES ($1, $2, 'browser', now() + interval '1 day')")
         .bind(&session.hash)
         .bind(person_id)
@@ -189,7 +193,7 @@ async fn send(
 /// endpoint stores one, since the endpoint takes only Atlassian addresses.
 async fn jira_at(kestrel: &Kestrel, server: &MockServer) -> TestResult<Uuid> {
     let sealed = secrets::seal(
-        KEY,
+        key(),
         &json!({ "email": "dev@acme.example", "token": "ATATT3xFfGF0-test" }).to_string(),
     )?;
     let id: Uuid = sqlx::query_scalar(
