@@ -355,6 +355,15 @@ fn events(case: &Path) -> Outcome<Vec<Event>> {
                 person: value(&cell(&row, "person")?)?,
                 name: name(&cell(&row, "name")?)?,
                 key: value(&cell(&row, "key")?)?,
+                from: cell(&row, "from")
+                    .ok()
+                    .as_deref()
+                    .and_then(optional)
+                    .map(|text| {
+                        Date::parse(text, &time::format_description::well_known::Iso8601::DATE)
+                            .map_err(|error| format!("{text}: {error}"))
+                    })
+                    .transpose()?,
             }),
         )?;
     }
