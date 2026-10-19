@@ -1,30 +1,33 @@
 //! What every command starts from: the settings, the local database brought
-//! up to date with the session files, and what is known about the
-//! organization.
+//! up to date with the session files, what is known about the organization,
+//! and the log folded as of now.
 
+use std::collections::BTreeMap;
 use std::io::{BufRead as _, IsTerminal as _, Write};
+use std::path::Path;
 
-use tokencontroller_core::Rule;
+use time::{Date, OffsetDateTime};
+use tokencontroller_core::{Event, Record, State, Then};
 
 use crate::api::Client;
-use crate::classifier;
 use crate::context::Context;
-use crate::entries::{self, Entry, Placing, Run};
 use crate::error::{Error, Result};
 use crate::folders::{self, Scope};
 use crate::home::{Config, Home};
 use crate::keys::KeyPattern;
-use crate::placing::Placer;
-use crate::sources::Harness;
-use crate::store::{Status, Store};
+use crate::log::{self, Recorded, Run, SessionView};
+use crate::store::Store;
 use crate::sync::{Reading, Sources, sync};
 
 /// How long the organization's context is used before it is fetched again.
 const CONTEXT_MAX_AGE_MS: i64 = 10 * 60 * 1000;
 
-/// Draft token entries go back this far on the first run, unless `since`
-/// says otherwise.
+/// Sessions go back this far on the first run, unless `since` says
+/// otherwise.
 const FIRST_RUN_DAYS: i64 = 31;
+
+/// What `tc record` was told is kept in `meta` under this prefix.
+pub const RECORD: &str = "record:";
 
 pub struct App<'a> {
     pub home: Home,
@@ -34,7 +37,7 @@ pub struct App<'a> {
     pub run: Run,
     pub json: bool,
     pub out: &'a mut dyn Write,
-    pub now_ms: i64,
+    pub now: OffsetDateTime,
     pub sources: Sources,
 }
 
@@ -46,8 +49,8 @@ pub struct Connection {
 }
 
 impl Connection {
-    /// A service token (`tc_svc_…`) reports automatic token entries; any
-    /// other token submits the person's token sheet.
+    /// A service token (`tc_svc_…`) reports messages as its creator and
+    /// never submits; any other token is a person's.
     pub fn is_service_token(&self) -> bool {
         self.token.starts_with("tc_svc_")
     }
@@ -58,7 +61,6 @@ impl<'a> App<'a> {
         let home = Home::locate()?;
         let config = home.read_config()?;
         let store = Store::open(&home.database())?;
-        let now_ms = jiff::Timestamp::now().as_millisecond();
         let mut app = Self {
             home,
             config,
@@ -67,7 +69,7 @@ impl<'a> App<'a> {
             run: Run::from_env(),
             json,
             out,
-            now_ms,
+            now: OffsetDateTime::now_utc(),
             sources,
         };
         app.context = app.cached_context()?;
@@ -91,7 +93,7 @@ impl<'a> App<'a> {
             .map(|connection| Client::new(&connection.service, Some(connection.token)))
     }
 
-    /// The context as last fetched, or the local one.
+    /// The context as last fetched, or none.
     fn cached_context(&self) -> Result<Context> {
         if self.connection().is_some()
             && let Some(text) = self.store.meta("context")?
@@ -99,35 +101,21 @@ impl<'a> App<'a> {
         {
             return Ok(context);
         }
-        self.local_context()
+        Ok(Context::default())
     }
 
-    /// With no service: only the personal rules kept on this machine.
-    fn local_context(&self) -> Result<Context> {
-        let rules = self
-            .store
-            .personal_rules()?
-            .iter()
-            .filter_map(|text| serde_json::from_str::<Rule>(text).ok())
-            .collect();
-        Ok(Context {
-            rules,
-            ..Context::default()
-        })
+    /// The next command reads the context again: after a submit, the
+    /// service's list of submissions has changed.
+    pub fn context_is_stale(&self) -> Result<()> {
+        self.store.set_meta("context_fetched_ms", "0")
     }
 
     /// Fetches the context from the service when it is older than ten
     /// minutes, or always with `force`. Without a connection, or when the
     /// service cannot be reached and `force` is off, the cached one stays.
-    /// The next command reads the context again: after a submit, the
-    /// service's word on late token sheets has changed.
-    pub fn context_is_stale(&self) -> Result<()> {
-        self.store.set_meta("context_fetched_ms", "0")
-    }
-
     pub fn refresh_context(&mut self, force: bool) -> Result<()> {
         let Some(client) = self.client() else {
-            self.context = self.local_context()?;
+            self.context = Context::default();
             return Ok(());
         };
         let fetched: i64 = self
@@ -135,7 +123,8 @@ impl<'a> App<'a> {
             .meta("context_fetched_ms")?
             .and_then(|text| text.parse().ok())
             .unwrap_or(0);
-        if !force && self.now_ms.saturating_sub(fetched) < CONTEXT_MAX_AGE_MS {
+        let now_ms = crate::output::millis(self.now);
+        if !force && now_ms.saturating_sub(fetched) < CONTEXT_MAX_AGE_MS {
             return Ok(());
         }
         match client.context() {
@@ -143,86 +132,103 @@ impl<'a> App<'a> {
                 self.store
                     .set_meta("context", &serde_json::to_string(&context)?)?;
                 self.store
-                    .set_meta("context_fetched_ms", &self.now_ms.to_string())?;
-                for rejection in &context.rejected {
-                    self.store
-                        .mark_rejected(&rejection.local_id, &rejection.reason)?;
-                }
+                    .set_meta("context_fetched_ms", &now_ms.to_string())?;
                 self.context = context;
                 Ok(())
             }
             Err(error) if force => Err(error),
-            // Offline is fine: the cached context places entries as before.
+            // Offline is fine: the cached context folds the log as before.
             Err(_) => Ok(()),
         }
     }
 
-    pub fn patterns(&self) -> Vec<KeyPattern> {
-        self.context
-            .key_patterns(self.config.ticket_key_pattern.as_deref())
+    /// The pattern feature keys are found with: connected, the pattern of
+    /// the organization's rules that find a feature; else the one from
+    /// `tc config feature-key-pattern`.
+    pub fn pattern(&self) -> Option<KeyPattern> {
+        if self.connection().is_some() {
+            let from_rules = self
+                .context
+                .rules
+                .iter()
+                .chain(&self.context.my_rules)
+                .find(|rule| matches!(&rule.then, Then::KeyOf { .. }))
+                .and_then(|rule| KeyPattern::new(rule.pattern.as_str()));
+            if from_rules.is_some() {
+                return from_rules;
+            }
+        }
+        self.config
+            .feature_key_pattern
+            .as_deref()
+            .and_then(KeyPattern::new)
     }
 
-    /// The text of every ticket key pattern, to notice when they change.
-    fn pattern_text(&self) -> String {
-        let mut patterns: Vec<String> = self
-            .context
-            .projects
-            .iter()
-            .filter_map(|project| project.ticket_key_pattern.clone())
-            .collect();
-        patterns.extend(self.config.ticket_key_pattern.clone());
-        patterns.join("\n")
-    }
-
-    /// Sessions that started before this get no draft token entry.
+    /// Sessions that started before this get no number.
     fn since_ms(&self) -> Result<i64> {
         if let Some(day) = &self.config.since {
-            let date: jiff::civil::Date = day
-                .parse()
-                .map_err(|_| Error::usage(format!("since = {day} is not a day")))?;
-            return Ok(start_of_day_ms(date));
+            let date = crate::output::parse_date(day)
+                .ok_or_else(|| Error::usage(format!("since = {day} is not a day")))?;
+            return Ok(crate::output::millis(date.midnight().assume_utc()));
         }
         if let Some(first) = self.store.meta("first_run_ms")?
             && let Ok(first) = first.parse::<i64>()
         {
             return Ok(first);
         }
-        let first = self
-            .now_ms
+        let first = crate::output::millis(self.now)
             .saturating_sub(FIRST_RUN_DAYS.saturating_mul(24 * 60 * 60 * 1000));
         self.store.set_meta("first_run_ms", &first.to_string())?;
         Ok(first)
     }
 
-    /// Reads the session files, refreshes the context, and lets the
-    /// classifier decide where it may. Every command that shows or sends
-    /// entries calls this first. At a terminal, it first asks once which
-    /// folder to track.
+    /// Reads the session files and refreshes the context. Every command
+    /// that shows or sends sessions calls this first. At a terminal, it
+    /// first asks once which folder to track.
     pub fn prepare(&mut self) -> Result<()> {
         self.ask_about_folders()?;
-        self.prepare_without_asking()
+        self.read_sessions()
     }
 
-    /// [`Self::prepare`] for input that is not a person's answer, such as
-    /// `tc record`'s.
-    pub fn prepare_without_asking(&mut self) -> Result<()> {
-        self.read_sessions()?;
-        self.classify()
-    }
-
-    /// Reads the session files and brings the drafts up to date with them.
+    /// Reads the session files and numbers the sessions that count.
     pub fn read_sessions(&mut self) -> Result<()> {
         self.refresh_context(false)?;
-        let patterns = self.patterns();
-        let pattern_text = self.pattern_text();
+        let pattern = self.pattern();
+        let submitted = self.submitted_windows()?;
         let mut reading = Reading {
-            patterns: &patterns,
-            pattern_text: &pattern_text,
+            pattern: pattern.as_ref(),
             since_ms: self.since_ms()?,
             scope: Scope::new(&self.config.folders),
+            submitted,
         };
-        sync(&mut self.store, &self.sources, &mut reading)?;
-        crate::commands::record::apply_pending(&self.store)
+        sync(&mut self.store, &self.sources, &mut reading)
+    }
+
+    /// The windows already submitted, from the service and this machine,
+    /// in milliseconds.
+    fn submitted_windows(&self) -> Result<Vec<(i64, i64)>> {
+        let mut windows: Vec<(i64, i64)> = self
+            .context
+            .submission_events()?
+            .into_iter()
+            .chain(self.store.events()?)
+            .filter_map(|event| match event.record {
+                Record::Submit(submit) => Some(submit.window),
+                _ => None,
+            })
+            .map(|window| {
+                let from = window.from.midnight().assume_utc();
+                let to = window
+                    .to
+                    .midnight()
+                    .assume_utc()
+                    .saturating_add(time::Duration::days(1))
+                    .saturating_sub(time::Duration::milliseconds(1));
+                (crate::output::millis(from), crate::output::millis(to))
+            })
+            .collect();
+        windows.sort_unstable();
+        Ok(windows)
     }
 
     /// While no folder was chosen, a person at a terminal is asked whether
@@ -261,114 +267,75 @@ impl<'a> App<'a> {
         Ok(())
     }
 
-    pub fn placer(&self) -> Placer {
-        Placer::new(&self.context, self.config.ticket_key_pattern.as_deref())
-    }
-
-    /// Entries with the given statuses, built and placed.
-    pub fn entries(&self, statuses: &[Status]) -> Result<Vec<Entry>> {
-        let patterns = self.patterns();
-        let placer = self.placer();
-        let placing = Placing {
-            placer: &placer,
-            patterns: &patterns,
-            run: &self.run,
-        };
-        entries::load(&self.store, statuses, &placing)
-    }
-
-    /// One entry by its number.
-    pub fn entry(&self, number: i64) -> Result<Entry> {
-        let row = self.store.entry(number)?.ok_or_else(|| {
-            Error::usage(format!(
-                "there is no token entry {number}; tc review lists them"
-            ))
-        })?;
-        let patterns = self.patterns();
-        let placer = self.placer();
-        let placing = Placing {
-            placer: &placer,
-            patterns: &patterns,
-            run: &self.run,
-        };
-        entries::build(&self.store, row, &placing)
-    }
-
-    /// Asks the classifier about drafts it may decide, when one is set and
-    /// the question changed since it last answered.
-    fn classify(&mut self) -> Result<()> {
-        let Some(program) = self.config.classifier.clone() else {
-            return Ok(());
-        };
-        let patterns = self.patterns();
-        for entry in self.entries(&[Status::Draft, Status::Rejected])? {
-            if !entry.asks_classifier
-                || entry.row.named_tags.contains_key("ticket")
-                || entry.row.hand_split.is_some()
-            {
-                continue;
-            }
-            let Some(mut digest) = classifier::digest(&entry, &patterns) else {
+    /// What `tc record` was told, by local id.
+    pub fn records(&self) -> Result<BTreeMap<String, Recorded>> {
+        let mut records = BTreeMap::new();
+        for (key, text) in self.store.meta_with_prefix(RECORD)? {
+            let Some(local) = key.strip_prefix(RECORD) else {
                 continue;
             };
-            // The question is remembered without the prompt sentences, which
-            // are never stored.
-            let question = serde_json::to_string(&digest)?;
-            if entry.row.pick_question.as_deref() == Some(question.as_str()) {
-                continue;
-            }
-            let prompts = self.prompts(entry.row.harness, &entry.row.session_id)?;
-            classifier::add_mentions(&mut digest, &prompts, &patterns);
-            match classifier::ask(&program, &digest) {
-                Ok(pick) => self.store.set_pick(&entry.row.local_id, &pick, &question)?,
-                Err(error) => {
-                    // The classifier is optional: say so once and go on.
-                    eprintln!("tc: the classifier failed and was skipped: {error}");
-                    return Ok(());
-                }
-            }
-        }
-        Ok(())
-    }
-
-    /// A session's prompts, read again from its files for the classifier.
-    fn prompts(&self, harness: Harness, session_id: &str) -> Result<Vec<String>> {
-        let mut prompts = Vec::new();
-        for path in self.store.key_files(harness, session_id)? {
-            // A file that went away since it was read holds nothing to add.
-            let Ok(contents) = crate::sources::read(harness, std::path::Path::new(&path)) else {
-                continue;
-            };
-            prompts.extend(
-                contents
-                    .prompts
-                    .into_iter()
-                    .filter(|prompt| prompt.session_id == session_id)
-                    .map(|prompt| prompt.text),
+            records.insert(
+                local.to_owned(),
+                serde_json::from_str(&text).unwrap_or_default(),
             );
         }
-        Ok(prompts)
+        Ok(records)
     }
 
-    /// Today's date in the local time zone.
-    pub fn today(&self) -> jiff::civil::Date {
-        jiff::Timestamp::from_millisecond(self.now_ms)
-            .map(|now| now.to_zoned(jiff::tz::TimeZone::system()).date())
-            .unwrap_or_default()
+    /// The log on this machine, folded as of now.
+    pub fn fold(&self) -> Result<State> {
+        let messages = self.store.counted_messages()?;
+        let keys = self.store.keys()?;
+        let titles = self.store.titles()?;
+        let records = self.records()?;
+        let pattern = self.pattern();
+        let inputs = log::Inputs {
+            messages: &messages,
+            keys: &keys,
+            titles: &titles,
+            records: &records,
+            run: &self.run,
+            context: &self.context,
+            connected: self.connection().is_some(),
+            pattern: pattern.as_ref(),
+            price_file: self.config.price_table.as_deref().map(Path::new),
+            local_events: self.store.events()?,
+            now: self.now,
+        };
+        log::fold(&inputs)
     }
-}
 
-/// The first millisecond of a day in the local time zone.
-pub fn start_of_day_ms(date: jiff::civil::Date) -> i64 {
-    date.to_zoned(jiff::tz::TimeZone::system())
-        .map_or(0, |zoned| zoned.timestamp().as_millisecond())
-}
+    /// Every session that counts, as the review list shows them.
+    pub fn sessions(&self) -> Result<Vec<SessionView>> {
+        let state = self.fold()?;
+        log::sessions(&state, &self.store.sessions()?)
+    }
 
-/// The local day a time falls on.
-pub fn day_of(at_ms: i64) -> jiff::civil::Date {
-    jiff::Timestamp::from_millisecond(at_ms)
-        .map(|timestamp| timestamp.to_zoned(jiff::tz::TimeZone::system()).date())
-        .unwrap_or_default()
+    /// One session by its number.
+    pub fn session(&self, number: i64) -> Result<SessionView> {
+        self.sessions()?
+            .into_iter()
+            .find(|session| session.number == number)
+            .ok_or_else(|| {
+                Error::usage(format!(
+                    "there is no session {number}; tc review lists them"
+                ))
+            })
+    }
+
+    /// Records an event on this machine with the next local id.
+    pub fn record(&self, record: Record, subject: Option<&str>) -> Result<Event> {
+        let id = self.store.next_event_id()?;
+        let person = tokencontroller_core::TagValue::new(crate::context::PERSON)?;
+        let event = Event::new(&id, self.now, record)?.by(person);
+        self.store.append_event(&event, subject)?;
+        Ok(event)
+    }
+
+    /// Today's date, in UTC.
+    pub fn today(&self) -> Date {
+        self.now.date()
+    }
 }
 
 #[cfg(test)]
@@ -376,7 +343,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn service_tokens_report_automatic_entries() {
+    fn service_tokens_report_as_their_creator() {
         let service = Connection {
             service: "https://x".into(),
             token: "tc_svc_1".into(),
@@ -390,10 +357,16 @@ mod tests {
     }
 
     #[test]
-    fn days_start_at_local_midnight() {
-        let day = jiff::civil::date(2026, 10, 11);
-        assert_eq!(day_of(start_of_day_ms(day)), day);
-        let before = start_of_day_ms(day).saturating_sub(1);
-        assert_eq!(day_of(before), jiff::civil::date(2026, 10, 10));
+    fn service_tokens_are_told_from_a_person_s() {
+        let service = Connection {
+            service: "https://tc.example.com".into(),
+            token: "tc_svc_ci".into(),
+        };
+        assert!(service.is_service_token());
+        let person = Connection {
+            service: "https://tc.example.com".into(),
+            token: "tc_cli_me".into(),
+        };
+        assert!(!person.is_service_token());
     }
 }

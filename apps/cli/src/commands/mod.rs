@@ -26,11 +26,19 @@ pub fn run(args: Args, out: &mut dyn Write) -> Result<()> {
         Command::Connect { url } => connect::run(&mut app, &url, &mut std::io::stdin().lock()),
         Command::Status => status::run(&mut app),
         Command::Review { all } => review::run(&mut app, all),
-        Command::Tag { number, tags } => review::tag(&mut app, number, &tags),
-        Command::Split { number, shares } => review::split(&mut app, number, &shares),
+        Command::Tag {
+            number,
+            tags,
+            remember,
+        } => review::tag(&mut app, number, &tags, remember),
+        Command::Split {
+            number,
+            weights,
+            remember,
+        } => review::split(&mut app, number, &weights, remember),
         Command::Submit { tags, signals } => submit::run(&mut app, &tags, &signals),
         Command::Report { by, filter, since } => {
-            report::run(&mut app, &by, &filter, since.as_deref())
+            report::run(&mut app, by.as_deref(), &filter, since.as_deref())
         }
         Command::Export => export::run(&mut app),
         Command::Rules { action } => rules::run(&mut app, action),
@@ -59,8 +67,8 @@ mod tests {
     #[test]
     fn name_value_pairs_split_at_the_first_equals_sign() {
         assert_eq!(
-            name_value("ticket=KD-1"),
-            Some(("ticket".into(), "KD-1".into()))
+            name_value("feature=KD-1"),
+            Some(("feature".into(), "KD-1".into()))
         );
         assert_eq!(
             name_value("purpose="),

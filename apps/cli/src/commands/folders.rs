@@ -5,7 +5,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde::Serialize;
 
-use crate::app::{App, day_of};
+use crate::app::App;
 use crate::error::{Error, Result};
 use crate::folders::{self, Scope};
 use crate::output;
@@ -79,7 +79,7 @@ pub fn list(app: &mut App<'_>) -> Result<()> {
                 folder,
                 harnesses: harnesses.iter().map(|h| h.name().to_owned()).collect(),
                 sessions,
-                last_at: output::utc(last_ms),
+                last_at: output::moment(last_ms).map(output::utc).unwrap_or_default(),
                 tracked,
             };
             (view, last_ms, harnesses.iter().map(|h| h.label()).collect())
@@ -112,7 +112,9 @@ pub fn list(app: &mut App<'_>) -> Result<()> {
                 .unwrap_or_else(|| "(no folder)".to_owned()),
             labels.join(", "),
             view.sessions.to_string(),
-            day_of(*last_ms).to_string(),
+            output::moment(*last_ms)
+                .map(|at| at.date().to_string())
+                .unwrap_or_default(),
             if view.tracked { "yes" } else { "no" }.to_owned(),
         ]);
     }

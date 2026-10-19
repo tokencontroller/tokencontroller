@@ -1,6 +1,6 @@
 [package]
 name = "tokencontroller-cli"
-description = "tc: reads AI agent session files, places token entries with your rules, and submits token sheets"
+description = "tc: reads AI agent session files, splits sessions with your rules, and submits your messages"
 version = "1.0.0"
 license = "MIT"
 edition.workspace = true
@@ -15,12 +15,12 @@ path = "src/main.rs"
 [dependencies]
 tokencontroller-core.workspace = true
 clap = { version = "4", features = ["wrap_help"] }
-jiff = "0.2"
 regex = "1"
 rusqlite = { version = "0.37", features = ["bundled"] }
 serde.workspace = true
 serde_json = { workspace = true, features = ["raw_value"] }
 thiserror.workspace = true
+time = { workspace = true, features = ["macros"] }
 toml = "1"
 ureq = { version = "3", features = ["json"] }
 

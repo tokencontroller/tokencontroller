@@ -53,24 +53,37 @@ pub struct Named {
     pub email: Option<String>,
 }
 
-/// What the service says about a submitted token sheet.
+/// What the service saved from one token entry (`POST /token-entries`).
 #[derive(Debug, Clone, Default, serde::Deserialize, PartialEq, Eq)]
-pub struct SubmitAnswer {
+pub struct SavedEntry {
     #[serde(default)]
-    pub token_entries: Vec<SubmittedEntry>,
+    pub id: Option<String>,
+    #[serde(default)]
+    pub cost: Option<String>,
+    #[serde(default)]
+    pub currency: Option<String>,
+    #[serde(default)]
+    pub label: Option<String>,
+    #[serde(default)]
+    pub unknown_tags: Vec<String>,
 }
 
+/// One answer or a list of them, as the endpoint answers one entry or a
+/// list.
 #[derive(Debug, Clone, serde::Deserialize, PartialEq, Eq)]
-pub struct SubmittedEntry {
-    pub local_id: String,
-    #[serde(default)]
-    pub id: Option<String>,
+#[serde(untagged)]
+enum OneOrMany {
+    Many(Vec<SavedEntry>),
+    One(SavedEntry),
 }
 
+/// A submission as the service records it (`POST /submissions`).
 #[derive(Debug, Clone, Default, serde::Deserialize, PartialEq, Eq)]
-pub struct CreatedEntry {
+pub struct SubmissionAnswer {
     #[serde(default)]
     pub id: Option<String>,
+    #[serde(default)]
+    pub status: Option<String>,
 }
 
 /// The base address of a service from what a person pastes: an invite link
@@ -216,7 +229,8 @@ impl Client {
         me.ok_or_else(|| Error::Data("the service did not say who you are".into()))
     }
 
-    /// The organization, person, projects, rules and cadence.
+    /// The organization, person, tag values, rules, price table, cutoff and
+    /// submissions.
     pub fn context(&self) -> Result<Context> {
         let (_, context) = self.send("GET", "/me/context", None)?;
         context.ok_or_else(|| Error::Data("the service sent no context".into()))
@@ -229,17 +243,28 @@ impl Client {
         Ok(())
     }
 
-    /// Submits the token sheet.
-    pub fn submit<T: Serialize>(&self, entries: &[T]) -> Result<SubmitAnswer> {
-        let body = serde_json::json!({ "token_entries": entries });
-        let (_, answer) = self.send("POST", "/token-sheets/submit", Some(&body))?;
-        Ok(answer.unwrap_or_default())
+    /// Sends token entries, one per session, in one call.
+    pub fn post_token_entries<T: Serialize>(&self, entries: &[T]) -> Result<Vec<SavedEntry>> {
+        let body = serde_json::to_value(entries)?;
+        let (_, answer) = self.send::<OneOrMany>("POST", "/token-entries", Some(&body))?;
+        Ok(match answer {
+            Some(OneOrMany::Many(saved)) => saved,
+            Some(OneOrMany::One(saved)) => vec![saved],
+            None => Vec::new(),
+        })
     }
 
-    /// Reports one automatic token entry, with a service token.
-    pub fn post_token_entry<T: Serialize>(&self, entry: &T) -> Result<CreatedEntry> {
-        let body = serde_json::to_value(entry)?;
-        let (_, answer) = self.send("POST", "/token-entries", Some(&body))?;
+    /// Records a split on a session or a message.
+    pub fn post_split<T: Serialize>(&self, split: &T) -> Result<()> {
+        let body = serde_json::to_value(split)?;
+        self.send::<serde_json::Value>("POST", "/splits", Some(&body))?;
+        Ok(())
+    }
+
+    /// Submits every message of the person inside a window.
+    pub fn post_submission(&self, from: &str, to: &str) -> Result<SubmissionAnswer> {
+        let body = serde_json::json!({ "from": from, "to": to });
+        let (_, answer) = self.send("POST", "/submissions", Some(&body))?;
         Ok(answer.unwrap_or_default())
     }
 }
@@ -314,8 +339,8 @@ mod tests {
             "The sign-in link expired after 15 minutes. Sign in again."
         );
         assert_eq!(
-            error_message(422, r#"{"error":{"message":"no such ticket"}}"#),
-            "no such ticket"
+            error_message(422, r#"{"error":{"message":"no such feature"}}"#),
+            "no such feature"
         );
         assert_eq!(
             error_message(422, "Failed to deserialize the JSON body"),
@@ -328,5 +353,15 @@ mod tests {
         assert_eq!(error_message(403, ""), "this token may not do that");
         assert!(error_message(404, "").starts_with("not found"));
         assert_eq!(error_message(500, ""), "no details");
+    }
+
+    #[test]
+    fn one_saved_entry_or_a_list_reads() {
+        let one: OneOrMany =
+            serde_json::from_str(r#"{"id":"te_1","cost":"0.03","unknown_tags":["x"]}"#).unwrap();
+        assert!(matches!(one, OneOrMany::One(ref saved) if saved.unknown_tags == ["x"]));
+        let many: OneOrMany =
+            serde_json::from_str(r#"[{"id":"a"},{"id":"b","cost":null}]"#).unwrap();
+        assert!(matches!(many, OneOrMany::Many(ref saved) if saved.len() == 2));
     }
 }
