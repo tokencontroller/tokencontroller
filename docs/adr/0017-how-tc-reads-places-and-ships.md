@@ -4,16 +4,17 @@ This fills in ADR 0010 where the CLI needed details.
 
 ## Reading session files
 
-- **Readers of our own, following ccusage's rules.** ccusage's adapters are not published as crates on crates.io, and `deny.toml` refuses git sources. They also drop what placing needs: the branch, the message IDs and the prompts. So `tc` has its own readers for Claude Code and Codex in `apps/cli/src/sources/`, which follow ccusage's counting rules (named in each reader) and credit it in `apps/cli/THIRD_PARTY_NOTICES.md`.
+- **Readers of our own, following ccusage's rules.** ccusage's adapters are not published as crates on crates.io, and `deny.toml` refuses git sources. They also drop what splitting needs: the branch, the message IDs and the prompts. So `tc` has its own readers for Claude Code and Codex in `apps/cli/src/sources/`, which follow ccusage's counting rules (named in each reader) and credit it in `apps/cli/THIRD_PARTY_NOTICES.md`.
 - **Claude Code**: every `*.jsonl` under `CLAUDE_CONFIG_DIR` (comma-separated, each with `projects/`), otherwise `~/.config/claude/projects` and `~/.claude/projects`. A response is written as one line per content block with the same usage, so model calls count once by message ID; a subagent's replay of its parent counts once too, as the parent's.
 - **Codex**: every rollout under `CODEX_HOME` (default `~/.codex`) in `sessions/` and `archived_sessions/`. Turns come from `token_count` events; a repeated running total counts nothing; cached input is part of input and is counted as cache read.
 - Prompts and titles are read on the machine for feature keys and never stored or sent; only the keys are.
 
 ## Splitting
 
-- The core splits: `tc` hands each session with its signals to the rules engine in `crates/core`, so the machine and the service split alike. Rules travel in the core's own shape. Connected, the organization's rules, the tag values the person may see, their attributes and rules, and the price table come from `GET /api/v1/me/context`; with no service connected, the default rules and the person's own apply, and a pattern from `tc config feature-key-pattern` finds feature keys.
+- The core splits: `tc` hands each session with its signals to the rules engine in `crates/core`, so the machine and the service split alike. Rules travel in the core's own shape. Connected, the organization's rules, the tag values the person may see, their attributes and rules, and the service's price table come from `GET /api/v1/me/context`; with no service connected, the default rules and the person's own apply, and a pattern from `tc config feature-key-pattern` finds feature keys.
 - A session splits exactly by message where the branch, the working directory or the subagent changes. Hand splits and equal splits divide by fraction with the largest-remainder method (ADR 0004).
-- Cost on the machine is counts times a copy of the managed price table built into the binary (`apps/cli/prices.json`), in USD. The service computes the cost that counts with the organization's own price table (ADR 0024). The agent's reported cost is sent as a fact and never shown as the cost.
+- `tc` ships no prices. Connected, it prices with the service's table from `GET /api/v1/me/context`; offline, with the person's own CSV (`provider,model,kind,price_per_million,valid_from`) named by `tc config price-table`. Without a row a message is an unknown model, and a message without counts is a count error; neither gets a cost.
+- The local store is an event log in `tc.sqlite`, folded with `crates/core` as the service folds its own, so reports on the machine and in the service agree. The agent's reported cost is sent as a fact and never shown as the cost.
 
 ## Commands for other programs
 
@@ -32,4 +33,4 @@ This fills in ADR 0010 where the CLI needed details.
 
 ## Why
 
-Readers we own can keep what placing needs and still count exactly as ccusage does, with nothing fetched at build time. One JSON contract and one exit code scheme let the mod and the Action wrap `tc` without parsing tables. Signing in with the web app's magic link keeps passwords out of the terminal and needs no second sign-in in the service.
+Readers we own can keep what splitting needs and still count exactly as ccusage does, with nothing fetched at build time. One JSON contract and one exit code scheme let the mod and the Action wrap `tc` without parsing tables. Signing in with the web app's magic link keeps passwords out of the terminal and needs no second sign-in in the service.
