@@ -862,6 +862,38 @@
       }
     },
     "/api/v1/estimates": {
+      "get": {
+        "tags": [
+          "plans"
+        ],
+        "summary": "The estimates the caller may view, newest first, each with whether it\nis the accepted plan of its tag set and the cost so far.",
+        "operationId": "list_estimates",
+        "parameters": [
+          {
+            "name": "as_of",
+            "in": "query",
+            "description": "The moment to look back to; default now.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/EstimateView"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
       "post": {
         "tags": [
           "plans"
@@ -8014,7 +8046,17 @@
       },
       "Tags": {
         "type": "object",
-        "description": "Tags as the OpenAPI document shows the core's [`Tags`]: a JSON object\nof tag name to tag value."
+        "description": "Tags as the OpenAPI document shows the core's [`Tags`]: a JSON object\nof tag name to tag value.",
+        "additionalProperties": {
+          "type": "string"
+        },
+        "propertyNames": {
+          "type": "string"
+        },
+        "example": {
+          "feature": "KD-214",
+          "project": "shop"
+        }
       },
       "TicketSystem": {
         "type": "string",

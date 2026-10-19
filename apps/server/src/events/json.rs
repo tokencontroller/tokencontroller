@@ -15,7 +15,7 @@ use crate::error::ApiError;
 /// Tags as the OpenAPI document shows the core's [`Tags`]: a JSON object
 /// of tag name to tag value.
 #[derive(Debug, Clone, Default, ToSchema)]
-#[schema(as = Tags, value_type = Object, example = json!({"feature": "KD-214", "project": "shop"}))]
+#[schema(as = Tags, value_type = BTreeMap<String, String>, example = json!({"feature": "KD-214", "project": "shop"}))]
 pub struct TagsSchema(pub BTreeMap<String, String>);
 
 /// An amount of money as the API writes it: a decimal string with the

@@ -401,6 +401,31 @@ impl Setup {
         Ok(Filter(tags))
     }
 
+    /// The cost of the visible lines per value of the grouping.
+    fn costs_by_key(&self, approved: bool) -> Result<BTreeMap<Option<String>, Money>, ApiError> {
+        let agents = agents(&self.fold);
+        let mut costs: BTreeMap<Option<String>, Money> = BTreeMap::new();
+        for line in visible(
+            &self.fold,
+            &self.person,
+            &self.filter,
+            self.window,
+            approved,
+        ) {
+            let key = self
+                .grouping
+                .as_ref()
+                .and_then(|grouping| key_of(line, grouping, &agents));
+            let sum = costs
+                .entry(key)
+                .or_insert_with(|| Money::zero(self.fold.currency()));
+            *sum = sum
+                .checked_add(line.amount)
+                .map_err(|error| ApiError::Internal(error.into()))?;
+        }
+        Ok(costs)
+    }
+
     /// The values of the grouping among the visible lines, in order.
     fn keys(&self, approved: bool) -> Vec<Option<String>> {
         let Some(grouping) = &self.grouping else {
@@ -570,22 +595,31 @@ async fn deviation_report(
     let setup = Setup::new(&state, &member, &query).await?;
     let approved = query.approved == Some(true);
     let classifier = crate::plans::Classifier::from_config(&state.config);
+    // The cost of each row is the cost of its own lines, the same
+    // partition the cost report uses: the row without a value holds the
+    // lines that have none, not the whole filter.
+    let costs = setup.costs_by_key(approved)?;
     let mut rows = Vec::new();
     for key in setup.keys(approved) {
         let filter = setup.row_filter(key.as_deref())?;
-        let cost = setup
-            .fold
-            .cost(&filter, setup.window)
-            .map_err(|error| ApiError::Internal(error.into()))?;
-        let deviation = setup
-            .fold
-            .deviation(&filter, setup.window)
-            .map_err(|error| ApiError::Internal(error.into()))?;
+        let cost = costs
+            .get(&key)
+            .copied()
+            .unwrap_or_else(|| Money::zero(setup.fold.currency()));
+        // Lines without a value of the grouping have no plan of their own.
+        let deviation = if setup.grouping.is_some() && key.is_none() {
+            None
+        } else {
+            setup
+                .fold
+                .deviation(&filter, setup.window)
+                .map_err(|error| ApiError::Internal(error.into()))?
+        };
         let mut row = DeviationRow {
             key: key.clone(),
             filter: json::tags_map(&filter.0),
             plan: None,
-            cost: setup.money(cost.amount)?,
+            cost: setup.money(cost)?,
             deviation: None,
             favourable: None,
             label: None,
@@ -601,7 +635,7 @@ async fn deviation_report(
                 match classifier
                     .label_deviation(
                         &accepted.value,
-                        &json::money(cost.amount),
+                        &json::money(cost),
                         &json::money(deviation.delta),
                     )
                     .await

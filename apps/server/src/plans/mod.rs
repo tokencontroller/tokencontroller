@@ -19,7 +19,7 @@ use tokencontroller_core::{
     Accept, BASIS_POINTS, Band, Capability, DateRange, Distribution, Estimate, EventId, Filter,
     Money, Record, Share, TagValue, Tags, price::date_of,
 };
-use utoipa::ToSchema;
+use utoipa::{IntoParams, ToSchema};
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
@@ -36,6 +36,7 @@ pub use classifier::{Classifier, DeviationLabelled};
 pub fn routes() -> OpenApiRouter<AppState> {
     OpenApiRouter::new()
         .routes(routes!(add_estimate))
+        .routes(routes!(list_estimates))
         .routes(routes!(get_estimate))
         .routes(routes!(accept_estimate))
         .routes(routes!(list_shares, add_share))
@@ -381,6 +382,56 @@ async fn add_estimate(
         StatusCode::CREATED,
         Json(view(&fold, &event.id, event.recorded_at, &estimate, None)?),
     ))
+}
+
+/// The estimates the caller may view, newest first, each with whether it
+/// is the accepted plan of its tag set and the cost so far.
+#[utoipa::path(
+    get,
+    path = "/estimates",
+    tag = "plans",
+    params(EstimatesQuery),
+    responses((status = OK, body = Vec<EstimateView>)),
+)]
+async fn list_estimates(
+    State(state): State<AppState>,
+    member: Member,
+    Query(query): Query<EstimatesQuery>,
+) -> Result<Json<Vec<EstimateView>>, ApiError> {
+    let as_of = crate::dates::as_of(query.as_of.as_deref())?;
+    let log = Log::load(&state, member.organization_id).await?;
+    let fold = log.fold(as_of)?;
+    let person = member.person()?;
+    let mut recorded: Vec<_> = fold
+        .estimates()
+        .filter(|estimate| {
+            estimate.value.tags.is_empty() || access::can_view(&fold, &person, &estimate.value.tags)
+        })
+        .collect();
+    recorded.sort_by(|a, b| {
+        b.recorded_at
+            .cmp(&a.recorded_at)
+            .then_with(|| b.id.cmp(&a.id))
+    });
+    let mut views = Vec::new();
+    for estimate in recorded {
+        views.push(view(
+            &fold,
+            &estimate.id,
+            estimate.recorded_at,
+            &estimate.value,
+            None,
+        )?);
+    }
+    Ok(Json(views))
+}
+
+/// Which estimates to list.
+#[derive(Debug, Default, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
+pub struct EstimatesQuery {
+    /// The moment to look back to; default now.
+    pub as_of: Option<String>,
 }
 
 /// An estimate with the cost of its tag set and the labelled deviation.
