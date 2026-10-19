@@ -23,14 +23,14 @@ export function useEnterprise(): boolean {
   return health.data?.edition === "enterprise";
 }
 
-/** The license, for controllers on an Enterprise plan instance. */
+/** The license, for org managers on an Enterprise plan instance. */
 function useLicense() {
   const me = useMe();
-  const on = useEnterprise() && hasRole(me.person, "controller");
+  const on = useEnterprise() && hasRole(me.person, "org_manager");
   return useQuery({ queryKey: ["enterprise", "license"], queryFn: enterprise.license, enabled: on, staleTime: 5 * 60_000 });
 }
 
-/** Near or after the end of the license, a line for controllers on every page. */
+/** Near or after the end of the license, a line for org managers on every page. */
 export function LicenseNotice(): ReactNode {
   const license = useLicense();
   const notice = license.data?.notice;
@@ -290,7 +290,7 @@ function CloudConnectors() {
   );
 }
 
-/** The Enterprise plan sections of Settings, for controllers on an Enterprise plan instance. */
+/** The Enterprise plan sections of Settings, for org managers on an Enterprise plan instance. */
 export function EnterpriseSettings(): ReactNode {
   const license = useLicense();
   if (!license.data) return license.isError ? <ErrorBox error={license.error} /> : null;

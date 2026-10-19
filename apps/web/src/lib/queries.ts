@@ -19,7 +19,7 @@ export const meQuery = {
   queryKey: ["me"],
   queryFn: async (): Promise<Account> => {
     const me = await api.me();
-    return { person: me.person, organization: await api.organization() };
+    return { person: me.person, credential: me.credential, organization: await api.organization() };
   },
 };
 
@@ -29,10 +29,7 @@ export function useMe(): Account {
   return data;
 }
 
-/**
- * Runs a call and turns a 404 into null: the service's way to say "not here".
- * For a build's additions, whose endpoints a service without them does not have.
- */
+/** Runs a call and turns a 404 into null: for a build's additions. */
 export async function unlessMissing<T>(load: () => Promise<T>): Promise<T | null> {
   try {
     return await load();
@@ -42,7 +39,6 @@ export async function unlessMissing<T>(load: () => Promise<T>): Promise<T | null
   }
 }
 
-/** How many members the organization has and may have, and what an invite past the limit gets. */
 export function useMemberLimit() {
   return useQuery({ queryKey: ["member-limit"], queryFn: api.memberLimit });
 }
@@ -51,10 +47,7 @@ export function usePeople() {
   return useQuery({ queryKey: ["members"], queryFn: api.members });
 }
 
-/**
- * The display name of a person, by id or by email. A token entry's `person`
- * tag holds the email; agent managers and assignees are ids.
- */
+/** The display name of a person, by id or by email. */
 export function usePersonName(): (person: string | null | undefined) => string {
   const { data } = usePeople();
   return (person) => {
@@ -64,32 +57,20 @@ export function usePersonName(): (person: string | null | undefined) => string {
   };
 }
 
-export function useTagNames() {
-  return useQuery({ queryKey: ["tag-names"], queryFn: api.tagNames });
+export function useTags() {
+  return useQuery({ queryKey: ["tags"], queryFn: api.tags });
 }
 
-/** The values a tag name has, most used first. */
-export function useTagValues(name: string) {
-  return useQuery({ queryKey: ["tag-values", name], queryFn: () => api.tagValues(name), enabled: Boolean(name) });
+export function useAttributes() {
+  return useQuery({ queryKey: ["attributes"], queryFn: api.attributes });
 }
 
-export function useProjects() {
-  return useQuery({ queryKey: ["projects"], queryFn: () => api.projects() });
-}
-
-export function useTickets() {
-  return useQuery({ queryKey: ["tickets"], queryFn: () => api.tickets() });
-}
-
-/** Every period up to this month, newest first. Everyone can list them, to pick one. */
-export function usePeriods() {
-  return useQuery({ queryKey: ["periods"], queryFn: api.periods });
-}
-
-/** The oldest period still open: the one the next close is about. */
-export function useFirstOpenPeriod(): string | undefined {
-  const periods = usePeriods();
-  return [...(periods.data ?? [])].reverse().find((p) => !p.closed)?.period;
+/** The keys of one tag or attribute name, for an input's suggestions. */
+export function useKeys(name: string): string[] {
+  const tags = useTags();
+  const attributes = useAttributes();
+  const all = [...(tags.data ?? []), ...(attributes.data ?? [])];
+  return all.find((n) => n.name === name)?.values.map((v) => v.key) ?? [];
 }
 
 /** Everything that changes after a write: the simplest correct refresh. */

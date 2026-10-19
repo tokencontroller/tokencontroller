@@ -19,3 +19,13 @@ export function Checkbox({ checked, onCheckedChange, label, indeterminate = fals
     </BaseCheckbox.Root>
   );
 }
+
+/** A checkbox with its label shown next to it. */
+export function CheckField({ checked, onCheckedChange, label }: { checked: boolean; onCheckedChange: (checked: boolean) => void; label: string }) {
+  return (
+    <span className="inline-flex items-center gap-2 text-sm">
+      <Checkbox checked={checked} onCheckedChange={onCheckedChange} label={label} />
+      <span aria-hidden="true">{label}</span>
+    </span>
+  );
+}

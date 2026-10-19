@@ -1,206 +1,190 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useState, type ReactNode } from "react";
-import type { TagMap as TagMapValue, TagMapChange, TagName, TagValue } from "@/api/contract";
+import type { TagValue, TicketSystem } from "@/api/contract";
 import { api } from "@/api/endpoints";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog } from "@/components/ui/dialog";
-import { ErrorBox, Loading, Note, PageHeader, Section } from "@/components/ui/display";
-import { Field, FormError, Input, Select } from "@/components/ui/form";
-import { tagColor } from "@/components/ui/tag";
+import { Empty, ErrorBox, Loading, PageHeader, Section } from "@/components/ui/display";
+import { Field, FormError, Input, Textarea } from "@/components/ui/form";
+import { DataTable } from "@/components/ui/table";
+import { TagRow } from "@/components/ui/tag";
 import { notify } from "@/components/ui/toast";
-import { formatDate } from "@/lib/format";
-import { refreshAll, usePersonName, useTagNames, useTagValues } from "@/lib/queries";
+import { filterFromText, formatDateTime } from "@/lib/format";
+import { refreshAll, useMe, useTags } from "@/lib/queries";
+import { hasRole } from "@/lib/roles";
 
-/** A tag name with the values it has, for the merge dialog. */
-interface Merging {
-  name: string;
-  values: TagValue[];
-}
-
-function Merge({ tag, onClose }: { tag: Merging | null; onClose: () => void }) {
-  const [from, setFrom] = useState<string[]>([]);
-  const [into, setInto] = useState("");
-  const merge = useMutation({
-    mutationFn: () => api.mergeTagValues(tag?.name ?? "", from.filter((v) => v !== into), into),
+// Docs: Tags. Tag values are records: key, title, description, source id
+// and default tags. Features sync from Jira through the sync map.
+export function TagsPage(): ReactNode {
+  const me = useMe();
+  const tags = useTags();
+  const orgManager = hasRole(me.person, "org_manager");
+  const [adding, setAdding] = useState<string | null>(null);
+  const [newName, setNewName] = useState("");
+  const addName = useMutation({
+    mutationFn: () => api.addTagName(newName.trim()),
     onSuccess: async () => {
       await refreshAll();
-      notify("Values merged", "In every open period. Closed periods change only by adjustment.");
-      setFrom([]);
+      notify("Tag name added", newName);
+      setNewName("");
+    },
+  });
+  const removeName = useMutation({ mutationFn: api.removeTagName, onSuccess: refreshAll });
+  return (
+    <>
+      <PageHeader title="Tags" lead="A tag value brings its default tags: a feature brings its project, a project brings its client." />
+      {tags.error ? <ErrorBox error={tags.error} /> : null}
+      {!tags.data ? <Loading /> : null}
+      {tags.data?.map((name) => (
+        <Section
+          key={name.name}
+          title={name.name}
+          lead={name.built_in ? "Built in" : "Your own tag name"}
+          actions={
+            <>
+              <Button size="sm" onClick={() => setAdding(name.name)} aria-label={`Add a ${name.name} value`}>Add a value</Button>
+              {orgManager && !name.built_in ? <Button size="sm" variant="ghost" onClick={() => removeName.mutate(name.name)}>Remove the name</Button> : null}
+            </>
+          }
+        >
+          <DataTable
+            caption={`Values of ${name.name}`}
+            stack
+            rows={name.values}
+            rowKey={(v) => v.id}
+            empty="No values yet."
+            columns={[
+              { key: "key", header: "Key", cell: (v) => <span className="font-mono text-[13px]">{v.key}</span>, csv: (v) => v.key },
+              { key: "title", header: "Title", cell: (v) => <span className="block max-w-sm">{v.title ?? ""}{v.description ? <span className="block text-xs text-muted">{v.description}</span> : null}</span>, csv: (v) => v.title ?? "" },
+              { key: "defaults", header: "Default tags", cell: (v) => <TagRow tags={v.defaults} /> },
+              { key: "source", header: "Source id", wide: true, cell: (v) => (v.source_id ? <span className="flex items-center gap-1.5"><span className="font-mono text-xs">{v.source_id}</span>{v.source_status ? <Badge>{v.source_status}</Badge> : null}</span> : <span className="text-muted">by hand</span>) },
+            ]}
+          />
+        </Section>
+      ))}
+      {orgManager ? (
+        <Section title="Add a tag name" lead="Such as purpose or environment. Org managers keep the list.">
+          <form className="flex max-w-md items-end gap-2" onSubmit={(e) => { e.preventDefault(); addName.mutate(); }}>
+            <Field label="New tag name" className="flex-1"><Input value={newName} onChange={(e) => setNewName(e.target.value)} /></Field>
+            <Button type="submit" disabled={!newName.trim()}>Add</Button>
+          </form>
+          <FormError error={addName.error ?? removeName.error} />
+        </Section>
+      ) : null}
+      {orgManager ? <JiraSection /> : null}
+      {adding ? <ValueDialog name={adding} onClose={() => setAdding(null)} /> : null}
+    </>
+  );
+}
+
+function ValueDialog({ name, onClose, value }: { name: string; onClose: () => void; value?: TagValue }) {
+  const [key, setKey] = useState(value?.key ?? "");
+  const [title, setTitle] = useState(value?.title ?? "");
+  const [description, setDescription] = useState(value?.description ?? "");
+  const [defaults, setDefaults] = useState(name === "feature" ? "project:" : name === "project" ? "client:" : "");
+  const save = useMutation({
+    mutationFn: () => {
+      const d = filterFromText(defaults.replace(/\s+/g, ""));
+      const clean = Object.fromEntries(Object.entries(d).filter(([, v]) => v));
+      return api.addTagValue(name, { key: key.trim(), ...(title ? { title } : {}), ...(description ? { description } : {}), defaults: clean });
+    },
+    onSuccess: async () => {
+      await refreshAll();
+      notify("Tag value saved", `${name}: ${key}`);
       onClose();
     },
   });
   return (
-    <Dialog open={Boolean(tag)} onOpenChange={(o) => !o && onClose()} title={`Merge ${tag?.name ?? ""} values`} description="acme, Acme and acme-corp are three values. Merge them into one in the open periods.">
-      <ul className="mb-4 max-h-64 space-y-1.5 overflow-y-auto">
-        {tag?.values.map((v) => (
-          <li key={v.value}>
-            <label className="flex items-center gap-2 text-sm">
-              <Checkbox label={v.value} checked={from.includes(v.value)} onCheckedChange={(on) => setFrom(on ? [...from, v.value] : from.filter((x) => x !== v.value))} />
-              <span className="font-medium">{v.value}</span>
-              <span className="text-muted">on {v.records} {v.records === 1 ? "record" : "records"}</span>
-            </label>
-          </li>
-        ))}
-      </ul>
-      <Field label="Into">
-        <Input list="merge-into" value={into} onChange={(e) => setInto(e.target.value)} placeholder="acme" />
-        <datalist id="merge-into">
-          {from.map((v) => (
-            <option key={v} value={v} />
-          ))}
-        </datalist>
-      </Field>
-      <FormError error={merge.error} />
-      <div className="mt-5 flex justify-end gap-2">
-        <Button onClick={onClose}>Cancel</Button>
-        <Button variant="primary" disabled={from.length < 1 || !into.trim() || merge.isPending} onClick={() => merge.mutate()}>
-          Merge
-        </Button>
-      </div>
+    <Dialog open onOpenChange={(o) => { if (!o) onClose(); }} title={`Add a ${name} value`} description="The same key again supersedes the earlier record.">
+      <form className="flex flex-col gap-4" onSubmit={(e) => { e.preventDefault(); save.mutate(); }}>
+        <Field label="Key" hint="The short name used in tags, such as KD-214 or shop."><Input value={key} onChange={(e) => setKey(e.target.value)} /></Field>
+        <Field label="Title"><Input value={title} onChange={(e) => setTitle(e.target.value)} /></Field>
+        <Field label="Description" hint="A feature's description is what the estimator reads."><Textarea value={description} onChange={(e) => setDescription(e.target.value)} /></Field>
+        <Field label="Default tags" hint="Such as project:shop for a feature, client:acme for a project."><Input value={defaults} onChange={(e) => setDefaults(e.target.value)} /></Field>
+        <FormError error={save.error} />
+        <div className="flex justify-end gap-2">
+          <Button onClick={onClose}>Cancel</Button>
+          <Button type="submit" variant="primary" disabled={save.isPending || !key.trim()}>Save</Button>
+        </div>
+      </form>
     </Dialog>
   );
 }
 
-function TagMap({ names }: { names: TagName[] }) {
-  const map = useQuery({ queryKey: ["tag-map"], queryFn: api.tagMap });
-  if (map.isPending) return <Loading />;
-  if (map.isError) return <ErrorBox error={map.error} />;
-  return <TagMapEditor names={names} saved={map.data} />;
-}
-
-function TagMapEditor({ names, saved }: { names: TagName[]; saved: TagMapValue }) {
-  const [draft, setDraft] = useState<TagMapChange>({ cost_center: saved.cost_center, ladder: saved.ladder });
-  const save = useMutation({
-    mutationFn: () => api.setTagMap(draft),
+function JiraSection() {
+  const systems = useQuery({ queryKey: ["ticket-systems"], queryFn: api.ticketSystems });
+  const [site, setSite] = useState("");
+  const [email, setEmail] = useState("");
+  const [token, setToken] = useState("");
+  const connect = useMutation({
+    mutationFn: () => api.connectTicketSystem({ kind: "jira", site, email, token }),
     onSuccess: async () => {
       await refreshAll();
-      notify("Tag map saved", "Reports mean the new map from now on. Closed periods keep the map they closed with.");
+      notify("Jira connected");
     },
   });
-  const move = (i: number, delta: number) => {
-    const ladder = [...draft.ladder];
-    const [rung] = ladder.splice(i, 1);
-    if (rung) ladder.splice(i + delta, 0, rung);
-    setDraft({ ...draft, ladder });
-  };
-  const unused = names.filter((n) => !draft.ladder.includes(n.name) && n.name !== "person");
-  const changed = draft.cost_center !== saved.cost_center || draft.ladder.join() !== saved.ladder.join();
   return (
-    <div className="grid gap-6 lg:grid-cols-2">
-      <div className="rounded-lg border border-line p-4">
-        <h3 className="text-sm font-semibold">Cost center</h3>
-        <p className="mb-3 mt-0.5 text-[13px] text-muted">Who answers for a cost. Each token entry still has one agent manager who submits it.</p>
-        <Select aria-label="Cost center" value={draft.cost_center} onChange={(e) => setDraft({ ...draft, cost_center: e.target.value })}>
-          {names.filter((n) => !["ticket", "project"].includes(n.name)).map((n) => (
-            <option key={n.name}>{n.name}</option>
-          ))}
-        </Select>
-      </div>
-      <div className="rounded-lg border border-line p-4">
-        <h3 className="text-sm font-semibold">Ladder for the cost object</h3>
-        <p className="mb-3 mt-0.5 text-[13px] text-muted">Read from the top: the cost object is the first rung with a value.</p>
-        <ol className="space-y-1.5">
-          {draft.ladder.map((rung, i) => (
-            <li key={rung} className="flex items-center gap-2 rounded-md border border-line bg-page px-2.5 py-1.5 text-sm shadow-chip">
-              <span className="num w-5 text-muted">{i + 1}</span>
-              <span aria-hidden="true" className="size-2 rounded-full" style={{ background: tagColor(rung) }} />
-              <span className="flex-1 font-medium">{rung}</span>
-              <button type="button" aria-label={`Move ${rung} up`} disabled={i === 0} onClick={() => move(i, -1)} className="rounded px-1.5 text-muted hover:bg-sand disabled:opacity-30">↑</button>
-              <button type="button" aria-label={`Move ${rung} down`} disabled={i === draft.ladder.length - 1} onClick={() => move(i, 1)} className="rounded px-1.5 text-muted hover:bg-sand disabled:opacity-30">↓</button>
-              <button type="button" aria-label={`Remove ${rung}`} onClick={() => setDraft({ ...draft, ladder: draft.ladder.filter((r) => r !== rung) })} className="rounded px-1.5 text-muted hover:bg-sand">×</button>
-            </li>
-          ))}
-          <li className="flex items-center gap-2 rounded-md border border-dashed border-line-strong px-2.5 py-1.5 text-sm text-muted">
-            <span className="num w-5">{draft.ladder.length + 1}</span> organization <span className="text-xs">(always last)</span>
-          </li>
-        </ol>
-        {unused.length ? (
-          <Select aria-label="Add a rung" className="mt-3" value="" onChange={(e) => e.target.value && setDraft({ ...draft, ladder: [...draft.ladder, e.target.value] })}>
-            <option value="">Add a rung</option>
-            {unused.map((n) => (
-              <option key={n.name}>{n.name}</option>
-            ))}
-          </Select>
-        ) : null}
-      </div>
-      <div className="lg:col-span-2">
-        {changed ? <Note tone="exception">Changing the tag map changes what reports mean from now on. Compare periods across a change with care.</Note> : null}
-        <FormError error={save.error} />
-        <div className="flex flex-wrap items-center gap-3">
-          <Button variant="primary" disabled={!changed || save.isPending} onClick={() => save.mutate()}>
-            Save tag map
-          </Button>
-          <span className="text-[13px] text-muted">
-            Version {saved.version}, saved {formatDate(saved.created_at)}
-          </span>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function TagNameRow({ tag, onMerge, onRemove }: { tag: TagName; onMerge: (tag: Merging) => void; onRemove: (name: string) => void }) {
-  const personName = usePersonName();
-  const values = useTagValues(tag.name).data ?? [];
-  const shown = values.slice(0, 6).map((v) => (tag.name === "person" ? personName(v.value) : v.value));
-  return (
-    <li className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center">
-      <div className="flex w-40 items-center gap-2">
-        <span aria-hidden="true" className="size-2.5 rounded-full" style={{ background: tagColor(tag.name) }} />
-        <span className="font-medium">{tag.name}</span>
-        {tag.built_in ? <Badge>built in</Badge> : null}
-      </div>
-      <div className="min-w-0 flex-1 truncate text-[13px] text-muted">
-        {values.length ? `${shown.join(", ")}${values.length > 6 ? ` and ${String(values.length - 6)} more` : ""}` : "no values yet"}
-      </div>
-      <div className="flex gap-1">
-        {values.length > 1 && !tag.built_in ? <Button size="sm" variant="ghost" onClick={() => onMerge({ name: tag.name, values })}>Merge values</Button> : null}
-        {!tag.built_in ? <Button size="sm" variant="ghost" onClick={() => onRemove(tag.name)}>Remove</Button> : null}
-      </div>
-    </li>
-  );
-}
-
-export function TagsPage(): ReactNode {
-  const names = useTagNames();
-  const [newName, setNewName] = useState("");
-  const [merging, setMerging] = useState<Merging | null>(null);
-  const add = useMutation({
-    mutationFn: () => api.addTagName(newName),
-    onSuccess: async () => {
-      await refreshAll();
-      notify(`Tag name ${newName} added`);
-      setNewName("");
-    },
-  });
-  const remove = useMutation({ mutationFn: api.removeTagName, onSuccess: refreshAll });
-  if (names.isPending) return <Loading />;
-  if (names.isError) return <ErrorBox error={names.error} />;
-  return (
-    <>
-      <PageHeader title="Tags and the tag map" lead="You keep the list of tag names. Values are free: a new client or feature needs no setting. One value per tag name, so cost by one tag name always adds up." />
-      <Section title="Tag names">
-        <ul className="mb-4 divide-y divide-line rounded-lg border border-line">
-          {names.data.map((n) => (
-            <TagNameRow key={n.name} tag={n} onMerge={setMerging} onRemove={(name) => remove.mutate(name)} />
-          ))}
-        </ul>
-        <form className="flex max-w-md gap-2" onSubmit={(e) => { e.preventDefault(); add.mutate(); }}>
-          <Input aria-label="New tag name" value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="feature" />
-          <Button type="submit" disabled={!newName.trim() || add.isPending}>
-            Add tag name
-          </Button>
+    <Section title="Jira" lead="Optional. Every feature becomes a copy of its Jira issue, kept in step every 15 minutes. Whoever connects Jira answers for that data flow.">
+      {systems.data?.length ? (
+        systems.data.map((s) => <JiraConnection key={s.id} system={s} />)
+      ) : (
+        <form className="grid max-w-2xl gap-3 sm:grid-cols-3 sm:items-end" onSubmit={(e) => { e.preventDefault(); connect.mutate(); }}>
+          <Field label="Jira site"><Input value={site} placeholder="https://acme.atlassian.net" onChange={(e) => setSite(e.target.value)} /></Field>
+          <Field label="Atlassian account email"><Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} /></Field>
+          <Field label="API token"><Input type="password" value={token} onChange={(e) => setToken(e.target.value)} /></Field>
+          <div className="sm:col-span-3"><Button type="submit" disabled={connect.isPending}>Connect Jira</Button></div>
+          <div className="sm:col-span-3"><FormError error={connect.error} /></div>
         </form>
-        <div className="mt-2 max-w-md">
-          <FormError error={add.error ?? remove.error} />
+      )}
+    </Section>
+  );
+}
+
+function JiraConnection({ system }: { system: TicketSystem }) {
+  const projects = useQuery({ queryKey: ["jira-projects", system.id], queryFn: () => api.externalProjects(system.id) });
+  const tags = useTags();
+  const ours = tags.data?.find((n) => n.name === "project")?.values ?? [];
+  const [map, setMap] = useState<Record<string, string>>(Object.fromEntries(system.mappings.map((m) => [m.external, m.project])));
+  const save = useMutation({
+    mutationFn: () => api.mapProjects(system.id, Object.entries(map).filter(([, p]) => p).map(([external, project]) => ({ external, project }))),
+    onSuccess: async () => {
+      await refreshAll();
+      notify("Sync map saved");
+    },
+  });
+  const sync = useMutation({ mutationFn: () => api.syncTickets(system.id), onSuccess: async () => { await refreshAll(); notify("Sync started"); } });
+  const disconnect = useMutation({ mutationFn: () => api.disconnectTicketSystem(system.id), onSuccess: refreshAll });
+  return (
+    <div className="rounded-lg border border-line p-4">
+      <div className="mb-3 flex flex-wrap items-center gap-2 text-sm">
+        <span className="font-medium">{system.site}</span>
+        <Badge tone={system.status === "ok" ? "posted" : "exception"}>{system.status}</Badge>
+        <span className="text-muted">{system.last_sync_at ? `last sync ${formatDateTime(system.last_sync_at)}` : "not synced yet"}</span>
+        <span className="ml-auto flex gap-2">
+          <Button size="sm" onClick={() => sync.mutate()}>Sync now</Button>
+          <Button size="sm" variant="ghost" onClick={() => disconnect.mutate()}>Disconnect</Button>
+        </span>
+      </div>
+      {system.message ? <p className="mb-2 text-sm text-exception">{system.message}</p> : null}
+      <h3 className="mb-2 text-sm font-medium">Sync map</h3>
+      {projects.data?.length ? (
+        <div className="flex max-w-lg flex-col gap-2">
+          {projects.data.map((p) => (
+            <label key={p.key} className="grid grid-cols-2 items-center gap-2 text-sm">
+              <span>{p.key} · {p.name}</span>
+              <select aria-label={`Project for ${p.key}`} className="h-8 rounded-md border border-line-strong bg-page px-2" value={map[p.key] ?? ""} onChange={(e) => setMap({ ...map, [p.key]: e.target.value })}>
+                <option value="">not synced</option>
+                {ours.map((v) => <option key={v.key} value={v.key}>{v.title ?? v.key}</option>)}
+              </select>
+            </label>
+          ))}
+          <div><Button size="sm" onClick={() => save.mutate()}>Save the sync map</Button></div>
         </div>
-      </Section>
-      <Section title="Tag map" lead="Which tags fill the cost center and the cost object. Each closed period keeps the map it was closed with.">
-        <TagMap names={names.data} />
-      </Section>
-      <Merge tag={merging} onClose={() => setMerging(null)} />
-    </>
+      ) : (
+        <Empty title="No Jira projects found" />
+      )}
+      <FormError error={save.error ?? sync.error ?? disconnect.error} />
+    </div>
   );
 }
