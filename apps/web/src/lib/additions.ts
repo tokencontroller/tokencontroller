@@ -45,9 +45,9 @@ export interface RouteKit {
 
 /** Parts a build adds to the app's own pages. A part that is not set shows nothing. */
 export interface PageParts {
-  /** Settings, for controllers: a line about the organization's plan. */
+  /** Settings, for org managers: a line about the organization's plan. */
   SettingsPlan?: ComponentType;
-  /** People, under the page header. */
+  /** Grants and roles, under the page header. */
   PeopleNote?: ComponentType;
   /** Overview, at the end of the page. */
   OverviewNote?: ComponentType;

@@ -16,38 +16,38 @@ interface NavItem {
   role: Role;
 }
 
-// Grouped by the loop: plan, record, reconcile, learn (docs: Concepts).
+// Grouped as the docs are: record, account, report, organization.
 const groups: { title: string; items: NavItem[] }[] = [
   { title: "", items: [{ to: "/", label: "Overview", role: "agent_manager" }] },
   {
     title: "Record",
     items: [
-      { to: "/review", label: "Review and submit", role: "agent_manager" },
-      { to: "/token-entries", label: "Token entries", role: "agent_manager" },
+      { to: "/sessions", label: "Check and submit", role: "agent_manager" },
+      { to: "/submissions", label: "Submissions", role: "agent_manager" },
     ],
   },
   {
-    title: "Reconcile",
+    title: "Report",
     items: [
-      { to: "/approval", label: "Approval", role: "people_manager" },
-      { to: "/bills", label: "Bills", role: "controller" },
-      { to: "/close", label: "Close", role: "controller" },
-    ],
-  },
-  {
-    title: "Plan and learn",
-    items: [
-      { to: "/budgets", label: "Token budgets", role: "people_manager" },
       { to: "/reports", label: "Reports", role: "agent_manager" },
+      { to: "/plans", label: "Plans and estimates", role: "people_manager" },
+    ],
+  },
+  {
+    title: "Account",
+    items: [
+      { to: "/bills", label: "Bills", role: "org_manager" },
+      { to: "/price-table", label: "Price table", role: "org_manager" },
+      { to: "/cutoff", label: "Cutoff", role: "org_manager" },
     ],
   },
   {
     title: "Organization",
     items: [
-      { to: "/projects", label: "Projects and tickets", role: "people_manager" },
-      { to: "/tags", label: "Tags", role: "controller" },
+      { to: "/tags", label: "Tags", role: "people_manager" },
+      { to: "/attributes", label: "Attributes", role: "people_manager" },
+      { to: "/grants", label: "Grants and roles", role: "people_manager" },
       { to: "/rules", label: "Rules", role: "agent_manager" },
-      { to: "/people", label: "People", role: "people_manager" },
       { to: "/settings", label: "Settings", role: "agent_manager" },
     ],
   },

@@ -7,21 +7,20 @@ import { meQuery, queryClient } from "@/lib/queries";
 import { rememberFirstSteps, rememberNext, takeNext } from "@/lib/remember";
 import { hasRole } from "@/lib/roles";
 import type { Role } from "@/api/contract";
-import { ApprovalPage } from "@/routes/approval";
+import { AttributesPage } from "@/routes/attributes";
 import { BillsPage } from "@/routes/bills";
-import { ClosePage } from "@/routes/close";
-import { CostSheetPage, SharedCostSheetPage } from "@/routes/cost-sheet";
-import { BudgetsPage } from "@/routes/budgets";
+import { CutoffPage } from "@/routes/cutoff";
+import { GrantsPage } from "@/routes/grants";
 import { OverviewPage } from "@/routes/overview";
-import { PeoplePage } from "@/routes/people";
-import { ProjectPage, ProjectsPage } from "@/routes/projects";
+import { PlansPage } from "@/routes/plans";
+import { PriceTablePage } from "@/routes/price-table";
 import { ReportsPage } from "@/routes/reports";
-import { ReviewPage } from "@/routes/review";
 import { RulesPage } from "@/routes/rules";
+import { SessionsPage } from "@/routes/sessions";
 import { SettingsPage } from "@/routes/settings";
 import { InvitePage, SignInPage, SignUpPage } from "@/routes/sign-in";
+import { SubmissionsPage } from "@/routes/submissions";
 import { TagsPage } from "@/routes/tags";
-import { TokenEntriesPage } from "@/routes/token-entries";
 import { NotFoundPage } from "@/routes/not-found";
 
 const rootRoute = createRootRoute({ component: Outlet, notFoundComponent: NotFoundPage });
@@ -59,9 +58,6 @@ const signUpRoute = createRoute({
 // The link in an invite mail: who invited whom, then a sign-in link.
 const inviteRoute = createRoute({ getParentRoute: () => rootRoute, path: "/i/$code", component: InvitePage });
 
-// The cost sheet link a controller hands to finance: no sign-in.
-const sharedCostSheetRoute = createRoute({ getParentRoute: () => rootRoute, path: "/shared/cost-sheet/$token", component: SharedCostSheetPage });
-
 // Everything below needs a signed-in member.
 const appRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -71,7 +67,7 @@ const appRoute = createRoute({
       await queryClient.query({ ...meQuery, staleTime: "static" });
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) {
-        // Back to the page they asked for once signed in, such as /close/2026-09.
+        // Back to the page they asked for once signed in, such as /reports.
         rememberNext(location.href);
         // eslint-disable-next-line @typescript-eslint/only-throw-error -- the router's way to redirect
         throw redirect({ to: "/sign-in" });
@@ -117,58 +113,28 @@ function requireRole(role: Role): () => Promise<void> {
   };
 }
 
-export interface PeriodSearch {
-  period?: string;
-}
-
-const periodSearch = (search: Record<string, unknown>): PeriodSearch =>
-  typeof search.period === "string" && /^\d{4}-\d{2}$/.test(search.period) ? { period: search.period } : {};
-
 const page = <P extends string>(path: P, component: () => React.ReactNode, role: Role = "agent_manager") =>
-  createRoute({ getParentRoute: () => appRoute, path, beforeLoad: requireRole(role), validateSearch: periodSearch, component });
+  createRoute({ getParentRoute: () => appRoute, path, beforeLoad: requireRole(role), component });
 
-const overviewRoute = page("/", OverviewPage);
-const reviewRoute = page("/review", ReviewPage);
-const entriesRoute = page("/token-entries", TokenEntriesPage);
-const approvalRoute = page("/approval", ApprovalPage, "people_manager");
-const billsRoute = page("/bills", BillsPage, "controller");
-const closeRoute = page("/close", ClosePage, "controller");
-const costSheetRoute = createRoute({
-  getParentRoute: () => appRoute,
-  path: "/close/$period",
-  beforeLoad: requireRole("controller"),
-  component: CostSheetPage,
-});
-const budgetsRoute = page("/budgets", BudgetsPage, "people_manager");
-const reportsRoute = page("/reports", ReportsPage);
-const projectsRoute = page("/projects", ProjectsPage, "people_manager");
-const projectRoute = createRoute({ getParentRoute: () => appRoute, path: "/projects/$name", beforeLoad: requireRole("people_manager"), validateSearch: periodSearch, component: ProjectPage });
-const tagsRoute = page("/tags", TagsPage, "controller");
-const rulesRoute = page("/rules", RulesPage);
-const peopleRoute = page("/people", PeoplePage, "people_manager");
-const settingsRoute = page("/settings", SettingsPage);
-
+// One page per docs page job (apps/docs/src/content/docs).
 const routeTree = rootRoute.addChildren([
   signInRoute,
   signUpRoute,
   inviteRoute,
-  sharedCostSheetRoute,
   appRoute.addChildren([
-    overviewRoute,
-    reviewRoute,
-    entriesRoute,
-    approvalRoute,
-    billsRoute,
-    closeRoute,
-    costSheetRoute,
-    budgetsRoute,
-    reportsRoute,
-    projectsRoute,
-    projectRoute,
-    tagsRoute,
-    rulesRoute,
-    peopleRoute,
-    settingsRoute,
+    page("/", OverviewPage),
+    page("/sessions", SessionsPage),
+    page("/submissions", SubmissionsPage),
+    page("/reports", ReportsPage),
+    page("/plans", PlansPage, "people_manager"),
+    page("/tags", TagsPage, "people_manager"),
+    page("/attributes", AttributesPage, "people_manager"),
+    page("/grants", GrantsPage, "people_manager"),
+    page("/rules", RulesPage),
+    page("/bills", BillsPage, "org_manager"),
+    page("/price-table", PriceTablePage, "org_manager"),
+    page("/cutoff", CutoffPage, "org_manager"),
+    page("/settings", SettingsPage),
     // The pages of the build's additions (src/additions); none in the open build.
     ...addedRoutes({ app: appRoute, requireRole }),
   ]),

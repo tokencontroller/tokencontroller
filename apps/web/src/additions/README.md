@@ -14,8 +14,8 @@ What the folder holds:
 |---|---|---|
 | `routes` | More pages for signed-in members. It gets the app's route, as their parent, and `requireRole`, which keeps a page to a role and the roles above it. | `src/router.tsx` |
 | `useMenu` | A hook that returns the menu entries to show now. Each names its menu group by title, the lowest role that sees it, and a page (`to`) or a dialog (`Panel`). A title the menu does not have starts a group after the others. Leave an entry out while the build's endpoint answers 404. | `src/components/app-shell.tsx` |
-| `parts.SettingsPlan` | A line about the plan in Settings, for controllers. | `src/routes/settings.tsx` |
-| `parts.PeopleNote` | A note under the header of People. | `src/routes/people.tsx` |
+| `parts.SettingsPlan` | A line about the plan in Settings, for org managers. | `src/routes/settings.tsx` |
+| `parts.PeopleNote` | A note under the header of Grants and roles. | `src/routes/grants.tsx` |
 | `parts.OverviewNote` | A note at the end of Overview. | `src/routes/overview.tsx` |
 | `parts.SignUpNote` | A note above the sign-up form. | `src/routes/sign-in.tsx` |
 | `onResponse` | Gets every answer from the service, from `typed`, `call` and `download` in `src/api/client.ts`. It must not read the body or throw. | `src/api/client.ts` |

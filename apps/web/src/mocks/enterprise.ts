@@ -4,11 +4,11 @@
 // Enterprise plan instance with a license that is due for renewal.
 
 import { http, HttpResponse, type HttpResponseResolver } from "msw";
-import type { Person } from "@/api/contract";
+import type { Member as Person } from "@/api/contract";
 import type { AuditEntry, ConnectorRun, Oidc, OidcInput, ScimToken } from "@/api/enterprise";
 import type { Db } from "./seed";
 
-type Member = (handler: (ctx: { db: Db; me: Person; url: URL; params: Record<string, string>; request: Request }) => Response | Promise<Response>) => HttpResponseResolver;
+type MemberHandler = (handler: (ctx: { db: Db; me: Person; url: URL; params: Record<string, string>; request: Request }) => Response | Promise<Response>) => HttpResponseResolver;
 type Fail = (status: number, code: string, message: string) => Response;
 
 interface EnterpriseState {
@@ -52,14 +52,14 @@ export function mockEdition(): EnterpriseState["edition"] {
 /** A few weeks of the audit log of Kestrel Digital, newest first. */
 function exampleAudit(db: Db): AuditEntry[] {
   const id = (email: string) => db.people.find((p) => p.email === email)?.id ?? null;
-  const nadia = id("n.berger@kestrel.example");
-  const priya = id("p.shah@kestrel.example");
+  const nadia = id("n.varga@kestrel.example");
+  const priya = id("p.raman@kestrel.example");
   const entries: Omit<AuditEntry, "id">[] = [
     { recorded_at: "2026-10-12T08:14:00Z", actor_id: id("m.ortner@kestrel.example"), action: "member.signed_in_with_identity_provider", target_id: null },
     { recorded_at: "2026-10-09T15:40:00Z", actor_id: nadia, action: "organization.rules_changed", target_id: null },
-    { recorded_at: "2026-10-08T10:02:00Z", actor_id: null, action: "member.added", target_id: id("o.nowak@kestrel.example") },
-    { recorded_at: "2026-10-07T09:31:00Z", actor_id: priya, action: "member.filters_changed", target_id: id("j.weber@kestrel.example") },
-    { recorded_at: "2026-10-02T11:20:00Z", actor_id: nadia, action: "tag_map.changed", target_id: null },
+    { recorded_at: "2026-10-08T10:02:00Z", actor_id: null, action: "member.added", target_id: id("o.berg@kestrel.example") },
+    { recorded_at: "2026-10-07T09:31:00Z", actor_id: priya, action: "grant.added", target_id: id("t.lindqvist@kestrel.example") },
+    { recorded_at: "2026-10-02T11:20:00Z", actor_id: nadia, action: "tag_value.added", target_id: null },
     { recorded_at: "2026-10-01T08:00:00Z", actor_id: nadia, action: "api_token.created", target_id: null },
   ];
   return entries.map((e, i) => ({ ...e, id: entries.length - i }));
@@ -70,13 +70,13 @@ const RUNS: ConnectorRun[] = [
   { provider: "bedrock", started_at: "2026-10-12T04:10:00Z", period_start: "2026-09-01", period_end: "2026-09-30", lines: 64, error: null },
 ];
 
-export function enterpriseHandlers({ API, member, fail, now }: { API: string; member: Member; fail: Fail; now: () => string }) {
-  /** Every enterprise call: 404 on the open edition, controllers only. */
-  const controller = (handler: (state: EnterpriseState, ctx: { db: Db; me: Person; request: Request; params: Record<string, string>; url: URL }) => Response | Promise<Response>) =>
+export function enterpriseHandlers({ API, member, fail, now }: { API: string; member: MemberHandler; fail: Fail; now: () => string }) {
+  /** Every enterprise call: 404 on the open edition, org managers only. */
+  const orgManager = (handler: (state: EnterpriseState, ctx: { db: Db; me: Person; request: Request; params: Record<string, string>; url: URL }) => Response | Promise<Response>) =>
     member(async (ctx) => {
       const state = load();
       if (state.edition !== "enterprise") return fail(404, "not_found", "There is nothing here.");
-      if (ctx.me.role !== "controller") return fail(403, "forbidden", "only controllers can do this");
+      if (ctx.me.role !== "org_manager") return fail(403, "forbidden", "only org managers can do this");
       if (!state.audit.length) state.audit = exampleAudit(ctx.db);
       const answer = await handler(state, ctx);
       save(state);
@@ -106,7 +106,7 @@ export function enterpriseHandlers({ API, member, fail, now }: { API: string; me
       return HttpResponse.json(state.edition === "enterprise" && state.oidc ? [{ id: "oidc", label: state.oidc.label, url: `${API}/sign-in/providers/oidc` }] : []);
     }),
 
-    http.get(`${API}/enterprise/license`, controller(() =>
+    http.get(`${API}/enterprise/license`, orgManager(() =>
       HttpResponse.json({
         edition: "enterprise",
         standing: "renewal_due",
@@ -118,8 +118,8 @@ export function enterpriseHandlers({ API, member, fail, now }: { API: string; me
       }),
     )),
 
-    http.get(`${API}/enterprise/oidc`, controller((state) => HttpResponse.json(oidcView(state)))),
-    http.put(`${API}/enterprise/oidc`, controller(async (state, { me, request }) => {
+    http.get(`${API}/enterprise/oidc`, orgManager((state) => HttpResponse.json(oidcView(state)))),
+    http.put(`${API}/enterprise/oidc`, orgManager(async (state, { me, request }) => {
       const input = (await request.json()) as OidcInput;
       const issuer_url = input.issuer_url.trim().replace(/\/+$/, "");
       if (!issuer_url.startsWith("https://")) return fail(400, "bad_request", "the issuer URL must start with https://");
@@ -131,21 +131,21 @@ export function enterpriseHandlers({ API, member, fail, now }: { API: string; me
       record(state, me, "sign_in.provider_changed");
       return HttpResponse.json(oidcView(state));
     })),
-    http.delete(`${API}/enterprise/oidc`, controller((state, { me }) => {
+    http.delete(`${API}/enterprise/oidc`, orgManager((state, { me }) => {
       state.oidc = null;
       record(state, me, "sign_in.provider_removed");
       return new HttpResponse(null, { status: 204 });
     })),
 
-    http.get(`${API}/enterprise/scim/tokens`, controller((state) => HttpResponse.json({ scim_url: `${ORIGIN}/scim/v2`, tokens: state.scim }))),
-    http.post(`${API}/enterprise/scim/tokens`, controller((state, { me }) => {
+    http.get(`${API}/enterprise/scim/tokens`, orgManager((state) => HttpResponse.json({ scim_url: `${ORIGIN}/scim/v2`, tokens: state.scim }))),
+    http.post(`${API}/enterprise/scim/tokens`, orgManager((state, { me }) => {
       state.nextId += 1;
       const id = `5c1a0000-0000-4000-8000-${String(state.nextId).padStart(12, "0")}`;
       state.scim.push({ id, created_at: now(), last_used_at: null });
       record(state, me, "scim.token_created", id);
       return HttpResponse.json({ id, token: `tc_scim_${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}`, scim_url: `${ORIGIN}/scim/v2` }, { status: 201 });
     })),
-    http.delete(`${API}/enterprise/scim/tokens/:id`, controller((state, { me, params }) => {
+    http.delete(`${API}/enterprise/scim/tokens/:id`, orgManager((state, { me, params }) => {
       const id = params.id ?? "";
       if (!state.scim.some((t) => t.id === id)) return fail(404, "not_found", "not found");
       state.scim = state.scim.filter((t) => t.id !== id);
@@ -153,12 +153,12 @@ export function enterpriseHandlers({ API, member, fail, now }: { API: string; me
       return new HttpResponse(null, { status: 204 });
     })),
 
-    http.get(`${API}/enterprise/audit-log`, controller((state, { url }) => {
+    http.get(`${API}/enterprise/audit-log`, orgManager((state, { url }) => {
       const before = Number(url.searchParams.get("before") ?? Infinity);
       const limit = Math.min(500, Math.max(1, Number(url.searchParams.get("limit") ?? 100)));
       return HttpResponse.json({ entries: state.audit.filter((e) => e.id < before).slice(0, limit) });
     })),
 
-    http.get(`${API}/enterprise/connectors`, controller(() => HttpResponse.json({ connectors: ["bedrock"], runs: RUNS }))),
+    http.get(`${API}/enterprise/connectors`, orgManager(() => HttpResponse.json({ connectors: ["bedrock"], runs: RUNS }))),
   ];
 }

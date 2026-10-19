@@ -27,9 +27,7 @@ export function PlanPage(): ReactNode {
       <Link to="/plan/invoices/$id" params={{ id: "in_1" }}>
         The first invoice
       </Link>
-      <Link to="/close" search={{ period: "2026-09" }}>
-        Monthly close
-      </Link>
+      <Link to="/cutoff">Cutoff</Link>
       {/* @ts-expect-error -- not a page of the app or the slot, so links stay checked */}
       <Link to="/nope">Nowhere</Link>
     </>
@@ -45,7 +43,7 @@ export function useCheckMenu(): readonly MenuEntry[] {
   const plan = useQuery({ queryKey: ["plan"], queryFn: () => call<Plan>("GET", "/plan") });
   if (!plan.data) return [];
   return [
-    { group: "Organization", label: "Plan", role: "controller", to: "/plan" },
+    { group: "Organization", label: "Plan", role: "org_manager", to: "/plan" },
     { group: "Help", label: "Ask us", role: "agent_manager", Panel: AskPanel },
   ];
 }

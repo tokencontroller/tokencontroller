@@ -10,7 +10,7 @@ describe("additions", () => {
       { title: "Organization", items: ["People", "Settings"] },
       { title: "Help", items: [] },
     ];
-    const plan: MenuEntry = { group: "Organization", label: "Plan", role: "controller", to: "/plan" };
+    const plan: MenuEntry = { group: "Organization", label: "Plan", role: "org_manager", to: "/plan" };
     const help: MenuEntry = { group: "Help", label: "Ask us", role: "agent_manager", Panel: () => null };
     const status: MenuEntry = { group: "Service", label: "Status", role: "agent_manager", to: "/status" };
     const menu = joinMenu(own, [status, plan, help]);

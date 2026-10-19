@@ -1,19 +1,13 @@
-import type { Money, ValueLabel } from "@/api/contract";
+import type { Money } from "@/api/contract";
 import { formatMoney, formatShare } from "@/lib/money";
 import { useEffect, type ReactNode } from "react";
 import { additions } from "@/lib/additions";
-import { valueLabelText } from "./badge";
 
-export function MoneyText({ value, label, signed = false, share }: { value: Money | null; label?: ValueLabel; signed?: boolean; share?: number | undefined }) {
+/** An amount, or a share of a total in basis points. `null` shows why there is none. */
+export function MoneyText({ value, signed = false, share, missing = "unknown model" }: { value: Money | null; signed?: boolean; share?: number | undefined; missing?: string }) {
   if (share !== undefined) return <span className="num">{formatShare(share)}</span>;
-  if (value === null || label === "unknown_model") {
-    return <span className="num text-exception" title="The model is missing from the price table, so its cost is not known yet.">unknown model</span>;
-  }
-  return (
-    <span className="num" title={label ? valueLabelText[label] : undefined}>
-      {formatMoney(value, { signed })}
-    </span>
-  );
+  if (value === null) return <span className="num text-exception">{missing}</span>;
+  return <span className="num">{formatMoney(value, { signed })}</span>;
 }
 
 export function PageHeader({ title, lead, actions }: { title: string; lead?: ReactNode; actions?: ReactNode }) {

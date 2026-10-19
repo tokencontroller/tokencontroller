@@ -1,10 +1,10 @@
 import type { Tags } from "@/api/contract";
 import { tagList } from "@/lib/format";
-import { usePersonName, useTagValues } from "@/lib/queries";
+import { useKeys, usePersonName } from "@/lib/queries";
 
 // Tags carry a spectrum color per tag name, so the eye finds the ticket or
 // the client in a row. Color is used here because it means something.
-const fixed: Record<string, number> = { ticket: 6, project: 5, team: 4, client: 7, purpose: 2, person: 3 };
+const fixed: Record<string, number> = { feature: 6, project: 5, team: 4, client: 7, purpose: 2, person: 3, department: 1 };
 
 export function tagColor(name: string): string {
   let slot = fixed[name];
@@ -46,13 +46,13 @@ export function TagRow({ tags, hide = ["person"] }: { tags: Tags; hide?: string[
   );
 }
 
-/** The known values of a tag name, for an input's `list`. */
+/** The known keys of a tag or attribute name, for an input's `list`. */
 export function TagValueList({ id, name }: { id: string; name: string }) {
-  const values = useTagValues(name);
+  const keys = useKeys(name);
   return (
     <datalist id={id}>
-      {(values.data ?? []).map((v) => (
-        <option key={v.value} value={v.value} />
+      {keys.map((key) => (
+        <option key={key} value={key} />
       ))}
     </datalist>
   );

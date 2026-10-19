@@ -3,10 +3,10 @@ import { expect, type Locator, type Page } from "@playwright/test";
 
 /** People of the docs' example organization, Kestrel Digital. */
 export const people = {
+  nadia: "n.varga@kestrel.example", // org manager
+  priya: "p.raman@kestrel.example", // people manager on team: web
   mara: "m.ortner@kestrel.example", // agent manager, team web
-  priya: "p.shah@kestrel.example", // people manager for team: web
-  nadia: "n.berger@kestrel.example", // controller
-  kai: "k.novak@kestrel.example", // people manager for client: acme
+  tom: "t.lindqvist@kestrel.example", // agent manager, team web, holds the review bot's token
 } as const;
 
 /**

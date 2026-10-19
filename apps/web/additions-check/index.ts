@@ -14,11 +14,11 @@ export const additions = {
     createRoute({
       getParentRoute: () => app,
       path: "/plan",
-      beforeLoad: requireRole("controller"),
+      beforeLoad: requireRole("org_manager"),
       validateSearch: (search: Record<string, unknown>): { tab?: string } => (typeof search.tab === "string" ? { tab: search.tab } : {}),
       component: PlanPage,
     }),
-    createRoute({ getParentRoute: () => app, path: "/plan/invoices/$id", beforeLoad: requireRole("controller"), component: InvoicePage }),
+    createRoute({ getParentRoute: () => app, path: "/plan/invoices/$id", beforeLoad: requireRole("org_manager"), component: InvoicePage }),
   ],
   useMenu: useCheckMenu,
   parts: { SettingsPlan: PlanLine, PeopleNote, OverviewNote, SignUpNote },
