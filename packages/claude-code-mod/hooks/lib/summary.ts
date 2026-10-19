@@ -1,7 +1,7 @@
 /**
  * The session's summary: one line on what the session did, written during the
  * session by a small model call, so it exists even if the session is closed
- * abruptly. It is the only text of a token entry besides the tag values, so
+ * abruptly. It is the only text of a message besides the tag values, so
  * it names the work and never quotes code, secrets or customer data.
  */
 

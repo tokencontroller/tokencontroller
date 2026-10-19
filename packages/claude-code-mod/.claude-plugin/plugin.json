@@ -1,11 +1,11 @@
 {
   "name": "token-controller",
   "version": "1.0.0",
-  "description": "Records what Claude Code spends, turn by turn, and shows where it went: on which ticket, and how much of it is on tickets at all.",
+  "description": "Records what Claude Code spends, message by message, and shows where it went: on which feature, and how much of it is on features at all.",
   "author": { "name": "Jan Beck", "url": "https://www.linkedin.com/in/jancbeck/" },
   "homepage": "https://docs.tokencontroller.com/collect/claude-code",
   "repository": "https://github.com/tokencontroller/tokencontroller",
   "license": "MIT",
-  "keywords": ["cost", "tokens", "tickets", "timesheet"],
+  "keywords": ["cost", "tokens", "features", "cost accounting"],
   "types": "./types/index.d.ts"
 }

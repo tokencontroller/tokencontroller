@@ -3,7 +3,7 @@ import { describe, type Engine, expect, mock, test } from 'claude-code/testing'
 
 const NOW = Date.parse('2026-10-12T09:00:00Z')
 
-// Shapes as `tc --json` prints them (handoff of the thread "CLI and releases").
+// Shapes as `tc --json` prints them (docs: CLI reference, Check and submit).
 const STATUS = {
   connected: true,
   service: 'https://app.tokencontroller.com',
@@ -11,11 +11,11 @@ const STATUS = {
   person: 'mara@kestrel.example',
   agents: [{ agent_harness: 'claude-code', sessions: 2 }],
   rules: 3,
-  today: { list_value: '51.62', currency: 'USD', share_on_tickets_percent: 81 },
-  token_sheet: { period_start: '2026-10-05', period_end: '2026-10-11', late: false },
+  today: { cost: '51.62', currency: 'USD', share_on_features_percent: 81 },
+  last_submitted_at: '2026-10-11T17:02:00Z',
 }
 
-function entry(number: number, session: string, cost: string, tags: Record<string, string>) {
+function session(number: number, session: string, cost: string, tags: Record<string, string>) {
   return {
     number,
     agent_harness: 'claude-code',
@@ -23,40 +23,40 @@ function entry(number: number, session: string, cost: string, tags: Record<strin
     model: 'claude-opus-5',
     started_at: '2026-10-12T08:12:00Z',
     ended_at: '2026-10-12T08:50:00Z',
-    tokens: { input: 4120, output: 610, cache_write: 0, cache_read: 18200 },
-    list_value: cost,
+    tokens: { input: 4120, output: 610, cache_read: 18200, cache_write: 0 },
+    cost,
     currency: 'USD',
     summary: number === 1 ? 'Fixed rounding in the checkout total' : '',
-    status: 'draft',
+    status: 'unsubmitted',
     rejected_reason: null,
-    placed_by: number === 1 ? 'rule: ticket key in branch' : 'rule: repository',
-    candidates: [],
-    splits: [{ share_percent: 100, list_value: cost, tags }],
+    assigned_by: number === 1 ? 'rule: key in branch' : 'rule: repository',
+    label: number === 1 ? 'direct' : 'project overhead',
+    splits: [{ fraction: '1', cost, tags }],
   }
 }
 
 const REVIEW = {
-  token_entries: [
-    entry(1, 'session-1', '41.87', { ticket: 'KD-214', team: 'web' }),
-    entry(2, 'session-0', '9.75', { project: 'storefront', team: 'web' }),
+  sessions: [
+    session(1, 'session-1', '41.87', { feature: 'KD-214', team: 'web' }),
+    session(2, 'session-0', '9.75', { project: 'shop', team: 'web' }),
   ],
 }
 
 const REPORT = {
-  by: 'ticket',
+  by: 'feature',
   currency: 'USD',
   rows: [
-    { value: 'KD-214', list_value: '120.50', token_entries: 3 },
-    { value: null, list_value: '80.25', token_entries: 2 },
+    { value: 'KD-214', cost: '120.50', sessions: 3 },
+    { value: null, cost: '80.25', sessions: 2 },
   ],
   total: '200.75',
 }
 
 const SUBMITTED = {
   submitted: 2,
-  list_value: '51.62',
+  cost: '51.62',
   currency: 'USD',
-  share_on_tickets_percent: 81,
+  share_on_features_percent: 81,
 }
 
 type Run = { argv: readonly string[]; stdin: string | undefined }
@@ -86,13 +86,13 @@ function world(on: On, options: { isTcInstalled?: boolean; status?: object } = {
         return done(JSON.stringify(options.status ?? STATUS))
       case 'review --json':
         return done(JSON.stringify(REVIEW))
-      case 'report --by ticket --json':
-      case 'report --by day --json --filter ticket=KD-214':
+      case 'report --by feature --json':
+      case 'report --by day --json --filter feature=KD-214':
         return done(JSON.stringify(REPORT))
       case 'record --json':
-        return done(JSON.stringify({ token_entry: REVIEW.token_entries[0] }))
-      case 'tag 2 ticket=KD-231 --json':
-        return done(JSON.stringify({ token_entry: REVIEW.token_entries[1] }))
+        return done(JSON.stringify({ session: REVIEW.sessions[0] }))
+      case 'tag 2 feature=KD-231 --json':
+        return done(JSON.stringify({ session: REVIEW.sessions[1] }))
       case 'submit --json':
         return done(JSON.stringify(SUBMITTED))
       default:
@@ -165,11 +165,23 @@ describe('recording', () => {
     await $.turn.complete({ ...TURN, reason: 'aborted' as const, isAborted: true })
     await clock.settle()
 
-    // tc reads Claude Code's session files on every run; no token counts pass through the mod.
-    expect(runs.map(run => run.argv.slice(1).join(' '))).toEqual(['status --json', 'review --json'])
+    // tc reads Claude Code's session files on every run; no token counts pass
+    // through the mod, only the facts it counts, here the aborted turn.
+    expect(runs.map(run => run.argv.slice(1).join(' '))).toEqual([
+      'record --json',
+      'status --json',
+      'review --json',
+    ])
+    expect(records(runs)).toEqual([
+      {
+        agent_harness: 'claude-code',
+        session_id: 'session-1',
+        facts: { turns: 1, duration_seconds: 4, subagents: 0 },
+      },
+    ])
   })
 
-  test('the summary is written by a small model call and handed to tc', async ($, on) => {
+  test('the summary is written by a small model call and handed to tc with the facts', async ($, on) => {
     const { clock, runs } = world(on)
     await start($)
     await $.turn.complete(TURN)
@@ -180,8 +192,18 @@ describe('recording', () => {
         agent_harness: 'claude-code',
         session_id: 'session-1',
         summary: 'Fixed rounding in the checkout total and added tests',
+        facts: { turns: 1, duration_seconds: 4, subagents: 0 },
       },
     ])
+  })
+
+  test('a subagent’s turn counts as a subagent, not a turn', async ($, on) => {
+    const { clock, runs } = world(on)
+    await start($)
+    await $.turn.complete({ ...TURN, agentId: 'agent-1', durationMs: 1500 } as never)
+    await clock.settle()
+
+    expect(records(runs).at(-1)?.facts).toEqual({ turns: 0, duration_seconds: 2, subagents: 1 })
   })
 
   test('a headless run records its summary before the turn ends', async ($, on) => {
@@ -228,32 +250,32 @@ describe('commands', () => {
   const presentation = { isFullscreen: false, columns: 100 }
   const origin = { kind: 'composer' } as never
 
-  test('/tc ticket sets the session ticket through tc', async ($, on) => {
+  test('/tc feature puts the session on a feature through tc', async ($, on) => {
     const { runs } = world(on)
     await start($)
     const result = await $.command.run({
       command: 'tc',
-      args: 'ticket KD-231',
+      args: 'feature KD-231',
       origin,
       presentation,
     } as never)
 
-    expect(result.text).toBe('This session: ticket KD-231')
+    expect(result.text).toBe('This session: feature KD-231')
     expect(records(runs)).toEqual([
-      { agent_harness: 'claude-code', session_id: 'session-1', ticket: 'KD-231' },
+      { agent_harness: 'claude-code', session_id: 'session-1', feature: 'KD-231' },
     ])
   })
 
   test('/tc tag adds to what was set before, so each record is the whole picture', async ($, on) => {
     const { runs } = world(on)
     await start($)
-    await $.command.run({ command: 'tc', args: 'ticket KD-231', origin, presentation } as never)
+    await $.command.run({ command: 'tc', args: 'feature KD-231', origin, presentation } as never)
     await $.command.run({ command: 'tc', args: 'tag purpose=spike', origin, presentation } as never)
 
     expect(records(runs).at(-1)).toEqual({
       agent_harness: 'claude-code',
       session_id: 'session-1',
-      ticket: 'KD-231',
+      feature: 'KD-231',
       tags: { purpose: 'spike' },
     })
   })
@@ -269,11 +291,11 @@ describe('commands', () => {
     } as never)
 
     expect(result.text).toMatch(/KD-214\s+\$120\.50\s+60%\s+█+/)
-    expect(result.text).toMatch(/\(no ticket\)\s+\$80\.25\s+40%/)
+    expect(result.text).toMatch(/\(no feature\)\s+\$80\.25\s+40%/)
     expect(result.text).toMatch(/total\s+\$200\.75/)
   })
 
-  test('/tc submit submits the token sheet', async ($, on) => {
+  test('/tc submit submits everything since the last submit', async ($, on) => {
     world(on)
     await start($)
     const result = await $.command.run({
@@ -283,7 +305,7 @@ describe('commands', () => {
       presentation,
     } as never)
 
-    expect(result.text).toBe('Submitted 2 token entries · $51.62 · 81% on tickets')
+    expect(result.text).toBe('Submitted 2 sessions · $51.62 · 81% on features')
   })
 
   test('/tc with a word it does not know shows the help', async ($, on) => {
@@ -291,13 +313,13 @@ describe('commands', () => {
     await start($)
     const result = await $.command.run({
       command: 'tc',
-      args: 'budget',
+      args: 'ticket KD-1',
       origin,
       presentation,
     } as never)
 
-    expect(result.text).toMatch(/\/tc has no "budget"/)
-    expect(result.text).toMatch(/\/tc ticket KD-214/)
+    expect(result.text).toMatch(/\/tc has no "ticket"/)
+    expect(result.text).toMatch(/\/tc feature KD-214/)
   })
 })
 
@@ -306,7 +328,7 @@ test('the model can ask for a report', async ($, on) => {
   await start($)
   const answer = await $.tool.call({
     tool: 'mcp__token-controller__report',
-    input: { by: 'day', filter: 'ticket=KD-214' },
+    input: { by: 'day', filter: 'feature=KD-214' },
     tool_use_id: 'toolu_1',
   } as never)
 
@@ -315,11 +337,11 @@ test('the model can ask for a report', async ($, on) => {
   )
 })
 
-test('the band passes on the controller’s request to submit, on a row of its own', async ($, on) => {
+test('the band passes on the org manager’s request to submit, on a row of its own', async ($, on) => {
   world(on, {
     status: {
       ...STATUS,
-      asked_to_submit: { period: '2026-09', asked_by: 'Nadia Berger', asked_at: null },
+      asked_to_submit: { cutoff: '2026-09-30', asked_by: 'Nadia Berger', asked_at: null },
     },
   })
   await start($)
@@ -333,7 +355,7 @@ test('the band passes on the controller’s request to submit, on a row of its o
   expect(
     await band.find({
       type: 'Text',
-      text: 'Nadia Berger asks you to submit for September 2026',
+      text: 'Nadia Berger asks you to submit before the cutoff moves to 30 September 2026',
     }),
   ).toBeDefined()
 
@@ -346,7 +368,7 @@ test('the band passes on the controller’s request to submit, on a row of its o
   expect(
     await oneRow.find({
       type: 'Text',
-      text: '· Nadia Berger asks you to submit for September 2026',
+      text: '· Nadia Berger asks you to submit before the cutoff moves to 30 September 2026',
     }),
   ).toBeDefined()
 })
@@ -364,11 +386,11 @@ describe('drawing', () => {
       })
 
       expect(
-        await band.find({ type: 'Text', text: '$51.62 today · 81% on tickets · KD-214' }),
+        await band.find({ type: 'Text', text: '$51.62 today · 81% on features · KD-214' }),
       ).toBeDefined()
     })
 
-    test(`the pane lists drafts, fixes a ticket and submits on the ${surface}`, async ($, on) => {
+    test(`the pane lists sessions, fixes a feature and submits on the ${surface}`, async ($, on) => {
       const { runs } = world(on)
       await start($)
       const pane = await $.ui.mount({
@@ -384,7 +406,7 @@ describe('drawing', () => {
 
       await pane.press({ key: 'pick-2' })
       await pane.input({ key: 'tag-2', text: 'KD-231' })
-      expect(ran(runs, 'tag 2 ticket=KD-231 --json')).toBe(true)
+      expect(ran(runs, 'tag 2 feature=KD-231 --json')).toBe(true)
 
       await pane.press({ key: 'submit' })
       expect(ran(runs, 'submit --json')).toBe(true)
