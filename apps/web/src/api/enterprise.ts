@@ -2,7 +2,7 @@ import { call } from "./client";
 
 // The Enterprise plan's settings API. Only the Enterprise image serves it, so
 // it is not in the service's OpenAPI document: the open image answers 404 to
-// every path here. Every call needs a signed-in controller, and all but the
+// every path here. Every call needs a signed-in org manager, and all but the
 // license answer 403 `enterprise_plan_needed` once a license has ended
 // (docs: Self-hosting > OIDC and SCIM; Enterprise plan instances).
 
@@ -18,7 +18,7 @@ export interface License {
   support_ends: string | null;
   /** The last day the features run. */
   features_end: string | null;
-  /** For controllers, near or after the end of the license. */
+  /** For org managers, near or after the end of the license. */
   notice: string | null;
   /** Why a key that is set was refused. */
   problem: string | null;

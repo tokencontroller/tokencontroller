@@ -810,9 +810,9 @@ export const handlers = [
     if (w instanceof Response) return w;
     const q = reportSetup(url);
     const ls = visibleLines(db, me, q.filter, w, q.approved);
-    const rows = [...groups(ls, q.by).keys()].map((key) => {
+    const rows = [...groups(ls, q.by).entries()].map(([key, group]) => {
       const filter = rowFilter(q.filter, q.by, key);
-      const cost = costOf(ls.filter((l) => contains(l.tags, filter)));
+      const cost = costOf(group);
       const plan = planOf(db, filter, w);
       const estimate = acceptedFor(db, filter);
       const delta = plan === null ? null : plan - cost;

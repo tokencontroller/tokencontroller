@@ -76,7 +76,7 @@ function MockLink() {
 /**
  * Waits for the link from the mail. Once the link signs this browser in, in
  * another tab, the page moves on by itself. A browser that was signed in
- * all along, such as a controller trying an invite, stays here.
+ * all along, such as an org manager trying an invite, stays here.
  */
 function CheckYourEmail({ lead, onBack }: { lead: ReactNode; onBack: () => void }) {
   const navigate = useNavigate();

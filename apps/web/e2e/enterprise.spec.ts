@@ -1,10 +1,10 @@
 import { expect, test } from "@playwright/test";
 import { mainMenu, signIn } from "./helpers";
 
-// Docs: Self-hosting > OIDC and SCIM. On an Enterprise plan instance a
-// controller adds the identity provider and a SCIM token under Settings; the
+// Docs: Self-hosting > OIDC and SCIM. On an Enterprise plan instance an
+// org manager adds the identity provider and a SCIM token under Settings; the
 // sign-in page then offers the provider's button next to the magic link.
-test("a controller sets up sign-in with the identity provider and SCIM", async ({ page }) => {
+test("an org manager sets up sign-in with the identity provider and SCIM", async ({ page }) => {
   await signIn(page, "nadia");
   // The mock starts as the open edition; this makes it an Enterprise plan instance.
   await page.evaluate(() => fetch("/api/v1/__mock/edition", { method: "POST", body: JSON.stringify({ edition: "enterprise" }) }));
