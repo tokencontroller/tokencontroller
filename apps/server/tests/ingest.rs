@@ -249,11 +249,7 @@ async fn a_record_without_messages_is_one_message_under_its_session(pool: PgPool
     let stored = submit(&kestrel, vec![sent]).await.unwrap();
     assert_eq!(stored[0].messages, 1);
     assert_eq!(stored[0].label, "direct");
-    assert!(
-        stored[0].unknown_tags.is_empty(),
-        "{:?}",
-        stored[0].unknown_tags
-    );
+    assert!(stored[0].unknown_tags.is_empty(), "KD-214 is a known tag");
     assert_eq!(message_events(&pool, "s2").await.unwrap(), 1);
 
     // Without a session id the local id stands in; without either, a fresh one.
