@@ -23,7 +23,11 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 
 type TestResult<T> = Result<T, Box<dyn std::error::Error>>;
 
-const KEY: &str = "0123456789abcdef0123456789abcdef";
+/// The secret key of this test run: made once, never written down.
+fn key() -> &'static str {
+    static KEY: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    KEY.get_or_init(|| uuid::Uuid::new_v4().simple().to_string())
+}
 const OPENAI_KEY: &str = "sk-admin-test";
 const CONSOLE_KEY: &str = "sk-ant-admin01-test";
 const OPENAI_PAGE_1: &str = include_str!("fixtures/bills/openai_costs_page_1.json");
@@ -46,7 +50,7 @@ fn config() -> Config {
     Config {
         database_url: "postgres://unused".to_owned(),
         public_url: "http://localhost:8080".to_owned(),
-        secret_key: KEY.to_owned(),
+        secret_key: key().to_owned(),
         smtp_url: None,
         smtp_from: None,
         price_table: None,
@@ -64,7 +68,7 @@ struct Kestrel {
 }
 
 async fn session(pool: &PgPool, person_id: Uuid) -> TestResult<String> {
-    let session = secret::generate(secret::SESSION, KEY)?;
+    let session = secret::generate(secret::SESSION, key())?;
     sqlx::query("INSERT INTO sessions (token_hash, person_id, client, expires_at) VALUES ($1, $2, 'browser', now() + interval '1 day')")
         .bind(&session.hash)
         .bind(person_id)
@@ -140,8 +144,8 @@ fn csv_body(text: &str) -> (&'static str, String) {
 }
 
 /// A bill connection stored the way the endpoint stores one.
-async fn connection(kestrel: &Kestrel, provider: &str, key: &str) -> TestResult<Uuid> {
-    let sealed = secrets::seal(KEY, key)?;
+async fn connection(kestrel: &Kestrel, provider: &str, api_key: &str) -> TestResult<Uuid> {
+    let sealed = secrets::seal(key(), api_key)?;
     let id = sqlx::query_scalar(
         "INSERT INTO bill_connections (organization_id, provider, sealed_key, key_hint)
          VALUES ($1, $2, $3, '…test') RETURNING id",

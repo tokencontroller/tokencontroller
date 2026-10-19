@@ -422,7 +422,7 @@ impl NewTokenEntry {
         }
         let mut seen = BTreeSet::new();
         let mut sum = Some(TokenCounts::default());
-        let mut checked = Vec::with_capacity(self.messages.len());
+        let mut checked = Vec::new();
         for message in &self.messages {
             label("message_id", &message.message_id)?;
             optional_label("message model", message.model.as_ref())?;
@@ -505,7 +505,7 @@ impl NewTokenEntry {
                 .collect());
         }
         if by_fraction {
-            let mut weights = Vec::with_capacity(self.splits.len());
+            let mut weights = Vec::new();
             let mut total = Decimal::ZERO;
             for split in &self.splits {
                 let fraction = fraction(split.fraction.as_ref())?;

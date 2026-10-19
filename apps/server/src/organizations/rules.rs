@@ -376,7 +376,7 @@ pub(super) async fn set_my_rules(
             );
         }
     }
-    let mut rules = Vec::with_capacity(request.len());
+    let mut rules = Vec::new();
     for (index, new) in request.iter().enumerate() {
         let order = u32::try_from(index)
             .unwrap_or(u32::MAX)

@@ -18,13 +18,17 @@ use uuid::Uuid;
 
 type TestResult<T> = Result<T, Box<dyn std::error::Error>>;
 
-const KEY: &str = "0123456789abcdef0123456789abcdef";
+/// The secret key of this test run: made once, never written down.
+fn key() -> &'static str {
+    static KEY: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    KEY.get_or_init(|| uuid::Uuid::new_v4().simple().to_string())
+}
 
 fn config() -> Config {
     Config {
         database_url: "postgres://unused".to_owned(),
         public_url: "http://localhost:8080".to_owned(),
-        secret_key: KEY.to_owned(),
+        secret_key: key().to_owned(),
         smtp_url: None,
         smtp_from: None,
         price_table: None,
@@ -116,7 +120,7 @@ async fn session_for(pool: &PgPool, person_id: Uuid, client: &str) -> TestResult
     } else {
         secret::SESSION
     };
-    let session = secret::generate(prefix, KEY)?;
+    let session = secret::generate(prefix, key())?;
     sqlx::query("INSERT INTO sessions (token_hash, person_id, client, expires_at) VALUES ($1, $2, $3, now() + interval '1 day')")
         .bind(&session.hash)
         .bind(person_id)
@@ -128,7 +132,7 @@ async fn session_for(pool: &PgPool, person_id: Uuid, client: &str) -> TestResult
 
 /// Stores a sign-in link the way the service does, and returns its token.
 async fn link_for(pool: &PgPool, email: &str) -> TestResult<String> {
-    let link = secret::generate(secret::LINK, KEY)?;
+    let link = secret::generate(secret::LINK, key())?;
     sqlx::query("INSERT INTO sign_in_links (token_hash, email, expires_at) VALUES ($1, $2, now() + interval '15 minutes')")
         .bind(&link.hash)
         .bind(email)
@@ -167,7 +171,7 @@ async fn a_sign_up_link_creates_the_organization_and_signs_in(pool: PgPool) {
 
     // The mail is not readable here, so make a fresh link for the same
     // pending sign-up by reading the organization name from the stored link.
-    let token = secret::generate(secret::LINK, KEY).unwrap();
+    let token = secret::generate(secret::LINK, key()).unwrap();
     sqlx::query(
         "UPDATE sign_in_links SET token_hash = $1 WHERE email = 'n.berger@kestrel.example'",
     )
@@ -281,7 +285,7 @@ async fn a_sign_up_link_creates_the_organization_and_signs_in(pool: PgPool) {
 /// Gives the newest link for `email` a token the test knows: the mail
 /// that carries the real one is not readable here.
 async fn readable_link(pool: &PgPool, email: &str) -> TestResult<String> {
-    let token = secret::generate(secret::LINK, KEY)?;
+    let token = secret::generate(secret::LINK, key())?;
     sqlx::query(
         "UPDATE sign_in_links SET token_hash = $1
          WHERE token_hash = (SELECT token_hash FROM sign_in_links WHERE email = $2
@@ -632,7 +636,7 @@ async fn a_local_tool_collects_its_session_once(pool: PgPool) {
     assert_eq!(waiting.json["status"], "waiting");
 
     // The person opens the mail's link in a browser.
-    let link = secret::generate(secret::LINK, KEY).unwrap();
+    let link = secret::generate(secret::LINK, key()).unwrap();
     sqlx::query("UPDATE sign_in_links SET token_hash = $1 WHERE poll_hash IS NOT NULL")
         .bind(&link.hash)
         .execute(&pool)

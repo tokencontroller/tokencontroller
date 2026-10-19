@@ -76,7 +76,7 @@ pub(super) async fn create_token_entries(
             "send at most {MAX_ENTRIES_PER_CALL} token entries per call"
         )));
     }
-    let mut checked = Vec::with_capacity(entries.len());
+    let mut checked = Vec::new();
     for (index, entry) in entries.into_iter().enumerate() {
         checked.push(entry.check().map_err(|error| {
             ApiError::BadRequest(if one {
