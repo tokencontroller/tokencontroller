@@ -1,5 +1,4 @@
 /account/projects /account/tags#projects 301
-/account/projects#tickets /account/tags#features 301
 /account/tickets /account/tags#features 301
 /account/target /account/tags#labels 301
 /account/agent-managers /account/roles#roles 301
