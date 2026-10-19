@@ -1,106 +1,148 @@
-//! Tags with one value per tag name, and the tag map that fills cost center and
-//! cost object (docs: Account > Tags and the tag map).
+//! Tags and attributes (docs: Account > Tags, Account > Attributes). A tag
+//! says what work was for; an attribute says who a person is. Both are
+//! names with values, and every value is a record in the log with its key,
+//! title, description, source id and default tags; this module keeps the
+//! list of names in `tag_names` and writes the value records as events.
 //!
-//! Tag values live as JSON objects on the records that carry them, such as
-//! `{"team": "web"}` on a person; [`Tags`] is that object. This module keeps
-//! the list of tag names and the versions of the tag map. Names and values
-//! follow the rules of the core crate's [`tokencontroller_core::Tags`]; use
-//! [`to_core`] and [`tag_map_in_force`] to compute with them.
-//!
-//! Owner: the service platform work. Keep this area's code, routes and queries in
-//! this folder, and its migrations in `migrations/` named
+//! Owner: the service platform work. Keep this area's code, routes and
+//! queries in this folder, and its migrations in `migrations/` named
 //! `<timestamp>_tags_<what>.sql`.
 
-use std::collections::{BTreeMap, BTreeSet};
+pub mod attributes;
+
+use std::collections::BTreeMap;
 
 use axum::Json;
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use serde::{Deserialize, Serialize};
 use sqlx::{PgConnection, PgPool};
 use time::OffsetDateTime;
-use utoipa::ToSchema;
+use tokencontroller_core::state::State as Fold;
+use tokencontroller_core::{
+    Capability, Event, Filter, Record, TagName, TagValue, TagValueRecord, Tags,
+};
+use utoipa::{IntoParams, ToSchema};
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 use uuid::Uuid;
 
-use tokencontroller_core::Version;
-use tokencontroller_core::tags::TagError;
-
 use crate::AppState;
 use crate::error::ApiError;
-use crate::organizations::{self, Role};
+use crate::events::json::{self, TagsSchema};
+use crate::events::{self, Log, access, prefix};
 use crate::sign_in::Member;
 
-mod merge;
+pub use attributes::{AttributeNameView, AttributeValueView, PersonAttributeView};
 
-pub use merge::MergeValues;
+/// The built-in tag names.
+pub const BUILT_IN_TAGS: [&str; 3] = ["project", "feature", "client"];
+/// The built-in attribute names.
+pub const BUILT_IN_ATTRIBUTES: [&str; 3] = ["team", "department", "location"];
 
-/// Tags on one record: tag name to value, one value per tag name.
-pub type Tags = BTreeMap<String, String>;
+/// Whether a name is a tag name or an attribute name.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum Kind {
+    Tag,
+    Attribute,
+}
 
-/// The tag names Token Controller keeps records behind.
-pub const BUILT_IN: [&str; 3] = ["person", "ticket", "project"];
+impl Kind {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Tag => "tag",
+            Self::Attribute => "attribute",
+        }
+    }
+}
 
 /// This area's routes, relative to `/api/v1`.
 #[must_use]
 pub fn routes() -> OpenApiRouter<AppState> {
     OpenApiRouter::new()
-        .routes(routes!(list_tag_names, add_tag_name))
+        .routes(routes!(list_tags, add_tag_name))
         .routes(routes!(remove_tag_name))
-        .routes(routes!(tag_values))
-        .routes(routes!(merge::merge_values))
-        .routes(routes!(get_tag_map, set_tag_map))
+        .routes(routes!(add_tag_value))
+        .routes(routes!(
+            attributes::list_attributes,
+            attributes::add_attribute_name
+        ))
+        .routes(routes!(attributes::add_attribute_value))
+        .routes(routes!(attributes::set_person_attribute))
 }
 
-/// A tag name on the organization's list.
+/// A tag name with its values.
 #[derive(Debug, Clone, Serialize, ToSchema)]
-pub struct TagName {
-    /// Such as `team`.
+pub struct TagNameView {
+    /// Such as `project`.
     pub name: String,
-    /// `person`, `ticket` and `project` are built in and cannot be removed.
+    /// `project`, `feature` and `client` are built in and stay.
     pub built_in: bool,
+    /// The values on record that the caller may view, by key.
+    pub values: Vec<TagValueView>,
 }
 
-/// One version of the tag map (docs: Account > Tags and the tag map).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, ToSchema)]
-pub struct TagMap {
-    /// This version, counted from 1. The highest is in force; a closed
-    /// period keeps the version it closed with.
-    pub version: i32,
-    /// The tag name that fills the cost center. Default `person`.
-    pub cost_center: String,
-    /// The tag names that fill the cost object, most specific first. The
-    /// organization is the last rung and is not listed. Default `ticket`,
-    /// `project`.
-    pub ladder: Vec<String>,
+/// One tag value as the API shows it.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct TagValueView {
+    /// The event id of the record; reverse it to retire the value.
+    pub id: String,
+    pub name: String,
+    /// The short name used in tags, such as `KD-214` or `shop`.
+    pub key: String,
+    pub title: Option<String>,
+    pub description: Option<String>,
+    /// The id in the ticket system that owns it, such as a Jira issue id.
+    pub source_id: Option<String>,
+    /// The status in the ticket system, such as `done`.
+    pub source_status: Option<String>,
+    /// The tags this value brings with it, such as `{"project": "shop"}`.
+    #[schema(value_type = TagsSchema)]
+    pub defaults: BTreeMap<String, String>,
     #[serde(with = "time::serde::rfc3339")]
-    pub created_at: OffsetDateTime,
-}
-
-/// A change to the tag map.
-#[derive(Debug, Deserialize, ToSchema)]
-pub struct TagMapChange {
-    pub cost_center: String,
-    pub ladder: Vec<String>,
+    #[schema(value_type = String, format = DateTime)]
+    pub recorded_at: OffsetDateTime,
 }
 
 /// A new tag name.
 #[derive(Debug, Deserialize, ToSchema)]
-pub struct NewTagName {
+pub struct NewName {
+    /// Lower-case letters, digits, `-` and `_`, up to 40 characters.
     pub name: String,
 }
 
-/// One value of a tag name and how many records carry it.
-#[derive(Debug, Serialize, ToSchema)]
-pub struct TagValue {
-    pub value: String,
-    /// People, projects and tickets that carry it.
-    pub records: i64,
+/// A new tag value, or a change to one: a record with the same name and
+/// key supersedes the earlier one.
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct NewTagValue {
+    pub key: String,
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub description: Option<String>,
+    /// The tags this value brings, such as `{"client": "acme"}` on a
+    /// project. Each must be a value on record.
+    #[serde(default)]
+    #[schema(value_type = Option<TagsSchema>)]
+    pub defaults: Option<BTreeMap<String, String>>,
+    /// When the record is dated; default now. Before the cutoff needs
+    /// adjust.
+    #[serde(default, with = "time::serde::rfc3339::option")]
+    #[schema(value_type = Option<String>, format = DateTime)]
+    pub dated: Option<OffsetDateTime>,
 }
 
-/// Adds the built-in tag names and the default tag map to a new
-/// organization.
+/// `as_of` on a list.
+#[derive(Debug, Default, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
+pub struct AsOfQuery {
+    /// The date up to which the log is read, `YYYY-MM-DD`. Default today.
+    pub as_of: Option<String>,
+}
+
+/// Adds the built-in tag and attribute names to a new organization.
 ///
 /// # Errors
 ///
@@ -109,269 +151,339 @@ pub async fn create_defaults(
     conn: &mut PgConnection,
     organization_id: Uuid,
 ) -> Result<(), sqlx::Error> {
-    sqlx::query!(
-        r#"INSERT INTO tag_names (organization_id, name, built_in)
-           SELECT $1, name, true FROM unnest($2::text[]) AS name
-           ON CONFLICT DO NOTHING"#,
-        organization_id,
-        &BUILT_IN.map(str::to_owned)
-    )
-    .execute(&mut *conn)
-    .await?;
-    sqlx::query!(
-        "INSERT INTO tag_map_versions (organization_id, version) VALUES ($1, 1) ON CONFLICT DO NOTHING",
-        organization_id
-    )
-    .execute(&mut *conn)
-    .await?;
+    for (names, kind) in [
+        (&BUILT_IN_TAGS, Kind::Tag),
+        (&BUILT_IN_ATTRIBUTES, Kind::Attribute),
+    ] {
+        sqlx::query!(
+            r#"INSERT INTO tag_names (organization_id, name, built_in, kind)
+               SELECT $1, name, true, $3 FROM unnest($2::text[]) AS name
+               ON CONFLICT DO NOTHING"#,
+            organization_id,
+            &names.map(str::to_owned),
+            kind.as_str()
+        )
+        .execute(&mut *conn)
+        .await?;
+    }
     Ok(())
 }
 
-/// The tag map in force for an organization, as the API shows it.
-///
-/// # Errors
-///
-/// Fails if a query fails, or the organization has no tag map.
-pub async fn current_tag_map(db: &PgPool, organization_id: Uuid) -> Result<TagMap, sqlx::Error> {
-    sqlx::query_as!(
-        TagMap,
-        r#"SELECT version, cost_center, ladder, created_at FROM tag_map_versions
-           WHERE organization_id = $1 ORDER BY version DESC LIMIT 1"#,
-        organization_id
-    )
-    .fetch_one(db)
-    .await
-}
-
-/// The tag map in force and its version, to compute cost center, cost
-/// object and cost kind with. A closed period records the version.
-///
-/// # Errors
-///
-/// Fails if a query fails, or the stored map breaks the core rules.
-pub async fn tag_map_in_force(
-    db: &PgPool,
-    organization_id: Uuid,
-) -> Result<(Version, tokencontroller_core::TagMap), ApiError> {
-    let map = current_tag_map(db, organization_id).await?;
-    let version = to_version(map.version)?;
-    Ok((version, map.to_core()?))
-}
-
-/// One version of the tag map, such as the one a closed period closed with.
-///
-/// # Errors
-///
-/// [`ApiError::NotFound`] if the organization has no such version.
-pub async fn tag_map_version(
-    db: &PgPool,
-    organization_id: Uuid,
-    version: Version,
-) -> Result<tokencontroller_core::TagMap, ApiError> {
-    let number = i32::try_from(version.number()).map_err(|_| ApiError::NotFound)?;
-    let map = sqlx::query_as!(
-        TagMap,
-        r#"SELECT version, cost_center, ladder, created_at FROM tag_map_versions
-           WHERE organization_id = $1 AND version = $2"#,
-        organization_id,
-        number
-    )
-    .fetch_optional(db)
-    .await?
-    .ok_or(ApiError::NotFound)?;
-    map.to_core()
-}
-
-fn to_version(number: i32) -> Result<Version, ApiError> {
-    u32::try_from(number)
-        .ok()
-        .and_then(Version::new)
-        .ok_or_else(|| {
-            ApiError::Internal(anyhow::anyhow!("tag map version {number} is not a version"))
-        })
-}
-
-impl TagMap {
-    /// This version as the core crate computes with it.
-    ///
-    /// # Errors
-    ///
-    /// [`ApiError::Internal`] if a stored name breaks the core rules, which
-    /// the checks on the way in prevent.
-    pub fn to_core(&self) -> Result<tokencontroller_core::TagMap, ApiError> {
-        let broken = |error: &dyn std::fmt::Display| {
-            ApiError::Internal(anyhow::anyhow!("stored tag map: {error}"))
-        };
-        let cost_center = core_name(&self.cost_center).map_err(|error| broken(&error))?;
-        let ladder = self
-            .ladder
-            .iter()
-            .map(|rung| core_name(rung))
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|error| broken(&error))?;
-        tokencontroller_core::TagMap::new(cost_center, ladder).map_err(|error| broken(&error))
-    }
-}
-
-/// Tags as the core crate computes with them, such as a person's tags
-/// under a token entry's split.
-///
-/// # Errors
-///
-/// [`TagError`] if a name or value breaks the core rules, which the checks
-/// on the way in prevent.
-pub fn to_core(tags: &Tags) -> Result<tokencontroller_core::Tags, TagError> {
-    tags.iter()
-        .map(|(name, value)| {
-            Ok((
-                core_name(name)?,
-                tokencontroller_core::TagValue::new(value)?,
-            ))
-        })
-        .collect()
-}
-
-fn core_name(name: &str) -> Result<tokencontroller_core::TagName, TagError> {
-    tokencontroller_core::TagName::new(name)
-}
-
-/// The organization's tag names.
+/// The names of one kind on the organization's list, built-in first.
 ///
 /// # Errors
 ///
 /// Fails if a query fails.
-pub async fn tag_names(db: &PgPool, organization_id: Uuid) -> Result<Vec<TagName>, sqlx::Error> {
-    sqlx::query_as!(
-        TagName,
-        r#"SELECT name, built_in FROM tag_names WHERE organization_id = $1
+pub async fn names(
+    db: &PgPool,
+    organization_id: Uuid,
+    kind: Kind,
+) -> Result<Vec<(String, bool)>, ApiError> {
+    let rows = sqlx::query!(
+        r#"SELECT name, built_in FROM tag_names
+           WHERE organization_id = $1 AND kind = $2
            ORDER BY built_in DESC, name"#,
-        organization_id
+        organization_id,
+        kind.as_str()
     )
     .fetch_all(db)
-    .await
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|row| (row.name, row.built_in))
+        .collect())
 }
 
-/// Checks tags someone set on a person, project, ticket or filter: every
-/// name must be on the organization's list, built-in names only where
-/// `allow_built_in` says so, and every value non-empty. Values are trimmed.
+/// The kind of a name on the list, if it is on it.
 ///
 /// # Errors
 ///
-/// [`ApiError::BadRequest`] naming the first problem.
-pub async fn validate(
+/// Fails if a query fails.
+pub async fn kind_of(
     db: &PgPool,
     organization_id: Uuid,
-    tags: &Tags,
-    allow_built_in: bool,
-) -> Result<Tags, ApiError> {
-    if tags.is_empty() {
-        return Ok(Tags::new());
-    }
-    let known: BTreeSet<String> = tag_names(db, organization_id)
-        .await?
-        .into_iter()
-        .map(|tag| tag.name)
-        .collect();
-    check_tags(tags, &known, allow_built_in)
+    name: &str,
+) -> Result<Option<Kind>, ApiError> {
+    let kind = sqlx::query_scalar!(
+        "SELECT kind FROM tag_names WHERE organization_id = $1 AND name = $2",
+        organization_id,
+        name
+    )
+    .fetch_optional(db)
+    .await?;
+    Ok(kind.map(|kind| {
+        if kind == "attribute" {
+            Kind::Attribute
+        } else {
+            Kind::Tag
+        }
+    }))
 }
 
-fn check_tags(
-    tags: &Tags,
-    known: &BTreeSet<String>,
-    allow_built_in: bool,
-) -> Result<Tags, ApiError> {
-    let mut checked = Tags::new();
-    for (name, value) in tags {
-        if !known.contains(name) {
+/// Refuses tags with a name that is on neither list. `person` is always a
+/// name.
+///
+/// # Errors
+///
+/// [`ApiError::BadRequest`] naming the first unknown name.
+pub async fn check_names(db: &PgPool, organization_id: Uuid, tags: &Tags) -> Result<(), ApiError> {
+    let known = sqlx::query_scalar!(
+        "SELECT name FROM tag_names WHERE organization_id = $1",
+        organization_id
+    )
+    .fetch_all(db)
+    .await?;
+    for (name, _) in tags.iter() {
+        if name.as_str() != "person" && !known.iter().any(|known| known == name.as_str()) {
             return Err(ApiError::BadRequest(format!(
-                "{name:?} is not on the organization's list of tag names. A controller adds it under Tags."
+                "{name} is not a tag or attribute name of the organization; an org manager adds names"
             )));
         }
-        if !allow_built_in && BUILT_IN.contains(&name.as_str()) {
-            return Err(ApiError::BadRequest(format!(
-                "{name:?} is a built-in tag and cannot be set here."
-            )));
-        }
-        let value = tokencontroller_core::TagValue::new(value).map_err(|_| {
-            ApiError::BadRequest(format!(
-                "The value of {name:?} must have 1 to 200 characters and no line breaks."
-            ))
-        })?;
-        checked.insert(name.clone(), value.into());
     }
-    Ok(checked)
+    Ok(())
 }
 
-/// The organization's tag names.
-#[utoipa::path(get, path = "/tags", tag = "tags", responses((status = OK, body = Vec<TagName>)))]
-async fn list_tag_names(
-    State(state): State<AppState>,
-    member: Member,
-) -> Result<Json<Vec<TagName>>, ApiError> {
-    Ok(Json(tag_names(&state.db, member.organization_id).await?))
+/// The tags among `tags` whose value is not on record, as `name: key`
+/// words. Ingest answers them as `unknown_tags`.
+#[must_use]
+pub fn unknown_values(fold: &Fold, tags: &Tags) -> Vec<String> {
+    tags.iter()
+        .filter(|(name, key)| {
+            name.as_str() != "person"
+                && fold.values().tag_value(name, key).is_none()
+                && fold.values().attribute_value(name, key).is_none()
+        })
+        .map(|(name, key)| format!("{name}: {key}"))
+        .collect()
 }
 
-/// Add a tag name, such as `team` or `client`. Controllers only.
+/// A value's tags closed under its defaults: the filter a grant must cover
+/// to add or view it.
+#[must_use]
+pub fn closed(fold: &Fold, name: &TagName, key: &TagValue, defaults: &Tags) -> Tags {
+    let mut tags = defaults.clone();
+    tags.insert(name.clone(), key.clone());
+    let bound = fold
+        .values()
+        .tag_values()
+        .count()
+        .saturating_add(fold.values().attribute_values().count());
+    for _ in 0..=bound {
+        let mut added = false;
+        for (name, key) in tags.clone().iter() {
+            let defaults = fold
+                .values()
+                .tag_value(name, key)
+                .map(|record| record.defaults.clone())
+                .or_else(|| {
+                    fold.values()
+                        .attribute_value(name, key)
+                        .map(|value| value.defaults.clone())
+                });
+            for (default_name, default_key) in defaults.iter().flat_map(Tags::iter) {
+                if !tags.contains(default_name) {
+                    tags.insert(default_name.clone(), default_key.clone());
+                    added = true;
+                }
+            }
+        }
+        if !added {
+            break;
+        }
+    }
+    tags
+}
+
+/// Whether the caller may view a value: its closed tags lie inside one of
+/// their view grants.
+#[must_use]
+pub fn may_view(
+    fold: &Fold,
+    person: &TagValue,
+    name: &TagName,
+    key: &TagValue,
+    defaults: &Tags,
+) -> bool {
+    access::can_view(fold, person, &closed(fold, name, key, defaults))
+}
+
+/// The live tag value event for a name and key, if there is one.
+#[must_use]
+pub fn live_value_event<'a>(log: &'a Log, name: &TagName, key: &TagValue) -> Option<&'a Event> {
+    let reversed = log.reversed();
+    let mut superseded = std::collections::BTreeSet::new();
+    let mut found: Option<&Event> = None;
+    for event in log.events.iter().rev() {
+        if reversed.contains(&event.id) || superseded.contains(&event.id) {
+            continue;
+        }
+        if let Some(older) = &event.supersedes {
+            superseded.insert(older.clone());
+        }
+        if let Record::TagValue(record) = &event.record
+            && record.name == *name
+            && record.key == *key
+        {
+            found = Some(event);
+            break;
+        }
+    }
+    found
+}
+
+impl TagValueView {
+    fn of(event: &Event, record: &TagValueRecord) -> Self {
+        Self {
+            id: event.id.to_string(),
+            name: record.name.to_string(),
+            key: record.key.to_string(),
+            title: record.title.clone(),
+            description: record.description.clone(),
+            source_id: record.source_id.clone(),
+            source_status: record.source_status.clone(),
+            defaults: json::tags_map(&record.defaults),
+            recorded_at: event.recorded_at,
+        }
+    }
+}
+
+/// The tag values in force as of the fold that `person` may view, by
+/// name.
+#[must_use]
+pub fn values_view(log: &Log, fold: &Fold, person: &TagValue) -> Vec<TagValueView> {
+    let mut views = Vec::new();
+    for record in fold.values().tag_values() {
+        if !may_view(fold, person, &record.name, &record.key, &record.defaults) {
+            continue;
+        }
+        if let Some(event) = live_value_event(log, &record.name, &record.key) {
+            views.push(TagValueView::of(event, record));
+        }
+    }
+    views
+}
+
+/// Tag names with their values. Values are those the caller may view.
 #[utoipa::path(
-    post,
+    get,
     path = "/tags",
     tag = "tags",
-    request_body = NewTagName,
-    responses(
-        (status = CREATED, body = TagName),
-        (status = BAD_REQUEST, body = crate::error::ErrorBody),
-        (status = CONFLICT, body = crate::error::ErrorBody),
-    ),
+    params(AsOfQuery),
+    responses((status = OK, body = Vec<TagNameView>)),
 )]
-async fn add_tag_name(
+async fn list_tags(
     State(state): State<AppState>,
     member: Member,
-    Json(request): Json<NewTagName>,
-) -> Result<(StatusCode, Json<TagName>), ApiError> {
-    member.require_session()?;
-    member.require_role(Role::Controller)?;
-    let name = request.name.trim().to_lowercase();
-    if !valid_tag_name(&name) {
-        return Err(ApiError::BadRequest(format!(
-            "{name:?} is not a tag name: use 1 to 40 lower-case letters, digits, - or _, starting with a letter, and not `organization`."
-        )));
+    Query(query): Query<AsOfQuery>,
+) -> Result<Json<Vec<TagNameView>>, ApiError> {
+    let log = Log::load(&state, member.organization_id).await?;
+    let fold = log.fold(crate::dates::as_of(query.as_of.as_deref())?)?;
+    let person = member.person()?;
+    let values = values_view(&log, &fold, &person);
+    let names = names(&state.db, member.organization_id, Kind::Tag).await?;
+    Ok(Json(
+        names
+            .into_iter()
+            .map(|(name, built_in)| TagNameView {
+                values: values
+                    .iter()
+                    .filter(|value| value.name == name)
+                    .cloned()
+                    .collect(),
+                name,
+                built_in,
+            })
+            .collect(),
+    ))
+}
+
+/// Checks a new name.
+///
+/// # Errors
+///
+/// [`ApiError::BadRequest`] when it breaks the rules.
+pub fn check_name(name: &str) -> Result<String, ApiError> {
+    let name = json::tag_name(name)?;
+    if name.as_str().len() > 40 {
+        return Err(ApiError::BadRequest(
+            "a name has at most 40 characters".to_owned(),
+        ));
     }
-    let added = sqlx::query!(
-        "INSERT INTO tag_names (organization_id, name) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+    if name.as_str() == "person" {
+        return Err(ApiError::BadRequest(
+            "person is the name of the person on every message; it is not added".to_owned(),
+        ));
+    }
+    Ok(name.to_string())
+}
+
+/// Adds a name of `kind` to the organization's list. Org managers only.
+pub(crate) async fn add_name(
+    state: &AppState,
+    member: &Member,
+    name: &str,
+    kind: Kind,
+) -> Result<StatusCode, ApiError> {
+    member.require_session()?;
+    let log = Log::load(state, member.organization_id).await?;
+    let fold = log.fold(OffsetDateTime::now_utc())?;
+    access::require_org_manager(&fold, &member.person()?)?;
+    let name = check_name(name)?;
+    let existing = kind_of(&state.db, member.organization_id, &name).await?;
+    match existing {
+        Some(existing) if existing == kind => return Ok(StatusCode::OK),
+        Some(existing) => {
+            return Err(ApiError::Conflict(format!(
+                "{name} is already {} name",
+                match existing {
+                    Kind::Tag => "a tag",
+                    Kind::Attribute => "an attribute",
+                }
+            )));
+        }
+        None => {}
+    }
+    sqlx::query!(
+        "INSERT INTO tag_names (organization_id, name, kind) VALUES ($1, $2, $3)",
         member.organization_id,
-        name
+        name,
+        kind.as_str()
     )
     .execute(&state.db)
     .await?;
-    if added.rows_affected() == 0 {
-        return Err(ApiError::Conflict(format!(
-            "The tag name {name:?} is already on the list."
-        )));
-    }
-    organizations::record_audit_event(
-        &state,
+    crate::organizations::record_audit_event(
+        state,
         member.organization_id,
         Some(member.person_id),
         "tag_name.added",
         None,
     );
-    Ok((
-        StatusCode::CREATED,
-        Json(TagName {
-            name,
-            built_in: false,
-        }),
-    ))
+    Ok(StatusCode::CREATED)
 }
 
-/// The core rules for a tag name, and not `organization`, which is the
-/// ladder's last rung.
-fn valid_tag_name(name: &str) -> bool {
-    name != "organization" && core_name(name).is_ok()
+/// Add a tag name, such as `purpose`. Org managers only.
+#[utoipa::path(
+    post,
+    path = "/tags",
+    tag = "tags",
+    request_body = NewName,
+    responses(
+        (status = CREATED, description = "Added"),
+        (status = OK, description = "Already on the list"),
+        (status = BAD_REQUEST, body = crate::error::ErrorBody),
+        (status = FORBIDDEN, body = crate::error::ErrorBody),
+    ),
+)]
+async fn add_tag_name(
+    State(state): State<AppState>,
+    member: Member,
+    Json(request): Json<NewName>,
+) -> Result<StatusCode, ApiError> {
+    add_name(&state, &member, &request.name, Kind::Tag).await
 }
 
-/// Remove a tag name. People, projects, tickets and rules lose its values;
-/// token entries keep theirs. Controllers only; not while the tag map uses it.
+/// Remove a tag name you added. The built-in names stay; values on record
+/// stay in the log. Org managers only.
 #[utoipa::path(
     delete,
     path = "/tags/{name}",
@@ -379,7 +491,7 @@ fn valid_tag_name(name: &str) -> bool {
     params(("name" = String, Path)),
     responses(
         (status = NO_CONTENT, description = "Removed"),
-        (status = CONFLICT, body = crate::error::ErrorBody),
+        (status = CONFLICT, description = "A built-in name", body = crate::error::ErrorBody),
         (status = NOT_FOUND, body = crate::error::ErrorBody),
     ),
 )]
@@ -389,306 +501,288 @@ async fn remove_tag_name(
     Path(name): Path<String>,
 ) -> Result<StatusCode, ApiError> {
     member.require_session()?;
-    member.require_role(Role::Controller)?;
-    if BUILT_IN.contains(&name.as_str()) {
-        return Err(ApiError::Conflict(format!(
-            "{name:?} is built in and cannot be removed."
-        )));
+    let log = Log::load(&state, member.organization_id).await?;
+    let fold = log.fold(OffsetDateTime::now_utc())?;
+    access::require_org_manager(&fold, &member.person()?)?;
+    let row = sqlx::query!(
+        "SELECT built_in FROM tag_names WHERE organization_id = $1 AND name = $2",
+        member.organization_id,
+        name
+    )
+    .fetch_optional(&state.db)
+    .await?
+    .ok_or(ApiError::NotFound)?;
+    if row.built_in {
+        return Err(ApiError::Conflict(format!("{name} is built in and stays")));
     }
-    let map = current_tag_map(&state.db, member.organization_id).await?;
-    if map.cost_center == name || map.ladder.contains(&name) {
-        return Err(ApiError::Conflict(format!(
-            "The tag map uses {name:?}. Change the tag map first."
-        )));
-    }
-    let mut tx = state.db.begin().await?;
-    let removed = sqlx::query!(
+    sqlx::query!(
         "DELETE FROM tag_names WHERE organization_id = $1 AND name = $2",
         member.organization_id,
         name
     )
-    .execute(&mut *tx)
+    .execute(&state.db)
     .await?;
-    if removed.rows_affected() == 0 {
-        return Err(ApiError::NotFound);
-    }
-    sqlx::query!(
-        "UPDATE people SET tags = tags - $2 WHERE organization_id = $1 AND tags ? $2",
-        member.organization_id,
-        name
-    )
-    .execute(&mut *tx)
-    .await?;
-    sqlx::query!(
-        "UPDATE projects SET tags = tags - $2 WHERE organization_id = $1 AND tags ? $2",
-        member.organization_id,
-        name
-    )
-    .execute(&mut *tx)
-    .await?;
-    sqlx::query!(
-        "UPDATE tickets SET tags = tags - $2 WHERE organization_id = $1 AND tags ? $2",
-        member.organization_id,
-        name
-    )
-    .execute(&mut *tx)
-    .await?;
-    sqlx::query!(
-        "DELETE FROM people_manager_filters WHERE organization_id = $1 AND filter ? $2",
-        member.organization_id,
-        name
-    )
-    .execute(&mut *tx)
-    .await?;
-    if let Ok(tag_name) = core_name(&name) {
-        organizations::change_rule_tags(&mut tx, member.organization_id, |tags| {
-            tags.remove(&tag_name);
-        })
-        .await?;
-    }
-    tx.commit().await?;
-    organizations::record_audit_event(
-        &state,
-        member.organization_id,
-        Some(member.person_id),
-        "tag_name.removed",
-        None,
-    );
     Ok(StatusCode::NO_CONTENT)
 }
 
-/// The values of one tag name on people, projects and tickets. For the
-/// built-in names: the members' emails, the projects and the ticket keys.
+/// Writes a tag value record, superseding the live record with the same
+/// name and key. The caller checks access. Returns the event written.
+///
+/// # Errors
+///
+/// [`ApiError::BadRequest`] when the log would not fold, or a database
+/// error.
+pub async fn write_value(
+    state: &AppState,
+    log: &Log,
+    record: TagValueRecord,
+    by: Option<&TagValue>,
+    at: OffsetDateTime,
+) -> Result<Event, ApiError> {
+    let older = live_value_event(log, &record.name, &record.key);
+    let at = older.map_or(at, |older| Log::after(older, at));
+    let mut event = Event::new(
+        &events::new_id(prefix::TAG_VALUE),
+        at,
+        Record::TagValue(record),
+    )
+    .map_err(|error| ApiError::Internal(error.into()))?;
+    if let Some(older) = older {
+        event = event.superseding(older.id.clone());
+    }
+    if let Some(by) = by {
+        event = event.by(by.clone());
+    }
+    events::write(state, log, std::slice::from_ref(&event)).await?;
+    Ok(event)
+}
+
+/// Checks a value's defaults: known names, values on record, and never
+/// the value's own name.
+///
+/// # Errors
+///
+/// [`ApiError::BadRequest`] naming what is wrong.
+pub async fn check_defaults(
+    state: &AppState,
+    fold: &Fold,
+    organization_id: Uuid,
+    name: &TagName,
+    defaults: Option<&BTreeMap<String, String>>,
+) -> Result<Tags, ApiError> {
+    let defaults = json::tags(defaults.unwrap_or(&BTreeMap::new()))?;
+    check_names(&state.db, organization_id, &defaults).await?;
+    if defaults.contains(name) {
+        return Err(ApiError::BadRequest(format!(
+            "a {name} cannot bring a {name} by default"
+        )));
+    }
+    let unknown = unknown_values(fold, &defaults);
+    if let Some(first) = unknown.first() {
+        return Err(ApiError::BadRequest(format!(
+            "{first} is not a value on record; add it first"
+        )));
+    }
+    Ok(defaults)
+}
+
+/// Add a tag value, or change one: the same key again supersedes the
+/// earlier record. Needs assign on the value's tags with their defaults,
+/// such as `project: shop, client: acme`; an org manager holds it
+/// everywhere.
 #[utoipa::path(
-    get,
+    post,
     path = "/tags/{name}/values",
     tag = "tags",
-    params(("name" = String, Path)),
-    responses((status = OK, body = Vec<TagValue>)),
+    params(("name" = String, Path, description = "The tag name, such as `feature`")),
+    request_body = NewTagValue,
+    responses(
+        (status = CREATED, body = TagValueView),
+        (status = BAD_REQUEST, body = crate::error::ErrorBody),
+        (status = FORBIDDEN, body = crate::error::ErrorBody),
+        (status = NOT_FOUND, description = "No such tag name", body = crate::error::ErrorBody),
+    ),
 )]
-async fn tag_values(
+async fn add_tag_value(
     State(state): State<AppState>,
     member: Member,
     Path(name): Path<String>,
-) -> Result<Json<Vec<TagValue>>, ApiError> {
-    Ok(Json(
-        values_of(&state.db, member.organization_id, &name).await?,
-    ))
-}
-
-/// The values of one tag name, with how many records carry each.
-async fn values_of(
-    db: &PgPool,
-    organization_id: Uuid,
-    name: &str,
-) -> Result<Vec<TagValue>, sqlx::Error> {
-    sqlx::query_as!(
-        TagValue,
-        r#"
-        WITH v(value) AS (
-            SELECT tags ->> $2 FROM people WHERE organization_id = $1 AND removed_at IS NULL AND tags ? $2
-            UNION ALL SELECT tags ->> $2 FROM projects WHERE organization_id = $1 AND tags ? $2
-            UNION ALL SELECT tags ->> $2 FROM tickets WHERE organization_id = $1 AND tags ? $2
-            UNION ALL SELECT email FROM people WHERE $2 = 'person' AND organization_id = $1 AND removed_at IS NULL
-            UNION ALL SELECT name FROM projects WHERE $2 = 'project' AND organization_id = $1 AND archived_at IS NULL
-            UNION ALL SELECT key FROM tickets WHERE $2 = 'ticket' AND organization_id = $1
-        )
-        SELECT value AS "value!", count(*) AS "records!" FROM v
-        WHERE value IS NOT NULL GROUP BY value ORDER BY value
-        "#,
-        organization_id,
-        name
-    )
-    .fetch_all(db)
-    .await
-}
-
-/// The tag map in force.
-#[utoipa::path(get, path = "/tag-map", tag = "tags", responses((status = OK, body = TagMap)))]
-async fn get_tag_map(
-    State(state): State<AppState>,
-    member: Member,
-) -> Result<Json<TagMap>, ApiError> {
-    Ok(Json(
-        current_tag_map(&state.db, member.organization_id).await?,
-    ))
-}
-
-/// Change the tag map. A new version is kept; closed periods keep theirs.
-/// Controllers only.
-#[utoipa::path(
-    put,
-    path = "/tag-map",
-    tag = "tags",
-    request_body = TagMapChange,
-    responses(
-        (status = OK, body = TagMap),
-        (status = BAD_REQUEST, body = crate::error::ErrorBody),
-    ),
-)]
-async fn set_tag_map(
-    State(state): State<AppState>,
-    member: Member,
-    Json(change): Json<TagMapChange>,
-) -> Result<Json<TagMap>, ApiError> {
+    Json(request): Json<NewTagValue>,
+) -> Result<(StatusCode, Json<TagValueView>), ApiError> {
     member.require_session()?;
-    member.require_role(Role::Controller)?;
-    let known: BTreeSet<String> = tag_names(&state.db, member.organization_id)
-        .await?
-        .into_iter()
-        .map(|tag| tag.name)
-        .collect();
-    check_tag_map(&change, &known)?;
-    let mut tx = state.db.begin().await?;
-    // One change at a time per organization, so version numbers never clash.
-    sqlx::query!(
-        "SELECT id FROM organizations WHERE id = $1 FOR UPDATE",
-        member.organization_id
-    )
-    .fetch_one(&mut *tx)
-    .await?;
-    let map = sqlx::query_as!(
-        TagMap,
-        r#"INSERT INTO tag_map_versions (organization_id, version, cost_center, ladder, created_by)
-           SELECT $1, coalesce(max(version), 0) + 1, $2, $3, $4 FROM tag_map_versions WHERE organization_id = $1
-           RETURNING version, cost_center, ladder, created_at"#,
+    if kind_of(&state.db, member.organization_id, &name).await? != Some(Kind::Tag) {
+        return Err(ApiError::NotFound);
+    }
+    let name = json::tag_name(&name)?;
+    let key = json::tag_value(name.as_str(), request.key.trim())?;
+    let log = Log::load(&state, member.organization_id).await?;
+    let fold = log.fold(OffsetDateTime::now_utc())?;
+    let person = member.person()?;
+    let defaults = check_defaults(
+        &state,
+        &fold,
         member.organization_id,
-        change.cost_center,
-        &change.ladder,
-        member.person_id
+        &name,
+        request.defaults.as_ref(),
     )
-    .fetch_one(&mut *tx)
     .await?;
-    tx.commit().await?;
-    organizations::record_audit_event(
+    let filter = Filter(closed(&fold, &name, &key, &defaults));
+    access::require(&fold, &person, Capability::Assign, &filter)?;
+    let at = access::dated(&fold, &person, request.dated)?;
+    let earlier = fold.values().tag_value(&name, &key);
+    let record = TagValueRecord {
+        name,
+        key,
+        title: request
+            .title
+            .map(|title| title.trim().to_owned())
+            .filter(|title| !title.is_empty()),
+        description: request.description.filter(|text| !text.trim().is_empty()),
+        source_id: earlier.and_then(|earlier| earlier.source_id.clone()),
+        source_status: earlier.and_then(|earlier| earlier.source_status.clone()),
+        defaults,
+    };
+    let event = write_value(&state, &log, record.clone(), Some(&person), at).await?;
+    crate::organizations::record_audit_event(
         &state,
         member.organization_id,
         Some(member.person_id),
-        "tag_map.changed",
+        "tag_value.recorded",
         None,
     );
-    Ok(Json(map))
-}
-
-fn check_tag_map(change: &TagMapChange, known: &BTreeSet<String>) -> Result<(), ApiError> {
-    if !known.contains(&change.cost_center) {
-        return Err(ApiError::BadRequest(format!(
-            "The cost center {:?} is not on the organization's list of tag names.",
-            change.cost_center
-        )));
-    }
-    for rung in &change.ladder {
-        if !known.contains(rung) {
-            return Err(ApiError::BadRequest(format!(
-                "The rung {rung:?} is not on the organization's list of tag names."
-            )));
-        }
-        if rung == "person" {
-            return Err(ApiError::BadRequest(
-                "A person answers for cost; it cannot be a rung of the ladder.".to_owned(),
-            ));
-        }
-    }
-    let ladder = change
-        .ladder
-        .iter()
-        .map(|rung| core_name(rung))
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|error| ApiError::BadRequest(error.to_string()))?;
-    let cost_center =
-        core_name(&change.cost_center).map_err(|error| ApiError::BadRequest(error.to_string()))?;
-    tokencontroller_core::TagMap::new(cost_center, ladder)
-        .map_err(|_| ApiError::BadRequest("A rung is on the ladder twice.".to_owned()))?;
-    Ok(())
+    Ok((StatusCode::CREATED, Json(TagValueView::of(&event, &record))))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use time::macros::datetime;
+    use tokencontroller_core::{Currency, Role};
 
-    fn known() -> BTreeSet<String> {
-        ["person", "ticket", "project", "team", "client"]
+    fn value(name: &str, key: &str, defaults: &[&str]) -> TagValueRecord {
+        TagValueRecord {
+            name: TagName::new(name).unwrap(),
+            key: TagValue::new(key).unwrap(),
+            title: None,
+            description: None,
+            source_id: None,
+            source_status: None,
+            defaults: Tags::parse(defaults.iter().copied()).unwrap(),
+        }
+    }
+
+    fn log() -> Log {
+        let at = datetime!(2026-03-01 00:00 UTC);
+        let mut events = vec![
+            Event::new("tag_1", at, Record::TagValue(value("client", "acme", &[]))).unwrap(),
+            Event::new(
+                "tag_2",
+                at,
+                Record::TagValue(value("project", "shop", &["client=acme"])),
+            )
+            .unwrap(),
+            Event::new(
+                "tag_3",
+                at,
+                Record::TagValue(value("feature", "KD-1", &["project=shop"])),
+            )
+            .unwrap(),
+            Event::new(
+                "tag_4",
+                at,
+                Record::TagValue(value("project", "other", &[])),
+            )
+            .unwrap(),
+        ];
+        let priya = TagValue::new("priya@kestrel.example").unwrap();
+        let filter = Filter(Tags::parse(["client=acme"]).unwrap());
+        for (index, grant) in Role::PeopleManager
+            .grants(&priya, std::slice::from_ref(&filter))
             .into_iter()
-            .map(str::to_owned)
-            .collect()
-    }
-
-    fn tags(pairs: &[(&str, &str)]) -> Tags {
-        pairs
-            .iter()
-            .map(|(name, value)| ((*name).to_owned(), (*value).to_owned()))
-            .collect()
-    }
-
-    #[test]
-    fn tags_must_be_on_the_list() {
-        let checked = check_tags(&tags(&[("team", " web ")]), &known(), false).unwrap();
-        assert_eq!(checked, tags(&[("team", "web")]));
-        assert!(check_tags(&tags(&[("guild", "rust")]), &known(), false).is_err());
+            .enumerate()
+        {
+            events.push(Event::new(&format!("grt_{index}"), at, Record::Grant(grant)).unwrap());
+        }
+        Log {
+            organization_id: Uuid::nil(),
+            events,
+        }
     }
 
     #[test]
-    fn built_in_tags_only_where_allowed() {
-        assert!(check_tags(&tags(&[("project", "storefront")]), &known(), false).is_err());
-        assert!(check_tags(&tags(&[("project", "storefront")]), &known(), true).is_ok());
-    }
-
-    #[test]
-    fn values_need_one_to_two_hundred_characters() {
-        assert!(check_tags(&tags(&[("team", "  ")]), &known(), false).is_err());
-        let long = "x".repeat(201);
-        assert!(check_tags(&tags(&[("team", &long)]), &known(), false).is_err());
-        let longest = "x".repeat(200);
-        assert!(check_tags(&tags(&[("team", &longest)]), &known(), false).is_ok());
-    }
-
-    #[test]
-    fn stored_tags_and_maps_turn_into_core_types() {
-        let core = to_core(&tags(&[("team", "web")])).unwrap();
-        assert_eq!(core.get_str("team").unwrap().as_str(), "web");
-        assert!(to_core(&tags(&[("Team", "web")])).is_err());
-        let map = TagMap {
-            version: 2,
-            cost_center: "person".to_owned(),
-            ladder: vec!["ticket".to_owned(), "project".to_owned()],
-            created_at: OffsetDateTime::UNIX_EPOCH,
-        };
-        assert_eq!(
-            map.to_core().unwrap(),
-            tokencontroller_core::TagMap::default()
+    fn a_value_closes_under_its_defaults() {
+        let log = log();
+        let fold = Fold::fold(&log.events, datetime!(2026-04-01 00:00 UTC), Currency::USD).unwrap();
+        let closed = closed(
+            &fold,
+            &TagName::feature(),
+            &TagValue::new("KD-1").unwrap(),
+            &Tags::parse(["project=shop"]).unwrap(),
         );
-        assert!(to_version(0).is_err());
-        assert_eq!(to_version(2).unwrap().number(), 2);
+        assert_eq!(
+            closed,
+            Tags::parse(["feature=KD-1", "project=shop", "client=acme"]).unwrap()
+        );
+        let priya = TagValue::new("priya@kestrel.example").unwrap();
+        let names: Vec<String> = values_view(&log, &fold, &priya)
+            .into_iter()
+            .map(|view| view.key)
+            .collect();
+        assert_eq!(names, vec!["acme", "KD-1", "shop"]);
+        assert_eq!(
+            unknown_values(
+                &fold,
+                &Tags::parse(["feature=KD-9", "client=acme"]).unwrap()
+            ),
+            vec!["feature: KD-9"]
+        );
     }
 
     #[test]
-    fn tag_names_are_simple_lower_case_words() {
-        for good in ["team", "cost-center", "guild_2", "a"] {
-            assert!(valid_tag_name(good), "{good}");
-        }
-        for bad in [
-            "",
-            "Team",
-            "2team",
-            "team name",
-            "organization",
-            &"x".repeat(41),
-        ] {
-            assert!(!valid_tag_name(bad), "{bad}");
-        }
+    fn the_live_record_of_a_key_is_the_last_not_reversed() {
+        let mut log = log();
+        let shop = TagValue::new("shop").unwrap();
+        let first = live_value_event(&log, &TagName::project(), &shop).unwrap();
+        assert_eq!(first.id.as_str(), "tag_2");
+        let later = Event::new(
+            "tag_5",
+            datetime!(2026-03-02 00:00 UTC),
+            Record::TagValue(value("project", "shop", &[])),
+        )
+        .unwrap()
+        .superseding(first.id.clone());
+        log.events.push(later);
+        assert_eq!(
+            live_value_event(&log, &TagName::project(), &shop)
+                .unwrap()
+                .id
+                .as_str(),
+            "tag_5"
+        );
+        log.events.push(
+            Event::new(
+                "rev_1",
+                datetime!(2026-03-03 00:00 UTC),
+                Record::Reversal(tokencontroller_core::EventId::new("tag_5").unwrap()),
+            )
+            .unwrap(),
+        );
+        assert_eq!(
+            live_value_event(&log, &TagName::project(), &shop)
+                .unwrap()
+                .id
+                .as_str(),
+            "tag_2"
+        );
+        assert!(log.check_with(&[]).is_ok());
     }
 
     #[test]
-    fn the_ladder_uses_known_names_once_and_never_person() {
-        let change = |cost_center: &str, ladder: &[&str]| TagMapChange {
-            cost_center: cost_center.to_owned(),
-            ladder: ladder.iter().map(|rung| (*rung).to_owned()).collect(),
-        };
-        assert!(check_tag_map(&change("team", &["ticket", "project", "client"]), &known()).is_ok());
-        assert!(check_tag_map(&change("person", &[]), &known()).is_ok());
-        assert!(check_tag_map(&change("guild", &["ticket"]), &known()).is_err());
-        assert!(check_tag_map(&change("person", &["epic"]), &known()).is_err());
-        assert!(check_tag_map(&change("person", &["ticket", "ticket"]), &known()).is_err());
-        assert!(check_tag_map(&change("team", &["person"]), &known()).is_err());
+    fn names_follow_the_rules() {
+        assert_eq!(check_name(" purpose ").unwrap(), "purpose");
+        assert!(check_name("Purpose").is_err());
+        assert!(check_name("person").is_err());
+        assert!(check_name(&"a".repeat(41)).is_err());
+        assert_eq!(Kind::Attribute.as_str(), "attribute");
     }
 }

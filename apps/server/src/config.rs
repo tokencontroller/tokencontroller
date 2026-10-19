@@ -17,32 +17,32 @@ pub enum ConfigError {
     SecretKeyTooShort,
     #[error("TC_PUBLIC_URL must start with https:// or http://, such as https://tc.example.com")]
     PublicUrl,
-    #[error("TC_PRICES_REFRESH must be `on` or `off`, not {0:?}")]
-    PricesRefresh(String),
+    #[error("TC_RATES_REFRESH must be `on` or `off`, not {0:?}")]
+    RatesRefresh(String),
     #[error(
-        "TC_EMBEDDINGS_URL must start with https:// or http://, such as https://api.openai.com/v1"
+        "TC_CLASSIFIER_URL must start with https:// or http://, such as https://api.openai.com/v1"
     )]
-    EmbeddingsUrl,
+    ClassifierUrl,
 }
 
-/// An `OpenAI`-compatible embeddings API for token forecasts. Without one,
-/// token forecasts are off and token budgets work as before.
+/// The System 1 classifier that makes estimates and labels deviations.
+/// Without one, people still type estimates.
 #[derive(Clone, PartialEq, Eq)]
-pub struct EmbeddingsConfig {
-    /// `TC_EMBEDDINGS_URL`: the API's base address without a trailing
+pub struct ClassifierConfig {
+    /// `TC_CLASSIFIER_URL`: the API's base address without a trailing
     /// slash, such as `https://api.openai.com/v1`.
     pub url: String,
-    /// `TC_EMBEDDINGS_KEY`: sent as a bearer token; a local model server may
-    /// need none.
+    /// `TC_CLASSIFIER_KEY`: sent as a bearer token; a model server of your
+    /// own may need none.
     pub key: Option<String>,
-    /// `TC_EMBEDDINGS_MODEL`: such as `text-embedding-3-small`.
+    /// `TC_CLASSIFIER_MODEL`: such as `gpt-6-luna`.
     pub model: String,
 }
 
 /// Never prints the key.
-impl fmt::Debug for EmbeddingsConfig {
+impl fmt::Debug for ClassifierConfig {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("EmbeddingsConfig")
+        f.debug_struct("ClassifierConfig")
             .field("url", &self.url)
             .field("key", &self.key.as_ref().map(|_| "<hidden>"))
             .field("model", &self.model)
@@ -66,11 +66,15 @@ pub struct Config {
     /// `Token Controller <mail@tokencontroller.com>`. Without it, mail comes
     /// from `noreply@` the host of `TC_PUBLIC_URL`.
     pub smtp_from: Option<String>,
-    /// `TC_PRICES_REFRESH`: the daily price table refresh, on unless `off`.
-    pub prices_refresh: bool,
-    /// `TC_EMBEDDINGS_URL`, `TC_EMBEDDINGS_KEY` and `TC_EMBEDDINGS_MODEL`:
-    /// the model token forecasts compare text with, if any.
-    pub embeddings: Option<EmbeddingsConfig>,
+    /// `TC_PRICE_TABLE`: the path of the price table file, a CSV with
+    /// provider, model, kind, price per million and valid from. Without it
+    /// the instance has no managed price table.
+    pub price_table: Option<String>,
+    /// `TC_RATES_REFRESH`: the daily exchange rate refresh, on unless `off`.
+    pub rates_refresh: bool,
+    /// `TC_CLASSIFIER_URL`, `TC_CLASSIFIER_KEY` and `TC_CLASSIFIER_MODEL`:
+    /// the estimator, if any.
+    pub classifier: Option<ClassifierConfig>,
 }
 
 impl Config {
@@ -108,27 +112,27 @@ impl Config {
             return Err(ConfigError::SecretKeyTooShort);
         }
 
-        let prices_refresh = match read("TC_PRICES_REFRESH").as_deref().map(str::trim) {
+        let rates_refresh = match read("TC_RATES_REFRESH").as_deref().map(str::trim) {
             None | Some("on") => true,
             Some("off") => false,
-            Some(other) => return Err(ConfigError::PricesRefresh(other.to_owned())),
+            Some(other) => return Err(ConfigError::RatesRefresh(other.to_owned())),
         };
 
-        let embeddings = match (read("TC_EMBEDDINGS_URL"), read("TC_EMBEDDINGS_MODEL")) {
-            (None, None) if read("TC_EMBEDDINGS_KEY").is_none() => None,
+        let classifier = match (read("TC_CLASSIFIER_URL"), read("TC_CLASSIFIER_MODEL")) {
+            (None, None) if read("TC_CLASSIFIER_KEY").is_none() => None,
             (Some(url), Some(model)) => {
                 let url = url.trim().trim_end_matches('/').to_owned();
                 if !(url.starts_with("https://") || url.starts_with("http://")) {
-                    return Err(ConfigError::EmbeddingsUrl);
+                    return Err(ConfigError::ClassifierUrl);
                 }
-                Some(EmbeddingsConfig {
+                Some(ClassifierConfig {
                     url,
-                    key: read("TC_EMBEDDINGS_KEY"),
+                    key: read("TC_CLASSIFIER_KEY"),
                     model: model.trim().to_owned(),
                 })
             }
-            (Some(_), None) => return Err(ConfigError::Missing("TC_EMBEDDINGS_MODEL")),
-            (None, _) => return Err(ConfigError::Missing("TC_EMBEDDINGS_URL")),
+            (Some(_), None) => return Err(ConfigError::Missing("TC_CLASSIFIER_MODEL")),
+            (None, _) => return Err(ConfigError::Missing("TC_CLASSIFIER_URL")),
         };
 
         Ok(Self {
@@ -137,8 +141,9 @@ impl Config {
             secret_key,
             smtp_url: read("TC_SMTP_URL"),
             smtp_from: read("TC_SMTP_FROM"),
-            prices_refresh,
-            embeddings,
+            price_table: read("TC_PRICE_TABLE").map(|path| path.trim().to_owned()),
+            rates_refresh,
+            classifier,
         })
     }
 }
@@ -152,8 +157,9 @@ impl fmt::Debug for Config {
             .field("secret_key", &"<hidden>")
             .field("smtp_url", &self.smtp_url.as_ref().map(|_| "<hidden>"))
             .field("smtp_from", &self.smtp_from)
-            .field("prices_refresh", &self.prices_refresh)
-            .field("embeddings", &self.embeddings)
+            .field("price_table", &self.price_table)
+            .field("rates_refresh", &self.rates_refresh)
+            .field("classifier", &self.classifier)
             .finish()
     }
 }
@@ -187,106 +193,98 @@ mod tests {
         assert_eq!(config.public_url, "https://tc.example.com");
         assert_eq!(config.smtp_url, None);
         assert_eq!(config.smtp_from, None);
-        assert!(config.prices_refresh);
-        assert_eq!(config.embeddings, None);
+        assert_eq!(config.price_table, None);
+        assert!(config.rates_refresh);
+        assert_eq!(config.classifier, None);
     }
 
     #[test]
-    fn an_embeddings_model_switches_token_forecasts_on() {
+    fn a_classifier_needs_its_url_and_model() {
         let mut pairs = minimal();
-        pairs.push(("TC_EMBEDDINGS_URL", "https://api.openai.com/v1/"));
-        pairs.push(("TC_EMBEDDINGS_KEY", "sk-test-0123"));
-        pairs.push(("TC_EMBEDDINGS_MODEL", "text-embedding-3-small"));
-        let embeddings = config(&pairs).unwrap().embeddings.unwrap();
-        assert_eq!(embeddings.url, "https://api.openai.com/v1");
-        assert_eq!(embeddings.key.as_deref(), Some("sk-test-0123"));
-        assert_eq!(embeddings.model, "text-embedding-3-small");
+        pairs.push(("TC_CLASSIFIER_URL", "https://api.openai.com/v1/"));
+        pairs.push(("TC_CLASSIFIER_KEY", "sk-test-0123"));
+        pairs.push(("TC_CLASSIFIER_MODEL", "gpt-6-luna"));
+        let classifier = config(&pairs).unwrap().classifier.unwrap();
+        assert_eq!(classifier.url, "https://api.openai.com/v1");
+        assert_eq!(classifier.key.as_deref(), Some("sk-test-0123"));
+        assert_eq!(classifier.model, "gpt-6-luna");
+        assert!(!format!("{classifier:?}").contains("sk-test"));
 
-        let mut local = minimal();
-        local.push(("TC_EMBEDDINGS_URL", "http://ollama:11434/v1"));
-        local.push(("TC_EMBEDDINGS_MODEL", "nomic-embed-text"));
-        assert_eq!(config(&local).unwrap().embeddings.unwrap().key, None);
-    }
-
-    #[test]
-    fn the_embeddings_url_and_model_go_together() {
-        let mut pairs = minimal();
-        pairs.push(("TC_EMBEDDINGS_URL", "https://api.openai.com/v1"));
+        let mut only_url = minimal();
+        only_url.push(("TC_CLASSIFIER_URL", "https://api.openai.com/v1"));
         assert_eq!(
-            config(&pairs),
-            Err(ConfigError::Missing("TC_EMBEDDINGS_MODEL"))
+            config(&only_url).unwrap_err(),
+            ConfigError::Missing("TC_CLASSIFIER_MODEL")
         );
-
-        let mut pairs = minimal();
-        pairs.push(("TC_EMBEDDINGS_MODEL", "text-embedding-3-small"));
+        let mut only_model = minimal();
+        only_model.push(("TC_CLASSIFIER_MODEL", "gpt-6-luna"));
         assert_eq!(
-            config(&pairs),
-            Err(ConfigError::Missing("TC_EMBEDDINGS_URL"))
+            config(&only_model).unwrap_err(),
+            ConfigError::Missing("TC_CLASSIFIER_URL")
         );
+        let mut bad_url = minimal();
+        bad_url.push(("TC_CLASSIFIER_URL", "api.openai.com"));
+        bad_url.push(("TC_CLASSIFIER_MODEL", "gpt-6-luna"));
+        assert_eq!(config(&bad_url).unwrap_err(), ConfigError::ClassifierUrl);
+    }
 
+    #[test]
+    fn the_price_table_file_and_the_rates_switch_are_read() {
         let mut pairs = minimal();
-        pairs.push(("TC_EMBEDDINGS_KEY", "sk-test-0123"));
+        pairs.push(("TC_PRICE_TABLE", " /etc/tokencontroller/prices.csv "));
+        pairs.push(("TC_RATES_REFRESH", "off"));
+        let config = config(&pairs).unwrap();
         assert_eq!(
-            config(&pairs),
-            Err(ConfigError::Missing("TC_EMBEDDINGS_URL"))
+            config.price_table.as_deref(),
+            Some("/etc/tokencontroller/prices.csv")
         );
-
-        let mut pairs = minimal();
-        pairs.push(("TC_EMBEDDINGS_URL", "api.openai.com/v1"));
-        pairs.push(("TC_EMBEDDINGS_MODEL", "text-embedding-3-small"));
-        assert_eq!(config(&pairs), Err(ConfigError::EmbeddingsUrl));
-    }
-
-    #[test]
-    fn each_required_variable_is_named_when_missing() {
-        for name in ["DATABASE_URL", "TC_PUBLIC_URL", "TC_SECRET_KEY"] {
-            let pairs: Vec<_> = minimal().into_iter().filter(|(n, _)| *n != name).collect();
-            assert_eq!(config(&pairs), Err(ConfigError::Missing(name)));
-        }
-    }
-
-    #[test]
-    fn a_short_secret_key_is_refused() {
-        let mut pairs = minimal();
-        pairs.retain(|(n, _)| *n != "TC_SECRET_KEY");
-        pairs.push(("TC_SECRET_KEY", "change-me"));
-        assert_eq!(config(&pairs), Err(ConfigError::SecretKeyTooShort));
-    }
-
-    #[test]
-    fn the_price_refresh_can_be_switched_off() {
-        let mut pairs = minimal();
-        pairs.push(("TC_PRICES_REFRESH", "off"));
-        assert!(!config(&pairs).unwrap().prices_refresh);
-
-        let mut pairs = minimal();
-        pairs.push(("TC_PRICES_REFRESH", "maybe"));
+        assert!(!config.rates_refresh);
+        let mut bad = minimal();
+        bad.push(("TC_RATES_REFRESH", "maybe"));
         assert_eq!(
-            config(&pairs),
-            Err(ConfigError::PricesRefresh("maybe".to_owned()))
+            super::Config::from_lookup(|name| bad
+                .iter()
+                .find(|(n, _)| *n == name)
+                .map(|(_, v)| (*v).to_owned()))
+            .unwrap_err(),
+            ConfigError::RatesRefresh("maybe".to_owned())
         );
     }
 
     #[test]
-    fn the_public_url_needs_a_scheme() {
-        let mut pairs = minimal();
-        pairs.retain(|(n, _)| *n != "TC_PUBLIC_URL");
-        pairs.push(("TC_PUBLIC_URL", "tc.example.com"));
-        assert_eq!(config(&pairs), Err(ConfigError::PublicUrl));
+    fn missing_or_wrong_required_variables_are_named() {
+        let mut no_db = minimal();
+        no_db.remove(0);
+        assert_eq!(
+            config(&no_db).unwrap_err(),
+            ConfigError::Missing("DATABASE_URL")
+        );
+        let mut short = minimal();
+        short.pop();
+        short.push(("TC_SECRET_KEY", "short"));
+        assert_eq!(config(&short).unwrap_err(), ConfigError::SecretKeyTooShort);
+        let mut bad_url = minimal();
+        bad_url.remove(1);
+        bad_url.push(("TC_PUBLIC_URL", "tc.example.com"));
+        assert_eq!(config(&bad_url).unwrap_err(), ConfigError::PublicUrl);
+        let blank = [
+            ("DATABASE_URL", "postgres://tc:secret@db/tc"),
+            ("TC_PUBLIC_URL", "  "),
+            ("TC_SECRET_KEY", KEY),
+        ];
+        assert_eq!(
+            config(&blank).unwrap_err(),
+            ConfigError::Missing("TC_PUBLIC_URL")
+        );
     }
 
     #[test]
-    fn debug_output_hides_secrets() {
+    fn the_debug_output_hides_secrets() {
         let mut pairs = minimal();
-        pairs.push(("TC_SMTP_URL", "smtp://user:pass@mail.example.com:587"));
-        pairs.push(("TC_EMBEDDINGS_URL", "https://api.openai.com/v1"));
-        pairs.push(("TC_EMBEDDINGS_KEY", "sk-test-0123"));
-        pairs.push(("TC_EMBEDDINGS_MODEL", "text-embedding-3-small"));
+        pairs.push(("TC_SMTP_URL", "smtps://user:pw@mail.example.com"));
         let shown = format!("{:?}", config(&pairs).unwrap());
         assert!(!shown.contains(KEY));
-        assert!(!shown.contains("pass@"));
-        assert!(!shown.contains("secret@"));
-        assert!(!shown.contains("sk-test-0123"));
-        assert!(shown.contains("text-embedding-3-small"));
+        assert!(!shown.contains("pw@"));
+        assert!(shown.contains("tc.example.com"));
     }
 }

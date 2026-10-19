@@ -1,5 +1,5 @@
 //! What the bill pulls share: their errors, reading a provider's answer,
-//! amounts in cents and the moments a period starts and ends.
+//! amounts in cents and the moments a month starts and ends.
 
 use std::str::FromStr as _;
 use std::time::Duration;
@@ -13,8 +13,8 @@ use time::{Date, OffsetDateTime};
 use tokencontroller_core::{Currency, Money, MoneyError};
 
 use super::bill::BillError;
+use super::month::BillMonth;
 use crate::integrations::decimal::money_from_decimal;
-use tokencontroller_core::Period;
 
 /// Pages a pull follows before it gives up on a provider that never stops.
 pub(super) const MAX_PAGES: usize = 200;
@@ -156,15 +156,15 @@ pub(super) fn money_from_cents(text: &str, currency: Currency) -> Result<Money, 
     money_from_decimal(&units.to_string(), currency).map_err(|_| invalid())
 }
 
-/// The first moment of a period, midnight UTC on its first day.
-pub(super) fn period_start(period: Period) -> Result<OffsetDateTime, PullError> {
+/// The first moment of a month, midnight UTC on its first day.
+pub(super) fn period_start(period: BillMonth) -> Result<OffsetDateTime, PullError> {
     Date::from_calendar_date(period.year(), period.month(), 1)
         .map(|day| day.midnight().assume_utc())
         .map_err(|error| PullError::Format(format!("{period} has no first day: {error}")))
 }
 
-/// The first moment after a period.
-pub(super) fn period_end(period: Period) -> Result<OffsetDateTime, PullError> {
+/// The first moment after a month.
+pub(super) fn period_end(period: BillMonth) -> Result<OffsetDateTime, PullError> {
     let next = period
         .next()
         .ok_or_else(|| PullError::Format(format!("{period} is the last period there is")))?;
@@ -178,8 +178,8 @@ pub(super) fn rfc3339(moment: OffsetDateTime) -> Result<String, PullError> {
         .map_err(|error| PullError::Format(error.to_string()))
 }
 
-/// Whether the period is over at `now`.
-pub(super) fn has_ended(period: Period, now: OffsetDateTime) -> Result<bool, PullError> {
+/// Whether the month is over at `now`.
+pub(super) fn has_ended(period: BillMonth, now: OffsetDateTime) -> Result<bool, PullError> {
     Ok(period_end(period)? <= now)
 }
 
@@ -261,7 +261,7 @@ mod tests {
 
     #[test]
     fn periods_start_and_end_at_midnight_utc() {
-        let september = Period::parse("2026-09").unwrap();
+        let september = BillMonth::parse("2026-09").unwrap();
         assert_eq!(
             period_start(september).unwrap(),
             datetime!(2026-09-01 00:00 UTC)
@@ -270,12 +270,12 @@ mod tests {
             period_end(september).unwrap(),
             datetime!(2026-10-01 00:00 UTC)
         );
-        let december = Period::parse("2026-12").unwrap();
+        let december = BillMonth::parse("2026-12").unwrap();
         assert_eq!(
             period_end(december).unwrap(),
             datetime!(2027-01-01 00:00 UTC)
         );
-        assert!(period_end(Period::parse("9999-12").unwrap()).is_err());
+        assert!(period_end(BillMonth::parse("9999-12").unwrap()).is_err());
         assert!(!has_ended(september, datetime!(2026-09-30 23:59:59 UTC)).unwrap());
         assert!(has_ended(september, datetime!(2026-10-01 00:00 UTC)).unwrap());
     }

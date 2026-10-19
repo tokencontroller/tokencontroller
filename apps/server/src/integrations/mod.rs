@@ -1,6 +1,5 @@
-//! Bill pulls (Anthropic Enterprise, Anthropic Console, OpenAI), ticket sync
-//! (Jira Cloud, Azure DevOps, GitHub Issues), the price table refresh and late
-//! token sheet reminders.
+//! Bill pulls (Anthropic Enterprise, Anthropic Console, OpenAI), CSV bill
+//! uploads and the Jira sync that copies tickets as feature tag values.
 //!
 //! Owner: the collection and integrations work. Keep this area's code, routes and queries in
 //! this folder, and its migrations in `migrations/` named
@@ -11,8 +10,6 @@ pub mod bill_uploads;
 pub mod bills;
 pub mod decimal;
 pub mod http;
-pub mod prices;
-pub mod reminders;
 pub mod secrets;
 pub mod ticket_systems;
 pub mod tickets;

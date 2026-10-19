@@ -1,5 +1,0 @@
-{
-  "message": "API rate limit exceeded for user ID 5821904. If you reach out to GitHub Support for help, please include the request ID C4F2:3A1B:9D2E41:A0B7C3:6707A1F2 and timestamp 2026-10-12 08:31:07 UTC.",
-  "documentation_url": "https://docs.github.com/rest/overview/rate-limits-for-the-rest-api",
-  "status": "403"
-}

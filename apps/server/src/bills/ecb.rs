@@ -1,4 +1,4 @@
-//! The European Central Bank's euro reference rates (ADR 0019): fetched
+//! The European Central Bank's euro reference rates (ADR 0024): fetched
 //! once a day and stored per day, so bills and reports convert between
 //! currencies without anyone typing a rate. `TC_PRICES_REFRESH=off` stops
 //! the refresh on instances without internet access; rates can still be

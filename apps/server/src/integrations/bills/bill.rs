@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use time::Date;
 use tokencontroller_core::{Currency, Money, MoneyError};
 
-use tokencontroller_core::{CostSource, Period};
+use super::month::{BillMonth, Charging};
 
 /// The provider a bill comes from, spelled as bills are stored.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -78,7 +78,7 @@ impl fmt::Display for BillProvider {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BillOrigin {
     pub provider: BillProvider,
-    pub cost_source: CostSource,
+    pub cost_source: Charging,
     /// The API or file format the bill was read from, such as
     /// `anthropic_console`, `openai_costs` or `csv`.
     pub source_api: &'static str,
@@ -151,13 +151,13 @@ pub enum BillError {
     Money(#[from] MoneyError),
 }
 
-/// A bill for one period from one provider and cost source, as a pull or an
+/// A bill for one month from one provider and cost source, as a pull or an
 /// upload read it. Its figures always hold together: gross − discount −
 /// credit = net, all in one currency, and its lines add up to its gross.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PulledBill {
     origin: BillOrigin,
-    period: Period,
+    period: BillMonth,
     figures: BillFigures,
     lines: Vec<BillLine>,
     is_final: bool,
@@ -177,7 +177,7 @@ impl PulledBill {
     /// another currency than gross.
     pub fn new(
         origin: BillOrigin,
-        period: Period,
+        period: BillMonth,
         figures: BillFigures,
         lines: Vec<BillLine>,
         is_final: bool,
@@ -223,7 +223,7 @@ impl PulledBill {
     /// less `discount` and `credit`, in the currency of `discount`.
     pub(super) fn from_lines(
         origin: BillOrigin,
-        period: Period,
+        period: BillMonth,
         lines: Vec<BillLine>,
         discount: Money,
         credit: Money,
@@ -265,7 +265,7 @@ impl PulledBill {
     }
 
     #[must_use]
-    pub fn cost_source(&self) -> CostSource {
+    pub fn cost_source(&self) -> Charging {
         self.origin.cost_source
     }
 
@@ -277,7 +277,7 @@ impl PulledBill {
     }
 
     /// A stable ID for this bill at its source: the source API, what it
-    /// covers there and the period, such as
+    /// covers there and the month, such as
     /// `anthropic_console:12345678-1234-5678-1234-567812345678:2026-09`.
     /// Pulling or uploading the same bill again gives the same ID, so a
     /// second import is a revision, not a second bill.
@@ -290,7 +290,7 @@ impl PulledBill {
     }
 
     #[must_use]
-    pub fn period(&self) -> Period {
+    pub fn period(&self) -> BillMonth {
         self.period
     }
 
@@ -363,7 +363,7 @@ mod tests {
     fn origin() -> BillOrigin {
         BillOrigin {
             provider: BillProvider::Anthropic,
-            cost_source: CostSource::ApiKey,
+            cost_source: Charging::ApiKey,
             source_api: "anthropic_console",
             scope: "org_1".to_owned(),
         }
@@ -372,7 +372,7 @@ mod tests {
     fn bill(figures: BillFigures, lines: Vec<BillLine>) -> Result<PulledBill, BillError> {
         PulledBill::new(
             origin(),
-            Period::parse("2026-09").unwrap(),
+            BillMonth::parse("2026-09").unwrap(),
             figures,
             lines,
             true,
@@ -467,7 +467,7 @@ mod tests {
     fn a_bill_from_lines_adds_them_up() {
         let bill = PulledBill::from_lines(
             origin(),
-            Period::parse("2026-09").unwrap(),
+            BillMonth::parse("2026-09").unwrap(),
             vec![line(usd(700)), line(usd(300))],
             usd(100),
             usd(50),
@@ -479,7 +479,7 @@ mod tests {
         assert!(!bill.is_final());
         let empty = PulledBill::from_lines(
             origin(),
-            Period::parse("2026-09").unwrap(),
+            BillMonth::parse("2026-09").unwrap(),
             Vec::new(),
             Money::zero(Currency::EUR),
             Money::zero(Currency::EUR),
@@ -552,7 +552,7 @@ mod tests {
         assert_eq!(bill.source_api(), "anthropic_console");
         assert_eq!(bill.provider(), BillProvider::Anthropic);
         assert_eq!(bill.exchange_rate(), Some(Decimal::new(92, 2)));
-        assert_eq!(bill.cost_source(), CostSource::ApiKey);
+        assert_eq!(bill.cost_source(), Charging::ApiKey);
         assert_eq!(bill.period().to_string(), "2026-09");
     }
 }

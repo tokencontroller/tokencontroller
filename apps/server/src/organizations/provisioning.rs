@@ -7,7 +7,7 @@ use sqlx::PgPool;
 use uuid::Uuid;
 
 use super::audit::record_audit_event;
-use super::members::{clean_name, keep_a_controller};
+use super::members::{clean_name, keep_an_org_manager};
 use super::{MemberStatus, member};
 use crate::AppState;
 use crate::error::ApiError;
@@ -53,8 +53,8 @@ pub async fn member_by_email(
 }
 
 /// Makes the person a member and returns their ID. A member who was removed
-/// comes back with their old role and tags; a new one is an agent manager
-/// with no tags. Someone who already is a member keeps everything and gets
+/// comes back with their old role; a new one is an agent manager with the
+/// role's grants. Someone who already is a member keeps everything and gets
 /// their ID back. `display_name` replaces the name when given.
 ///
 /// # Errors
@@ -110,14 +110,27 @@ pub async fn add_member(
         .await?;
         (id, "member.restored")
     } else {
+        let mut tx = state.db.begin().await?;
         let id = sqlx::query_scalar!(
             "INSERT INTO people (organization_id, email, name) VALUES ($1, $2, $3) RETURNING id",
             organization_id,
             email,
             name.unwrap_or_default()
         )
-        .fetch_one(&state.db)
+        .fetch_one(&mut *tx)
         .await?;
+        let log = crate::events::Log::load(state, organization_id).await?;
+        crate::grants::set_role_grants(
+            &mut tx,
+            &log,
+            id,
+            &crate::events::person(&email)?,
+            super::Role::AgentManager,
+            &[],
+            None,
+        )
+        .await?;
+        tx.commit().await?;
         (id, "member.added")
     };
     record_audit_event(state, organization_id, None, action, Some(person_id));
@@ -125,25 +138,25 @@ pub async fn add_member(
 }
 
 /// Removes a member: they are signed out and can no longer sign in, and
-/// their past token entries keep them as agent manager. `actor` is the
-/// member who removed them, or `None` for an identity provider.
+/// their past messages keep them as their person. `actor` is the member who
+/// removed them, or `None` for an identity provider.
 ///
 /// # Errors
 ///
 /// - [`ApiError::NotFound`] if they are not a member of the organization.
-/// - [`ApiError::Conflict`] if they are its last controller.
+/// - [`ApiError::Conflict`] if they are its last org manager.
 pub async fn remove_member(
     state: &AppState,
     organization_id: Uuid,
     person_id: Uuid,
     actor: Option<Uuid>,
 ) -> Result<(), ApiError> {
-    let current = member(&state.db, organization_id, person_id).await?;
+    let current = member(state, organization_id, person_id).await?;
     if current.status == MemberStatus::Removed {
         return Err(ApiError::NotFound);
     }
-    if current.role == super::Role::Controller {
-        keep_a_controller(&state.db, organization_id, person_id).await?;
+    if current.role == super::Role::OrgManager {
+        keep_an_org_manager(&state.db, organization_id, person_id).await?;
     }
     let mut tx = state.db.begin().await?;
     sqlx::query!(

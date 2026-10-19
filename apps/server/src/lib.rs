@@ -1,6 +1,8 @@
 //! The Token Controller service (ADR 0002): one program that serves the API,
 //! receives telemetry, runs the background jobs and serves the web app, with
-//! all state in one Postgres database.
+//! all state in one Postgres database. The organization's state is an
+//! append-only event log (ADR 0022) that the core crate folds into every
+//! figure; the [`events`] module is the one door to it.
 //!
 //! The Enterprise plan build links this library and passes its own
 //! [`Extension`] to [`serve_with`], with its own routes; the open build
@@ -13,26 +15,31 @@
 pub mod api;
 pub mod change;
 pub mod config;
+pub mod dates;
 pub mod error;
 pub mod hooks;
 pub mod mail;
 pub mod state;
 
 pub mod bills;
-pub mod budgets;
-pub mod close;
+pub mod cutoff;
+pub mod events;
+pub mod grants;
 pub mod ingest;
 pub mod integrations;
 pub mod jobs;
 pub mod mcp;
+pub mod messages;
 pub mod organizations;
-pub mod projects;
+pub mod plans;
+pub mod price_table;
 pub mod reports;
 pub mod seed;
 pub mod sign_in;
+pub mod splits;
 pub mod status;
+pub mod submissions;
 pub mod tags;
-pub mod token_sheets;
 pub mod web;
 
 use std::io::IsTerminal as _;
@@ -143,6 +150,7 @@ where
     let db = connect_and_migrate(&config.database_url).await?;
 
     let state = AppState::new(db, config, extension).with_hooks(hooks);
+    price_table::load_file(&state).await?;
     jobs::start(state.clone());
     let added = additions(state.clone()).await?;
     let app = router_with(state, added.api).merge(added.routes);

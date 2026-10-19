@@ -24,7 +24,7 @@ use time::OffsetDateTime;
 use utoipa::ToSchema;
 use utoipa_axum::router::OpenApiRouter;
 
-use crate::integrations::{bill_connections, prices, reminders, ticket_systems};
+use crate::integrations::{bill_connections, ticket_systems};
 use crate::{AppState, Config};
 
 /// This area's routes, relative to `/api/v1`.
@@ -49,7 +49,7 @@ pub type JobFn = Arc<
 /// One background job.
 #[derive(Clone)]
 pub struct Job {
-    /// A stable name, such as `price-tables`: lower-case words with dashes.
+    /// A stable name, such as `price-table`: lower-case words with dashes.
     /// It names the job's row, its heartbeat and its advisory lock.
     pub name: &'static str,
     /// How long after one start the next run is due.
@@ -131,9 +131,9 @@ pub async fn request_now(db: &PgPool, job: &str) -> Result<(), sqlx::Error> {
     Ok(())
 }
 
-/// The jobs this instance runs, by name: `ticket-sync`, `bill-pulls` and
-/// `late-reminders`; and `price-tables` and `exchange-rates` unless
-/// `TC_PRICES_REFRESH` is `off`. A build with its own jobs runs them with
+/// The jobs this instance runs, by name: `ticket-sync`, `bill-pulls`,
+/// `submit-reminders` and `price-table`; and `exchange-rates` unless
+/// `TC_RATES_REFRESH` is `off`. A build with its own jobs runs them with
 /// [`spawn`].
 #[must_use]
 pub fn standard(config: &Config) -> Vec<Job> {
@@ -148,10 +148,18 @@ pub fn standard(config: &Config) -> Vec<Job> {
             bill_connections::JOB_EVERY,
             bill_connections::run_job,
         ),
-        Job::new(reminders::JOB, reminders::JOB_EVERY, reminders::run_job),
+        Job::new(
+            crate::submissions::JOB,
+            crate::submissions::JOB_EVERY,
+            crate::submissions::run_job,
+        ),
+        Job::new(
+            crate::price_table::JOB,
+            crate::price_table::JOB_EVERY,
+            crate::price_table::run_job,
+        ),
     ];
-    if config.prices_refresh {
-        jobs.push(Job::new(prices::JOB, prices::JOB_EVERY, prices::run_job));
+    if config.rates_refresh {
         jobs.push(Job::new(
             crate::bills::ecb::JOB,
             crate::bills::ecb::JOB_EVERY,

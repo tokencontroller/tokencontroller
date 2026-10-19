@@ -23,7 +23,7 @@ use super::secret;
 use super::sign_up::{Manages, SignUp};
 use crate::error::ApiError;
 use crate::mail::{self, Mail, escape_html, render};
-use crate::organizations::{self, CostSource, Role};
+use crate::organizations::{self, Role};
 use crate::{AppState, Config};
 
 /// How long a sign-in link works.
@@ -176,17 +176,14 @@ async fn new_link(
     sqlx::query!(
         r#"INSERT INTO sign_in_links
              (token_hash, email, sign_up_organization_name, sign_up_person_name,
-              sign_up_cost_source, sign_up_reporting_currency, sign_up_manages,
+              sign_up_reporting_currency, sign_up_manages,
               poll_hash, expires_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8,
-                   now() + make_interval(mins => $9::bigint::int))"#,
+           VALUES ($1, $2, $3, $4, $5, $6, $7,
+                   now() + make_interval(mins => $8::bigint::int))"#,
         secret.hash,
         email,
         sign_up.map(|sign_up| sign_up.organization_name.as_str()),
         sign_up.and_then(|sign_up| sign_up.person_name.as_deref()),
-        sign_up
-            .and_then(|sign_up| sign_up.cost_source)
-            .map(CostSource::as_str),
         sign_up.and_then(|sign_up| sign_up.reporting_currency.as_deref()),
         sign_up
             .and_then(|sign_up| sign_up.manages)
@@ -593,7 +590,7 @@ async fn consume_link(
     let hash = secret::hash(token, &config.secret_key);
     let Some(link) = sqlx::query!(
         r#"SELECT email, sign_up_organization_name, sign_up_person_name,
-                  sign_up_cost_source, sign_up_reporting_currency, sign_up_manages,
+                  sign_up_reporting_currency, sign_up_manages,
                   poll_hash IS NOT NULL AS "local_tool!"
            FROM sign_in_links
            WHERE token_hash = $1 AND used_at IS NULL AND expires_at > now()
@@ -610,10 +607,6 @@ async fn consume_link(
         .map(|organization_name| SignUp {
             organization_name,
             person_name: link.sign_up_person_name,
-            cost_source: link
-                .sign_up_cost_source
-                .as_deref()
-                .and_then(CostSource::from_db),
             reporting_currency: link.sign_up_reporting_currency,
             manages: link.sign_up_manages.as_deref().and_then(Manages::from_db),
         });
@@ -668,7 +661,7 @@ async fn consume_link(
 }
 
 /// Creates the organization a sign-up asked for, with the founder as its
-/// first controller and the answers to the sign-up questions applied.
+/// first org manager and the answers to the sign-up questions applied.
 async fn create_organization(
     tx: &mut PgConnection,
     email: &str,
@@ -684,10 +677,9 @@ async fn create_organization(
     .await?;
     sqlx::query!(
         r#"UPDATE organizations
-           SET cost_source = $2, reporting_currency = coalesce($3, reporting_currency)
+           SET reporting_currency = coalesce($2, reporting_currency)
            WHERE id = $1"#,
         created.organization_id,
-        sign_up.cost_source.map(CostSource::as_str),
         sign_up.reporting_currency.as_deref()
     )
     .execute(&mut *tx)
@@ -904,9 +896,9 @@ pub struct Me {
     pub organization: organizations::OrganizationSummary,
     /// `session` for a person, `read` for a read token.
     pub credential: super::CredentialKind,
-    /// For controllers only: a notice to show on every page, such as an
+    /// For org managers only: a notice to show on every page, such as an
     /// Enterprise plan renewal. `null` when there is none.
-    pub controller_notice: Option<String>,
+    pub org_manager_notice: Option<String>,
 }
 
 /// The signed-in person and their organization.
@@ -923,10 +915,10 @@ pub(super) async fn me(
     State(state): State<AppState>,
     member: Member,
 ) -> Result<Json<Me>, ApiError> {
-    let person = organizations::member(&state.db, member.organization_id, member.person_id).await?;
+    let person = organizations::member(&state, member.organization_id, member.person_id).await?;
     let organization = organizations::summary(&state.db, member.organization_id).await?;
-    let controller_notice = if member.role == Role::Controller {
-        state.extension.controller_notice()
+    let org_manager_notice = if member.role == Role::OrgManager {
+        state.extension.org_manager_notice()
     } else {
         None
     };
@@ -934,7 +926,7 @@ pub(super) async fn me(
         person,
         organization,
         credential: member.credential.kind(),
-        controller_notice,
+        org_manager_notice,
     }))
 }
 
@@ -1055,8 +1047,9 @@ mod tests {
             secret_key: String::new(),
             smtp_url: None,
             smtp_from: None,
-            prices_refresh: true,
-            embeddings: None,
+            price_table: None,
+            rates_refresh: true,
+            classifier: None,
         };
         let url = link_url(&config, "tc_link_abc");
         assert_eq!(

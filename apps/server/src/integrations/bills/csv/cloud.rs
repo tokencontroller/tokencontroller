@@ -11,11 +11,11 @@ use serde::{Deserialize, Serialize};
 use time::Date;
 use tokencontroller_core::{Currency, Money};
 
+use super::CsvBillError;
 use super::sheet::{Column, Header, Sheet, cell, preamble_entry, read_amount, read_day};
-use super::{BillError, CsvBillError};
-use crate::integrations::bills::bill::{BillLine, BillOrigin, BillProvider, PulledBill};
+use crate::integrations::bills::bill::{BillError, BillLine, BillOrigin, BillProvider, PulledBill};
+use crate::integrations::bills::month::{BillMonth, Charging};
 use crate::integrations::decimal::money_from_json_number;
-use tokencontroller_core::{CostSource, Period};
 
 /// Rows looked at for the header, after any preamble.
 const HEADER_SEARCH_ROWS: usize = 50;
@@ -254,8 +254,12 @@ struct Totals {
 }
 
 /// Finds the header, which may follow a few lines of preamble, then adds up
-/// the AI service's rows in the period.
-pub(super) fn parse(cloud: Cloud, text: &str, period: Period) -> Result<PulledBill, CsvBillError> {
+/// the AI service's rows in the month.
+pub(super) fn parse(
+    cloud: Cloud,
+    text: &str,
+    period: BillMonth,
+) -> Result<PulledBill, CsvBillError> {
     let mut sheet = Sheet::new(text);
     let decimal_comma = sheet.decimal_comma();
     let mut preamble = BTreeMap::new();
@@ -329,7 +333,7 @@ pub(super) fn parse(cloud: Cloud, text: &str, period: Period) -> Result<PulledBi
         .unwrap_or_else(|| UNNAMED_ACCOUNT.to_owned());
     let origin = BillOrigin {
         provider: cloud.provider(),
-        cost_source: CostSource::CloudMarketplace,
+        cost_source: Charging::CloudMarketplace,
         source_api: cloud.source_api(),
         scope,
     };
@@ -377,7 +381,7 @@ impl Row<'_> {
     fn add_to(
         &self,
         totals: &mut Totals,
-        period: Period,
+        period: BillMonth,
         fallback_currency: Option<Currency>,
     ) -> Result<(), CsvBillError> {
         if !self.is_ai_service() || !self.in_period(period)? {
@@ -469,16 +473,16 @@ impl Row<'_> {
         }
     }
 
-    /// Whether the row belongs to the period: by its invoice month where the
+    /// Whether the row belongs to the month: by its invoice month where the
     /// export has one, otherwise by the day its usage started.
-    fn in_period(&self, period: Period) -> Result<bool, CsvBillError> {
+    fn in_period(&self, period: BillMonth) -> Result<bool, CsvBillError> {
         let month = self.columns.value(self.record, Role::InvoiceMonth);
         if !month.is_empty() {
             let spelled = match (month.get(..4), month.get(4..)) {
                 (Some(year), Some(number)) if month.len() == 6 => format!("{year}-{number}"),
                 _ => month.to_owned(),
             };
-            let invoice = Period::parse(&spelled).map_err(|_| {
+            let invoice = BillMonth::parse(&spelled).map_err(|_| {
                 self.problem(
                     Role::InvoiceMonth,
                     format!("{month:?} is not an invoice month such as 202609."),
@@ -577,8 +581,8 @@ impl Row<'_> {
 
     /// The line a usage row adds to: its day, account or project, and kind
     /// of usage. A row counted by its invoice month whose usage started in
-    /// another month goes on the period's first day.
-    fn line_key(&self, period: Period) -> Result<(Date, Option<String>, String), CsvBillError> {
+    /// another month goes on the month's first day.
+    fn line_key(&self, period: BillMonth) -> Result<(Date, Option<String>, String), CsvBillError> {
         let day = read_day(self.columns.value(self.record, Role::Date))
             .filter(|day| period.contains(day.midnight().assume_utc()));
         let day = match day {
@@ -685,8 +689,8 @@ mod tests {
         include_str!("../../../../tests/fixtures/bills/vertex_bigquery_export.csv");
     const FOUNDRY: &str = include_str!("../../../../tests/fixtures/bills/foundry_cost_details.csv");
 
-    fn september() -> Period {
-        Period::parse("2026-09").unwrap()
+    fn september() -> BillMonth {
+        BillMonth::parse("2026-09").unwrap()
     }
 
     fn error(cloud: Cloud, text: &str) -> String {
@@ -697,7 +701,7 @@ mod tests {
     fn bedrock_counts_its_own_rows_in_the_period() {
         let bill = parse(Cloud::Bedrock, BEDROCK, september()).unwrap();
         assert_eq!(bill.provider(), BillProvider::AwsBedrock);
-        assert_eq!(bill.cost_source(), CostSource::CloudMarketplace);
+        assert_eq!(bill.cost_source(), Charging::CloudMarketplace);
         assert_eq!(bill.source_id(), "aws_cost_export:999988887777:2026-09");
         assert_eq!(bill.currency(), Currency::USD);
         assert_eq!(bill.gross().nanos(), 54_500_000_000);
@@ -838,7 +842,7 @@ mod tests {
 
     #[test]
     fn no_rows_in_the_period_is_an_error() {
-        let november = Period::parse("2026-11").unwrap();
+        let november = BillMonth::parse("2026-11").unwrap();
         assert_eq!(
             parse(Cloud::Bedrock, BEDROCK, november)
                 .unwrap_err()
