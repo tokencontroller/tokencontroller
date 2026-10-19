@@ -28,8 +28,8 @@ test('finds a checksum in SHA256SUMS', () => {
 const INPUTS = {
   token: 'tc_svc_abc',
   url: 'https://app.tokencontroller.com',
-  project: 'storefront',
-  ticket: 'KD-214',
+  project: 'shop',
+  feature: 'KD-214',
   tags: { purpose: 'code-review', team: 'web' },
 }
 
@@ -47,8 +47,8 @@ test('hands the token, the tags and the job signals to tc through its environmen
     TC_TOKEN: 'tc_svc_abc',
     TC_URL: 'https://app.tokencontroller.com',
     NO_COLOR: '1',
-    TC_PROJECT: 'storefront',
-    TC_TICKET: 'KD-214',
+    TC_PROJECT: 'shop',
+    TC_FEATURE: 'KD-214',
     TC_TAGS: 'purpose=code-review,team=web',
     TC_SIGNALS:
       '{"repository":"github.com/kestrel/storefront","branch":"kd-214-checkout","pull_request":88,"pull_request_title":"KD-214 Faster checkout"}',
@@ -57,7 +57,7 @@ test('hands the token, the tags and the job signals to tc through its environmen
 
 test('leaves out what the job does not know, and keeps what an earlier step set', () => {
   const env = tcEnv(
-    { token: 't', url: 'u', project: undefined, ticket: undefined, tags: {} },
+    { token: 't', url: 'u', project: undefined, feature: undefined, tags: {} },
     {
       repository: undefined,
       branch: 'main',
@@ -67,18 +67,16 @@ test('leaves out what the job does not know, and keeps what an earlier step set'
     { TC_PROJECT: 'from-an-earlier-step' },
   )
   assert.equal(env.TC_PROJECT, 'from-an-earlier-step')
-  assert.equal(env.TC_TICKET, undefined)
+  assert.equal(env.TC_FEATURE, undefined)
   assert.equal(env.TC_TAGS, undefined)
   assert.equal(env.TC_SIGNALS, '{"branch":"main"}')
 })
 
 test('reads what tc submit reported', () => {
   assert.deepEqual(
-    readSubmitted(
-      '{"submitted":3,"list_value":"4.10","currency":"USD","share_on_tickets_percent":100}',
-    ),
-    { count: 3, listValue: '4.10', currency: 'USD' },
+    readSubmitted('{"submitted":3,"cost":"4.10","currency":"USD","share_on_features_percent":100}'),
+    { count: 3, cost: '4.10', currency: 'USD' },
   )
-  assert.deepEqual(readSubmitted('{}'), { count: 0, listValue: undefined, currency: undefined })
+  assert.deepEqual(readSubmitted('{}'), { count: 0, cost: undefined, currency: undefined })
   assert.throws(() => readSubmitted('submitted 3'), /something other than JSON/)
 })

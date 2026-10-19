@@ -1,37 +1,67 @@
 /**
  * What the mod hands to `tc record`: one JSON object with what only Claude
- * Code knows about a session, its summary and the tags the person set by
- * hand. tc reads the session's usage, branches and prompts from Claude Code's
- * own session files, builds the draft token entry and runs the rules (ADR
- * 0010). Each record is the whole picture so far, so sending it twice changes
- * nothing.
+ * Code knows about a session: its summary, the facts the mod counts, and the
+ * tags the person set by hand. tc reads the session's messages with their
+ * token counts, branches and prompt keys from Claude Code's own session files
+ * and splits the session by the rules (ADR 0010). Each record is the whole
+ * picture so far, so sending it twice changes nothing. Never prompt text.
  */
 export interface SessionRecord {
   agent_harness: 'claude-code'
   session_id: string
   summary?: string
-  ticket?: string
-  /** Every tag but the ticket the person set by hand this session. */
+  /** Session facts the mod counts: turns, their duration, subagent turns. */
+  facts?: { turns: number; duration_seconds: number; subagents: number }
+  feature?: string
+  /** Every tag but the feature the person set by hand this session. */
   tags?: Record<string, string>
+}
+
+export interface Facts {
+  turns: number
+  durationSeconds: number
+  subagents: number
+}
+
+export const NO_FACTS: Facts = { turns: 0, durationSeconds: 0, subagents: 0 }
+
+/** The facts after one more turn: a subagent's turn counts as a subagent, a main one as a turn. */
+export function countTurn(facts: Facts, durationMs: number, isSubagent: boolean): Facts {
+  return {
+    turns: facts.turns + (isSubagent ? 0 : 1),
+    durationSeconds: facts.durationSeconds + Math.max(0, durationMs) / 1000,
+    subagents: facts.subagents + (isSubagent ? 1 : 0),
+  }
 }
 
 export function sessionRecord(
   sessionId: string,
   summary: string | null,
+  facts: Facts,
   handTags: Readonly<Record<string, string>>,
 ): SessionRecord {
-  const { ticket, ...tags } = handTags
+  const { feature, ...tags } = handTags
+  const hasFacts = facts.turns > 0 || facts.subagents > 0
   return {
     agent_harness: 'claude-code',
     session_id: sessionId,
     ...(summary === null ? {} : { summary }),
-    ...(ticket === undefined ? {} : { ticket }),
+    ...(hasFacts
+      ? {
+          facts: {
+            turns: facts.turns,
+            duration_seconds: Math.round(facts.durationSeconds),
+            subagents: facts.subagents,
+          },
+        }
+      : {}),
+    ...(feature === undefined ? {} : { feature }),
     ...(Object.keys(tags).length === 0 ? {} : { tags }),
   }
 }
 
 /**
- * Reads `/tc` arguments: `ticket KD-214`, `tag purpose=spike`, `report team`,
+ * Reads `/tc` arguments: `feature KD-214`, `tag purpose=spike`, `report team`,
  * `submit`, or nothing (opens the pane).
  */
 export type Command =
@@ -47,11 +77,11 @@ export function parseCommand(args: string): Command {
   switch (verb) {
     case undefined:
       return { kind: 'open' }
-    case 'ticket':
+    case 'feature':
       if (rest.length !== 1 || rest[0] === undefined) {
-        return { kind: 'help', problem: 'Name one ticket, such as /tc ticket KD-214.' }
+        return { kind: 'help', problem: 'Name one feature, such as /tc feature KD-214.' }
       }
-      return { kind: 'tags', tags: { ticket: rest[0] } }
+      return { kind: 'tags', tags: { feature: rest[0] } }
     case 'tag': {
       if (rest.length === 0) {
         return { kind: 'help', problem: 'Name a tag, such as /tc tag purpose=spike.' }
@@ -67,7 +97,7 @@ export function parseCommand(args: string): Command {
       return { kind: 'tags', tags }
     }
     case 'report':
-      return { kind: 'report', by: rest[0] ?? 'ticket' }
+      return { kind: 'report', by: rest[0] ?? 'feature' }
     case 'submit':
       return { kind: 'submit' }
     default:
@@ -76,9 +106,9 @@ export function parseCommand(args: string): Command {
 }
 
 export const HELP = [
-  '/tc ticket KD-214     set this session’s ticket',
+  '/tc feature KD-214    put this session on a feature',
   '/tc tag purpose=spike set any other tag',
-  '/tc report [by]       a report table, by ticket, project, any tag or day',
-  '/tc submit            submit your token sheet',
+  '/tc report [by]       a report table, by feature, project, any tag or day',
+  '/tc submit            submit everything since your last submit',
   '/tc                   open the pane',
 ].join('\n')

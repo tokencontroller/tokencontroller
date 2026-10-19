@@ -7,6 +7,8 @@ export {
 } from './client.ts'
 export {
   type Amount,
+  type Facts,
+  type Fraction,
   type Message,
   problems,
   type Signals,

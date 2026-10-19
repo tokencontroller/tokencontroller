@@ -4,7 +4,7 @@ import { problems, type TokenEntry } from './token-entry.ts'
 export const HOSTED_URL = 'https://app.tokencontroller.com'
 
 export interface ClientOptions {
-  /** A service token (`tc_svc_…`). Its creator is the agent manager of what it reports. */
+  /** A service token (`tc_svc_…`). Its creator is the person of every message it reports. */
   token: string
   /** The service's address. Defaults to the hosted service. */
   url?: string
@@ -16,9 +16,15 @@ export interface ClientOptions {
   fetch?: typeof globalThis.fetch
 }
 
-/** What the service answers for a token entry it took. */
+/** What the service answers for a token entry it took: its id, and its `cost`, `label` and `unknown_tags` when it says them. */
 export interface Created {
   id: string
+  /** The cost from the price table, as a decimal string in US dollars, or null while the model has no price. */
+  cost?: string | null
+  /** `direct`, `project overhead` or `organization overhead`. */
+  label?: string
+  /** Tag values the organization does not know yet. */
+  unknown_tags?: string[]
   [field: string]: unknown
 }
 

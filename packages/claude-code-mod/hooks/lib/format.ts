@@ -1,4 +1,4 @@
-import type { Report, ReportRow, ReviewRow, Sheet, Submitted } from './tc.ts'
+import type { Report, ReportRow, ReviewRow, Status, Submitted } from './tc.ts'
 
 const SYMBOLS: Record<string, string> = { USD: '$', EUR: '€', GBP: '£' }
 
@@ -18,13 +18,15 @@ export function percent(share: number): string {
 }
 
 /**
- * The headline of the band and the pane: today's cost, the share on tickets,
- * and this session's ticket, such as `$41.87 today · 91% on tickets · KD-214`.
+ * The headline of the band and the pane: today's cost, the share on features,
+ * and this session's feature, such as `$41.87 today · 91% on features · KD-214`.
  */
-export function headline(sheet: Sheet, ticket: string | null): string {
-  const parts = [`${money(sheet.today, sheet.currency)} today`]
-  if (sheet.shareOnTickets !== null) parts.push(`${percent(sheet.shareOnTickets)} on tickets`)
-  if (ticket) parts.push(ticket)
+export function headline(status: Status, feature: string | null): string {
+  const parts = [`${money(status.today, status.currency)} today`]
+  if (status.shareOnFeatures !== null) {
+    parts.push(`${percent(status.shareOnFeatures)} on features`)
+  }
+  if (feature) parts.push(feature)
   return parts.join(' · ')
 }
 
@@ -43,48 +45,42 @@ const MONTHS = [
   'December',
 ]
 
-/** `September 2026` for `2026-09`; anything else as tc sent it. */
-export function monthName(period: string): string {
-  const match = /^(\d{4})-(\d{2})$/.exec(period)
+/** `30 September 2026` for `2026-09-30`; anything else as tc sent it. */
+export function dateName(date: string): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date)
   const month = match === null ? undefined : MONTHS[Number(match[2]) - 1]
-  return match === null || month === undefined ? period : `${month} ${match[1]}`
+  return match === null || month === undefined ? date : `${Number(match[3])} ${month} ${match[1]}`
 }
 
 /**
- * The token sheet's note: late, and the controller's request to submit
- * before the close, such as `Nadia Berger asks you to submit for September 2026`.
+ * The org manager's request to submit before the cutoff moves, such as
+ * `Nadia Berger asks you to submit before the cutoff moves to 30 September 2026`.
  */
-export function sheetNote(sheet: Sheet): string | null {
-  const notes: string[] = []
-  if (sheet.isLate) notes.push('token sheet late')
-  const asked = sheet.askedToSubmit
-  if (asked !== null) {
-    const month = monthName(asked.period)
-    notes.push(
-      asked.askedBy === null
-        ? `asked to submit for ${month}`
-        : `${asked.askedBy} asks you to submit for ${month}`,
-    )
-  }
-  return notes.length === 0 ? null : notes.join(' · ')
+export function statusNote(status: Status): string | null {
+  const asked = status.askedToSubmit
+  if (asked === null) return null
+  const until = `before the cutoff moves to ${dateName(asked.cutoff)}`
+  return asked.askedBy === null
+    ? `asked to submit ${until}`
+    : `${asked.askedBy} asks you to submit ${until}`
 }
 
-function tickets(row: ReviewRow): string[] {
-  return [...new Set(row.splits.flatMap(split => (split.tags.ticket ? [split.tags.ticket] : [])))]
+function features(row: ReviewRow): string[] {
+  return [...new Set(row.splits.flatMap(split => (split.tags.feature ? [split.tags.feature] : [])))]
 }
 
-/** The ticket tc placed this session on, if any: `KD-214`, or `KD-231 +1` when split. */
-export function sessionTicket(rows: readonly ReviewRow[], sessionId: string): string | null {
+/** The feature tc split this session on, if any: `KD-214`, or `KD-231 +1` when split. */
+export function sessionFeature(rows: readonly ReviewRow[], sessionId: string): string | null {
   const row = rows.find(r => r.sessionId === sessionId)
   if (row === undefined) return null
-  const [first, ...rest] = tickets(row)
+  const [first, ...rest] = features(row)
   if (first === undefined) return null
   return rest.length === 0 ? first : `${first} +${rest.length}`
 }
 
-/** `ticket KD-214 · team web`, the review list's tag column. */
+/** `feature KD-214 · team web`, the check list's tag column. */
 export function tagLine(tags: Record<string, string>): string {
-  const order = ['ticket', 'project']
+  const order = ['feature', 'project']
   const names = Object.keys(tags).sort((a, b) => {
     const ia = order.indexOf(a)
     const ib = order.indexOf(b)
@@ -93,25 +89,24 @@ export function tagLine(tags: Record<string, string>): string {
   return names.map(name => `${name} ${tags[name]}`).join(' · ')
 }
 
-/** Where a token entry sits: its tags, or each split's ticket or tags with its share. */
-export function placeLine(row: ReviewRow): string {
-  if (row.splits.length <= 1) return tagLine(row.splits[0]?.tags ?? {}) || 'no tags'
+/** Where a session sits: its tags, or each split's feature or tags with its fraction. */
+export function splitLine(row: ReviewRow): string {
+  if (row.splits.length <= 1) return tagLine(row.splits[0]?.tags ?? {}) || 'no project'
   return row.splits
     .map(split => {
-      const place = split.tags.ticket ?? (tagLine(split.tags) || 'no tags')
-      return split.share === null ? place : `${place} ${percent(split.share)}`
+      const place = split.tags.feature ?? (tagLine(split.tags) || 'no project')
+      return split.fraction === null ? place : `${place} ${percent(split.fraction)}`
     })
     .join(' · ')
 }
 
-/** The line under a token entry: what placed it, or why it came back. */
-export function placedByLine(row: ReviewRow): string {
+/** The line under a session: what assigned it and its label, or why it came back. */
+export function assignedLine(row: ReviewRow): string {
   if (row.isRejected) return `rejected: ${row.rejectedReason ?? 'see the web app'}`
   const parts: string[] = []
-  if (row.placedBy !== null && row.placedBy !== 'none') parts.push(`placed by ${row.placedBy}`)
-  else parts.push('not placed')
-  if (row.candidates.length > 0) parts.push(`maybe ${row.candidates.join(', ')}`)
-  return parts.join(' · ')
+  if (row.assignedBy !== null) parts.push(row.assignedBy)
+  if (row.label !== null) parts.push(row.label)
+  return parts.join(' · ') || 'no rule matched'
 }
 
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
@@ -137,7 +132,7 @@ export function bar(value: number, max: number, width: number): string {
   return '█'.repeat(Math.floor(eighths / 8)) + EIGHTHS[eighths % 8]
 }
 
-/** A row's label: its value, or `(no ticket)` for the cost without one. */
+/** A row's label: its value, or `(no feature)` for the cost without one. */
 export function rowLabel(row: ReportRow, by: string): string {
   return row.value ?? `(no ${by})`
 }
@@ -181,8 +176,8 @@ export function reportText(report: Report, width = 72): string {
 /** What `tc submit` did, in one line. */
 export function submittedText(done: Submitted): string {
   if (done.count === 0) return 'Nothing to submit.'
-  const parts = [`Submitted ${done.count} token ${done.count === 1 ? 'entry' : 'entries'}`]
+  const parts = [`Submitted ${done.count} ${done.count === 1 ? 'session' : 'sessions'}`]
   if (done.cost !== null) parts.push(money(done.cost, done.currency, true))
-  if (done.shareOnTickets !== null) parts.push(`${percent(done.shareOnTickets)} on tickets`)
+  if (done.shareOnFeatures !== null) parts.push(`${percent(done.shareOnFeatures)} on features`)
   return parts.join(' · ')
 }

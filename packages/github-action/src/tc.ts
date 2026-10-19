@@ -43,9 +43,9 @@ export const SUBMIT_ARGS = ['submit', '--json'] as const
 
 /**
  * The environment tc runs with. The token and address, then the project,
- * ticket and tags that win over every rule (docs: Collect, GitHub Action),
- * and the job's signals, so a review lands on its pull request's ticket. The
- * pull request title only goes to tc, which keeps the ticket keys in it.
+ * feature and tags that win over every rule (docs: Collect, GitHub Action),
+ * and the job's signals, so a review lands on its pull request's feature. The
+ * pull request title only goes to tc, which keeps the feature keys in it.
  */
 export function tcEnv(
   inputs: Inputs,
@@ -59,7 +59,7 @@ export function tcEnv(
     NO_COLOR: '1',
   }
   if (inputs.project !== undefined) env.TC_PROJECT = inputs.project
-  if (inputs.ticket !== undefined) env.TC_TICKET = inputs.ticket
+  if (inputs.feature !== undefined) env.TC_FEATURE = inputs.feature
   const tags = Object.entries(inputs.tags)
   if (tags.length > 0) env.TC_TAGS = tags.map(([name, value]) => `${name}=${value}`).join(',')
   const known = Object.fromEntries(Object.entries(signals).filter(([, v]) => v !== undefined))
@@ -67,10 +67,10 @@ export function tcEnv(
   return env
 }
 
-/** What `tc submit --json` reported. */
+/** What `tc submit --json` reported: how many messages, and their cost from the price table. */
 export interface Submitted {
   count: number
-  listValue: string | undefined
+  cost: string | undefined
   currency: string | undefined
 }
 
@@ -87,7 +87,7 @@ export function readSubmitted(stdout: string): Submitted {
   >
   return {
     count: typeof top.submitted === 'number' ? top.submitted : 0,
-    listValue: typeof top.list_value === 'string' ? top.list_value : undefined,
+    cost: typeof top.cost === 'string' ? top.cost : undefined,
     currency: typeof top.currency === 'string' ? top.currency : undefined,
   }
 }
