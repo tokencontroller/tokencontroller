@@ -1,6 +1,6 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useState, type ReactNode } from "react";
-import type { Grant, Role, Tags } from "@/api/contract";
+import type { Grant, Role } from "@/api/contract";
 import { api } from "@/api/endpoints";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -64,7 +64,7 @@ export function GrantsPage(): ReactNode {
                     roleLabel[p.role]
                   ),
               },
-              { key: "filters", header: "On filters", cell: (p) => (p.role === "people_manager" ? p.filters.map((f) => describeFilter(f as Tags)).join("; ") || "none yet" : p.role === "org_manager" ? "Whole organization" : "Themselves") },
+              { key: "filters", header: "On filters", cell: (p) => (p.role === "people_manager" ? p.filters.map((f) => describeFilter(f)).join("; ") || "none yet" : p.role === "org_manager" ? "Whole organization" : "Themselves") },
             ]}
           />
         )}

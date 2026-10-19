@@ -143,8 +143,8 @@ export function lines(db: Db): Line[] {
 export function viewFilters(db: Db, me: Member): Tags[] {
   if (me.role === "org_manager") return [{}];
   const own = [{ person: me.email }];
-  const granted = db.grants.filter((g) => g.person === me.email && g.capability === "view").map((g) => g.filter as unknown as Tags);
-  return me.role === "people_manager" ? [...own, ...me.filters.map((f) => f as unknown as Tags), ...granted] : [...own, ...granted];
+  const granted = db.grants.filter((g) => g.person === me.email && g.capability === "view").map((g) => g.filter);
+  return me.role === "people_manager" ? [...own, ...me.filters.map((f) => f), ...granted] : [...own, ...granted];
 }
 
 export function canSee(db: Db, me: Member, tags: Tags): boolean {
@@ -234,7 +234,7 @@ export function sessionView(db: Db, s: MockSession): Session {
     submitted: submittedOf(db, s),
     parts: split.parts.map((p) => {
       const tags = fullTags(db, p.tags, s.person);
-      return { fraction: String(p.bp / 10_000), assigned: p.tags as Part["assigned"], tags: tags as Part["tags"], label: labelOf(tags), amount: dec((total * p.bp) / 10_000) };
+      return { fraction: String(p.bp / 10_000), assigned: p.tags, tags: tags, label: labelOf(tags), amount: dec((total * p.bp) / 10_000) };
     }),
   };
 }

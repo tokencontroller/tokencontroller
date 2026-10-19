@@ -401,7 +401,7 @@ export const handlers = [
         name: body.name?.trim() || (body.email.split("@")[0] ?? body.email),
         email: body.email,
         role: body.role ?? "agent_manager",
-        attributes: (body.attributes ?? {}) as Member["attributes"],
+        attributes: (body.attributes ?? {}),
         filters: [],
         status: "invited",
         invited_at: now(),
@@ -423,7 +423,7 @@ export const handlers = [
       if (change.role && change.role !== "org_manager" && person.role === "org_manager" && managers.length === 1) return error(409, "conflict", "The last org manager cannot change role. Make someone else an org manager first.");
       if (change.name) person.name = change.name;
       if (change.role) person.role = change.role;
-      if (change.filters) person.filters = change.filters as Member["filters"];
+      if (change.filters) person.filters = change.filters;
       if (person.role !== "people_manager") person.filters = [];
       return HttpResponse.json(person);
     }, "org_manager"),
@@ -463,7 +463,7 @@ export const handlers = [
     const person = db.people.find((p) => p.id === params.id);
     if (!person) return error(404, "not_found", "No such member.");
     if (!db.attributeValues.some((v) => v.name === body.name && v.key === body.key)) return error(400, "bad_request", `${body.name}: ${body.key} is not an attribute value yet. Add it first.`);
-    person.attributes = { ...(person.attributes as Tags), [body.name]: body.key } as Member["attributes"];
+    person.attributes = { ...(person.attributes), [body.name]: body.key };
     const view = { id: nextId(db, "pat"), person: person.id, name: body.name, key: body.key, from: body.from ?? null };
     db.personAttributes.push(view);
     record(db, "attribute", view, me.email, view.id);

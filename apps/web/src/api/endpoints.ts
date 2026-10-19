@@ -30,7 +30,7 @@ import { filterToText } from "@/lib/format";
 
 type WireTags = components["schemas"]["Tags"];
 /** Tags as the document types them: an object of strings it does not spell out. */
-const wire = (tags: Tags): WireTags => tags as unknown as WireTags;
+const wire = (tags: Tags): WireTags => tags;
 const path = <T extends string>(id: T) => ({ params: { path: { id } } });
 
 /**

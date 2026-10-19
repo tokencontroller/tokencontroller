@@ -1,6 +1,6 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useState, type ReactNode, type SubmitEvent } from "react";
-import type { NewRule, Session, Tags } from "@/api/contract";
+import type { NewRule, Session } from "@/api/contract";
 import { api } from "@/api/endpoints";
 import { Amount } from "@/components/controls";
 import { Badge, LabelBadge, StatusBadge } from "@/components/ui/badge";
@@ -89,7 +89,7 @@ export function SessionsPage(): ReactNode {
                     {s.parts.map((p, i) => (
                       <span key={i} className="flex flex-wrap items-center gap-1">
                         {s.parts.length > 1 ? <span className="num text-xs text-muted">{formatFraction(p.fraction)}</span> : null}
-                        {Object.keys(p.assigned).length ? <TagRow tags={p.assigned as Tags} /> : <span className="text-xs text-muted">no project</span>}
+                        {Object.keys(p.assigned).length ? <TagRow tags={p.assigned} /> : <span className="text-xs text-muted">no project</span>}
                         <LabelBadge label={p.label} />
                       </span>
                     ))}
@@ -129,7 +129,7 @@ function ruleFrom(session: Session, name: string, key: string): NewRule | null {
 
 function SplitDialog({ session, onClose }: { session: Session; onClose: () => void }) {
   const tags = useTags();
-  const first = (session.parts[0]?.assigned ?? {}) as Tags;
+  const first = (session.parts[0]?.assigned ?? {});
   const [firstName = "feature", firstKey = ""] = Object.entries(first)[0] ?? [];
   const [parts, setParts] = useState<PartDraft[]>(
     session.parts.length > 1
