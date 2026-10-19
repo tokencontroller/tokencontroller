@@ -14,11 +14,13 @@ export const sidebar = [
     items: [
       'account/organizations',
       'account/tags',
-      'account/projects',
+      'account/attributes',
       'account/roles',
+      'account/estimates',
+      'account/cutoff',
+      'account/submit',
+      'account/price-table',
       'account/bills',
-      'account/cadence',
-      'account/token-budgets',
     ],
   },
   {
@@ -34,18 +36,17 @@ export const sidebar = [
     ],
   },
   {
-    label: 'Place cost',
+    label: 'Assign cost',
     items: [
       'attribute/rules',
       'attribute/review',
-      'attribute/classifier',
     ],
   },
   {
-    label: 'Close and report',
+    label: 'Reports',
     items: [
-      'account/close',
       'report/reports',
+      'report/deviation',
       'report/exports',
       'report/checking-a-number',
     ],

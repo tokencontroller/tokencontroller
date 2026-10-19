@@ -10,9 +10,9 @@ Prices are per organization. Nothing is priced per seat.
 | Plan | Price | What you get |
 | --- | --- | --- |
 | Solo | Free forever, hosted | One person, one organization, every feature. No card needed. |
-| Team plan | 200 EUR or 200 USD a month per organization, or 2,000 EUR or 2,000 USD a year | Up to 150 members. Roles, review, approval and reject, monthly close, ticket sync, hosting in the EU. |
+| Team plan | 200 EUR or 200 USD a month per organization, or 2,000 EUR or 2,000 USD a year | Up to 150 members. Grants and roles, approval and reject, the cutoff, Jira sync, the managed price table, hosting in the EU. |
 | Enterprise plan | Custom | For more than 150 members, for an isolated instance, or for features the Team plan does not have. An isolated hosted instance in the region you choose, OIDC and SCIM, an audit log, telemetry passthrough to your own collector, cloud bill connectors on request, a support SLA. |
-| Self-hosted | Free, AGPL-3.0 | The same product and features as the Team plan with no member limit, from the same open code, on your own Postgres in your own region. The hosted service adds our billing, support and feedback. Community support on GitHub. With a support contract it becomes an Enterprise plan. |
+| Self-hosted | Free, AGPL-3.0 | The same product and features as the Team plan with no member limit, from the same open code, on your own Postgres in your own region, with a price table you bring yourself. The hosted service adds our billing, support, feedback and the managed price table. Community support on GitHub. With a support contract it becomes an Enterprise plan. |
 
 ## One account, one organization {#organizations}
 

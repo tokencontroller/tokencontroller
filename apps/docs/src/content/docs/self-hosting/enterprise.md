@@ -11,7 +11,7 @@ We run the instance in the region you choose. Nothing is shared with other organ
 
 ## Self-hosted with support {#self}
 
-A self-hosted instance with a support contract is an Enterprise plan instance. You keep your own Postgres and your own region. We send you the Enterprise image and a license key; the key and the other Enterprise settings are listed under [Configuration](/self-hosting/configuration#enterprise). [Talk to us](https://www.linkedin.com/in/jancbeck/).
+A self-hosted instance with a support contract is an Enterprise plan instance. You keep your own Postgres and your own region. We send you the Enterprise image and a license key, which includes the managed price table; the key and the other Enterprise settings are listed under [Configuration](/self-hosting/configuration#enterprise). [Talk to us](https://www.linkedin.com/in/jancbeck/).
 
 ## OIDC and SCIM {#oidc-scim}
 
@@ -29,7 +29,7 @@ The provider must send the member's email address, as the `email` claim or, as E
 
 ### SCIM {#scim}
 
-Create a SCIM token under _Settings_ and give it, with the SCIM URL, to your identity provider. The SCIM URL is your `TC_PUBLIC_URL` followed by `/scim/v2`. People you add or remove there are added or removed as members. Their role and tags are set in Token Controller.
+Create a SCIM token under _Settings_ and give it, with the SCIM URL, to your identity provider. The SCIM URL is your `TC_PUBLIC_URL` followed by `/scim/v2`. People you add or remove there are added or removed as members. Their role and attributes are set in Token Controller.
 
 ## What is not open source {#features}
 
