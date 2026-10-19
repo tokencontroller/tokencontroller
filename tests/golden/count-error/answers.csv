@@ -1,0 +1,11 @@
+as_of,kind,filter,from,to,argument,key,amount,note
+2026-04-05T00:00:00Z,messages,,,,,S1/1,350.00,priced
+2026-04-05T00:00:00Z,messages,,,,,S1/2,50.00,priced
+2026-04-05T00:00:00Z,messages,,,,,S5/1,,count error
+2026-04-05T00:00:00Z,messages,,,,,S6/1,,unknown model
+2026-04-05T00:00:00Z,cost,,2026-03-01,2026-03-31,,,400.00,count error S5/1; unknown model acme/mystery-1
+2026-04-05T00:00:00Z,by,,2026-03-01,2026-03-31,person,mara,400.00,
+2026-04-05T00:00:00Z,by,,2026-03-01,2026-03-31,person,tom,0.00,
+2026-04-05T00:00:00Z,reconcile,,,,b1,bill,1000.00,
+2026-04-05T00:00:00Z,reconcile,,,,b1,messages,400.00,
+2026-04-05T00:00:00Z,reconcile,,,,b1,unexplained,600.00,

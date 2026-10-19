@@ -1,34 +1,55 @@
 # Golden cases
 
-Acceptance cases for the accounting core, one folder per scenario in the docs. Each folder describes an organization, its token entries and its bills as CSV, and holds what the core must make of them. `crates/core/tests/golden.rs` runs every folder and compares its outputs with the expected files exactly. Existing cases only change with the maintainer's `harness-change` label (ADR 0013); new cases need none.
+Acceptance cases for the accounting core (cost model 2), one folder per scenario. Each folder is an event log written as CSV files, one file per kind of event, plus the queries to ask of it, and holds the answers the fold must give. `crates/core/tests/golden.rs` runs every folder and compares `answers.csv` exactly. Existing cases only change with the maintainer's `harness-change` label (ADR 0013); new cases need none.
 
-Each case's `README.md` tells its story and links the docs pages it comes from.
+Each case's `README.md` tells its story with its numbers. `worked-month` is the worked month of the spec.
 
-## Inputs
+## Inputs: the event log
+
+Every event file has `id` and `recorded_at` (RFC 3339, UTC); `splits.csv` also has `supersedes`. A file that a case does not need is left out. Prices and amounts are in USD. Tags are `name=value` pairs joined by `;`. Dates are `YYYY-MM-DD`.
 
 | File | Columns | Notes |
 | --- | --- | --- |
-| `organization.csv` | `setting,value` | `reporting_currency`, `cost_source`, `period` (required); `approval` (`true`), `tag_names`, `cost_center`, `ladder` (most specific first), `several_keys`, `missing_tickets`, `columns` (extra cost sheet columns), `price_version` |
-| `people.csv` | `person,tags` | |
-| `projects.csv` | `project,ticket_key_pattern,repositories,tags` | |
-| `tickets.csv` | `ticket,project,parent,title,tags` | |
-| `rules.csv` | `owner,name,when,then` | Added after the default rules. `owner` is `organization` or a person. `when`: conditions such as `branch starts_with review/`, joined by `;`. `then`: `set name=value;...`, `ticket_key_in branch`, or `repository_project` |
-| `prices.csv` | `version,model,input,output,cache_write,cache_read` | USD per million tokens. Each version changes the one before it |
-| `token_entries.csv` | `entry,person,agent_harness,agent_name,started_at,status,arrival,bill,tags,configured,signals,summary,hand_split` | `person` is the agent manager. `bill` names a row of `bills.csv`. `tags` are named by hand or sent with the entry; `configured` come from a config file or telemetry. `hand_split` is like `60 ticket=A-1\|40 ticket=B-2` |
-| `messages.csv` | `entry,message,at,model,input,output,cache_write,cache_read,reported_cost,billed_cost,signals` | `model` is `provider/model`. Rows without a `message` are an entry's totals; rows with one are its messages, cut into segments |
-| `bills.csv` | `bill,provider,cost_source,period,currency,gross,discount,credit,net,rate,revision` | `rate` converts into the reporting currency. Token entries on no bill, such as usage on a seat plan, leave `bill` empty: they count in reports but are not on the cost sheet |
-| `adjustments.csv` | `tags,amount,reason,posted_by,posted_at,late` | Optional |
+| `tag_values.csv` | `name,key,title,source_status,defaults` | `defaults` are the tags the value brings, such as `project=shop` |
+| `attribute_values.csv` | `name,key,defaults` | Attributes of people, such as team `web` with default `department=engineering` |
+| `person_attributes.csv` | `person,name,key` | Puts an attribute value on a person |
+| `prices.csv` | `provider,model,kind,per_million,valid_from,source` | `kind` is `input`, `output`, `cache_write` or `cache_read`; `source` is `managed` or `organization` |
+| `messages.csv` | `session,message,person,provider,model,at,input,output,cache_write,cache_read,agent_harness,agent_name,reported_cost,tags,branch,prompt_keys` | All four counts empty means no counts (a count error). `prompt_keys` are joined by spaces |
+| `splits.csv` | `supersedes,session,message,parts` | An empty `message` splits the session. `parts` is like `60 feature=KD-1\|40 feature=KD-2` |
+| `bills.csv` | `provider,from,to,amount` | |
+| `estimates.csv` | `description,tags,median,markup_basis_points,estimator,from,to` | The distribution's median; `from` and `to` are the days the plan spreads over |
+| `accepts.csv` | `estimate` | The id of the estimate's event |
+| `shares.csv` | `person,project,fraction_basis_points,from,to` | `to` empty is open-ended |
+| `grants.csv` | `person,capability,filter` | `capability` is `view`, `assign`, `approve`, `plan`, `grant`, `adjust` or `cutoff` |
+| `rules.csv` | `name,scope,order,signal,pattern,then` | `scope` is `organization` or a person. `signal` is `branch`, `repository`, `pull_request_title`, `prompt_keys`, `agent_name`, `config NAME` or `resource NAME`. `then` is `key_of feature` or `tag project=shop` |
+| `cutoffs.csv` | `date` | |
+| `submits.csv` | `person,from,to` | |
+| `approvals.csv` | `submission,decision,reason` | `decision` is `approved` or `rejected` |
+| `reversals.csv` | `of` | The id of the event reversed |
 
-Lists inside a cell are joined by `;`, tags are `name=value`, and times are RFC 3339 in UTC. `signals` are `name=value` pairs of `branch`, `working_directory`, `repository`, `pull_request`, `subagent_type`, `prompt_keys`, `session_title_keys` and `pull_request_title_keys`; key lists are joined by spaces.
+## Queries
 
-## Expected outputs
+`queries.csv` has `as_of,kind,filter,from,to,argument`. Each row folds the log as of `as_of` and asks one question; `filter` is tags and attributes joined by `;`, `from` and `to` are the window.
 
-| File | What |
-| --- | --- |
-| `splits.csv` | Every token entry's splits: tags, exact list value, how it was placed, and notes (ticket not synced, unknown model, dropped tag names) |
-| `cost_sheet.csv` | The cost sheet CSV of `period`, exactly as the core writes it |
-| `reports.csv` | Optional. For each `filter` and `group_by` it names, what the splits that count in reports come to per value; an empty `group_by` gives the filter's total |
-| `budgets.csv` | Optional. Each filter's token budget next to its actual cost |
-| `close.csv` | Optional. The close check of `period` |
+| Kind | Answers | `argument` |
+| --- | --- | --- |
+| `messages` | `C(e)` of every message: key `session/message`, amount, note `priced`, `count error` or `unknown model` | |
+| `lines` | Every split part: key `session/message#part`, amount, note `assigned by; label; closed tags` | |
+| `cost` | `C(F, w)`, with a note naming count errors and unknown models | |
+| `by` | `C(F, w)` partitioned by one tag name, an empty key for lines without it | the tag name |
+| `by_label` | `C(F, w)` by `direct`, `project overhead`, `organization overhead` | |
+| `reconcile` | `bill`, `messages` and `unexplained` (R); note `a message is wrong` when R < 0 | the bill's event id |
+| `plan` | `P(F, w)`, or key `none` | |
+| `deviation` | `plan`, `actual` and `delta`; note `favourable` or `unfavourable` | |
+| `forecast` | The forecast for the window from the past windows | past windows `from..to;from..to` |
+| `can` | `true` or `false` | `person capability` |
+| `share_sums` | Each project's share fractions in basis points on `from`; note `over 1` | |
+| `submissions` | Every submission with its status | |
+| `cutoff` | The cutoff date or `none`; note the frozen as-of moment | |
+| `history` | `H`: every tag value with its cost so far and last activity | |
 
-The runner writes every output it computes to `target/tmp/golden/<case>/`. To add a case, write its inputs, work out the expected numbers by hand from the docs scenario, and compare them with those files before copying any in.
+## Expected output
+
+`answers.csv`: `as_of,kind,filter,from,to,argument,key,amount,note`, one line per answer, in the order of the queries. Amounts carry every digit they have, at least to the cent.
+
+The runner writes every case's computed answers to `target/tmp/golden/<case>/answers.csv`. To add a case, write its inputs and queries, work out the expected numbers by hand from the spec or the docs, and compare them with that file before copying it in.

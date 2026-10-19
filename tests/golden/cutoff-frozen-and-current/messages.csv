@@ -1,0 +1,6 @@
+id,recorded_at,session,message,person,provider,model,at,input,output,cache_write,cache_read,agent_harness,agent_name,reported_cost,tags,branch,prompt_keys
+m1,2026-03-02T11:00:00Z,S1,1,mara,anthropic,claude-sonnet-4-5,2026-03-02T10:00:00Z,20000000,5000000,,,claude-code,,,,,
+m2,2026-03-02T11:00:00Z,S1,2,mara,anthropic,claude-sonnet-4-5,2026-03-02T10:30:00Z,5000000,,,,claude-code,,,,,
+m3,2026-03-05T11:00:00Z,S2,1,mara,anthropic,claude-sonnet-4-5,2026-03-05T10:00:00Z,10000000,5000000,,50000000,claude-code,,,,,
+m4,2026-03-09T11:00:00Z,S3,1,tom,anthropic,claude-sonnet-4-5,2026-03-09T10:00:00Z,,2000000,3200000,,claude-code,review bot,,,,
+m5,2026-03-12T11:00:00Z,S4,1,tom,anthropic,claude-sonnet-4-5,2026-03-12T10:00:00Z,15000000,,,,claude-code,,,,,

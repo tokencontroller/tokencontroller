@@ -1,0 +1,5 @@
+id,recorded_at,supersedes,session,message,parts
+s1,2026-03-02T12:00:00Z,,S1,,1 feature=KD-1
+s2,2026-03-05T12:00:00Z,,S2,,60 feature=KD-1|40 feature=KD-2
+s3,2026-03-09T12:00:00Z,,S3,,1 project=shop
+s2b,2026-03-21T00:00:00Z,s2,S2,,1 feature=KD-2
