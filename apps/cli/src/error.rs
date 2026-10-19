@@ -6,8 +6,8 @@ use std::path::PathBuf;
 /// happened and what to do in plain words.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    /// The command was used wrongly: a bad argument, an unknown entry number,
-    /// a command that needs a connection while none is set up.
+    /// The command was used wrongly: a bad argument, an unknown session
+    /// number, a command that needs a connection while none is set up.
     #[error("{0}")]
     Usage(String),
     /// The service answered with an error.
@@ -25,12 +25,16 @@ pub enum Error {
     /// The local database failed.
     #[error("the local database failed: {0}")]
     Store(#[from] rusqlite::Error),
-    /// JSON from the service or the classifier did not have the expected shape.
+    /// JSON from the service or the log on this machine did not have the
+    /// expected shape.
     #[error("unexpected data: {0}")]
     Data(String),
     /// Money did not add up, which only happens with absurd amounts.
     #[error(transparent)]
     Money(#[from] tokencontroller_core::MoneyError),
+    /// The event log on this machine cannot be folded.
+    #[error("the log on this machine cannot be read: {0}")]
+    Fold(#[from] tokencontroller_core::FoldError),
     /// Writing the output failed, such as a closed pipe.
     #[error("could not write the output: {0}")]
     Output(#[from] std::io::Error),
@@ -47,6 +51,7 @@ impl Error {
             | Self::Store(_)
             | Self::Data(_)
             | Self::Money(_)
+            | Self::Fold(_)
             | Self::Output(_) => 3,
         }
     }
@@ -66,6 +71,12 @@ impl Error {
 impl From<serde_json::Error> for Error {
     fn from(error: serde_json::Error) -> Self {
         Self::Data(error.to_string())
+    }
+}
+
+impl From<tokencontroller_core::TagError> for Error {
+    fn from(error: tokencontroller_core::TagError) -> Self {
+        Self::Usage(error.to_string())
     }
 }
 
@@ -92,5 +103,45 @@ mod tests {
         let file = Error::file("/x", std::io::Error::other("gone"));
         assert_eq!(file.exit_code(), 3);
         assert_eq!(file.to_string(), "/x: gone");
+        let tag: Error = tokencontroller_core::TagError::InvalidTag("x".into()).into();
+        assert_eq!(tag.exit_code(), 1);
+    }
+
+    #[test]
+    fn broken_json_is_a_failure_on_this_machine() {
+        let broken = serde_json::from_str::<serde_json::Value>("{").unwrap_err();
+        let error: Error = broken.into();
+        assert_eq!(error.exit_code(), 3);
+        assert!(error.to_string().starts_with("unexpected data: "));
+        let output: Error = std::io::Error::other("closed pipe").into();
+        assert_eq!(output.exit_code(), 3);
+        assert_eq!(
+            output.to_string(),
+            "could not write the output: closed pipe"
+        );
+    }
+
+    #[test]
+    fn messages_name_the_service_and_the_address() {
+        let service = Error::Service {
+            status: 422,
+            message: "no such feature".into(),
+        };
+        assert_eq!(
+            service.to_string(),
+            "the service answered 422: no such feature"
+        );
+        let network = Error::Network {
+            url: "https://tc.example.com".into(),
+            reason: "timeout".into(),
+        };
+        assert_eq!(
+            network.to_string(),
+            "could not reach https://tc.example.com: timeout"
+        );
+        assert_eq!(
+            Error::usage("say which session").to_string(),
+            "say which session"
+        );
     }
 }

@@ -5,9 +5,9 @@
 //! carry usage, how copies of one response are counted once, and how Codex's
 //! running totals turn into per-turn counts. They keep what ccusage drops and
 //! a token entry needs: the message and request IDs, the branch, the working
-//! directory and the ticket keys in prompts (ADR 0017).
+//! directory and the feature keys in prompts (ADR 0017).
 //!
-//! Prompt text is only held in memory while a file is read, to find ticket
+//! Prompt text is only held in memory while a file is read, to find feature
 //! keys. It is never stored and never leaves the machine.
 
 pub mod claude_code;
@@ -79,7 +79,7 @@ pub struct Message {
     pub sidechain: bool,
 }
 
-/// Ticket-key-bearing text a person wrote. Held only while reading.
+/// Text a person wrote, searched for feature keys. Held only while reading.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Prompt {
     pub session_id: String,
@@ -167,9 +167,9 @@ pub fn home_dir() -> Option<PathBuf> {
 
 /// Reads an RFC 3339 timestamp as milliseconds since the epoch.
 pub fn timestamp_ms(text: &str) -> Option<i64> {
-    text.parse::<jiff::Timestamp>()
-        .ok()
-        .map(jiff::Timestamp::as_millisecond)
+    let moment =
+        time::OffsetDateTime::parse(text, &time::format_description::well_known::Rfc3339).ok()?;
+    i64::try_from(moment.unix_timestamp_nanos().checked_div(1_000_000)?).ok()
 }
 
 /// A JSON number as nano-units. `serde_json` gives back the shortest decimal

@@ -3,7 +3,7 @@
 
     release.py check-version VERSION        the tag matches apps/cli/Cargo.toml
     release.py archive TARGET BINARY DEPENDENCIES OUT
-                                            one archive: tc, license, notices, classifier
+                                            one archive: tc, license, notices
     release.py sums DIR                     SHA256SUMS for the archives in DIR
     release.py formula VERSION SUMS         the Homebrew formula on standard output
     release.py winget VERSION SUMS OUT      the three winget manifest files in OUT
@@ -68,14 +68,13 @@ def check_version(version: str) -> None:
 
 
 def archive(target: str, binary: str, dependencies: str, out: str) -> Path:
-    """Packs the binary with its license, the notices and the classifier."""
+    """Packs the binary with its license and the notices."""
     windows = "windows" in target
     files = [
         ("tc.exe" if windows else "tc", Path(binary), 0o755),
         ("LICENSE", CLI / "LICENSE", 0o644),
         ("THIRD_PARTY_NOTICES.md", CLI / "THIRD_PARTY_NOTICES.md", 0o644),
         ("DEPENDENCIES.md", Path(dependencies), 0o644),
-        ("pick-ticket", CLI / "classifier" / "pick-ticket", 0o755),
     ]
     folder = Path(out)
     folder.mkdir(parents=True, exist_ok=True)
@@ -163,10 +162,8 @@ class Tc < Formula
   def install
     if build.head?
       system "cargo", "install", *std_cargo_args(path: "apps/cli")
-      pkgshare.install "apps/cli/classifier/pick-ticket"
     else
       bin.install "tc"
-      pkgshare.install "pick-ticket"
     end
   end
 

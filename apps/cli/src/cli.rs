@@ -27,17 +27,19 @@ pub enum Command {
     Tag {
         number: i64,
         tags: Vec<String>,
+        remember: bool,
     },
     Split {
         number: i64,
-        shares: Vec<String>,
+        weights: Vec<String>,
+        remember: bool,
     },
     Submit {
         tags: Vec<String>,
         signals: Vec<String>,
     },
     Report {
-        by: String,
+        by: Option<String>,
         filter: Vec<String>,
         since: Option<String>,
     },
@@ -78,9 +80,16 @@ pub enum RulesAction {
 
 fn number_arg() -> Arg {
     Arg::new("number")
-        .help("The token entry's number from tc review.")
+        .help("The session's number from tc review.")
         .required(true)
         .value_parser(value_parser!(i64))
+}
+
+fn remember_arg() -> Arg {
+    Arg::new("remember")
+        .long("remember")
+        .action(ArgAction::SetTrue)
+        .help("Make this assignment a personal rule from the session's signals, so it applies next time.")
 }
 
 fn pairs_arg(name: &'static str, value_name: &'static str, help: &'static str) -> Arg {
@@ -95,7 +104,7 @@ fn pairs_arg(name: &'static str, value_name: &'static str, help: &'static str) -
 pub fn command() -> ClapCommand {
     ClapCommand::new("tc")
         .version(env!("CARGO_PKG_VERSION"))
-        .about("Token Controller: reads your AI agents' session files, places token entries with your rules, and submits token sheets.")
+        .about("Token Controller: reads your AI agents' session files, splits sessions with your rules, and submits your messages.")
         .after_help("Works with no service connected. Docs: https://docs.tokencontroller.com/reference/cli")
         .subcommand_required(true)
         .arg_required_else_help(true)
@@ -114,47 +123,49 @@ pub fn command() -> ClapCommand {
                 )),
         )
         .subcommand(ClapCommand::new("status").about(
-            "Organization, person, agents found, rules, and today's cost and share on tickets.",
+            "Organization, person, agents found, rules, today's cost and share on features, and your last submit.",
         ))
         .subcommand(
             ClapCommand::new("review")
-                .about("List draft token entries and their tags.")
+                .about("List your sessions since your last submit and their splits.")
                 .arg(
                     Arg::new("all")
                         .long("all")
                         .action(ArgAction::SetTrue)
-                        .help("Also list token entries already submitted."),
+                        .help("Also list the sessions already submitted."),
                 ),
         )
         .subcommand(
             ClapCommand::new("tag")
-                .about("Set tags on token entry N, such as ticket=KD-214 or purpose=learning.")
+                .about("Set tags on session N, such as feature=KD-214 or purpose=learning.")
                 .arg(number_arg())
                 .arg(pairs_arg(
                     "tags",
                     "NAME=VALUE",
                     "One or more NAME=VALUE. An empty value, such as purpose=, removes the tag.",
-                )),
+                ))
+                .arg(remember_arg()),
         )
         .subcommand(
             ClapCommand::new("split")
-                .about("Split token entry N between tickets, such as KD-231=60 KD-240=40.")
+                .about("Split session N between features, such as KD-231=60 KD-240=40.")
                 .arg(number_arg())
                 .arg(pairs_arg(
-                    "shares",
-                    "TICKET=SHARE",
-                    "Two or more TICKET=SHARE. Shares are weights and need not add up to 100.",
-                )),
+                    "weights",
+                    "FEATURE=WEIGHT",
+                    "Two or more FEATURE=WEIGHT. Weights need not add up to 100; they become fractions that add up to 1.",
+                ))
+                .arg(remember_arg()),
         )
         .subcommand(
             ClapCommand::new("submit")
-                .about("Submit your token sheet.")
+                .about("Submit every message of yours since your last submit.")
                 .arg(
                     Arg::new("tag")
                         .long("tag")
                         .value_name("NAME=VALUE")
                         .action(ArgAction::Append)
-                        .help("A tag for every token entry this submit sends, such as ticket=KD-214. It wins over every rule. Repeat for more."),
+                        .help("A tag for every session this submit sends, such as feature=KD-214. It wins over every rule. Repeat for more."),
                 )
                 .arg(
                     Arg::new("signal")
@@ -167,7 +178,7 @@ pub fn command() -> ClapCommand {
         .subcommand(report_command())
         .subcommand(
             ClapCommand::new("export")
-                .about("All token entries as CSV.")
+                .about("Every message as CSV, in the token entry schema.")
                 .arg(
                     Arg::new("csv")
                         .long("csv")
@@ -179,7 +190,7 @@ pub fn command() -> ClapCommand {
         .subcommand(rules_command())
         .subcommand(
             ClapCommand::new("config")
-                .about("Settings, such as classifier.")
+                .about("Settings, such as feature-key-pattern.")
                 .arg(Arg::new("key").help("The setting. Without one, every setting is listed."))
                 .arg(Arg::new("value").help("The new value. An empty value removes the setting.")),
         )
@@ -213,20 +224,16 @@ fn folder_commands() -> [ClapCommand; 3] {
 
 fn report_command() -> ClapCommand {
     ClapCommand::new("report")
-        .about("Cost in a table, by any tag name or by day.")
-        .arg(
-            Arg::new("by")
-                .long("by")
-                .required(true)
-                .value_name("TAG|day")
-                .help("A tag name, such as team or ticket, or day."),
-        )
+        .about("Cost in a table, by any tag or attribute name, by label or by day.")
+        .arg(Arg::new("by").long("by").value_name("NAME|label|day").help(
+            "A tag or attribute name, such as team or feature, or label, or day. Default: feature.",
+        ))
         .arg(
             Arg::new("filter")
                 .long("filter")
                 .value_name("NAME=VALUE")
                 .action(ArgAction::Append)
-                .help("Only token entries with this tag, such as team=web. Repeat for more."),
+                .help("Only the cost with this tag, such as team=web. Repeat for more."),
         )
         .arg(
             Arg::new("since").long("since").value_name("DAY").help(
@@ -245,7 +252,7 @@ fn rules_command() -> ClapCommand {
                         .arg(pairs_arg(
                             "rule",
                             "RULE",
-                            "SIGNAL TEST VALUE NAME=VALUE… The signal is branch, directory, repository, pull-request, subagent or ticket. The test is is, starts-with, contains, matches (a regular expression) or is-set (no value); without one, a value with ^ $ * + ? ( ) [ ] { } | or \\ is a regular expression and any other must match exactly.",
+                            "SIGNAL TEST VALUE NAME=VALUE… The signal is branch, directory, repository, pull-request, config:NAME, subagent or feature. The test is is, starts-with, contains, matches (a regular expression) or is-set (no value); without one, a value with ^ $ * + ? ( ) [ ] { } | or \\ is a regular expression and any other must match exactly. feature=$1 sets the feature a group in a matches test captures.",
                         )),
                 )
                 .subcommand(
@@ -298,17 +305,19 @@ pub fn from_matches(matches: &ArgMatches) -> Result<Args> {
         "tag" => Command::Tag {
             number: required(sub, "number")?,
             tags: texts(sub, "tags"),
+            remember: sub.get_flag("remember"),
         },
         "split" => Command::Split {
             number: required(sub, "number")?,
-            shares: texts(sub, "shares"),
+            weights: texts(sub, "weights"),
+            remember: sub.get_flag("remember"),
         },
         "submit" => Command::Submit {
             tags: texts(sub, "tag"),
             signals: texts(sub, "signal"),
         },
         "report" => Command::Report {
-            by: required(sub, "by")?,
+            by: text(sub, "by"),
             filter: texts(sub, "filter"),
             since: text(sub, "since"),
         },
@@ -383,17 +392,29 @@ mod tests {
             Command::Review { all: true }
         );
         assert_eq!(
-            parse("tc tag 5 ticket=KD-231").unwrap().command,
+            parse("tc tag 5 feature=KD-231").unwrap().command,
             Command::Tag {
                 number: 5,
-                tags: vec!["ticket=KD-231".into()]
+                tags: vec!["feature=KD-231".into()],
+                remember: false
+            }
+        );
+        assert_eq!(
+            parse("tc tag 5 purpose=learning --remember")
+                .unwrap()
+                .command,
+            Command::Tag {
+                number: 5,
+                tags: vec!["purpose=learning".into()],
+                remember: true
             }
         );
         assert_eq!(
             parse("tc split 3 KD-231=60 KD-240=40").unwrap().command,
             Command::Split {
                 number: 3,
-                shares: vec!["KD-231=60".into(), "KD-240=40".into()]
+                weights: vec!["KD-231=60".into(), "KD-240=40".into()],
+                remember: false
             }
         );
         assert_eq!(
@@ -417,9 +438,17 @@ mod tests {
                 .unwrap()
                 .command,
             Command::Report {
-                by: "day".into(),
+                by: Some("day".into()),
                 filter: vec!["team=web".into(), "client=acme".into()],
                 since: Some("2026-10-01".into())
+            }
+        );
+        assert_eq!(
+            parse("tc report").unwrap().command,
+            Command::Report {
+                by: None,
+                filter: Vec::new(),
+                since: None
             }
         );
         assert_eq!(parse("tc export --csv").unwrap().command, Command::Export);
@@ -465,12 +494,12 @@ mod tests {
             }
         );
         assert_eq!(
-            parse("tc config classifier ~/bin/pick-ticket")
+            parse("tc config feature-key-pattern ^KD-\\d+")
                 .unwrap()
                 .command,
             Command::Config {
-                key: Some("classifier".into()),
-                value: Some("~/bin/pick-ticket".into())
+                key: Some("feature-key-pattern".into()),
+                value: Some("^KD-\\d+".into())
             }
         );
         assert_eq!(parse("tc record").unwrap().command, Command::Record);
@@ -499,10 +528,46 @@ mod tests {
     #[test]
     fn mistakes_are_refused() {
         assert!(parse("tc tag 5").is_err());
-        assert!(parse("tc tag five ticket=KD-1").is_err());
+        assert!(parse("tc tag five feature=KD-1").is_err());
         assert!(parse("tc export").is_err());
-        assert!(parse("tc report").is_err());
+        assert!(parse("tc split 3").is_err());
         assert!(parse("tc fly").is_err());
         assert!(parse("tc untrack").is_err());
+    }
+
+    #[test]
+    fn split_and_report_take_their_flags() {
+        assert_eq!(
+            parse("tc split 3 KD-1=1 KD-2=1 --remember")
+                .unwrap()
+                .command,
+            Command::Split {
+                number: 3,
+                weights: vec!["KD-1=1".into(), "KD-2=1".into()],
+                remember: true
+            }
+        );
+        assert_eq!(
+            parse("tc report --by label").unwrap().command,
+            Command::Report {
+                by: Some("label".into()),
+                filter: Vec::new(),
+                since: None
+            }
+        );
+        assert_eq!(
+            parse("tc config").unwrap().command,
+            Command::Config {
+                key: None,
+                value: None
+            }
+        );
+        assert_eq!(
+            parse("tc config price-table ~/prices.csv").unwrap().command,
+            Command::Config {
+                key: Some("price-table".into()),
+                value: Some("~/prices.csv".into())
+            }
+        );
     }
 }

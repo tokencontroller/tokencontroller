@@ -1,15 +1,16 @@
-//! The local `SQLite` file: model calls read from session files, the draft
-//! token entries built from them, and what was set by hand. No prompt text is
-//! ever written here; only the ticket keys found in it.
+//! The local `SQLite` file: model calls read from session files, the
+//! numbers `tc review` gives the sessions that count, and the event log of
+//! this machine: splits, rules, submits and reversals. No prompt text is ever
+//! written here; only the feature keys found in it.
 
 use std::collections::{BTreeMap, HashSet};
 use std::path::Path;
 
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
+use tokencontroller_core::Event;
 
 use crate::error::{Error, Result};
 use crate::folders::Scope;
-use crate::placing::KeyCount;
 use crate::sources::{FileContents, Harness};
 use crate::tokens::Tokens;
 
@@ -94,7 +95,28 @@ CREATE TABLE meta (
 );
 ";
 
-const SCHEMA_VERSION: i64 = 1;
+/// Cost model 2: token entries, hand tags and picks give way to numbered
+/// sessions and an event log. What version 1 held by hand is not carried
+/// over; the session files are read again.
+const SCHEMA_V2: &str = "
+DROP TABLE IF EXISTS entries;
+DROP TABLE IF EXISTS personal_rules;
+DELETE FROM meta;
+CREATE TABLE sessions (
+    local_id TEXT PRIMARY KEY,
+    number INTEGER NOT NULL UNIQUE,
+    harness TEXT NOT NULL,
+    session_id TEXT NOT NULL
+);
+CREATE TABLE events (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    id TEXT NOT NULL UNIQUE,
+    subject TEXT,
+    event TEXT NOT NULL
+);
+";
+
+const SCHEMA_VERSION: i64 = 2;
 
 /// Sessions `tc record` was told about are kept in `meta` under this prefix.
 const RECORDED: &str = "recorded:";
@@ -116,6 +138,8 @@ pub struct SessionFolder {
 /// One stored model call, with the subagent type resolved.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StoredMessage {
+    pub harness: Harness,
+    pub session_id: String,
     pub message_id: String,
     pub request_id: Option<String>,
     pub at_ms: i64,
@@ -128,50 +152,13 @@ pub struct StoredMessage {
     pub subagent: Option<String>,
 }
 
-/// Where a token entry stands on this machine.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Status {
-    Draft,
-    Submitted,
-    Rejected,
-}
-
-impl Status {
-    pub fn name(self) -> &'static str {
-        match self {
-            Self::Draft => "draft",
-            Self::Submitted => "submitted",
-            Self::Rejected => "rejected",
-        }
-    }
-
-    fn from_name(name: &str) -> Self {
-        match name {
-            "submitted" => Self::Submitted,
-            "rejected" => Self::Rejected,
-            _ => Self::Draft,
-        }
-    }
-}
-
-/// A token entry's row: what was set on it, not what it adds up to.
+/// A session that counts, with the number `tc review` shows.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct EntryRow {
+pub struct SessionRow {
     pub local_id: String,
     pub number: i64,
     pub harness: Harness,
     pub session_id: String,
-    pub status: Status,
-    pub summary: Option<String>,
-    pub named_tags: BTreeMap<String, String>,
-    /// Shares set with `tc split`: ticket and percent.
-    pub hand_split: Option<Vec<(String, u64)>>,
-    /// Signals sent with `tc record`, such as a pull request number.
-    pub signals: BTreeMap<String, String>,
-    pub rejected_reason: Option<String>,
-    pub remote_id: Option<String>,
-    pub pick: Option<String>,
-    pub pick_question: Option<String>,
 }
 
 pub struct Store {
@@ -202,7 +189,7 @@ fn to_u64(count: i64) -> u64 {
     u64::try_from(count).unwrap_or(0)
 }
 
-/// The local ID of a session's token entry, such as `claude-code:6b1f…`.
+/// The local ID of a session, such as `claude-code:6b1f…`.
 pub fn local_id(harness: Harness, session_id: &str) -> String {
     format!("{}:{session_id}", harness.name())
 }
@@ -240,12 +227,17 @@ impl Store {
                 "this database was written by a newer tc; update tc first",
             ));
         }
+        let transaction = self.connection.transaction()?;
         if version < 1 {
-            let transaction = self.connection.transaction()?;
             transaction.execute_batch(SCHEMA_V1)?;
-            transaction.pragma_update(None, "user_version", SCHEMA_VERSION)?;
-            transaction.commit()?;
         }
+        if version < 2 {
+            transaction.execute_batch(SCHEMA_V2)?;
+            // Every file is read again under the new model.
+            transaction.execute_batch("DELETE FROM files; DELETE FROM session_keys;")?;
+        }
+        transaction.pragma_update(None, "user_version", SCHEMA_VERSION)?;
+        transaction.commit()?;
         Ok(())
     }
 
@@ -278,20 +270,14 @@ impl Store {
         Ok(rows)
     }
 
-    pub fn delete_meta(&self, key: &str) -> Result<()> {
-        self.connection
-            .execute("DELETE FROM meta WHERE key = ?1", [key])?;
-        Ok(())
-    }
-
     /// Whether a file was read before at this size and time.
     #[cfg(test)]
     pub fn file_unchanged(&self, path: &str, size: u64, modified_ms: i64) -> Result<bool> {
         file_unchanged(&self.connection, path, size, modified_ms)
     }
 
-    /// Makes every file be read again, such as after the ticket key patterns
-    /// changed.
+    /// Makes every file be read again, such as after the feature key
+    /// pattern changed.
     pub fn forget_files(&self) -> Result<()> {
         self.connection
             .execute_batch("DELETE FROM files; DELETE FROM session_keys;")?;
@@ -305,47 +291,64 @@ impl Store {
         })
     }
 
-    /// Personal rules kept on this machine, in order, as JSON.
-    pub fn personal_rules(&self) -> Result<Vec<String>> {
-        let mut statement = self
-            .connection
-            .prepare("SELECT rule FROM personal_rules ORDER BY position")?;
-        let rules = statement
-            .query_map([], |row| row.get(0))?
-            .collect::<std::result::Result<Vec<String>, _>>()?;
-        Ok(rules)
+    /// The next id for an event recorded on this machine, such as
+    /// `local-12`.
+    pub fn next_event_id(&self) -> Result<String> {
+        let last: u64 = self
+            .meta("event_seq")?
+            .and_then(|text| text.parse().ok())
+            .unwrap_or(0);
+        let next = last.saturating_add(1);
+        self.set_meta("event_seq", &next.to_string())?;
+        Ok(format!("local-{next}"))
     }
 
-    pub fn set_personal_rules(&mut self, rules: &[String]) -> Result<()> {
-        let transaction = self.connection.transaction()?;
-        transaction.execute("DELETE FROM personal_rules", [])?;
-        for (position, rule) in rules.iter().enumerate() {
-            transaction.execute(
-                "INSERT INTO personal_rules (position, rule) VALUES (?1, ?2)",
-                params![to_i64(u64::try_from(position).unwrap_or(u64::MAX)), rule],
-            )?;
-        }
-        transaction.commit()?;
+    /// Appends an event to the log on this machine. `subject` is the local
+    /// id of the session the event is about, for splits, so the event goes
+    /// when the session stops counting.
+    pub fn append_event(&self, event: &Event, subject: Option<&str>) -> Result<()> {
+        self.connection.execute(
+            "INSERT INTO events (id, subject, event) VALUES (?1, ?2, ?3)",
+            params![event.id.as_str(), subject, serde_json::to_string(event)?],
+        )?;
         Ok(())
     }
 
-    /// Creates a draft token entry for every session that has none, started
-    /// at or after `since_ms` and counts by `scope` or was recorded,
-    /// numbered in the order they started. A submitted entry whose session
-    /// went on after it was submitted becomes a draft again. A draft that
-    /// was never sent goes away once its session no longer counts; a sent
-    /// entry is never touched.
-    pub fn create_entries(&mut self, since_ms: i64, scope: &mut Scope) -> Result<()> {
+    /// Every event recorded on this machine, in the order recorded.
+    pub fn events(&self) -> Result<Vec<Event>> {
+        let mut statement = self
+            .connection
+            .prepare("SELECT event FROM events ORDER BY seq")?;
+        let texts = statement
+            .query_map([], |row| row.get::<_, String>(0))?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        let mut events = Vec::with_capacity(texts.len());
+        for text in texts {
+            events.push(serde_json::from_str(&text)?);
+        }
+        Ok(events)
+    }
+
+    /// Numbers every session that has no number yet, started at or after
+    /// `since_ms` and counting by `scope` or recorded, in the order they
+    /// started. A session with no submitted message that stops counting
+    /// loses its number and the splits set on it by hand; a session inside
+    /// one of the `submitted` windows (milliseconds, closed) keeps both.
+    pub fn create_sessions(
+        &mut self,
+        since_ms: i64,
+        scope: &mut Scope,
+        submitted: &[(i64, i64)],
+    ) -> Result<()> {
         let recorded: HashSet<String> = self
             .meta_with_prefix(RECORDED)?
             .into_iter()
             .filter_map(|(key, _)| key.strip_prefix(RECORDED).map(str::to_owned))
             .collect();
         let transaction = self.connection.transaction()?;
-        let sessions: Vec<(String, String, i64, String, Option<String>)> = {
+        let sessions: Vec<(String, String, i64, i64, Option<String>)> = {
             let mut statement = transaction.prepare(&format!(
-                "SELECT m.harness, m.session_id, MIN(m.at_ms),
-                        COUNT(*) || ':' || MAX(m.at_ms), {SESSION_FOLDER}
+                "SELECT m.harness, m.session_id, MIN(m.at_ms), MAX(m.at_ms), {SESSION_FOLDER}
                  FROM messages m
                  GROUP BY m.harness, m.session_id
                  ORDER BY MIN(m.at_ms), m.harness, m.session_id"
@@ -363,46 +366,35 @@ impl Store {
                 .collect::<std::result::Result<Vec<_>, _>>()?
         };
         let mut next: i64 =
-            transaction.query_row("SELECT COALESCE(MAX(number), 0) FROM entries", [], |row| {
+            transaction.query_row("SELECT COALESCE(MAX(number), 0) FROM sessions", [], |row| {
                 row.get(0)
             })?;
-        for (harness, session_id, started_ms, fingerprint, folder) in sessions {
+        for (harness, session_id, started_ms, ended_ms, folder) in sessions {
             let local = format!("{harness}:{session_id}");
-            if !recorded.contains(&local) && !scope.includes(folder.as_deref()) {
-                transaction.execute(
-                    "DELETE FROM entries
-                     WHERE local_id = ?1 AND status = 'draft' AND remote_id IS NULL",
-                    [&local],
-                )?;
+            let counts = recorded.contains(&local) || scope.includes(folder.as_deref());
+            let kept = submitted
+                .iter()
+                .any(|(from, to)| started_ms <= *to && ended_ms >= *from);
+            if !counts && !kept {
+                transaction.execute("DELETE FROM sessions WHERE local_id = ?1", [&local])?;
+                transaction.execute("DELETE FROM events WHERE subject = ?1", [&local])?;
                 continue;
             }
-            let existing: Option<(String, Option<String>)> = transaction
+            let exists: Option<i64> = transaction
                 .query_row(
-                    "SELECT status, submitted_fingerprint FROM entries WHERE local_id = ?1",
+                    "SELECT number FROM sessions WHERE local_id = ?1",
                     [&local],
-                    |row| Ok((row.get(0)?, row.get(1)?)),
+                    |row| row.get(0),
                 )
                 .optional()?;
-            match existing {
-                None if started_ms >= since_ms => {
-                    next = next
-                        .checked_add(1)
-                        .ok_or_else(|| Error::Data("too many entries".into()))?;
-                    transaction.execute(
-                        "INSERT INTO entries (local_id, number, harness, session_id) VALUES (?1, ?2, ?3, ?4)",
-                        params![local, next, harness, session_id],
-                    )?;
-                }
-                Some((status, submitted))
-                    if status == "submitted"
-                        && submitted.as_deref() != Some(fingerprint.as_str()) =>
-                {
-                    transaction.execute(
-                        "UPDATE entries SET status = 'draft' WHERE local_id = ?1",
-                        [&local],
-                    )?;
-                }
-                _ => {}
+            if exists.is_none() && (started_ms >= since_ms || kept) {
+                next = next
+                    .checked_add(1)
+                    .ok_or_else(|| Error::Data("too many sessions".into()))?;
+                transaction.execute(
+                    "INSERT INTO sessions (local_id, number, harness, session_id) VALUES (?1, ?2, ?3, ?4)",
+                    params![local, next, harness, session_id],
+                )?;
             }
         }
         transaction.commit()?;
@@ -444,12 +436,10 @@ impl Store {
             .collect())
     }
 
-    /// Token entries with one of the given statuses, oldest first.
-    pub fn entries(&self, statuses: &[Status]) -> Result<Vec<EntryRow>> {
+    /// The sessions that count, by number.
+    pub fn sessions(&self) -> Result<Vec<SessionRow>> {
         let mut statement = self.connection.prepare(
-            "SELECT local_id, number, harness, session_id, status, summary, named_tags,
-                    hand_split, signals, rejected_reason, remote_id, pick, pick_question
-             FROM entries ORDER BY number",
+            "SELECT local_id, number, harness, session_id FROM sessions ORDER BY number",
         )?;
         let rows = statement
             .query_map([], |row| {
@@ -458,223 +448,118 @@ impl Store {
                     row.get::<_, i64>(1)?,
                     row.get::<_, String>(2)?,
                     row.get::<_, String>(3)?,
-                    row.get::<_, String>(4)?,
-                    row.get::<_, Option<String>>(5)?,
-                    row.get::<_, String>(6)?,
-                    row.get::<_, Option<String>>(7)?,
-                    row.get::<_, String>(8)?,
-                    row.get::<_, Option<String>>(9)?,
-                    row.get::<_, Option<String>>(10)?,
-                    row.get::<_, Option<String>>(11)?,
-                    row.get::<_, Option<String>>(12)?,
                 ))
             })?
             .collect::<std::result::Result<Vec<_>, _>>()?;
-        let mut entries = Vec::new();
-        for (
-            local_id,
-            number,
-            harness,
-            session_id,
-            status,
-            summary,
-            named,
-            split,
-            signals,
-            rejected_reason,
-            remote_id,
-            pick,
-            pick_question,
-        ) in rows
-        {
-            let status = Status::from_name(&status);
-            if !statuses.contains(&status) {
-                continue;
-            }
-            let Some(harness) = Harness::from_name(&harness) else {
-                continue;
-            };
-            entries.push(EntryRow {
-                local_id,
-                number,
-                harness,
-                session_id,
-                status,
-                summary,
-                named_tags: serde_json::from_str(&named).unwrap_or_default(),
-                hand_split: split.and_then(|split| serde_json::from_str(&split).ok()),
-                signals: serde_json::from_str(&signals).unwrap_or_default(),
-                rejected_reason,
-                remote_id,
-                pick,
-                pick_question,
-            });
-        }
-        Ok(entries)
+        Ok(rows
+            .into_iter()
+            .filter_map(|(local_id, number, harness, session_id)| {
+                Some(SessionRow {
+                    local_id,
+                    number,
+                    harness: Harness::from_name(&harness)?,
+                    session_id,
+                })
+            })
+            .collect())
     }
 
-    /// The entry with a number, whatever its status.
-    pub fn entry(&self, number: i64) -> Result<Option<EntryRow>> {
-        let all = self.entries(&[Status::Draft, Status::Rejected, Status::Submitted])?;
-        Ok(all.into_iter().find(|entry| entry.number == number))
-    }
-
-    pub fn entry_by_session(&self, harness: Harness, session_id: &str) -> Result<Option<EntryRow>> {
-        let local = local_id(harness, session_id);
-        let all = self.entries(&[Status::Draft, Status::Rejected, Status::Submitted])?;
-        Ok(all.into_iter().find(|entry| entry.local_id == local))
-    }
-
-    pub fn set_named_tags(&self, local_id: &str, tags: &BTreeMap<String, String>) -> Result<()> {
-        self.update_text(local_id, "named_tags", Some(&serde_json::to_string(tags)?))
-    }
-
-    pub fn set_signals(&self, local_id: &str, signals: &BTreeMap<String, String>) -> Result<()> {
-        self.update_text(local_id, "signals", Some(&serde_json::to_string(signals)?))
-    }
-
-    pub fn set_hand_split(&self, local_id: &str, split: Option<&[(String, u64)]>) -> Result<()> {
-        let text = split.map(serde_json::to_string).transpose()?;
-        self.update_text(local_id, "hand_split", text.as_deref())
-    }
-
-    pub fn set_summary(&self, local_id: &str, summary: Option<&str>) -> Result<()> {
-        self.update_text(local_id, "summary", summary)
-    }
-
-    /// Remembers the classifier's answer and the question it answered, so it
-    /// is asked again only when the question changes.
-    pub fn set_pick(&self, local_id: &str, pick: &str, question: &str) -> Result<()> {
-        self.connection.execute(
-            "UPDATE entries SET pick = ?2, pick_question = ?3 WHERE local_id = ?1",
-            params![local_id, pick, question],
-        )?;
-        Ok(())
-    }
-
-    fn update_text(&self, local_id: &str, column: &str, value: Option<&str>) -> Result<()> {
-        // The column comes from this file only, never from input.
-        let sql = format!("UPDATE entries SET {column} = ?2 WHERE local_id = ?1");
-        self.connection.execute(&sql, params![local_id, value])?;
-        Ok(())
-    }
-
-    /// Marks entries submitted, with the service's IDs.
-    pub fn mark_submitted(
-        &mut self,
-        submitted: &[(String, Option<String>)],
-        at_ms: i64,
-    ) -> Result<()> {
-        let transaction = self.connection.transaction()?;
-        for (local, remote_id) in submitted {
-            let fingerprint: Option<String> = transaction
-                .query_row(
-                    "SELECT COUNT(*) || ':' || MAX(m.at_ms) FROM messages m
-                     JOIN entries e ON e.harness = m.harness AND e.session_id = m.session_id
-                     WHERE e.local_id = ?1",
-                    [local],
-                    |row| row.get(0),
-                )
-                .optional()?;
-            transaction.execute(
-                "UPDATE entries SET status = 'submitted', remote_id = COALESCE(?2, remote_id),
-                        submitted_at_ms = ?3, submitted_fingerprint = ?4, rejected_reason = NULL
-                 WHERE local_id = ?1",
-                params![local, remote_id, at_ms, fingerprint],
-            )?;
-        }
-        transaction.commit()?;
-        Ok(())
-    }
-
-    /// Marks entries the service sent back, with the reason.
-    pub fn mark_rejected(&self, local_id: &str, reason: &str) -> Result<()> {
-        self.connection.execute(
-            "UPDATE entries SET status = 'rejected', rejected_reason = ?2
-             WHERE local_id = ?1 AND status = 'submitted'",
-            params![local_id, reason],
-        )?;
-        Ok(())
-    }
-
-    /// The model calls of a session, oldest first, with subagent types.
-    pub fn messages(&self, harness: Harness, session_id: &str) -> Result<Vec<StoredMessage>> {
+    /// The model calls of every session that counts, by session number and
+    /// time, with subagent types.
+    pub fn counted_messages(&self) -> Result<Vec<StoredMessage>> {
         let mut statement = self.connection.prepare(
-            "SELECT m.message_id, m.request_id, m.at_ms, m.model, m.input, m.output,
-                    m.cache_write_5m, m.cache_write_1h, m.cache_read, m.reported_cost_nanos,
-                    m.branch, m.directory, m.repository, s.subagent_type
+            "SELECT m.harness, m.session_id, m.message_id, m.request_id, m.at_ms, m.model,
+                    m.input, m.output, m.cache_write_5m, m.cache_write_1h, m.cache_read,
+                    m.reported_cost_nanos, m.branch, m.directory, m.repository, s.subagent_type
              FROM messages m
+             JOIN sessions n ON n.harness = m.harness AND n.session_id = m.session_id
              LEFT JOIN subagents s
                ON s.harness = m.harness AND s.session_id = m.session_id AND s.agent_id = m.agent_id
-             WHERE m.harness = ?1 AND m.session_id = ?2
-             ORDER BY m.at_ms, m.message_key",
+             ORDER BY n.number, m.at_ms, m.message_key",
         )?;
-        let messages = statement
-            .query_map(params![harness.name(), session_id], |row| {
-                Ok(StoredMessage {
-                    message_id: row.get(0)?,
-                    request_id: row.get(1)?,
-                    at_ms: row.get(2)?,
-                    model: row.get(3)?,
-                    tokens: Tokens {
-                        input: to_u64(row.get(4)?),
-                        output: to_u64(row.get(5)?),
-                        cache_write_5m: to_u64(row.get(6)?),
-                        cache_write_1h: to_u64(row.get(7)?),
-                        cache_read: to_u64(row.get(8)?),
+        let rows = statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    StoredMessage {
+                        harness: Harness::ClaudeCode,
+                        session_id: row.get(1)?,
+                        message_id: row.get(2)?,
+                        request_id: row.get(3)?,
+                        at_ms: row.get(4)?,
+                        model: row.get(5)?,
+                        tokens: Tokens {
+                            input: to_u64(row.get(6)?),
+                            output: to_u64(row.get(7)?),
+                            cache_write_5m: to_u64(row.get(8)?),
+                            cache_write_1h: to_u64(row.get(9)?),
+                            cache_read: to_u64(row.get(10)?),
+                        },
+                        reported_cost: row.get(11)?,
+                        branch: row.get(12)?,
+                        directory: row.get(13)?,
+                        repository: row.get(14)?,
+                        subagent: row.get(15)?,
                     },
-                    reported_cost: row.get(9)?,
-                    branch: row.get(10)?,
-                    directory: row.get(11)?,
-                    repository: row.get(12)?,
-                    subagent: row.get(13)?,
-                })
+                ))
             })?
             .collect::<std::result::Result<Vec<_>, _>>()?;
-        Ok(messages)
-    }
-
-    /// The files in which a session named ticket keys.
-    pub fn key_files(&self, harness: Harness, session_id: &str) -> Result<Vec<String>> {
-        let mut statement = self.connection.prepare(
-            "SELECT DISTINCT path FROM session_keys WHERE harness = ?1 AND session_id = ?2 ORDER BY path",
-        )?;
-        let paths = statement
-            .query_map(params![harness.name(), session_id], |row| row.get(0))?
-            .collect::<std::result::Result<Vec<String>, _>>()?;
-        Ok(paths)
-    }
-
-    /// Ticket keys found in a session's prompts and title, over all its
-    /// files, in the order they were first named.
-    pub fn keys(&self, harness: Harness, session_id: &str) -> Result<Vec<KeyCount>> {
-        let mut statement = self.connection.prepare(
-            "SELECT key, SUM(count), MIN(first_at_ms), MAX(last_at_ms)
-             FROM session_keys WHERE harness = ?1 AND session_id = ?2
-             GROUP BY key ORDER BY MIN(first_at_ms), key",
-        )?;
-        let keys = statement
-            .query_map(params![harness.name(), session_id], |row| {
-                Ok(KeyCount {
-                    key: row.get(0)?,
-                    count: to_u64(row.get(1)?),
-                    first_at_ms: row.get(2)?,
-                    last_at_ms: row.get(3)?,
+        Ok(rows
+            .into_iter()
+            .filter_map(|(harness, message)| {
+                Some(StoredMessage {
+                    harness: Harness::from_name(&harness)?,
+                    ..message
                 })
+            })
+            .collect())
+    }
+
+    /// Feature keys found in prompts and titles, per session, in the order
+    /// they were first named, each once.
+    pub fn keys(&self) -> Result<BTreeMap<String, Vec<String>>> {
+        let mut statement = self.connection.prepare(
+            "SELECT harness, session_id, key
+             FROM session_keys
+             GROUP BY harness, session_id, key
+             ORDER BY harness, session_id, MIN(first_at_ms), key",
+        )?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
             })?
             .collect::<std::result::Result<Vec<_>, _>>()?;
+        let mut keys: BTreeMap<String, Vec<String>> = BTreeMap::new();
+        for (harness, session_id, key) in rows {
+            keys.entry(format!("{harness}:{session_id}"))
+                .or_default()
+                .push(key);
+        }
         Ok(keys)
     }
 
-    pub fn title(&self, harness: Harness, session_id: &str) -> Result<Option<String>> {
-        Ok(self
+    /// Session titles the agents wrote, by local id.
+    pub fn titles(&self) -> Result<BTreeMap<String, String>> {
+        let mut statement = self
             .connection
-            .query_row(
-                "SELECT title FROM session_titles WHERE harness = ?1 AND session_id = ?2",
-                params![harness.name(), session_id],
-                |row| row.get(0),
-            )
-            .optional()?)
+            .prepare("SELECT harness, session_id, title FROM session_titles")?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(rows
+            .into_iter()
+            .map(|(harness, session_id, title)| (format!("{harness}:{session_id}"), title))
+            .collect())
     }
 
     /// How many sessions of each agent harness the database holds.
@@ -702,9 +587,9 @@ impl Batch<'_> {
         file_unchanged(&self.transaction, path, size, modified_ms)
     }
 
-    /// Stores what was read from one file. `keys` are the ticket keys found
-    /// in its prompts and titles, per session; the file's earlier keys are
-    /// replaced.
+    /// Stores what was read from one file. `keys` are the feature keys
+    /// found in its prompts and titles, per session with the time first
+    /// named; the file's earlier keys are replaced.
     pub fn add_file(
         &self,
         path: &str,
@@ -712,7 +597,7 @@ impl Batch<'_> {
         size: u64,
         modified_ms: i64,
         contents: &FileContents,
-        keys: &[(String, KeyCount)],
+        keys: &[(String, String, i64)],
     ) -> Result<()> {
         let t = &self.transaction;
         let harness_name = harness.name();
@@ -770,23 +655,15 @@ impl Batch<'_> {
             )?;
         }
         t.execute("DELETE FROM session_keys WHERE path = ?1", [path])?;
-        for (session_id, key) in keys {
+        for (session_id, key, first_at_ms) in keys {
             t.execute(
                 "INSERT INTO session_keys (path, harness, session_id, key, count, first_at_ms, last_at_ms)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+                 VALUES (?1, ?2, ?3, ?4, 1, ?5, ?5)
                  ON CONFLICT (path, harness, session_id, key) DO UPDATE SET
-                    count = session_keys.count + excluded.count,
+                    count = session_keys.count + 1,
                     first_at_ms = MIN(session_keys.first_at_ms, excluded.first_at_ms),
                     last_at_ms = MAX(session_keys.last_at_ms, excluded.last_at_ms)",
-                params![
-                    path,
-                    harness_name,
-                    session_id,
-                    key.key,
-                    to_i64(key.count),
-                    key.first_at_ms,
-                    key.last_at_ms
-                ],
+                params![path, harness_name, session_id, key, first_at_ms],
             )?;
         }
         t.execute(
@@ -807,6 +684,8 @@ impl Batch<'_> {
 mod tests {
     use super::*;
     use crate::sources::Message;
+    use time::macros::datetime;
+    use tokencontroller_core::{Record, Split, SplitTarget, Tags};
 
     fn message(key: &str, session: &str, at_ms: i64, sidechain: bool, input: u64) -> Message {
         Message {
@@ -829,12 +708,20 @@ mod tests {
         }
     }
 
-    fn add(store: &mut Store, path: &str, contents: &FileContents, keys: &[(String, KeyCount)]) {
+    fn add(store: &mut Store, path: &str, contents: &FileContents, keys: &[(String, String, i64)]) {
         let batch = store.batch().unwrap();
         batch
             .add_file(path, Harness::ClaudeCode, 10, 20, contents, keys)
             .unwrap();
         batch.commit().unwrap();
+    }
+
+    fn split_event(id: &str, session: &str) -> Event {
+        let split = Split::whole(
+            SplitTarget::Session(tokencontroller_core::SessionId::new(session).unwrap()),
+            Tags::parse(["feature=KD-9"]).unwrap(),
+        );
+        Event::new(id, datetime!(2026-10-11 09:00 UTC), Record::Split(split)).unwrap()
     }
 
     #[test]
@@ -850,12 +737,14 @@ mod tests {
             ..FileContents::default()
         };
         add(&mut store, "/f", &contents, &[]);
-        let messages = store.messages(Harness::ClaudeCode, "s1").unwrap();
+        store.create_sessions(0, &mut Scope::new(&[]), &[]).unwrap();
+        let messages = store.counted_messages().unwrap();
         assert_eq!(messages.len(), 2);
         assert_eq!(messages.first().unwrap().tokens.input, 7);
+        assert_eq!(messages.first().unwrap().harness, Harness::ClaudeCode);
         // Reading the same file again changes nothing.
         add(&mut store, "/f", &contents, &[]);
-        assert_eq!(store.messages(Harness::ClaudeCode, "s1").unwrap().len(), 2);
+        assert_eq!(store.counted_messages().unwrap().len(), 2);
         assert!(store.file_unchanged("/f", 10, 20).unwrap());
         assert!(!store.file_unchanged("/f", 11, 20).unwrap());
         store.forget_files().unwrap();
@@ -863,7 +752,7 @@ mod tests {
     }
 
     #[test]
-    fn entries_are_numbered_in_order_and_only_from_since() {
+    fn sessions_are_numbered_in_order_and_only_from_since() {
         let mut store = Store::in_memory().unwrap();
         let contents = FileContents {
             messages: vec![
@@ -874,121 +763,67 @@ mod tests {
             ..FileContents::default()
         };
         add(&mut store, "/f", &contents, &[]);
-        store.create_entries(50, &mut Scope::new(&[])).unwrap();
-        let entries = store.entries(&[Status::Draft]).unwrap();
-        let sessions: Vec<(i64, &str)> = entries
-            .iter()
-            .map(|e| (e.number, e.session_id.as_str()))
-            .collect();
-        assert_eq!(sessions, [(1, "early"), (2, "late")]);
-        store.create_entries(50, &mut Scope::new(&[])).unwrap();
-        assert_eq!(store.entries(&[Status::Draft]).unwrap().len(), 2);
-    }
-
-    #[test]
-    fn a_session_that_goes_on_after_submit_is_a_draft_again() {
-        let mut store = Store::in_memory().unwrap();
-        let mut contents = FileContents {
-            messages: vec![message("a", "s1", 100, false, 1)],
-            ..FileContents::default()
-        };
-        add(&mut store, "/f", &contents, &[]);
-        store.create_entries(0, &mut Scope::new(&[])).unwrap();
-        let local = local_id(Harness::ClaudeCode, "s1");
         store
-            .mark_submitted(&[(local.clone(), Some("te_1".into()))], 500)
+            .create_sessions(50, &mut Scope::new(&[]), &[])
             .unwrap();
-        store.create_entries(0, &mut Scope::new(&[])).unwrap();
-        let entry = store.entry(1).unwrap().unwrap();
-        assert_eq!(entry.status, Status::Submitted);
-        assert_eq!(entry.remote_id.as_deref(), Some("te_1"));
-
-        store.mark_rejected(&local, "wrong client").unwrap();
-        let rejected = store.entry(1).unwrap().unwrap();
-        assert_eq!(rejected.status, Status::Rejected);
-        assert_eq!(rejected.rejected_reason.as_deref(), Some("wrong client"));
-        store.mark_submitted(&[(local.clone(), None)], 600).unwrap();
-
-        contents.messages.push(message("b", "s1", 200, false, 1));
-        add(&mut store, "/f", &contents, &[]);
-        store.create_entries(0, &mut Scope::new(&[])).unwrap();
-        let entry = store.entry(1).unwrap().unwrap();
-        assert_eq!(entry.status, Status::Draft);
-        assert_eq!(entry.remote_id.as_deref(), Some("te_1"));
+        let sessions: Vec<(i64, String)> = store
+            .sessions()
+            .unwrap()
+            .into_iter()
+            .map(|s| (s.number, s.session_id))
+            .collect();
+        assert_eq!(sessions, [(1, "early".to_owned()), (2, "late".to_owned())]);
+        store
+            .create_sessions(50, &mut Scope::new(&[]), &[])
+            .unwrap();
+        assert_eq!(store.sessions().unwrap().len(), 2);
+        // An old session inside a submitted window still counts.
+        store
+            .create_sessions(50, &mut Scope::new(&[]), &[(0, 20)])
+            .unwrap();
+        assert_eq!(store.sessions().unwrap().len(), 3);
     }
 
     #[test]
-    fn what_is_set_by_hand_is_kept() {
+    fn keys_titles_and_subagents_are_kept_per_session() {
         let mut store = Store::in_memory().unwrap();
+        let mut sub = message("b", "s1", 2, true, 1);
+        sub.agent_id = Some("a1".into());
         let contents = FileContents {
-            messages: vec![message("a", "s1", 100, false, 1)],
+            messages: vec![message("a", "s1", 1, false, 1), sub],
             titles: vec![("s1".into(), "Fix checkout".into())],
             subagents: vec![("s1".into(), "a1".into(), "reviewer".into())],
             ..FileContents::default()
         };
-        let keys = vec![(
-            "s1".to_owned(),
-            KeyCount {
-                key: "KD-2".into(),
-                count: 2,
-                first_at_ms: 5,
-                last_at_ms: 9,
-            },
-        )];
+        let keys = vec![
+            ("s1".to_owned(), "KD-2".to_owned(), 5),
+            ("s1".to_owned(), "KD-1".to_owned(), 9),
+            ("s1".to_owned(), "KD-2".to_owned(), 12),
+        ];
         add(&mut store, "/f", &contents, &keys);
         add(&mut store, "/f", &contents, &keys);
-        store.create_entries(0, &mut Scope::new(&[])).unwrap();
-        let local = local_id(Harness::ClaudeCode, "s1");
-        store
-            .set_named_tags(&local, &BTreeMap::from([("ticket".into(), "KD-3".into())]))
-            .unwrap();
-        store
-            .set_hand_split(&local, Some(&[("KD-3".into(), 60), ("KD-4".into(), 40)]))
-            .unwrap();
-        store
-            .set_signals(
-                &local,
-                &BTreeMap::from([("pull_request".into(), "42".into())]),
-            )
-            .unwrap();
-        store.set_summary(&local, Some("Fixed it")).unwrap();
-        store.set_pick(&local, "KD-3", "q1").unwrap();
-        let entry = store
-            .entry_by_session(Harness::ClaudeCode, "s1")
-            .unwrap()
-            .unwrap();
+        store.create_sessions(0, &mut Scope::new(&[]), &[]).unwrap();
+        let found = store.keys().unwrap();
+        assert_eq!(found.get("claude-code:s1").unwrap(), &["KD-2", "KD-1"]);
         assert_eq!(
-            entry.named_tags.get("ticket").map(String::as_str),
-            Some("KD-3")
-        );
-        assert_eq!(entry.hand_split.as_ref().map(Vec::len), Some(2));
-        assert_eq!(
-            entry.signals.get("pull_request").map(String::as_str),
-            Some("42")
-        );
-        assert_eq!(entry.summary.as_deref(), Some("Fixed it"));
-        assert_eq!(entry.pick.as_deref(), Some("KD-3"));
-        assert_eq!(entry.pick_question.as_deref(), Some("q1"));
-        store.set_hand_split(&local, None).unwrap();
-        assert!(store.entry(1).unwrap().unwrap().hand_split.is_none());
-
-        // Keys from one file are replaced, not added, when it is read again.
-        let found = store.keys(Harness::ClaudeCode, "s1").unwrap();
-        assert_eq!(found.len(), 1);
-        assert_eq!(found.first().unwrap().count, 2);
-        assert_eq!(
-            store.title(Harness::ClaudeCode, "s1").unwrap().as_deref(),
+            store
+                .titles()
+                .unwrap()
+                .get("claude-code:s1")
+                .map(String::as_str),
             Some("Fix checkout")
         );
+        let messages = store.counted_messages().unwrap();
+        let subagents: Vec<Option<&str>> = messages.iter().map(|m| m.subagent.as_deref()).collect();
+        assert_eq!(subagents, [None, Some("reviewer")]);
         assert_eq!(
             store.session_counts().unwrap(),
             [("claude-code".to_owned(), 1)]
         );
-        assert!(store.entry(99).unwrap().is_none());
     }
 
     #[test]
-    fn only_sessions_in_tracked_folders_or_recorded_ones_become_entries() {
+    fn only_sessions_in_tracked_folders_or_recorded_ones_count() {
         let mut store = Store::in_memory().unwrap();
         let mut elsewhere = message("b", "other", 200, false, 1);
         elsewhere.directory = Some("/elsewhere".into());
@@ -1006,27 +841,42 @@ mod tests {
             ..FileContents::default()
         };
         add(&mut store, "/f", &contents, &[]);
-        store.create_entries(0, &mut Scope::new(&[])).unwrap();
-        assert_eq!(store.entries(&[Status::Draft]).unwrap().len(), 4);
-        let sent_id = local_id(Harness::ClaudeCode, "sent");
-        store.mark_submitted(&[(sent_id, None)], 500).unwrap();
+        store.create_sessions(0, &mut Scope::new(&[]), &[]).unwrap();
+        assert_eq!(store.sessions().unwrap().len(), 4);
+        store
+            .append_event(&split_event("e1", "other"), Some("claude-code:other"))
+            .unwrap();
+        store
+            .append_event(&split_event("e2", "here"), Some("claude-code:here"))
+            .unwrap();
 
-        // Tracking /w: drafts elsewhere go, the submitted entry stays.
+        // Tracking /w: sessions elsewhere go with their splits, the
+        // submitted one stays.
         let mut tracked = Scope::new(&["/w".into()]);
-        store.create_entries(0, &mut tracked).unwrap();
-        let drafts: Vec<String> = store
-            .entries(&[Status::Draft])
+        store
+            .create_sessions(0, &mut tracked, &[(250, 350)])
+            .unwrap();
+        let counted: Vec<String> = store
+            .sessions()
             .unwrap()
             .into_iter()
-            .map(|e| e.session_id)
+            .map(|s| s.session_id)
             .collect();
-        assert_eq!(drafts, ["here"]);
-        assert_eq!(store.entries(&[Status::Submitted]).unwrap().len(), 1);
+        assert_eq!(counted, ["here", "sent"]);
+        let ids: Vec<String> = store
+            .events()
+            .unwrap()
+            .into_iter()
+            .map(|event| event.id.to_string())
+            .collect();
+        assert_eq!(ids, ["e2"]);
 
         // A recorded session counts wherever it ran.
         store.mark_recorded(Harness::ClaudeCode, "other").unwrap();
-        store.create_entries(0, &mut tracked).unwrap();
-        assert_eq!(store.entries(&[Status::Draft]).unwrap().len(), 2);
+        store
+            .create_sessions(0, &mut tracked, &[(250, 350)])
+            .unwrap();
+        assert_eq!(store.sessions().unwrap().len(), 3);
 
         let mut folders = store.session_folders().unwrap();
         folders.sort_by_key(|f| f.last_ms);
@@ -1036,30 +886,20 @@ mod tests {
     }
 
     #[test]
-    fn subagent_types_are_joined_to_their_messages() {
-        let mut store = Store::in_memory().unwrap();
-        let mut sub = message("b", "s1", 2, true, 1);
-        sub.agent_id = Some("a1".into());
-        let contents = FileContents {
-            messages: vec![message("a", "s1", 1, false, 1), sub],
-            subagents: vec![("s1".into(), "a1".into(), "reviewer".into())],
-            ..FileContents::default()
-        };
-        add(&mut store, "/f", &contents, &[]);
-        let messages = store.messages(Harness::ClaudeCode, "s1").unwrap();
-        let subagents: Vec<Option<&str>> = messages.iter().map(|m| m.subagent.as_deref()).collect();
-        assert_eq!(subagents, [None, Some("reviewer")]);
-    }
-
-    #[test]
-    fn personal_rules_and_meta_are_kept_in_order() {
-        let mut store = Store::in_memory().unwrap();
-        store
-            .set_personal_rules(&["one".into(), "two".into()])
-            .unwrap();
-        assert_eq!(store.personal_rules().unwrap(), ["one", "two"]);
-        store.set_personal_rules(&["three".into()]).unwrap();
-        assert_eq!(store.personal_rules().unwrap(), ["three"]);
+    fn events_and_meta_are_kept_in_order() {
+        let store = Store::in_memory().unwrap();
+        assert_eq!(store.next_event_id().unwrap(), "local-1");
+        assert_eq!(store.next_event_id().unwrap(), "local-2");
+        store.append_event(&split_event("b", "s1"), None).unwrap();
+        store.append_event(&split_event("a", "s1"), None).unwrap();
+        assert!(store.append_event(&split_event("a", "s1"), None).is_err());
+        let ids: Vec<String> = store
+            .events()
+            .unwrap()
+            .into_iter()
+            .map(|event| event.id.to_string())
+            .collect();
+        assert_eq!(ids, ["b", "a"]);
         assert_eq!(store.meta("x").unwrap(), None);
         store.set_meta("x", "1").unwrap();
         store.set_meta("x", "2").unwrap();
@@ -1068,11 +908,23 @@ mod tests {
         store.set_meta("p:b", "2").unwrap();
         store.set_meta("q", "3").unwrap();
         assert_eq!(store.meta_with_prefix("p:").unwrap().len(), 2);
-        store.delete_meta("p:a").unwrap();
-        assert_eq!(
-            store.meta_with_prefix("p:").unwrap(),
-            [("p:b".to_owned(), "2".to_owned())]
-        );
+        assert_eq!(local_id(Harness::Codex, "cx-1"), "codex:cx-1");
+    }
+
+    #[test]
+    fn a_version_one_database_is_brought_to_version_two() {
+        let connection = Connection::open_in_memory().unwrap();
+        connection.execute_batch(SCHEMA_V1).unwrap();
+        connection
+            .execute_batch("INSERT INTO meta (key, value) VALUES ('context', '{}');
+                            INSERT INTO files (path, harness, size, modified_ms) VALUES ('/f', 'codex', 1, 2);")
+            .unwrap();
+        connection.pragma_update(None, "user_version", 1).unwrap();
+        let store = Store::with(connection).unwrap();
+        assert_eq!(store.meta("context").unwrap(), None);
+        assert!(!store.file_unchanged("/f", 1, 2).unwrap());
+        assert!(store.sessions().unwrap().is_empty());
+        assert!(store.events().unwrap().is_empty());
     }
 
     #[test]

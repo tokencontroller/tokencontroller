@@ -12,6 +12,18 @@ use serde_json::{Value, json};
 
 type TestResult<T> = Result<T, Box<dyn std::error::Error>>;
 
+/// The person's own price table, in US dollars per million tokens.
+const PRICES: &str = "provider,model,kind,price_per_million,valid_from
+anthropic,claude-sonnet-4-5,input,3,2026-01-01
+anthropic,claude-sonnet-4-5,output,15,2026-01-01
+anthropic,claude-sonnet-4-5,cache_write,3.75,2026-01-01
+anthropic,claude-sonnet-4-5,cache_read,0.3,2026-01-01
+openai,gpt-5,input,1.25,2026-01-01
+openai,gpt-5,output,10,2026-01-01
+openai,gpt-5,cache_write,1.25,2026-01-01
+openai,gpt-5,cache_read,0.125,2026-01-01
+";
+
 /// A machine with a home folder, two repositories and session files of
 /// Claude Code and Codex in them.
 struct Machine {
@@ -57,7 +69,8 @@ impl Machine {
     }
 
     /// A Claude Code session on branch `KD-214-checkout-loop`: 1M input,
-    /// 100k output and 1M cache reads on Sonnet 4.5, $4.80 at list price.
+    /// 100k output and 1M cache reads on Sonnet 4.5, $4.80 at the prices
+    /// above.
     fn claude_code_session(&self) -> TestResult<()> {
         let cwd = self.work("storefront").display().to_string();
         let branch = "KD-214-checkout-loop";
@@ -75,7 +88,7 @@ impl Machine {
     }
 
     /// A Codex session in the ops repository whose prompt names OPS-7:
-    /// $0.64 at list price on GPT-5.
+    /// $0.64 on GPT-5 at the prices above.
     fn codex_session(&self) -> TestResult<()> {
         let cwd = self.work("ops").display().to_string();
         let usage = json!({"input_tokens": 200_000, "cached_input_tokens": 100_000, "output_tokens": 50_000});
@@ -120,7 +133,8 @@ impl Machine {
             .env_remove("TC_TOKEN")
             .env_remove("TC_TAGS")
             .env_remove("TC_PROJECT")
-            .env_remove("TC_TICKET")
+            .env_remove("TC_FEATURE")
+            .env_remove("TC_SIGNALS")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
@@ -162,13 +176,23 @@ impl Machine {
         Ok(serde_json::from_str(&self.tc(args)?)?)
     }
 
-    /// A machine with both sessions, a ticket key pattern and no service.
+    /// A machine with both sessions, a feature key pattern, the person's own
+    /// price file and no service.
     fn ready() -> TestResult<Self> {
+        let machine = Self::unpriced()?;
+        let prices = machine.dir.path().join("prices.csv");
+        std::fs::write(&prices, PRICES)?;
+        machine.tc(&["config", "price-table", &prices.display().to_string()])?;
+        Ok(machine)
+    }
+
+    /// [`Self::ready`] without a price file: no cost, never zero.
+    fn unpriced() -> TestResult<Self> {
         let machine = Self::new()?;
         machine.claude_code_session()?;
         machine.codex_session()?;
         machine.tc(&["config", "since", "2026-10-01"])?;
-        machine.tc(&["config", "ticket-key-pattern", r"^(KD|OPS)-\d+"])?;
+        machine.tc(&["config", "feature-key-pattern", r"^(KD|OPS)-\d+"])?;
         Ok(machine)
     }
 }
@@ -268,45 +292,60 @@ fn handle(stream: TcpStream, answer: &Answer, seen: &Mutex<Vec<Seen>>) -> TestRe
     Ok(())
 }
 
+/// The organization's context: euros, two features on record with their
+/// project, one rule that finds a feature key in the branch and one that
+/// puts the ops repository on a purpose, and a price table in euros.
 fn context() -> Value {
     json!({
-        "organization": {
-            "name": "Kestrel Digital",
-            "currency": "EUR",
-            "tag_names": ["team", "purpose", "client"],
-            "rules": [
-                {"name": "ticket key in branch", "then": {"ticket_key_in": "branch"}},
-                {"name": "ticket key in pull request title", "then": {"ticket_key_in": "pull_request_title"}},
-                {"name": "ticket key in prompts or session title", "then": {"ticket_key_in": "prompts_or_session_title"}},
-                {"name": "repository", "then": "repository_project"},
-                {"name": "ops work", "when": [{"signal": "repository", "test": {"is": "kestrel/ops"}}], "then": {"set_tags": {"purpose": "operations"}}}
-            ]
-        },
-        "person": {"email": "m.ortner@kestrel.example", "tags": {"team": "web"}},
-        "projects": [
-            {"name": "storefront", "ticket_key_pattern": "^KD-\\d+", "repositories": ["kestrel/storefront"], "tags": {"client": "acme"}},
-            {"name": "ops", "ticket_key_pattern": "^OPS-\\d+", "repositories": ["kestrel/ops"]}
+        "organization": {"name": "Kestrel Digital", "currency": "EUR"},
+        "person": {"email": "m.ortner@kestrel.example"},
+        "tag_names": ["team", "purpose", "client"],
+        "tag_values": [
+            {"name": "feature", "key": "KD-214", "defaults": {"project": "storefront"}},
+            {"name": "feature", "key": "KD-300", "defaults": {"project": "storefront"}},
+            {"name": "feature", "key": "OPS-7", "defaults": {"project": "ops"}},
+            {"name": "project", "key": "storefront", "defaults": {"client": "acme"}},
+            {"name": "project", "key": "ops"}
         ],
-        "rules": [],
-        "cadence": {"period_start": "2026-10-05", "period_end": "2026-10-11", "due_at": "2026-10-13T09:00:00Z"},
-        "rejected": []
+        "attribute_values": [{"name": "team", "key": "web"}],
+        "attributes": [{"person": "me", "name": "team", "key": "web"}],
+        "rules": [
+            {"name": "key in branch", "scope": "organization", "order": 0, "signal": "branch",
+             "pattern": "(?:^|[^A-Za-z0-9_])(?P<key>(KD|OPS)-\\d+)", "then": {"key_of": {"name": "feature"}}},
+            {"name": "key in PR title", "scope": "organization", "order": 1, "signal": "pull_request_title",
+             "pattern": "(?:^|[^A-Za-z0-9_])(?P<key>(KD|OPS)-\\d+)", "then": {"key_of": {"name": "feature"}}},
+            {"name": "ops work", "scope": "organization", "order": 2, "signal": "repository",
+             "pattern": "^kestrel/ops$", "then": {"tag": {"name": "purpose", "key": "operations"}}}
+        ],
+        "my_rules": [],
+        "price_table": [
+            {"provider": "anthropic", "model": "claude-sonnet-4-5", "kind": "input", "per_million": "3", "valid_from": "2026-01-01"},
+            {"provider": "anthropic", "model": "claude-sonnet-4-5", "kind": "output", "per_million": "15", "valid_from": "2026-01-01"},
+            {"provider": "anthropic", "model": "claude-sonnet-4-5", "kind": "cache_read", "per_million": "0.3", "valid_from": "2026-01-01"},
+            {"provider": "openai", "model": "gpt-5", "kind": "input", "per_million": "1.25", "valid_from": "2026-01-01"},
+            {"provider": "openai", "model": "gpt-5", "kind": "output", "per_million": "10", "valid_from": "2026-01-01"},
+            {"provider": "openai", "model": "gpt-5", "kind": "cache_read", "per_million": "0.125", "valid_from": "2026-01-01"}
+        ],
+        "cutoff": "2026-09-30",
+        "submissions": [],
+        "asked_to_submit": null
     })
 }
 
-/// The review list's entries by agent harness.
+/// The review list's sessions by agent harness.
 fn by_harness(review: &Value) -> BTreeMap<String, Value> {
-    review["token_entries"]
+    review["sessions"]
         .as_array()
-        .map(|entries| {
-            entries
+        .map(|sessions| {
+            sessions
                 .iter()
-                .map(|entry| {
+                .map(|session| {
                     (
-                        entry["agent_harness"]
+                        session["agent_harness"]
                             .as_str()
                             .unwrap_or_default()
                             .to_owned(),
-                        entry.clone(),
+                        session.clone(),
                     )
                 })
                 .collect()
@@ -315,39 +354,46 @@ fn by_harness(review: &Value) -> BTreeMap<String, Value> {
 }
 
 #[test]
-fn drafts_come_from_both_agents_with_no_service_connected() {
+fn sessions_come_from_both_agents_with_no_service_connected() {
     let machine = Machine::ready().unwrap();
     let review = machine.json(&["review", "--json"]).unwrap();
-    let entries = by_harness(&review);
-    assert_eq!(entries.len(), 2);
+    let sessions = by_harness(&review);
+    assert_eq!(sessions.len(), 2);
+    assert_eq!(review["currency"], "USD");
 
-    let claude = &entries["claude-code"];
+    let claude = &sessions["claude-code"];
     assert_eq!(claude["session_id"], "cc-1");
     assert_eq!(claude["model"], "claude-sonnet-4-5");
+    assert_eq!(claude["provider"], "anthropic");
     // The repeated line of msg_1 counts once.
     assert_eq!(claude["tokens"]["input"], 1_000_000);
     assert_eq!(claude["tokens"]["cache_read"], 1_000_000);
-    assert_eq!(claude["list_value"], "4.80");
-    assert_eq!(claude["currency"], "USD");
-    assert_eq!(claude["splits"][0]["tags"]["ticket"], "KD-214");
-    assert_eq!(claude["placed_by"], "rule: ticket key in branch");
-    assert_eq!(claude["candidates"], json!(["KD-260"]));
+    assert_eq!(claude["cost"], "4.80");
+    assert_eq!(claude["splits"][0]["tags"]["feature"], "KD-214");
+    assert_eq!(claude["splits"][0]["fraction"], "1");
+    assert_eq!(claude["assigned_by"], "rule: key in branch");
+    assert_eq!(claude["label"], "direct");
+    assert_eq!(claude["status"], "open");
+    assert_eq!(claude["keys"], json!(["KD-260"]));
     assert_eq!(claude["summary"], "Fix checkout redirect loop");
     assert_eq!(claude["started_at"], "2026-10-11T09:01:00Z");
+    assert_eq!(claude["messages"], 2);
 
-    let codex = &entries["codex"];
+    let codex = &sessions["codex"];
     assert_eq!(codex["model"], "gpt-5");
     assert_eq!(codex["tokens"]["input"], 100_000);
     assert_eq!(codex["tokens"]["cache_read"], 100_000);
-    assert_eq!(codex["list_value"], "0.64");
-    assert_eq!(codex["splits"][0]["tags"]["ticket"], "OPS-7");
+    assert_eq!(codex["cost"], "0.64");
+    assert_eq!(codex["splits"][0]["tags"]["feature"], "OPS-7");
+    assert_eq!(codex["assigned_by"], "rule: key in prompts");
 
     // Reading again changes nothing.
     assert_eq!(machine.json(&["review", "--json"]).unwrap(), review);
 
     let table = machine.tc(&["review"]).unwrap();
     assert!(table.contains("$4.80"), "{table}");
-    assert!(table.contains("ticket KD-214"), "{table}");
+    assert!(table.contains("feature KD-214"), "{table}");
+    assert!(table.contains("rule: key in branch"), "{table}");
     assert!(table.contains("Fix checkout redirect loop"), "{table}");
 }
 
@@ -360,65 +406,81 @@ fn people_tag_split_and_export_by_hand() {
     let codex = number("codex");
 
     let tagged = machine
-        .json(&["tag", &codex, "purpose=learning", "ticket=OPS-9", "--json"])
+        .json(&["tag", &codex, "purpose=learning", "feature=OPS-9", "--json"])
         .unwrap();
+    assert_eq!(tagged["session"]["splits"][0]["tags"]["feature"], "OPS-9");
     assert_eq!(
-        tagged["token_entry"]["splits"][0]["tags"]["ticket"],
-        "OPS-9"
-    );
-    assert_eq!(
-        tagged["token_entry"]["splits"][0]["tags"]["purpose"],
+        tagged["session"]["splits"][0]["tags"]["purpose"],
         "learning"
     );
-    assert_eq!(tagged["token_entry"]["placed_by"], "hand");
+    assert_eq!(tagged["session"]["assigned_by"], "hand");
 
     let split = machine
         .json(&["split", &claude, "KD-214=60", "KD-260=40", "--json"])
         .unwrap();
-    let splits = split["token_entry"]["splits"].as_array().unwrap();
+    let splits = split["session"]["splits"].as_array().unwrap();
     assert_eq!(splits.len(), 2);
-    assert_eq!(splits[0]["share_percent"], 60);
-    assert_eq!(splits[0]["list_value"], "2.88");
-    assert_eq!(splits[1]["tags"]["ticket"], "KD-260");
-    assert_eq!(splits[1]["list_value"], "1.92");
+    assert_eq!(splits[0]["fraction"], "0.6");
+    assert_eq!(splits[0]["cost"], "2.88");
+    assert_eq!(splits[1]["tags"]["feature"], "KD-260");
+    assert_eq!(splits[1]["cost"], "1.92");
+    assert_eq!(split["session"]["assigned_by"], "hand");
+
+    // The last split on a session wins; removing a tag keeps the rest.
+    let untagged = machine
+        .json(&["tag", &codex, "purpose=", "--json"])
+        .unwrap();
+    assert_eq!(
+        untagged["session"]["splits"][0]["tags"].get("purpose"),
+        None
+    );
+    assert_eq!(untagged["session"]["splits"][0]["tags"]["feature"], "OPS-9");
 
     let csv = machine.tc(&["export", "--csv"]).unwrap();
     let lines: Vec<&str> = csv.lines().collect();
-    assert_eq!(lines.len(), 4, "{csv}");
-    assert!(lines[0].starts_with("number,status,agent_harness,session_id,model"));
-    assert!(lines[0].contains(",purpose,"), "{}", lines[0]);
+    // Two parts of each Claude Code message, one of the Codex message.
+    assert_eq!(lines.len(), 6, "{csv}");
+    assert!(
+        lines[0].starts_with("agent_harness,model,started_at,ended_at,tokens.input,tokens.output,tokens.cache_read,tokens.cache_write,summary,feature,"),
+        "{}",
+        lines[0]
+    );
+    assert!(
+        lines[0].contains(",fraction,cost,currency,label,"),
+        "{}",
+        lines[0]
+    );
     assert!(csv.contains("KD-260"), "{csv}");
-    assert!(csv.contains(",learning,"), "{csv}");
+    assert!(csv.contains(",0.4,"), "{csv}");
 
     let report = machine
-        .json(&[
-            "report",
-            "--by",
-            "ticket",
-            "--since",
-            "2026-10-01",
-            "--json",
-        ])
+        .json(&["report", "--since", "2026-10-01", "--json"])
         .unwrap();
+    assert_eq!(report["by"], "feature");
     assert_eq!(report["total"], "5.44");
     assert_eq!(report["rows"][0]["value"], "KD-214");
-    assert_eq!(report["rows"][0]["list_value"], "2.88");
+    assert_eq!(report["rows"][0]["cost"], "2.88");
 
     let day = machine
         .json(&["report", "--by", "day", "--since", "2026-10-01", "--json"])
         .unwrap();
     assert_eq!(day["rows"][0]["value"], "2026-10-11");
-    assert_eq!(day["rows"][0]["list_value"], "5.44");
+    assert_eq!(day["rows"][0]["cost"], "5.44");
+
+    let label = machine
+        .json(&["report", "--by", "label", "--since", "2026-10-01", "--json"])
+        .unwrap();
+    assert_eq!(label["rows"][0]["value"], "direct");
+    assert_eq!(label["rows"][0]["cost"], "5.44");
 }
 
 #[test]
-fn the_mod_records_summaries_and_tags_line_by_line() {
+fn the_mod_records_summaries_facts_and_tags_line_by_line() {
     let machine = Machine::ready().unwrap();
     let lines = [
-        json!({"kind": "turn", "session_id": "cc-1", "turn_id": "t1", "at": "2026-10-11T09:01:00Z", "model": "claude-sonnet-4-5", "tokens": {"input": 5, "output": 5, "cache_write": 0, "cache_read": 0}, "reported_cost": 0.5, "cwd": "/x", "branch": null, "repository": null, "ticket_keys": []}),
-        json!({"kind": "summary", "session_id": "cc-1", "summary": "Fixed the redirect loop in checkout"}),
-        json!({"kind": "tags", "session_id": "cc-1", "tags": {"ticket": "KD-260"}}),
-        json!({"kind": "tags", "session_id": "no-such-session", "tags": {"ticket": "KD-1"}}),
+        json!({"agent_harness": "claude-code", "session_id": "cc-1", "summary": "Fixed the redirect loop in checkout", "facts": {"turns": 4, "duration_seconds": 1200, "subagents": 1}}),
+        json!({"agent_harness": "claude-code", "session_id": "cc-1", "feature": "KD-260", "tags": {"purpose": "spike"}}),
+        json!({"agent_harness": "claude-code", "session_id": "no-such-session", "feature": "KD-1"}),
     ];
     let input: Vec<String> = lines.iter().map(Value::to_string).collect();
     let recorded: Value = serde_json::from_str(
@@ -427,19 +489,22 @@ fn the_mod_records_summaries_and_tags_line_by_line() {
             .unwrap(),
     )
     .unwrap();
-    assert_eq!(recorded["recorded"], 4);
+    assert_eq!(recorded["recorded"], 3);
+    assert_eq!(recorded["sessions"].as_array().map(Vec::len), Some(1));
 
     let review = machine.json(&["review", "--json"]).unwrap();
     let claude = &by_harness(&review)["claude-code"];
     assert_eq!(claude["summary"], "Fixed the redirect loop in checkout");
-    assert_eq!(claude["splits"][0]["tags"]["ticket"], "KD-260");
-    assert_eq!(claude["placed_by"], "hand");
-    // Turn lines are not counted twice: the session file has the tokens.
+    // A feature picked in the session is the message's own tag; the
+    // branch rule still wins for the feature, the other tag stays.
+    assert_eq!(claude["splits"][0]["tags"]["feature"], "KD-214");
+    assert_eq!(claude["splits"][0]["tags"]["purpose"], "spike");
+    // Token counts come from the session file, never from the record.
     assert_eq!(claude["tokens"]["output"], 100_000);
 }
 
 #[test]
-fn rules_are_added_listed_and_removed_on_the_machine() {
+fn rules_are_added_listed_moved_and_removed_on_the_machine() {
     let machine = Machine::ready().unwrap();
     machine
         .tc(&[
@@ -454,37 +519,64 @@ fn rules_are_added_listed_and_removed_on_the_machine() {
     machine
         .tc(&["rules", "add", "branch ^review/ → purpose=code-review"])
         .unwrap();
+    machine
+        .tc(&["rules", "add", r"branch matches ^(KD-\d+) feature=$1"])
+        .unwrap();
     let rules = machine.json(&["rules", "--json"]).unwrap();
     assert_eq!(rules["rules"][0]["number"], 1);
     assert_eq!(
         rules["rules"][0]["text"],
         "directory contains ops → purpose=operations"
     );
-    assert_eq!(rules["rules"][1]["when"][0]["test"]["matches"], "^review/");
+    assert_eq!(rules["rules"][1]["pattern"], "^review/");
+    assert_eq!(rules["rules"][2]["then"]["key_of"]["name"], "feature");
     assert_eq!(
-        rules["organization"][0]["text"], "ticket key in branch",
+        rules["organization"][0]["text"], "key in branch → feature=$1",
         "{rules}"
     );
 
     let review = machine.json(&["review", "--json"]).unwrap();
-    assert_eq!(
-        by_harness(&review)["codex"]["splits"][0]["tags"]["purpose"],
-        "operations"
-    );
+    let codex = &by_harness(&review)["codex"];
+    assert_eq!(codex["splits"][0]["tags"]["purpose"], "operations");
+    assert_eq!(codex["assigned_by"], "rule: directory contains ops");
 
     machine.tc(&["rules", "move", "2", "1"]).unwrap();
     machine.tc(&["rules", "remove", "2"]).unwrap();
+    machine.tc(&["rules", "remove", "2"]).unwrap();
     let rules = machine.json(&["rules", "--json"]).unwrap();
     assert_eq!(rules["rules"].as_array().map(Vec::len), Some(1));
-    assert_eq!(
-        rules["rules"][0]["then"]["set_tags"]["purpose"],
-        "code-review"
-    );
+    assert_eq!(rules["rules"][0]["then"]["tag"]["key"], "code-review");
 
     let wrong = machine
         .run(&["rules", "add", "weather", "is", "sunny", "x=y"], &[], "")
         .unwrap();
     assert_eq!(wrong.status.code(), Some(1));
+    let gone = machine.run(&["rules", "remove", "5"], &[], "").unwrap();
+    assert_eq!(gone.status.code(), Some(1));
+}
+
+#[test]
+fn remember_turns_a_hand_assignment_into_a_rule() {
+    let machine = Machine::ready().unwrap();
+    let review = machine.json(&["review", "--json"]).unwrap();
+    let codex = by_harness(&review)["codex"]["number"].to_string();
+    machine
+        .tc(&["tag", &codex, "purpose=operations", "--remember"])
+        .unwrap();
+    let rules = machine.json(&["rules", "--json"]).unwrap();
+    assert_eq!(
+        rules["rules"][0]["text"],
+        "repository is kestrel/ops → purpose=operations"
+    );
+    assert_eq!(rules["rules"][0]["signal"], "repository");
+    let refused = machine
+        .run(
+            &["split", &codex, "OPS-7=1", "OPS-8=1", "--remember"],
+            &[],
+            "",
+        )
+        .unwrap();
+    assert_eq!(refused.status.code(), Some(1));
 }
 
 #[test]
@@ -496,10 +588,20 @@ fn mistakes_exit_with_one_and_say_what_to_do() {
     assert!(said.contains("tc connect URL"), "{said}");
     assert!(said.contains("tc export --csv"), "{said}");
 
-    let missing = machine.run(&["tag", "99", "ticket=KD-1"], &[], "").unwrap();
+    let missing = machine
+        .run(&["tag", "99", "feature=KD-1"], &[], "")
+        .unwrap();
     assert_eq!(missing.status.code(), Some(1));
-    let usage = machine.run(&["report"], &[], "").unwrap();
+    let one = machine.run(&["split", "1", "KD-1=100"], &[], "").unwrap();
+    assert_eq!(one.status.code(), Some(1));
+    let person = machine.run(&["tag", "1", "person=you"], &[], "").unwrap();
+    assert_eq!(person.status.code(), Some(1));
+    let usage = machine.run(&["report", "--by", ""], &[], "").unwrap();
     assert_eq!(usage.status.code(), Some(1));
+    let setting = machine
+        .run(&["config", "since", "yesterday"], &[], "")
+        .unwrap();
+    assert_eq!(setting.status.code(), Some(1));
 
     let version = machine.tc(&["--version"]).unwrap();
     assert_eq!(version.trim(), "tc 1.0.0");
@@ -507,28 +609,94 @@ fn mistakes_exit_with_one_and_say_what_to_do() {
     let status = machine.json(&["status", "--json"]).unwrap();
     assert_eq!(status["connected"], false);
     assert_eq!(status["today"]["currency"], "USD");
-    assert_eq!(status["drafts"], 2);
-    // With no service there is no cadence and so no token sheet period.
-    assert_eq!(status["token_sheet"], Value::Null);
+    assert_eq!(status["open"], 2);
+    assert_eq!(status["last_submit"], Value::Null);
+    assert_eq!(status["asked_to_submit"], Value::Null);
+    let said = machine.tc(&["status"]).unwrap();
+    assert!(said.contains("Last submit   none yet"), "{said}");
 }
 
 #[test]
-fn a_token_sheet_is_submitted_with_keys_but_never_prompts() {
+fn without_prices_there_is_no_cost_and_never_zero() {
+    let machine = Machine::unpriced().unwrap();
+    let review = machine.json(&["review", "--json"]).unwrap();
+    let claude = &by_harness(&review)["claude-code"];
+    assert_eq!(claude["cost"], Value::Null);
+    assert_eq!(
+        claude["unknown_models"],
+        json!(["anthropic/claude-sonnet-4-5"])
+    );
+    // The split still stands: the rule reads signals, not prices.
+    assert_eq!(claude["splits"][0]["tags"]["feature"], "KD-214");
+    let table = machine.tc(&["review"]).unwrap();
+    assert!(table.contains("no price"), "{table}");
+    let report = machine
+        .json(&["report", "--since", "2026-10-01", "--json"])
+        .unwrap();
+    assert_eq!(report["total"], "0.00");
+    assert_eq!(report["unknown_models"].as_array().map(Vec::len), Some(2));
+    let said = machine.tc(&["report", "--since", "2026-10-01"]).unwrap();
+    assert!(said.contains("No price for"), "{said}");
+}
+
+#[test]
+fn config_lists_the_settings_and_keeps_the_price_file() {
+    let machine = Machine::ready().unwrap();
+    let all = machine.json(&["config", "--json"]).unwrap();
+    let keys: Vec<&str> = all
+        .as_object()
+        .unwrap()
+        .keys()
+        .map(String::as_str)
+        .collect();
+    assert_eq!(
+        keys,
+        [
+            "feature-key-pattern",
+            "folders",
+            "price-table",
+            "service",
+            "since"
+        ]
+    );
+    assert_eq!(all["since"], "2026-10-01");
+    let text = machine.tc(&["config"]).unwrap();
+    assert!(text.contains("feature-key-pattern = ^(KD|OPS)"), "{text}");
+    let bad = machine.dir.path().join("bad.csv");
+    std::fs::write(&bad, "provider,model\n").unwrap();
+    let refused = machine
+        .run(
+            &["config", "price-table", &bad.display().to_string()],
+            &[],
+            "",
+        )
+        .unwrap();
+    assert_eq!(refused.status.code(), Some(1));
+    let removed = machine.tc(&["config", "price-table", ""]).unwrap();
+    assert_eq!(removed.trim(), "price-table removed");
+    let review = machine.json(&["review", "--json"]).unwrap();
+    assert_eq!(by_harness(&review)["codex"]["cost"], Value::Null);
+}
+
+#[test]
+fn messages_are_submitted_with_keys_but_never_prompts() {
     let machine = Machine::ready().unwrap();
     let service = Service::start(Box::new(|seen: &Seen| match seen.path.as_str() {
         "/api/v1/me/context" => (200, context()),
-        "/api/v1/token-sheets/submit" => {
-            let answered: Vec<Value> = seen.body["token_entries"]
+        "/api/v1/token-entries" => {
+            let answered: Vec<Value> = seen
+                .body
                 .as_array()
                 .map(|entries| {
                     entries
                         .iter()
-                        .map(|entry| json!({"local_id": entry["local_id"], "id": "te_1", "status": "submitted"}))
+                        .map(|_| json!({"id": "te_1", "cost": "4.80", "currency": "EUR", "label": "direct", "unknown_tags": []}))
                         .collect()
                 })
                 .unwrap_or_default();
-            (200, json!({"token_entries": answered}))
+            (201, Value::Array(answered))
         }
+        "/api/v1/submissions" => (201, json!({"id": "sub-1", "status": "submitted"})),
         _ => (404, json!({"error": "no such route"})),
     }))
     .unwrap();
@@ -539,41 +707,56 @@ fn a_token_sheet_is_submitted_with_keys_but_never_prompts() {
 
     let review: Value =
         serde_json::from_str(&machine.tc_with(&["review", "--json"], &env, "").unwrap()).unwrap();
+    assert_eq!(review["currency"], "EUR");
     let codex = &by_harness(&review)["codex"];
-    // The organization rule and the project's own tags apply.
+    // The organization's rule and the feature's defaults apply, and the
+    // person's own attributes close the tag set.
     assert_eq!(codex["splits"][0]["tags"]["purpose"], "operations");
-    assert_eq!(codex["splits"][0]["tags"]["project"], "ops");
+    assert_eq!(codex["assigned_by"], "rule: ops work");
+    // A purpose alone is neither a feature nor a project.
+    assert_eq!(codex["label"], "organization overhead");
+    let claude = &by_harness(&review)["claude-code"];
+    assert_eq!(claude["splits"][0]["tags"]["feature"], "KD-214");
+    assert_eq!(claude["cost"], "4.80");
 
     let said = machine.tc_with(&["submit"], &env, "").unwrap();
-    assert!(
-        said.starts_with("submitted token sheet · 2 token entries"),
-        "{said}"
-    );
+    assert!(said.starts_with("submitted · 2 sessions · €5.44"), "{said}");
 
     let seen = service.seen();
-    let submit = seen
+    let posted = seen
         .iter()
-        .find(|seen| seen.path == "/api/v1/token-sheets/submit")
+        .find(|seen| seen.path == "/api/v1/token-entries")
         .unwrap();
-    assert_eq!(submit.authorization.as_deref(), Some("Bearer tc_ses_test"));
-    let sent = submit.body.to_string();
+    assert_eq!(posted.authorization.as_deref(), Some("Bearer tc_ses_test"));
+    let sent = posted.body.to_string();
     assert!(!sent.contains("redirect loop. The follow-up"), "{sent}");
     assert!(!sent.contains("Rotate the deploy keys"), "{sent}");
-    let entries = submit.body["token_entries"].as_array().unwrap();
+    let entries = posted.body.as_array().unwrap();
+    assert_eq!(entries.len(), 2);
     let claude = entries
         .iter()
         .find(|entry| entry["agent_harness"] == "claude-code")
         .unwrap();
     assert_eq!(claude["local_id"], "claude-code:cc-1");
+    assert_eq!(claude["provider"], "anthropic");
     assert_eq!(claude["messages"].as_array().map(Vec::len), Some(2));
+    assert_eq!(claude["messages"][1]["tokens"]["cache_read"], 1_000_000);
+    assert_eq!(claude["messages"][1]["tokens"]["cache_write"], 0);
+    assert_eq!(claude["tokens"]["input"], 1_000_000);
     assert_eq!(claude["signals"]["branch"], "KD-214-checkout-loop");
     assert_eq!(claude["signals"]["repository"], "kestrel/storefront");
-    assert_eq!(claude["signals"]["ticket_keys"], json!(["KD-260"]));
-    assert_eq!(claude["splits"][0]["tags"]["ticket"], "KD-214");
-    assert_eq!(claude["placed_by"], "rule: ticket key in branch");
+    assert_eq!(claude["signals"]["keys"], json!(["KD-260"]));
+    assert!(claude["signals"]["working_directory"].is_string());
+    assert_eq!(claude.get("splits"), None);
+    assert_eq!(claude.get("placed_by"), None);
+    let submission = seen
+        .iter()
+        .find(|seen| seen.path == "/api/v1/submissions")
+        .unwrap();
+    assert_eq!(submission.body["from"], "2026-10-11");
 
-    // Submitted entries leave the review list. The next command reads the
-    // context again, since the service's word on late sheets changed.
+    // Submitted sessions leave the review list. The next command reads the
+    // context again, since the service's submissions changed.
     let context_reads = |service: &Service| {
         service
             .paths()
@@ -584,37 +767,77 @@ fn a_token_sheet_is_submitted_with_keys_but_never_prompts() {
     let before = context_reads(&service);
     let review: Value =
         serde_json::from_str(&machine.tc_with(&["review", "--json"], &env, "").unwrap()).unwrap();
-    assert_eq!(review["token_entries"].as_array().map(Vec::len), Some(0));
+    assert_eq!(review["sessions"].as_array().map(Vec::len), Some(0));
     assert_eq!(context_reads(&service), before + 1);
-    // A second submit sends an empty token sheet: nothing to report, so
-    // the sheet is not late.
+    let all: Value = serde_json::from_str(
+        &machine
+            .tc_with(&["review", "--all", "--json"], &env, "")
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(all["sessions"][0]["status"], "submitted");
+    let status: Value =
+        serde_json::from_str(&machine.tc_with(&["status", "--json"], &env, "").unwrap()).unwrap();
+    assert_eq!(status["last_submit"]["from"], "2026-10-11");
+    assert_eq!(status["open"], 0);
+
+    // A second submit tells the service there was nothing to add.
     let again = machine.tc_with(&["submit"], &env, "").unwrap();
-    assert_eq!(again.trim(), "submitted token sheet · nothing to report");
-    let seen = service.seen();
-    let submits: Vec<&Seen> = seen
+    assert_eq!(again.trim(), "submitted · nothing to add");
+    let submits = service
+        .paths()
         .iter()
-        .filter(|seen| seen.path == "/api/v1/token-sheets/submit")
-        .collect();
-    assert_eq!(submits.len(), 2);
-    assert_eq!(
-        submits.last().map(|seen| &seen.body),
-        Some(&json!({"token_entries": []}))
-    );
+        .filter(|path| path.as_str() == "POST /api/v1/submissions")
+        .count();
+    assert_eq!(submits, 2);
 }
 
 #[test]
-fn with_no_drafts_and_no_service_there_is_nothing_to_submit() {
+fn a_rejected_submission_brings_the_sessions_back() {
+    let machine = Machine::ready().unwrap();
+    let service = Service::start(Box::new(|seen: &Seen| match seen.path.as_str() {
+        "/api/v1/me/context" => {
+            let mut context = context();
+            context["submissions"] = json!([
+                {"id": "sub-9", "from": "2026-10-01", "to": "2026-10-31", "status": "rejected", "reason": "wrong client"}
+            ]);
+            (200, context)
+        }
+        _ => (404, json!({"error": "no such route"})),
+    }))
+    .unwrap();
+    let env = [
+        ("TC_URL", service.url.as_str()),
+        ("TC_TOKEN", "tc_ses_test"),
+    ];
+    let review: Value =
+        serde_json::from_str(&machine.tc_with(&["review", "--json"], &env, "").unwrap()).unwrap();
+    let claude = &by_harness(&review)["claude-code"];
+    assert_eq!(claude["status"], "rejected");
+    assert_eq!(claude["rejected_reason"], "wrong client");
+    let table = machine.tc_with(&["review"], &env, "").unwrap();
+    assert!(table.contains("rejected: wrong client"), "{table}");
+}
+
+#[test]
+fn with_no_open_sessions_and_no_service_there_is_nothing_to_submit() {
     let machine = Machine::new().unwrap();
     let said = machine.tc(&["submit"]).unwrap();
     assert!(said.starts_with("Nothing to submit"), "{said}");
+    let json = machine.json(&["submit", "--json"]).unwrap();
+    assert_eq!(json["submitted"], 0);
+    assert_eq!(json["cost"], "0.00");
 }
 
 #[test]
-fn the_github_action_reports_automatic_entries_with_its_tags_and_signals() {
+fn the_github_action_reports_with_its_tags_and_signals() {
     let machine = Machine::ready().unwrap();
     let service = Service::start(Box::new(|seen: &Seen| match seen.path.as_str() {
         "/api/v1/me/context" => (200, context()),
-        "/api/v1/token-entries" => (201, json!({"id": "te_9"})),
+        "/api/v1/token-entries" => (
+            201,
+            json!([{"id": "te_9", "unknown_tags": ["purpose"]}, {"id": "te_10"}]),
+        ),
         _ => (404, json!({"error": "no such route"})),
     }))
     .unwrap();
@@ -626,31 +849,41 @@ fn the_github_action_reports_automatic_entries_with_its_tags_and_signals() {
         ("TC_TAGS", "purpose=code-review"),
         ("TC_SIGNALS", signals.as_str()),
     ];
-    let said: Value =
-        serde_json::from_str(&machine.tc_with(&["submit", "--json"], &env, "").unwrap()).unwrap();
+    let output = machine.run(&["submit", "--json"], &env, "").unwrap();
+    assert!(output.status.success());
+    let said: Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(said["submitted"], 2);
-    assert_eq!(said["list_value"], "5.44");
-    assert_eq!(said["currency"], "USD");
+    assert_eq!(said["cost"], "5.44");
+    assert_eq!(said["currency"], "EUR");
+    assert!(said["share_on_features_percent"].is_number());
+    let warned = String::from_utf8(output.stderr).unwrap();
+    assert!(warned.contains("no tag value yet for purpose"), "{warned}");
     let posted: Vec<Seen> = service
         .seen()
         .into_iter()
         .filter(|seen| seen.path == "/api/v1/token-entries")
         .collect();
-    assert_eq!(posted.len(), 2);
-    let codex = posted
+    assert_eq!(posted.len(), 1);
+    let entries = posted[0].body.as_array().unwrap();
+    let codex = entries
         .iter()
-        .find(|seen| seen.body["agent_harness"] == "codex")
+        .find(|entry| entry["agent_harness"] == "codex")
         .unwrap();
-    assert_eq!(codex.body["tags"]["purpose"], "code-review");
+    assert_eq!(codex["tags"]["purpose"], "code-review");
     // The service takes the pull request as a number.
-    assert_eq!(codex.body["signals"]["pull_request"], 12);
-    assert_eq!(codex.body["signals"]["repository"], "kestrel/ops");
+    assert_eq!(codex["signals"]["pull_request"], 12);
     assert_eq!(
-        codex.body["signals"]["ticket_keys"],
-        json!(["OPS-7", "KD-300"])
+        codex["signals"]["pull_request_title"],
+        "KD-300: tidy the cart"
     );
-    // A ticket in the pull request title wins over one in the prompts.
-    assert_eq!(codex.body["splits"][0]["tags"]["ticket"], "KD-300");
+    assert_eq!(codex["signals"]["repository"], "kestrel/ops");
+    assert_eq!(codex["signals"]["keys"], json!(["OPS-7", "KD-300"]));
+    // A service token reports; it never submits.
+    assert!(
+        !service
+            .paths()
+            .contains(&"POST /api/v1/submissions".to_owned())
+    );
 
     let wrong = machine
         .run(&["submit", "--signal", "weather=sunny"], &env, "")
@@ -672,7 +905,7 @@ fn the_github_action_reports_automatic_entries_with_its_tags_and_signals() {
             "",
         )
         .unwrap();
-    assert!(said.starts_with("reported · 2 token entries"), "{said}");
+    assert!(said.starts_with("reported · 2 sessions"), "{said}");
 }
 
 #[test]
@@ -753,23 +986,23 @@ fn connect_signs_in_with_a_magic_link_and_keeps_the_token() {
     let status = machine.json(&["status", "--json"]).unwrap();
     assert_eq!(status["connected"], true);
     assert_eq!(status["organization"], "Kestrel Digital");
-    // The organization's own rule, not the built-in ones.
-    assert_eq!(status["rules"], 1);
-    assert_eq!(status["token_sheet"]["period_start"], "2026-10-05");
-    assert_eq!(status["token_sheet"]["late"], false);
+    assert_eq!(status["rules"], 3);
+    assert_eq!(status["cutoff"], "2026-09-30");
+    assert_eq!(status["today"]["currency"], "EUR");
 }
 
-/// The service says when a token sheet is late and when the controller
-/// asked everyone to submit before the close; `tc status` passes both on.
+/// The service lists the person's submissions and an org manager's request
+/// to submit before the cutoff moves; `tc status` passes both on.
 #[test]
-fn status_shows_a_late_sheet_and_a_request_to_submit() {
+fn status_shows_the_last_submit_and_a_request_to_submit() {
     let machine = Machine::ready().unwrap();
     let service = Service::start(Box::new(|seen: &Seen| match seen.path.as_str() {
         "/api/v1/me/context" => {
             let mut context = context();
-            context["cadence"]["late"] = json!(true);
-            context["asked_to_submit"] =
-                json!({"period": "2026-09", "asked_by": "Lena Hofer", "asked_at": "2026-10-02T08:00:00Z"});
+            context["submissions"] = json!([
+                {"id": "sub-1", "from": "2026-09-01", "to": "2026-09-30", "status": "approved"}
+            ]);
+            context["asked_to_submit"] = json!({"cutoff": "2026-10-31", "asked_by": "Lena Hofer"});
             (200, context)
         }
         _ => (404, json!({"error": "no such route"})),
@@ -781,16 +1014,20 @@ fn status_shows_a_late_sheet_and_a_request_to_submit() {
     ];
     let status: Value =
         serde_json::from_str(&machine.tc_with(&["status", "--json"], &env, "").unwrap()).unwrap();
-    assert_eq!(status["token_sheet"]["late"], true);
-    assert_eq!(status["asked_to_submit"]["period"], "2026-09");
+    assert_eq!(status["last_submit"]["to"], "2026-09-30");
+    assert_eq!(status["last_submit"]["status"], "approved");
+    assert_eq!(status["asked_to_submit"]["cutoff"], "2026-10-31");
+    assert_eq!(status["open"], 2);
     let said = machine.tc_with(&["status"], &env, "").unwrap();
-    assert!(said.contains("· late: submit with tc submit"), "{said}");
     assert!(
-        said.contains("asked by Lena Hofer to submit for 2026-09"),
+        said.contains("Last submit   2026-09-01 to 2026-09-30 · approved"),
+        "{said}"
+    );
+    assert!(
+        said.contains("asked by Lena Hofer to submit before the cutoff moves to 2026-10-31"),
         "{said}"
     );
 }
-
 /// Without an invite, `tc connect` asks for the address, and says so when
 /// the link runs out.
 #[test]
@@ -843,73 +1080,16 @@ fn agents_folders_follow_their_own_variables() {
         )
         .unwrap();
     let review: Value = serde_json::from_str(&output).unwrap();
-    assert_eq!(review["token_entries"].as_array().map(Vec::len), Some(0));
+    assert_eq!(review["sessions"].as_array().map(Vec::len), Some(0));
 }
 
-#[cfg(unix)]
-#[test]
-fn the_classifier_reads_the_prompts_that_name_a_ticket_and_has_the_last_word() {
-    let machine = Machine::ready().unwrap();
-    let asked = machine.dir.path().join("asked.json");
-    let program = format!("cat > '{}'; echo none", asked.display());
-    machine.tc(&["config", "classifier", &program]).unwrap();
-
-    let review = machine.json(&["review", "--json"]).unwrap();
-    let entries = by_harness(&review);
-    // Only the Codex session's ticket came from a prompt alone.
-    assert_eq!(entries["codex"]["splits"][0]["tags"].get("ticket"), None);
-    assert_eq!(entries["codex"]["placed_by"], "none");
-    assert_eq!(entries["codex"]["candidates"], json!(["OPS-7"]));
-    assert_eq!(
-        entries["claude-code"]["splits"][0]["tags"]["ticket"],
-        "KD-214"
-    );
-
-    let digest: Value = serde_json::from_str(&std::fs::read_to_string(&asked).unwrap()).unwrap();
-    assert_eq!(digest["agent_harness"], "codex");
-    assert_eq!(digest["repository"], "kestrel/ops");
-    assert_eq!(digest["candidates"][0]["ticket"], "OPS-7");
-    assert_eq!(
-        digest["candidates"][0]["mentions"],
-        json!(["Rotate the deploy keys for OPS-7"])
-    );
-
-    // The reference script turns the same digest into one question for Laya.
-    let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("classifier/pick-ticket");
-    let mut child = Command::new("python3")
-        .arg(&script)
-        .arg("--question")
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .spawn()
-        .unwrap();
-    child
-        .stdin
-        .take()
-        .unwrap()
-        .write_all(digest.to_string().as_bytes())
-        .unwrap();
-    let output = child.wait_with_output().unwrap();
-    assert!(output.status.success());
-    let question: Value = serde_json::from_slice(&output.stdout).unwrap();
-    let criteria = &question["questions"]["ticket"]["criteria"];
-    assert!(criteria.get("OPS-7").is_some());
-    assert!(criteria.get("none").is_some());
-    assert!(
-        question["state"]
-            .as_str()
-            .unwrap()
-            .contains("Rotate the deploy keys for OPS-7")
-    );
-}
-
-/// The sessions of the draft token entries, sorted.
+/// The sessions in the review list, sorted.
 fn sessions(machine: &Machine) -> TestResult<Vec<String>> {
     let review = machine.json(&["review", "--json"])?;
     let mut sessions: Vec<String> = review
-        .get("token_entries")
+        .get("sessions")
         .and_then(Value::as_array)
-        .ok_or("no token_entries")?
+        .ok_or("no sessions")?
         .iter()
         .filter_map(|entry| entry.get("session_id")?.as_str().map(str::to_owned))
         .collect();

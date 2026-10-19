@@ -52,7 +52,8 @@ pub fn run(app: &mut App<'_>, url: &str, input: &mut dyn BufRead) -> Result<()> 
     let me = Client::new(&base, Some(token)).me()?;
     let organization = me.organization.name;
     let person = me.person.email.or(Some(email));
-    // New patterns and rules: placing uses them from the next command on.
+    // The organization's tag values, rules and prices fold the log from
+    // the next command on.
     if let Err(error) = app.refresh_context(true) {
         eprintln!("tc: connected, but your organization's rules could not be read yet: {error}");
     }
