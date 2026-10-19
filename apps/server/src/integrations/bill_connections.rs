@@ -2,11 +2,11 @@
 //! current (docs: Integrations > Anthropic Enterprise, Anthropic Console,
 //! `OpenAI`).
 //!
-//! A controller adds an admin key under _Bills_. The `bill-pulls` job pulls
-//! the current and the previous period of each connection once a day, or at
-//! once when someone asks, and hands each bill to the bills area. The bills
-//! area keeps a new revision only when the figures changed, so pulling the
-//! same bill again changes nothing.
+//! An org manager adds an admin key under _Bills_. The `bill-pulls` job
+//! pulls the current and the previous month of each connection once a day,
+//! or at once when someone asks, and hands each bill to the bills area. The
+//! bills area writes a new bill event only when the figures changed, so
+//! pulling the same bill again changes nothing.
 
 use std::collections::BTreeSet;
 use std::time::Duration;
@@ -24,14 +24,12 @@ use utoipa_axum::routes;
 use uuid::Uuid;
 
 use super::bills::{
-    BillLine, CostSource, Period, PullError, PulledBill, anthropic_console, anthropic_enterprise,
-    openai,
+    BillLine, BillMonth, PullError, PulledBill, anthropic_console, anthropic_enterprise, openai,
 };
 use super::{ConnectionStatus, secrets};
 use crate::AppState;
-use crate::close::period::PeriodDates;
 use crate::error::{ApiError, ErrorBody};
-use crate::organizations::Role;
+use crate::events::{Log, access};
 use crate::sign_in::{Caller, Member};
 
 /// The job that pulls bills.
@@ -196,7 +194,7 @@ async fn view(
         .ok_or(ApiError::NotFound)
 }
 
-/// The bill sources the organization connected. Controllers only.
+/// The bill sources the organization connected. Org managers only.
 #[utoipa::path(
     get,
     path = "/bill-connections",
@@ -207,12 +205,12 @@ async fn list_bill_connections(
     State(state): State<AppState>,
     member: Member,
 ) -> Result<Json<Vec<BillConnectionView>>, ApiError> {
-    member.require_role(Role::Controller)?;
+    require_org_manager(&state, &member).await?;
     Ok(Json(views(&state.db, member.organization_id, None).await?))
 }
 
-/// Connect a bill source with an admin key. Controllers only. The first
-/// pull starts right away and loads the current and the previous period.
+/// Connect a bill source with an admin key. Org managers only. The first
+/// pull starts right away and loads the current and the previous month.
 #[utoipa::path(
     post,
     path = "/bill-connections",
@@ -229,7 +227,7 @@ async fn add_bill_connection(
     Json(body): Json<NewBillConnection>,
 ) -> Result<(StatusCode, Json<BillConnectionView>), ApiError> {
     caller.require_session()?;
-    caller.require_role(Role::Controller)?;
+    require_org_manager(&state, &caller).await?;
     let key = body.key.trim().to_owned();
     if key.is_empty() {
         return Err(ApiError::BadRequest(format!(
@@ -258,7 +256,7 @@ async fn add_bill_connection(
     ))
 }
 
-/// Disconnect a bill source. Controllers only. Its bills stay, and stop
+/// Disconnect a bill source. Org managers only. Its bills stay, and stop
 /// updating.
 #[utoipa::path(
     delete,
@@ -276,7 +274,7 @@ async fn remove_bill_connection(
     Path(id): Path<Uuid>,
 ) -> Result<StatusCode, ApiError> {
     caller.require_session()?;
-    caller.require_role(Role::Controller)?;
+    require_org_manager(&state, &caller).await?;
     let deleted = sqlx::query!(
         "DELETE FROM bill_connections WHERE organization_id = $1 AND id = $2",
         caller.organization_id,
@@ -291,7 +289,7 @@ async fn remove_bill_connection(
 }
 
 /// Pull a bill source's bills now instead of at its next daily pull.
-/// Controllers only.
+/// Org managers only.
 #[utoipa::path(
     post,
     path = "/bill-connections/{id}/pull",
@@ -308,7 +306,7 @@ async fn pull_now(
     Path(id): Path<Uuid>,
 ) -> Result<(StatusCode, Json<BillConnectionView>), ApiError> {
     caller.require_session()?;
-    caller.require_role(Role::Controller)?;
+    require_org_manager(&state, &caller).await?;
     let asked = sqlx::query!(
         "UPDATE bill_connections SET pull_requested_at = now()
          WHERE organization_id = $1 AND id = $2",
@@ -327,6 +325,14 @@ async fn pull_now(
     ))
 }
 
+/// Refuses callers who are not org managers as of now.
+async fn require_org_manager(state: &AppState, caller: &Caller) -> Result<(), ApiError> {
+    let person = caller.person()?;
+    let log = Log::load(state, caller.organization_id).await?;
+    let fold = log.fold(OffsetDateTime::now_utc())?;
+    access::require_org_manager(&fold, &person)
+}
+
 /// Why one connection did not pull.
 #[derive(Debug, thiserror::Error)]
 enum PullFailure {
@@ -338,6 +344,8 @@ enum PullFailure {
     Bill(String),
     #[error("{0}")]
     Database(#[from] sqlx::Error),
+    #[error("{0}")]
+    Api(#[from] ApiError),
 }
 
 impl PullFailure {
@@ -349,7 +357,7 @@ impl PullFailure {
                 error,
                 PullError::Network(_) | PullError::Provider { .. } | PullError::Format(_)
             ),
-            Self::Database(_) => true,
+            Self::Database(_) | Self::Api(_) => true,
             Self::Secret(_) | Self::Bill(_) => false,
         }
     }
@@ -365,7 +373,7 @@ pub async fn run_job(state: AppState) -> anyhow::Result<String> {
 }
 
 /// Pulls each connection that is due, at most [`PER_RUN`] of them: the
-/// period `now` falls in and the one before. A connection the provider asks
+/// month `now` falls in and the one before. A connection the provider asks
 /// to wait is tried again at the next run.
 ///
 /// # Errors
@@ -465,7 +473,7 @@ struct Due<'a> {
     sealed_key: &'a str,
 }
 
-/// Pulls the current and the previous period of one connection and records
+/// Pulls the current and the previous month of one connection and records
 /// each bill. Returns how many bills changed.
 async fn pull_connection(
     state: &AppState,
@@ -475,15 +483,12 @@ async fn pull_connection(
     now: OffsetDateTime,
 ) -> Result<usize, PullFailure> {
     let key = secrets::open(&state.config.secret_key, connection.sealed_key)?;
-    let current = Period::containing(now);
-    let periods = PeriodDates::previous(current)
-        .ok()
-        .into_iter()
-        .chain([current]);
+    let current = BillMonth::containing(now);
+    let months = current.previous().into_iter().chain([current]);
     let mut changed = 0_usize;
-    for period in periods {
-        let bill = pull(client, urls, connection.api, &key, period, now.date()).await?;
-        if record(&state.db, connection.organization_id, &bill).await? {
+    for month in months {
+        let bill = pull(client, urls, connection.api, &key, month, now.date()).await?;
+        if record(state, connection.organization_id, &bill).await? {
             changed = changed.saturating_add(1);
         }
     }
@@ -495,7 +500,7 @@ async fn pull(
     urls: &BaseUrls,
     api: BillApi,
     key: &str,
-    period: Period,
+    period: BillMonth,
     today: Date,
 ) -> Result<PulledBill, PullError> {
     match api {
@@ -511,73 +516,77 @@ async fn pull(
 
 /// A bill line as the bills area stores it, with its amount in full: a
 /// line can be a fraction of a cent.
-pub(super) fn line_json(line: &BillLine) -> serde_json::Value {
+pub(crate) fn line_json(line: &BillLine) -> serde_json::Value {
     serde_json::json!({
         "date": line.date.to_string(),
         "workspace": line.workspace,
         "api_key_id": line.api_key_id,
         "model": line.model,
         "description": line.description,
-        "amount": rust_decimal::Decimal::new(line.amount.nanos(), 9).normalize().to_string(),
+        "amount": decimal_text(line.amount),
         "currency": line.amount.currency().code(),
     })
 }
 
-/// The bills area's cost source for the core's. Seats and subscriptions
-/// are flat fees and have no bill.
-pub(super) const fn bill_cost_source(source: CostSource) -> Option<crate::bills::CostSource> {
-    match source {
-        CostSource::UsageAtApiRates => Some(crate::bills::CostSource::UsageAtApiRates),
-        CostSource::ApiKey => Some(crate::bills::CostSource::ApiKey),
-        CostSource::CloudMarketplace => Some(crate::bills::CostSource::CloudMarketplace),
-        CostSource::Reseller => Some(crate::bills::CostSource::Reseller),
-        CostSource::Subscription | CostSource::Seat => None,
-    }
+/// An amount in full, as a decimal: a line can be a fraction of a cent.
+fn decimal_text(amount: tokencontroller_core::Money) -> String {
+    rust_decimal::Decimal::new(amount.nanos(), 9)
+        .normalize()
+        .to_string()
 }
 
-/// A pulled or uploaded bill as the bills area takes it.
+/// A pulled or uploaded bill as the bills area takes it: the month's days
+/// as the range, the net as the amount, the provider's charging written
+/// on the first line.
 ///
 /// # Errors
 ///
-/// A plain sentence for a seat or subscription bill, or an exchange rate
-/// the bills area cannot hold.
+/// A plain sentence for an exchange rate the bills area cannot hold.
 pub(super) fn new_bill(
     bill: &PulledBill,
     source: crate::bills::BillSource,
-    recorded_by: Option<Uuid>,
+    recorded_by: Option<tokencontroller_core::TagValue>,
 ) -> Result<crate::bills::NewBill, String> {
-    let cost_source = bill_cost_source(bill.cost_source())
-        .ok_or_else(|| "Seats and subscriptions are flat fees and have no bill.".to_owned())?;
+    let range = bill
+        .period()
+        .range()
+        .ok_or_else(|| format!("{} is not a month with days", bill.period()))?;
     let exchange_rate = bill
         .exchange_rate()
         .map(|rate| crate::bills::amount::RateNumber::parse(&rate.normalize().to_string()))
         .transpose()
         .map_err(|error| error.to_string())?;
+    let mut lines = vec![serde_json::json!({
+        "description": "figures",
+        "charging": bill.cost_source().as_str(),
+        "gross": decimal_text(bill.gross()),
+        "discount": decimal_text(bill.discount()),
+        "credit": decimal_text(bill.credit()),
+        "net": decimal_text(bill.net()),
+        "currency": bill.currency().code(),
+    })];
+    lines.extend(bill.lines().iter().map(line_json));
     Ok(crate::bills::NewBill {
-        period: bill.period(),
         provider: bill.provider_name().to_owned(),
-        cost_source,
-        gross: bill.gross(),
-        discount: bill.discount(),
-        credit: bill.credit(),
-        net: bill.net(),
+        range,
+        amount: bill.net(),
         exchange_rate,
         source,
-        lines: bill.lines().iter().map(line_json).collect(),
+        lines,
         recorded_by,
         is_final: bill.is_final(),
     })
 }
 
-/// Hands a pulled bill to the bills area. Returns whether a new revision
+/// Hands a pulled bill to the bills area. Returns whether a new bill event
 /// was stored.
 async fn record(
-    db: &PgPool,
+    state: &AppState,
     organization_id: Uuid,
     bill: &PulledBill,
 ) -> Result<bool, PullFailure> {
     let stored = match new_bill(bill, crate::bills::BillSource::Pulled, None) {
-        Ok(new) => crate::bills::record_bill(db, organization_id, new)
+        Ok(new) => crate::bills::record_bill(state, organization_id, new)
             .await?
             .map_err(|error| error.to_string()),
         Err(error) => Err(error),

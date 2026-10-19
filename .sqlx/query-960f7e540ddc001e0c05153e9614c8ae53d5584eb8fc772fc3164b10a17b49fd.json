@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO managed_price_rows (provider, model, kind, per_million_nanos, valid_from)\n               VALUES ($1, $2, $3, $4, $5)\n               ON CONFLICT (provider, model, kind, valid_from) DO UPDATE\n               SET per_million_nanos = EXCLUDED.per_million_nanos",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Int8",
+        "Date"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "960f7e540ddc001e0c05153e9614c8ae53d5584eb8fc772fc3164b10a17b49fd"
+}

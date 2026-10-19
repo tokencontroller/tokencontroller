@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO organizations (id, name, slug, reporting_currency, approval)\n           VALUES ($1, 'Kestrel Digital', 'kestrel', 'USD', false)\n           ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, slug = EXCLUDED.slug,\n             reporting_currency = EXCLUDED.reporting_currency,\n             approval = EXCLUDED.approval, sign_in_domains = '{}'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "042f632e2829d85c505a392d84670f3c32a9742b18f932e1439b2e891d51e32d"
+}

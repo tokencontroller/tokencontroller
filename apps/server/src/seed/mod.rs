@@ -1,26 +1,35 @@
 //! Seed data: the example organization the docs use, loaded with one
 //! command, for local development, CI, staging and screenshots.
 //!
-//! Kestrel Digital is a small agency: teams web, mobile and data, clients
-//! Acme and Globex, the projects storefront (tickets `KD-…`), claims-portal
-//! (`CP-…`), intranet and support. Mara Ortner (`m.ortner@kestrel.example`)
-//! is the agent manager the docs show. Every record has a fixed ID in
-//! [`ids`], so other areas' seed data can point at it.
+//! Kestrel Digital is a small agency. Its March 2026 is the worked month
+//! of the docs (Concepts > The month): Mara and Tom on team web in
+//! engineering, the project Shop for the client Acme with the features
+//! KD-1 and KD-2, a bill of 1,000 for 1 to 31 March, four sessions that
+//! cost 950, a plan of 750 over 100 days for Shop, an estimate of 500 for
+//! KD-1, and Mara's share of 0.6 of Shop from 1 March. Nadia is the org
+//! manager; Priya the people manager of team web. Every record has a fixed
+//! id in [`ids`] and every event a fixed event id, so other areas' seed
+//! data can point at them.
 //!
-//! `tokencontroller seed` applies migrations and calls [`load`]. Staging runs
-//! it after every reset, so [`load`] must be safe to run more than once: it
-//! puts every seeded record back the way it is written here.
-//!
-//! To add another area's example data, write a `seed` function in that area
-//! and call it at the end of [`load`].
+//! `tokencontroller seed` applies migrations and calls [`load`]. Staging
+//! runs it after every reset, so [`load`] must be safe to run more than
+//! once: rows are put back the way they are written here, and events with
+//! the same id are left as they are.
 //!
 //! Owner: the service platform work.
 
-use sqlx::types::Json;
 use sqlx::{PgConnection, PgPool};
+use time::macros::{date, datetime};
+use time::{Date, OffsetDateTime};
+use tokencontroller_core::{
+    Accept, AttributeValue, Bill, DateRange, Distribution, Estimate, Event, EventId, Filter,
+    Message, ModelRef, PersonAttribute, PriceRow, PriceSource, Record, Share, Split, SplitPart,
+    SplitTarget, TagName, TagValue, TagValueRecord, Tags, TokenCounts, TokenKind,
+};
 use uuid::Uuid;
 
-use crate::tags::{self, Tags};
+use crate::organizations::Role;
+use crate::tags;
 
 /// Fixed IDs of the seeded records.
 pub mod ids {
@@ -30,255 +39,80 @@ pub mod ids {
 
     pub const NADIA: Uuid = person(1);
     pub const PRIYA: Uuid = person(2);
-    pub const KAI: Uuid = person(3);
     pub const MARA: Uuid = person(4);
-    pub const JONAS: Uuid = person(5);
     pub const TOM: Uuid = person(6);
-    pub const SAM: Uuid = person(7);
-    pub const LENA: Uuid = person(8);
     pub const OLA: Uuid = person(9);
-
-    pub const STOREFRONT: Uuid = project(1);
-    pub const CLAIMS_PORTAL: Uuid = project(2);
-    pub const INTRANET: Uuid = project(3);
-    pub const SUPPORT: Uuid = project(4);
-
-    pub const KD_200: Uuid = ticket(200);
-    pub const KD_214: Uuid = ticket(214);
-    pub const KD_231: Uuid = ticket(231);
-    pub const KD_240: Uuid = ticket(240);
-    pub const KD_260: Uuid = ticket(260);
-    pub const CP_12: Uuid = ticket(1012);
-    pub const CP_15: Uuid = ticket(1015);
-    pub const INT_3: Uuid = ticket(2003);
 
     const fn person(n: u128) -> Uuid {
         Uuid::from_u128(0x6b65_7374_0000_4000_8001_0000_0000_0000 | n)
     }
-
-    const fn project(n: u128) -> Uuid {
-        Uuid::from_u128(0x6b65_7374_0000_4000_8002_0000_0000_0000 | n)
-    }
-
-    const fn ticket(n: u128) -> Uuid {
-        Uuid::from_u128(0x6b65_7374_0000_4000_8003_0000_0000_0000 | n)
-    }
 }
+
+/// The emails the seeded people sign in with.
+pub mod emails {
+    pub const NADIA: &str = "n.varga@kestrel.example";
+    pub const PRIYA: &str = "p.raman@kestrel.example";
+    pub const MARA: &str = "m.ortner@kestrel.example";
+    pub const TOM: &str = "t.lindqvist@kestrel.example";
+    pub const OLA: &str = "o.berg@kestrel.example";
+}
+
+/// The provider and model every seeded message ran on, priced in the
+/// seed's own price table row.
+pub const PROVIDER: &str = "anthropic";
+pub const MODEL: &str = "claude-sonnet-4-5";
 
 /// One seeded person.
 struct Person {
     id: Uuid,
     email: &'static str,
     name: &'static str,
-    role: &'static str,
-    tags: &'static [(&'static str, &'static str)],
+    role: Role,
+    /// The people manager's filters.
+    filters: &'static [(&'static str, &'static str)],
     joined: bool,
 }
 
-const PEOPLE: [Person; 9] = [
+const PEOPLE: [Person; 5] = [
     Person {
         id: ids::NADIA,
-        email: "n.berger@kestrel.example",
-        name: "Nadia Berger",
-        role: "controller",
-        tags: &[("department", "operations")],
+        email: emails::NADIA,
+        name: "Nadia Varga",
+        role: Role::OrgManager,
+        filters: &[],
         joined: true,
     },
     Person {
         id: ids::PRIYA,
-        email: "p.shah@kestrel.example",
-        name: "Priya Shah",
-        role: "people_manager",
-        tags: &[("team", "web"), ("department", "engineering")],
-        joined: true,
-    },
-    Person {
-        id: ids::KAI,
-        email: "k.novak@kestrel.example",
-        name: "Kai Novak",
-        role: "people_manager",
-        tags: &[("department", "accounts")],
+        email: emails::PRIYA,
+        name: "Priya Raman",
+        role: Role::PeopleManager,
+        filters: &[("team", "web")],
         joined: true,
     },
     Person {
         id: ids::MARA,
-        email: "m.ortner@kestrel.example",
+        email: emails::MARA,
         name: "Mara Ortner",
-        role: "agent_manager",
-        tags: &[("team", "web"), ("department", "engineering")],
-        joined: true,
-    },
-    Person {
-        id: ids::JONAS,
-        email: "j.weber@kestrel.example",
-        name: "Jonas Weber",
-        role: "agent_manager",
-        tags: &[("team", "web"), ("department", "engineering")],
+        role: Role::AgentManager,
+        filters: &[],
         joined: true,
     },
     Person {
         id: ids::TOM,
-        email: "t.brandt@kestrel.example",
-        name: "Tom Brandt",
-        role: "people_manager",
-        tags: &[("team", "mobile"), ("department", "engineering")],
-        joined: true,
-    },
-    Person {
-        id: ids::SAM,
-        email: "s.rossi@kestrel.example",
-        name: "Sam Rossi",
-        role: "agent_manager",
-        tags: &[("team", "mobile"), ("department", "engineering")],
-        joined: true,
-    },
-    Person {
-        id: ids::LENA,
-        email: "l.hofer@kestrel.example",
-        name: "Lena Hofer",
-        role: "agent_manager",
-        tags: &[("team", "data"), ("department", "engineering")],
+        email: emails::TOM,
+        name: "Tom Lindqvist",
+        role: Role::AgentManager,
+        filters: &[],
         joined: true,
     },
     Person {
         id: ids::OLA,
-        email: "o.nowak@kestrel.example",
-        name: "Ola Nowak",
-        role: "agent_manager",
-        tags: &[("team", "data"), ("department", "engineering")],
+        email: emails::OLA,
+        name: "Ola Berg",
+        role: Role::AgentManager,
+        filters: &[],
         joined: false,
-    },
-];
-
-/// The filters people managers read: Priya leads web, Tom leads mobile, Kai
-/// manages the Acme account.
-const FILTERS: [(Uuid, &str, &str); 3] = [
-    (ids::PRIYA, "team", "web"),
-    (ids::TOM, "team", "mobile"),
-    (ids::KAI, "client", "acme"),
-];
-
-struct Project {
-    id: Uuid,
-    name: &'static str,
-    pattern: Option<&'static str>,
-    client: Option<&'static str>,
-    repositories: &'static [&'static str],
-}
-
-const PROJECTS: [Project; 4] = [
-    Project {
-        id: ids::STOREFRONT,
-        name: "storefront",
-        pattern: Some(r"^KD-\d+"),
-        client: Some("acme"),
-        repositories: &["kestrel/storefront"],
-    },
-    Project {
-        id: ids::CLAIMS_PORTAL,
-        name: "claims-portal",
-        pattern: Some(r"^CP-\d+"),
-        client: Some("globex"),
-        repositories: &["kestrel/claims-portal"],
-    },
-    Project {
-        id: ids::INTRANET,
-        name: "intranet",
-        pattern: Some(r"^INT-\d+"),
-        client: None,
-        repositories: &["kestrel/intranet", "kestrel/sandbox"],
-    },
-    Project {
-        id: ids::SUPPORT,
-        name: "support",
-        pattern: None,
-        client: None,
-        repositories: &[],
-    },
-];
-
-struct Ticket {
-    id: Uuid,
-    key: &'static str,
-    project: Uuid,
-    title: &'static str,
-    parent: Option<Uuid>,
-    assignee: Option<Uuid>,
-    source: &'static str,
-}
-
-const TICKETS: [Ticket; 8] = [
-    Ticket {
-        id: ids::KD_200,
-        key: "KD-200",
-        project: ids::STOREFRONT,
-        title: "Checkout rebuild",
-        parent: None,
-        assignee: Some(ids::PRIYA),
-        source: "jira",
-    },
-    Ticket {
-        id: ids::KD_214,
-        key: "KD-214",
-        project: ids::STOREFRONT,
-        title: "Fix checkout redirect loop",
-        parent: Some(ids::KD_200),
-        assignee: Some(ids::MARA),
-        source: "jira",
-    },
-    Ticket {
-        id: ids::KD_231,
-        key: "KD-231",
-        project: ids::STOREFRONT,
-        title: "Saved addresses at checkout",
-        parent: Some(ids::KD_200),
-        assignee: Some(ids::JONAS),
-        source: "jira",
-    },
-    Ticket {
-        id: ids::KD_240,
-        key: "KD-240",
-        project: ids::STOREFRONT,
-        title: "Address autocomplete",
-        parent: Some(ids::KD_200),
-        assignee: Some(ids::JONAS),
-        source: "jira",
-    },
-    Ticket {
-        id: ids::KD_260,
-        key: "KD-260",
-        project: ids::STOREFRONT,
-        title: "Retry failed card payments",
-        parent: None,
-        assignee: Some(ids::MARA),
-        source: "jira",
-    },
-    Ticket {
-        id: ids::CP_12,
-        key: "CP-12",
-        project: ids::CLAIMS_PORTAL,
-        title: "Claim upload form",
-        parent: None,
-        assignee: Some(ids::SAM),
-        source: "jira",
-    },
-    Ticket {
-        id: ids::CP_15,
-        key: "CP-15",
-        project: ids::CLAIMS_PORTAL,
-        title: "Claim status emails",
-        parent: None,
-        assignee: Some(ids::LENA),
-        source: "jira",
-    },
-    Ticket {
-        id: ids::INT_3,
-        key: "INT-3",
-        project: ids::INTRANET,
-        title: "Upgrade the build tooling",
-        parent: None,
-        assignee: Some(ids::JONAS),
-        source: "manual",
     },
 ];
 
@@ -286,78 +120,66 @@ const TICKETS: [Ticket; 8] = [
 /// has not signed in yet.
 const INVITE_CODE: &str = "kestrel-4f2a";
 
+/// The days of March 2026.
+const MARCH: DateRange = DateRange {
+    from: date!(2026 - 03 - 01),
+    to: date!(2026 - 03 - 31),
+};
+
 /// Loads the example organization. Safe to run again on a seeded database.
 ///
 /// # Errors
 ///
-/// Fails if a query fails.
+/// Fails if a query fails or an event cannot be built.
 pub async fn load(db: &PgPool) -> anyhow::Result<()> {
     let mut tx = db.begin().await?;
     organization(&mut tx).await?;
     people(&mut tx).await?;
-    projects(&mut tx).await?;
-    tickets(&mut tx).await?;
+    for event in events()? {
+        put(&mut tx, &event).await?;
+    }
+    sqlx::query!(
+        "INSERT INTO bill_details (organization_id, event_id, source, is_final, lines)
+         VALUES ($1, $2, 'api', true, '[]'::jsonb) ON CONFLICT DO NOTHING",
+        ids::ORGANIZATION,
+        "bil_seed_anthropic_2026_03"
+    )
+    .execute(&mut *tx)
+    .await?;
     tx.commit().await?;
     tracing::info!("seed data loaded: Kestrel Digital");
-    crate::ingest::seed::load(db).await?;
-    crate::close::seed::load(db).await?;
     Ok(())
 }
 
 async fn organization(tx: &mut PgConnection) -> Result<(), sqlx::Error> {
     sqlx::query!(
-        r#"INSERT INTO organizations (id, name, slug, cost_source, reporting_currency, approval)
-           VALUES ($1, 'Kestrel Digital', 'kestrel', 'usage_at_api_rates', 'USD', false)
+        r#"INSERT INTO organizations (id, name, slug, reporting_currency, approval)
+           VALUES ($1, 'Kestrel Digital', 'kestrel', 'USD', false)
            ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, slug = EXCLUDED.slug,
-             cost_source = EXCLUDED.cost_source, reporting_currency = EXCLUDED.reporting_currency,
+             reporting_currency = EXCLUDED.reporting_currency,
              approval = EXCLUDED.approval, sign_in_domains = '{}'"#,
         ids::ORGANIZATION
     )
     .execute(&mut *tx)
     .await?;
     tags::create_defaults(&mut *tx, ids::ORGANIZATION).await?;
-    sqlx::query!(
-        r#"INSERT INTO tag_names (organization_id, name)
-           SELECT $1, name FROM unnest($2::text[]) AS name ON CONFLICT DO NOTHING"#,
-        ids::ORGANIZATION,
-        &["team", "client", "department", "purpose"].map(str::to_owned)
-    )
-    .execute(&mut *tx)
-    .await?;
     Ok(())
 }
 
 async fn people(tx: &mut PgConnection) -> Result<(), sqlx::Error> {
     for person in &PEOPLE {
         sqlx::query!(
-            r#"INSERT INTO people (id, organization_id, email, name, role, tags, joined_at, removed_at)
-               VALUES ($1, $2, $3, $4, $5, $6, CASE WHEN $7 THEN now() END, NULL)
+            r#"INSERT INTO people (id, organization_id, email, name, role, joined_at, removed_at)
+               VALUES ($1, $2, $3, $4, $5, CASE WHEN $6 THEN now() END, NULL)
                ON CONFLICT (id) DO UPDATE SET email = EXCLUDED.email, name = EXCLUDED.name,
-                 role = EXCLUDED.role, tags = EXCLUDED.tags, removed_at = NULL,
-                 joined_at = CASE WHEN $7 THEN coalesce(people.joined_at, now()) END"#,
+                 role = EXCLUDED.role, removed_at = NULL,
+                 joined_at = CASE WHEN $6 THEN coalesce(people.joined_at, now()) END"#,
             person.id,
             ids::ORGANIZATION,
             person.email,
             person.name,
-            person.role,
-            Json(tags_of(person.tags)) as _,
+            person.role.as_str(),
             person.joined
-        )
-        .execute(&mut *tx)
-        .await?;
-    }
-    sqlx::query!(
-        "DELETE FROM people_manager_filters WHERE organization_id = $1",
-        ids::ORGANIZATION
-    )
-    .execute(&mut *tx)
-    .await?;
-    for (person, name, value) in FILTERS {
-        sqlx::query!(
-            "INSERT INTO people_manager_filters (organization_id, person_id, filter) VALUES ($1, $2, $3)",
-            ids::ORGANIZATION,
-            person,
-            Json(tags_of(&[(name, value)])) as _
         )
         .execute(&mut *tx)
         .await?;
@@ -375,102 +197,509 @@ async fn people(tx: &mut PgConnection) -> Result<(), sqlx::Error> {
     Ok(())
 }
 
-async fn projects(tx: &mut PgConnection) -> Result<(), sqlx::Error> {
-    for project in &PROJECTS {
-        let tags: Tags = project
-            .client
-            .map(|client| tags_of(&[("client", client)]))
-            .unwrap_or_default();
-        sqlx::query!(
-            r#"INSERT INTO projects (id, organization_id, name, ticket_key_pattern, tags)
-               VALUES ($1, $2, $3, $4, $5)
-               ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name,
-                 ticket_key_pattern = EXCLUDED.ticket_key_pattern, tags = EXCLUDED.tags, archived_at = NULL"#,
-            project.id,
-            ids::ORGANIZATION,
-            project.name,
-            project.pattern,
-            Json(tags) as _
-        )
-        .execute(&mut *tx)
-        .await?;
-        sqlx::query!(
-            "DELETE FROM project_repositories WHERE project_id = $1",
-            project.id
-        )
-        .execute(&mut *tx)
-        .await?;
-        for repository in project.repositories {
-            sqlx::query!(
-                r#"INSERT INTO project_repositories (organization_id, repository, project_id)
-                   VALUES ($1, $2, $3)
-                   ON CONFLICT (organization_id, repository) DO UPDATE SET project_id = EXCLUDED.project_id"#,
-                ids::ORGANIZATION,
-                *repository,
-                project.id
+/// Writes one event unless one with its id is in the log already.
+async fn put(tx: &mut PgConnection, event: &Event) -> Result<(), sqlx::Error> {
+    let payload = serde_json::to_value(&event.record).unwrap_or_default();
+    sqlx::query!(
+        "INSERT INTO events (organization_id, id, recorded_at, recorded_by, supersedes, kind, payload)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
+         ON CONFLICT DO NOTHING",
+        ids::ORGANIZATION,
+        event.id.as_str(),
+        event.recorded_at,
+        event.recorded_by.as_ref().map(TagValue::as_str),
+        event.supersedes.as_ref().map(EventId::as_str),
+        event.record.kind(),
+        payload
+    )
+    .execute(&mut *tx)
+    .await?;
+    Ok(())
+}
+
+fn person(email: &str) -> anyhow::Result<TagValue> {
+    Ok(TagValue::new(email)?)
+}
+
+fn value(text: &str) -> anyhow::Result<TagValue> {
+    Ok(TagValue::new(text)?)
+}
+
+fn name(text: &str) -> anyhow::Result<TagName> {
+    Ok(TagName::new(text)?)
+}
+
+fn tags(pairs: &[(&str, &str)]) -> anyhow::Result<Tags> {
+    let mut tags = Tags::new();
+    for (tag, key) in pairs {
+        tags.insert(name(tag)?, value(key)?);
+    }
+    Ok(tags)
+}
+
+fn usd(text: &str) -> anyhow::Result<tokencontroller_core::Money> {
+    Ok(tokencontroller_core::Money::parse(
+        text,
+        tokencontroller_core::Currency::USD,
+    )?)
+}
+
+fn event(id: &str, at: OffsetDateTime, record: Record) -> anyhow::Result<Event> {
+    Ok(Event::new(id, at, record)?)
+}
+
+/// One session of the worked month: one message of `input_millions`
+/// million input tokens, which at the seed's price of 10 USD per million
+/// costs `input_millions` × 10 USD.
+struct Session<'a> {
+    id: &'a str,
+    key: &'a str,
+    person: &'a str,
+    at: OffsetDateTime,
+    input_millions: u64,
+    agent_name: Option<&'a str>,
+    tags: Tags,
+    summary: &'a str,
+}
+
+fn message(session: Session<'_>) -> anyhow::Result<Event> {
+    let record = Message {
+        session_id: tokencontroller_core::SessionId::new(session.key)?,
+        message_id: tokencontroller_core::MessageId::new("1")?,
+        person: person(session.person)?,
+        model: ModelRef::new(PROVIDER, MODEL),
+        tokens: Some(TokenCounts {
+            input: session.input_millions.saturating_mul(1_000_000),
+            output: 0,
+            cache_write: 0,
+            cache_read: 0,
+        }),
+        at: session.at,
+        agent_harness: "claude-code".to_owned(),
+        agent_name: session.agent_name.map(str::to_owned),
+        reported_cost: None,
+        tags: session.tags,
+        signals: tokencontroller_core::Signals::default(),
+        session: tokencontroller_core::SessionFacts {
+            turns: Some(12),
+            tool_calls: Some(30),
+            summary: Some(session.summary.to_owned()),
+            ..Default::default()
+        },
+    };
+    Ok(
+        event(session.id, session.at, Record::Message(Box::new(record)))?
+            .by(person(session.person)?),
+    )
+}
+
+/// The role grants of a seeded person, with ids the grants area reads as
+/// role grants.
+fn role_grants(person: &Person) -> anyhow::Result<Vec<Event>> {
+    let who = self::person(person.email)?;
+    let filters: Vec<Filter> = person
+        .filters
+        .iter()
+        .map(|(tag, key)| Ok(Filter(tags(&[(tag, key)])?)))
+        .collect::<anyhow::Result<_>>()?;
+    let prefix = crate::grants::role_prefix(person.id);
+    person
+        .role
+        .core()
+        .grants(&who, &filters)
+        .into_iter()
+        .enumerate()
+        .map(|(index, grant)| {
+            event(
+                &format!("{prefix}seed{index}"),
+                datetime!(2026-02-01 09:00 UTC),
+                Record::Grant(grant),
             )
-            .execute(&mut *tx)
-            .await?;
-        }
-    }
-    Ok(())
-}
-
-async fn tickets(tx: &mut PgConnection) -> Result<(), sqlx::Error> {
-    // Parents first, so every parent exists when its children arrive.
-    for ticket in TICKETS
-        .iter()
-        .filter(|ticket| ticket.parent.is_none())
-        .chain(TICKETS.iter().filter(|ticket| ticket.parent.is_some()))
-    {
-        sqlx::query!(
-            r#"INSERT INTO tickets (id, organization_id, key, project_id, title, parent_id, assignee_id, source)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-               ON CONFLICT (id) DO UPDATE SET key = EXCLUDED.key, project_id = EXCLUDED.project_id,
-                 title = EXCLUDED.title, parent_id = EXCLUDED.parent_id,
-                 assignee_id = EXCLUDED.assignee_id, source = EXCLUDED.source, updated_at = now()"#,
-            ticket.id,
-            ids::ORGANIZATION,
-            ticket.key,
-            ticket.project,
-            ticket.title,
-            ticket.parent,
-            ticket.assignee,
-            ticket.source
-        )
-        .execute(&mut *tx)
-        .await?;
-    }
-    Ok(())
-}
-
-fn tags_of(pairs: &[(&str, &str)]) -> Tags {
-    pairs
-        .iter()
-        .map(|(name, value)| ((*name).to_owned(), (*value).to_owned()))
+        })
         .collect()
+}
+
+/// Every event of the worked month, in the order recorded.
+///
+/// # Errors
+///
+/// Never in practice; every id and amount here fits.
+pub fn events() -> anyhow::Result<Vec<Event>> {
+    let setup = datetime!(2026-02-01 09:00 UTC);
+    let nadia = person(emails::NADIA)?;
+    let mara = person(emails::MARA)?;
+    let mut events = setup_events(setup, &nadia)?;
+    events.extend(plan_events(&nadia, &mara)?);
+    events.extend(month_events(&nadia, &mara)?);
+    Ok(events)
+}
+
+/// The organization as it stands before the month: role grants, the price
+/// row, attributes, people on teams and the tag values.
+fn setup_events(setup: OffsetDateTime, nadia: &TagValue) -> anyhow::Result<Vec<Event>> {
+    let mut events = Vec::new();
+    for person in &PEOPLE {
+        events.extend(role_grants(person)?);
+    }
+
+    // The price table: one row of the organization's own, so the month
+    // costs the same on every instance.
+    events.push(event(
+        "prc_seed_sonnet_input",
+        setup,
+        Record::PriceRow(PriceRow {
+            provider: PROVIDER.to_owned(),
+            model: MODEL.to_owned(),
+            kind: TokenKind::Input,
+            per_million: usd("10")?,
+            valid_from: date!(2026 - 01 - 01),
+            source: PriceSource::Organization,
+        }),
+    )?);
+
+    // Attributes: team web in department engineering; Mara and Tom on it.
+    events.push(
+        event(
+            "att_seed_department_engineering",
+            setup,
+            Record::AttributeValue(AttributeValue {
+                name: name("department")?,
+                key: value("engineering")?,
+                title: Some("Engineering".to_owned()),
+                defaults: Tags::new(),
+            }),
+        )?
+        .by(nadia.clone()),
+    );
+    events.push(
+        event(
+            "att_seed_team_web",
+            setup,
+            Record::AttributeValue(AttributeValue {
+                name: name("team")?,
+                key: value("web")?,
+                title: Some("Web".to_owned()),
+                defaults: tags(&[("department", "engineering")])?,
+            }),
+        )?
+        .by(nadia.clone()),
+    );
+    for (id, email) in [
+        ("pat_seed_mara_web", emails::MARA),
+        ("pat_seed_tom_web", emails::TOM),
+    ] {
+        events.push(
+            event(
+                id,
+                setup,
+                Record::PersonAttribute(PersonAttribute {
+                    person: person(email)?,
+                    name: name("team")?,
+                    key: value("web")?,
+                    from: Some(date!(2026 - 03 - 01)),
+                }),
+            )?
+            .by(nadia.clone()),
+        );
+    }
+    events.extend(value_events(setup, nadia)?);
+    Ok(events)
+}
+
+/// The tag values on record: the client Acme, the project Shop and the
+/// features KD-1 and KD-2.
+fn value_events(setup: OffsetDateTime, nadia: &TagValue) -> anyhow::Result<Vec<Event>> {
+    let mut events = Vec::new();
+    // Tag values: the client Acme, the project Shop, the features.
+    let tag_value = |id: &str, record: TagValueRecord| -> anyhow::Result<Event> {
+        Ok(event(id, setup, Record::TagValue(record))?.by(nadia.clone()))
+    };
+    events.push(tag_value(
+        "tag_seed_client_acme",
+        TagValueRecord {
+            name: TagName::client(),
+            key: value("acme")?,
+            title: Some("Acme".to_owned()),
+            description: None,
+            source_id: None,
+            source_status: None,
+            defaults: Tags::new(),
+        },
+    )?);
+    events.push(tag_value(
+        "tag_seed_project_shop",
+        TagValueRecord {
+            name: TagName::project(),
+            key: value("shop")?,
+            title: Some("Shop".to_owned()),
+            description: Some("Acme's web shop.".to_owned()),
+            source_id: None,
+            source_status: None,
+            defaults: tags(&[("client", "acme")])?,
+        },
+    )?);
+    for (id, key, title, description) in [
+        (
+            "tag_seed_feature_kd_1",
+            "KD-1",
+            "Checkout redesign",
+            "A new checkout flow with saved addresses and one-page payment.",
+        ),
+        (
+            "tag_seed_feature_kd_2",
+            "KD-2",
+            "Returns portal",
+            "Customers start a return and print the label themselves.",
+        ),
+    ] {
+        events.push(tag_value(
+            id,
+            TagValueRecord {
+                name: TagName::feature(),
+                key: value(key)?,
+                title: Some(title.to_owned()),
+                description: Some(description.to_owned()),
+                source_id: None,
+                source_status: None,
+                defaults: tags(&[("project", "shop")])?,
+            },
+        )?);
+    }
+    Ok(events)
+}
+
+/// The plan: the estimates, what was accepted, and Mara's share of Shop.
+fn plan_events(nadia: &TagValue, mara: &TagValue) -> anyhow::Result<Vec<Event>> {
+    let mut events = Vec::new();
+    // The plan: Shop, 750 over 100 days from 1 March; KD-1, 500 in March.
+    events.push(
+        event(
+            "est_seed_shop",
+            datetime!(2026-02-20 10:00 UTC),
+            Record::Estimate(Estimate {
+                description: "Shop: checkout redesign and returns portal".to_owned(),
+                tags: tags(&[("project", "shop")])?,
+                distribution: Distribution {
+                    median: usd("750")?,
+                    bands: Vec::new(),
+                },
+                markup_basis_points: 0,
+                estimator: emails::NADIA.to_owned(),
+                range: DateRange::new(date!(2026 - 03 - 01), date!(2026 - 06 - 08))?,
+            }),
+        )?
+        .by(nadia.clone()),
+    );
+    events.push(
+        event(
+            "acc_seed_shop",
+            datetime!(2026-02-20 10:05 UTC),
+            Record::Accept(Accept {
+                estimate: EventId::new("est_seed_shop")?,
+            }),
+        )?
+        .by(nadia.clone()),
+    );
+    events.push(
+        event(
+            "est_seed_kd_1",
+            datetime!(2026-02-21 10:00 UTC),
+            Record::Estimate(Estimate {
+                description: "Checkout redesign".to_owned(),
+                tags: tags(&[("feature", "KD-1")])?,
+                distribution: Distribution {
+                    median: usd("500")?,
+                    bands: Vec::new(),
+                },
+                markup_basis_points: 0,
+                estimator: "classifier".to_owned(),
+                range: MARCH,
+            }),
+        )?
+        .by(mara.clone()),
+    );
+    events.push(
+        event(
+            "acc_seed_kd_1",
+            datetime!(2026-02-21 10:05 UTC),
+            Record::Accept(Accept {
+                estimate: EventId::new("est_seed_kd_1")?,
+            }),
+        )?
+        .by(nadia.clone()),
+    );
+    events.push(
+        event(
+            "shr_seed_mara_shop",
+            datetime!(2026-02-22 10:00 UTC),
+            Record::Share(Share {
+                person: mara.clone(),
+                project: value("shop")?,
+                fraction_basis_points: 6_000,
+                from: date!(2026 - 03 - 01),
+                to: None,
+            }),
+        )?
+        .by(nadia.clone()),
+    );
+    Ok(events)
+}
+
+/// The month itself: the four sessions, the split and the bill.
+fn month_events(nadia: &TagValue, mara: &TagValue) -> anyhow::Result<Vec<Event>> {
+    let mut events = Vec::new();
+    // The month's sessions: S1 to S4 of the worked month.
+    events.push(message(Session {
+        id: "msg_seed_s1",
+        key: "seed-s1",
+        person: emails::MARA,
+        at: datetime!(2026-03-04 10:00 UTC),
+        input_millions: 40,
+        agent_name: None,
+        tags: tags(&[("feature", "KD-1")])?,
+        summary: "Checkout: saved addresses",
+    })?);
+    events.push(message(Session {
+        id: "msg_seed_s2",
+        key: "seed-s2",
+        person: emails::MARA,
+        at: datetime!(2026-03-12 14:00 UTC),
+        input_millions: 30,
+        agent_name: None,
+        tags: Tags::new(),
+        summary: "Shared payment component for checkout and returns",
+    })?);
+    events.push(
+        event(
+            "spl_seed_s2",
+            datetime!(2026-03-12 16:00 UTC),
+            Record::Split(Split {
+                target: SplitTarget::Session(tokencontroller_core::SessionId::new("seed-s2")?),
+                parts: vec![
+                    SplitPart {
+                        weight: 60,
+                        tags: tags(&[("feature", "KD-1")])?,
+                    },
+                    SplitPart {
+                        weight: 40,
+                        tags: tags(&[("feature", "KD-2")])?,
+                    },
+                ],
+            }),
+        )?
+        .by(mara.clone()),
+    );
+    events.push(message(Session {
+        id: "msg_seed_s3",
+        key: "seed-s3",
+        person: emails::TOM,
+        at: datetime!(2026-03-18 09:00 UTC),
+        input_millions: 10,
+        agent_name: Some("review bot"),
+        tags: tags(&[("project", "shop")])?,
+        summary: "Nightly review of open pull requests",
+    })?);
+    events.push(message(Session {
+        id: "msg_seed_s4",
+        key: "seed-s4",
+        person: emails::TOM,
+        at: datetime!(2026-03-25 11:00 UTC),
+        input_millions: 15,
+        agent_name: None,
+        tags: Tags::new(),
+        summary: "Exploring a logging library",
+    })?);
+
+    // The bill for March: 1,000, of which 50 no message explains.
+    events.push(
+        event(
+            "bil_seed_anthropic_2026_03",
+            datetime!(2026-04-02 08:00 UTC),
+            Record::Bill(Bill {
+                provider: PROVIDER.to_owned(),
+                range: MARCH,
+                amount: usd("1000")?,
+            }),
+        )?
+        .by(nadia.clone()),
+    );
+    Ok(events)
+}
+
+/// The first day of the worked month.
+#[must_use]
+pub const fn month_start() -> Date {
+    MARCH.from
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tokencontroller_core::{Capability, Currency, State};
 
-    #[test]
-    fn seeded_ids_are_all_different() {
-        let mut all: Vec<Uuid> = PEOPLE.iter().map(|person| person.id).collect();
-        all.extend(PROJECTS.iter().map(|project| project.id));
-        all.extend(TICKETS.iter().map(|ticket| ticket.id));
-        all.push(ids::ORGANIZATION);
-        let count = all.len();
-        all.sort_unstable();
-        all.dedup();
-        assert_eq!(all.len(), count);
+    fn fold() -> State {
+        let events = events().unwrap();
+        State::fold(&events, datetime!(2026-04-10 00:00 UTC), Currency::USD).unwrap()
     }
 
     #[test]
-    fn the_docs_agent_manager_is_seeded() {
-        let mara = PEOPLE.iter().find(|person| person.id == ids::MARA).unwrap();
-        assert_eq!(mara.email, "m.ortner@kestrel.example");
-        assert_eq!(mara.role, "agent_manager");
+    fn the_worked_month_adds_up() {
+        let fold = fold();
+        let everything = Filter::default();
+        assert_eq!(
+            fold.cost(&everything, MARCH).unwrap().amount,
+            usd("950").unwrap()
+        );
+        let kd_1 = Filter(tags(&[("feature", "KD-1")]).unwrap());
+        assert_eq!(fold.cost(&kd_1, MARCH).unwrap().amount, usd("580").unwrap());
+        let shop = Filter(tags(&[("project", "shop")]).unwrap());
+        assert_eq!(fold.cost(&shop, MARCH).unwrap().amount, usd("800").unwrap());
+        let acme = Filter(tags(&[("client", "acme")]).unwrap());
+        assert_eq!(fold.cost(&acme, MARCH).unwrap().amount, usd("800").unwrap());
+        let web = Filter(tags(&[("team", "web")]).unwrap());
+        assert_eq!(fold.cost(&web, MARCH).unwrap().amount, usd("950").unwrap());
+        let engineering = Filter(tags(&[("department", "engineering")]).unwrap());
+        assert_eq!(
+            fold.cost(&engineering, MARCH).unwrap().amount,
+            usd("950").unwrap()
+        );
+    }
+
+    #[test]
+    fn the_plan_the_share_and_the_bill_follow_the_docs() {
+        let fold = fold();
+        let shop = Filter(tags(&[("project", "shop")]).unwrap());
+        assert_eq!(
+            fold.plan(&shop, MARCH).unwrap(),
+            Some(usd("232.50").unwrap())
+        );
+        let mara = Filter(tags(&[("person", emails::MARA)]).unwrap());
+        assert_eq!(
+            fold.plan(&mara, MARCH).unwrap(),
+            Some(usd("139.50").unwrap())
+        );
+        let kd_1 = Filter(tags(&[("feature", "KD-1")]).unwrap());
+        let deviation = fold.deviation(&kd_1, MARCH).unwrap().unwrap();
+        assert_eq!(deviation.delta, usd("-80").unwrap());
+        let bill = fold.bills().next().unwrap();
+        let reconciliation = fold.reconcile(&bill.value).unwrap();
+        assert_eq!(reconciliation.unexplained, usd("50").unwrap());
+        assert!(!reconciliation.a_message_is_wrong());
+    }
+
+    #[test]
+    fn the_seeded_people_hold_their_roles() {
+        let fold = fold();
+        let nadia = person(emails::NADIA).unwrap();
+        let priya = person(emails::PRIYA).unwrap();
+        let mara = person(emails::MARA).unwrap();
+        assert!(fold.can(&nadia, Capability::Grant, &Filter::default()));
+        let web = Filter(tags(&[("team", "web")]).unwrap());
+        assert!(fold.can(&priya, Capability::Approve, &web));
+        assert!(!fold.can(&priya, Capability::Approve, &Filter::default()));
+        let own = Filter(tags(&[("person", emails::MARA)]).unwrap());
+        assert!(fold.can(&mara, Capability::View, &own));
+        assert!(!fold.can(&mara, Capability::View, &Filter::default()));
+        assert_eq!(month_start(), date!(2026 - 03 - 01));
     }
 }

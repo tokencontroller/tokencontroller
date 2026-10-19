@@ -1,10 +1,10 @@
 //! The MCP server: `POST /api/v1/mcp` speaks the Model Context Protocol
 //! (JSON-RPC over streamable HTTP, plain JSON answers) so an agent can read
-//! the organization: its settings and tag map, members, projects, clients
-//! and tickets. It only reads.
+//! the organization: tag values, attributes, people, plans and reports. It
+//! only reads.
 //!
 //! Sign in with a read token (`tc_read_`) or a session. The tools see what
-//! that person's role sees.
+//! that person's grants cover.
 //!
 //! To add a tool, add it to [`tools`] and to [`call`].
 //!
@@ -18,13 +18,15 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use serde::Deserialize;
 use serde_json::{Value, json};
+use time::OffsetDateTime;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
 use crate::AppState;
 use crate::error::ApiError;
+use crate::events::{Log, access};
 use crate::sign_in::{Caller, CredentialKind};
-use crate::{organizations, projects, tags};
+use crate::{organizations, tags};
 
 /// Protocol versions this server speaks.
 const PROTOCOL_VERSIONS: [&str; 3] = [LATEST_PROTOCOL_VERSION, "2025-03-26", "2024-11-05"];
@@ -163,7 +165,7 @@ fn initialize(params: &Value) -> Value {
         "protocolVersion": version,
         "capabilities": {"tools": {"listChanged": false}},
         "serverInfo": {"name": "token-controller", "title": "Token Controller", "version": env!("CARGO_PKG_VERSION")},
-        "instructions": "Reads one Token Controller organization: settings, tag names and tag map, members, projects, clients and tickets. Terms follow the glossary at docs.tokencontroller.com/glossary."
+        "instructions": "Reads one Token Controller organization: settings, tag values, attributes, people, plans and the cost report. Terms follow the glossary at docs.tokencontroller.com/glossary."
     })
 }
 
@@ -173,48 +175,77 @@ fn tools() -> Value {
     json!([
         {
             "name": "organization",
-            "title": "Organization settings",
-            "description": "The organization's settings: cost source, reporting currency, approval, sign-in domains, tag names and the tag map in force.",
+            "title": "Organization",
+            "description": "The organization's settings, cutoff, tag and attribute names and the price table in force, with the caller's own rules.",
             "inputSchema": no_arguments,
             "annotations": {"readOnlyHint": true}
         },
         {
-            "name": "members",
-            "title": "Members",
-            "description": "Everyone in the organization with their role, tags such as team, and the filters assigned to people managers.",
-            "inputSchema": no_arguments,
-            "annotations": {"readOnlyHint": true}
-        },
-        {
-            "name": "projects",
-            "title": "Projects",
-            "description": "Projects with their ticket key pattern, repositories and tags such as client.",
-            "inputSchema": no_arguments,
-            "annotations": {"readOnlyHint": true}
-        },
-        {
-            "name": "clients",
-            "title": "Clients",
-            "description": "Values of the client tag on projects, with their projects.",
-            "inputSchema": no_arguments,
-            "annotations": {"readOnlyHint": true}
-        },
-        {
-            "name": "tickets",
-            "title": "Tickets",
-            "description": "Tickets by key, with title, project, parent and assignee. Filter by project name or by text in the key or title.",
+            "name": "tag_values",
+            "title": "Tag values",
+            "description": "Tag values the caller may see, with title, description, source id and defaults. Filter by tag name such as project, feature or client, or by text in the key or title.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "project": {"type": "string", "description": "A project name, such as storefront"},
-                    "query": {"type": "string", "description": "Text in the ticket key or title, such as KD-214"},
+                    "name": {"type": "string", "description": "A tag name, such as feature"},
+                    "query": {"type": "string", "description": "Text in the key or title, such as KD-214"},
                     "limit": {"type": "integer", "minimum": 1, "maximum": 500, "default": 100}
                 },
                 "additionalProperties": false
             },
             "annotations": {"readOnlyHint": true}
+        },
+        {
+            "name": "attributes",
+            "title": "Attributes",
+            "description": "Attribute values such as teams and departments with their defaults.",
+            "inputSchema": no_arguments,
+            "annotations": {"readOnlyHint": true}
+        },
+        {
+            "name": "people",
+            "title": "People",
+            "description": "Everyone in the organization with their role, attributes such as team, and a people manager's filters.",
+            "inputSchema": no_arguments,
+            "annotations": {"readOnlyHint": true}
+        },
+        {
+            "name": "plans",
+            "title": "Plans",
+            "description": "The accepted estimates the caller may see, each with its cost and deviation, and the shares of people in projects.",
+            "inputSchema": no_arguments,
+            "annotations": {"readOnlyHint": true}
+        },
+        {
+            "name": "report",
+            "title": "Cost report",
+            "description": "C(F, w): the cost of a filter over a date range, grouped by a tag or attribute name, person, label, agent_harness, agent_name, model or day, inside the caller's view grants.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "from": {"type": "string", "description": "The first day, YYYY-MM-DD"},
+                    "to": {"type": "string", "description": "The last day, YYYY-MM-DD"},
+                    "by": {"type": "string", "description": "A tag or attribute name, or person, label, agent_harness, agent_name, model or day"},
+                    "filter": {"type": "string", "description": "A filter, such as client:acme,team:web"},
+                    "as_of": {"type": "string", "description": "The moment to read the log up to, RFC 3339"},
+                    "currency": {"type": "string", "description": "Show money in this currency, such as EUR"},
+                    "approved": {"type": "boolean", "description": "Approved messages only"}
+                },
+                "required": ["from", "to"],
+                "additionalProperties": false
+            },
+            "annotations": {"readOnlyHint": true}
         }
     ])
+}
+
+fn text_argument(arguments: &Value, name: &str) -> Option<String> {
+    arguments
+        .get(name)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .map(str::to_owned)
 }
 
 async fn call(
@@ -223,53 +254,86 @@ async fn call(
     name: &str,
     arguments: &Value,
 ) -> Result<Value, RpcError> {
-    let db = &state.db;
     let organization_id = caller.organization_id;
+    let person = caller.person()?;
+    let log = Log::load(state, organization_id).await?;
+    let fold = log.fold(OffsetDateTime::now_utc())?;
     let value = match name {
-        "organization" => json!({
-            "organization": organizations::organization(db, organization_id).await?,
-            "tag_names": tags::tag_names(db, organization_id).await.map_err(ApiError::from)?,
-            "tag_map": tags::current_tag_map(db, organization_id).await.map_err(ApiError::from)?,
-        }),
-        "members" => json!(organizations::members(db, organization_id).await?),
-        "projects" => json!(projects::projects(db, organization_id).await?),
-        "clients" => {
-            let all = projects::projects(db, organization_id).await?;
-            let mut clients = std::collections::BTreeMap::<String, Vec<String>>::new();
-            for project in all {
-                if let Some(client) = project.tags.get("client") {
-                    clients
-                        .entry(client.clone())
-                        .or_default()
-                        .push(project.name);
-                }
-            }
-            json!(clients)
+        "organization" => {
+            let organization = organizations::organization(&state.db, organization_id).await?;
+            json!({
+                "organization": organization,
+                "cutoff": crate::cutoff::view(&log, fold.as_of()),
+                "tag_names": tags::names(&state.db, organization_id, tags::Kind::Tag).await?
+                    .into_iter().map(|(name, built_in)| json!({"name": name, "built_in": built_in})).collect::<Vec<_>>(),
+                "attribute_names": tags::names(&state.db, organization_id, tags::Kind::Attribute).await?
+                    .into_iter().map(|(name, built_in)| json!({"name": name, "built_in": built_in})).collect::<Vec<_>>(),
+                "rules": organizations::rules::views(&fold, Some(&person)),
+                "price_table": crate::price_table::rows_view(&log, &fold),
+            })
         }
-        "tickets" => {
-            let project = arguments.get("project").and_then(Value::as_str);
-            let project_id = match project {
-                Some(project) => Some(
-                    projects::projects(db, organization_id)
-                        .await?
-                        .into_iter()
-                        .find(|candidate| candidate.name == project)
-                        .map(|found| found.id)
-                        .ok_or_else(|| {
-                            RpcError::invalid_params(format!("no project named {project}"))
-                        })?,
-                ),
-                None => None,
-            };
-            let query = arguments
-                .get("query")
-                .and_then(Value::as_str)
-                .map(str::to_owned);
+        "tag_values" => {
+            let name = text_argument(arguments, "name");
+            let query = text_argument(arguments, "query").map(|query| query.to_lowercase());
             let limit = arguments
                 .get("limit")
-                .and_then(Value::as_i64)
-                .unwrap_or(100);
-            json!(projects::tickets(db, organization_id, project_id, query, limit).await?)
+                .and_then(Value::as_u64)
+                .and_then(|limit| usize::try_from(limit).ok())
+                .unwrap_or(100)
+                .clamp(1, 500);
+            let values: Vec<_> = tags::values_view(&log, &fold, &person)
+                .into_iter()
+                .filter(|value| name.as_deref().is_none_or(|name| value.name == name))
+                .filter(|value| {
+                    query.as_deref().is_none_or(|query| {
+                        value.key.to_lowercase().contains(query)
+                            || value
+                                .title
+                                .as_deref()
+                                .is_some_and(|title| title.to_lowercase().contains(query))
+                    })
+                })
+                .take(limit)
+                .collect();
+            json!(values)
+        }
+        "attributes" => json!(tags::attributes::values_view(&log, &fold)),
+        "people" => json!(organizations::members(state, organization_id).await?),
+        "plans" => {
+            let mut estimates = Vec::new();
+            for recorded in fold.estimates() {
+                let accepted = fold
+                    .accepted(&recorded.value.tags)
+                    .is_some_and(|accepted| accepted.id == recorded.id);
+                if !accepted || !access::can_view(&fold, &person, &recorded.value.tags) {
+                    continue;
+                }
+                estimates.push(crate::plans::view(
+                    &fold,
+                    &recorded.id,
+                    recorded.recorded_at,
+                    &recorded.value,
+                    None,
+                )?);
+            }
+            json!({
+                "plans": estimates,
+                "shares": crate::plans::share_views(&log, &fold, &person),
+            })
+        }
+        "report" => {
+            let query = crate::reports::ReportQuery {
+                from: text_argument(arguments, "from"),
+                to: text_argument(arguments, "to"),
+                as_of: text_argument(arguments, "as_of"),
+                by: text_argument(arguments, "by"),
+                filter: text_argument(arguments, "filter"),
+                approved: arguments.get("approved").and_then(Value::as_bool),
+                currency: text_argument(arguments, "currency"),
+                view: None,
+                format: None,
+            };
+            json!(crate::reports::cost(state, caller, &query).await?)
         }
         other => return Err(RpcError::invalid_params(format!("unknown tool {other}"))),
     };
@@ -293,7 +357,7 @@ mod tests {
     fn every_tool_only_reads_and_has_a_schema() {
         let tools = tools();
         let tools = tools.as_array().unwrap();
-        assert_eq!(tools.len(), 5);
+        assert_eq!(tools.len(), 6);
         for tool in tools {
             assert_eq!(tool["annotations"]["readOnlyHint"], true);
             assert_eq!(tool["inputSchema"]["type"], "object");

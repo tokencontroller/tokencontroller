@@ -8,6 +8,8 @@
 
 use std::collections::BTreeMap;
 
+use time::Date;
+
 use serde::{Deserialize, Serialize};
 
 use crate::tags::{TagName, TagValue, Tags};
@@ -53,6 +55,11 @@ pub struct PersonAttribute {
     pub person: TagValue,
     pub name: TagName,
     pub key: TagValue,
+    /// The first day the value holds. Without one it holds from the
+    /// beginning. A message carries the person's attributes as of its own
+    /// day, so a team change on 1 April leaves March on the old team.
+    #[serde(default)]
+    pub from: Option<Date>,
 }
 
 /// The tag values and attribute values in force, by name and key.
@@ -60,8 +67,9 @@ pub struct PersonAttribute {
 pub struct Values {
     tags: BTreeMap<(TagName, TagValue), TagValueRecord>,
     attributes: BTreeMap<(TagName, TagValue), AttributeValue>,
-    /// Each person's attributes, one value per attribute name.
-    people: BTreeMap<TagValue, Tags>,
+    /// Each person's attributes in the order recorded: one value per
+    /// attribute name as of any day.
+    people: BTreeMap<TagValue, Vec<PersonAttribute>>,
 }
 
 impl Values {
@@ -77,19 +85,20 @@ impl Values {
             .insert((value.name.clone(), value.key.clone()), value);
     }
 
-    /// Puts an attribute value on a person, replacing the person's earlier
-    /// value for that attribute name.
+    /// Puts an attribute value on a person from its date on. It replaces the
+    /// person's earlier value for that attribute name from that day; days
+    /// before keep the earlier value.
     pub fn insert_person_attribute(&mut self, attribute: PersonAttribute) {
         self.people
-            .entry(attribute.person)
+            .entry(attribute.person.clone())
             .or_default()
-            .insert(attribute.name, attribute.key);
+            .push(attribute);
     }
 
-    /// Removes a person's value for an attribute name.
+    /// Removes a person's values for an attribute name, on every day.
     pub fn remove_person_attribute(&mut self, person: &TagValue, name: &TagName) {
         if let Some(attributes) = self.people.get_mut(person) {
-            attributes.remove(name);
+            attributes.retain(|attribute| attribute.name != *name);
         }
     }
 
@@ -115,10 +124,34 @@ impl Values {
         self.attributes.values()
     }
 
-    /// The attributes put on a person directly, before defaults.
+    /// The attributes put on a person directly, before defaults, as of the
+    /// latest day there is.
     #[must_use]
     pub fn attributes_of(&self, person: &TagValue) -> Tags {
-        self.people.get(person).cloned().unwrap_or_default()
+        self.attributes_of_on(person, Date::MAX)
+    }
+
+    /// The attributes put on a person directly, before defaults, as they
+    /// hold on `day`: for each attribute name the value with the latest
+    /// from date on or before the day, the one recorded last among equals.
+    #[must_use]
+    pub fn attributes_of_on(&self, person: &TagValue, day: Date) -> Tags {
+        let mut tags = Tags::new();
+        let mut since: BTreeMap<&TagName, Option<Date>> = BTreeMap::new();
+        for attribute in self.people.get(person).into_iter().flatten() {
+            if attribute.from.is_some_and(|from| from > day) {
+                continue;
+            }
+            let later = since
+                .get(&attribute.name)
+                .is_some_and(|held| *held > attribute.from);
+            if later {
+                continue;
+            }
+            since.insert(&attribute.name, attribute.from);
+            tags.insert(attribute.name.clone(), attribute.key.clone());
+        }
+        tags
     }
 
     /// Whether a key is a value of a tag name.
@@ -134,9 +167,16 @@ impl Values {
     /// so a cycle in the defaults cannot loop.
     #[must_use]
     pub fn close(&self, tags: &Tags, person: &TagValue) -> Tags {
+        self.close_on(tags, person, Date::MAX)
+    }
+
+    /// [`close`](Self::close) with the person's attributes as they hold on
+    /// `day`, the day of the message.
+    #[must_use]
+    pub fn close_on(&self, tags: &Tags, person: &TagValue, day: Date) -> Tags {
         let mut closed = tags.clone();
         closed.insert(TagName::person(), person.clone());
-        for (name, key) in self.attributes_of(person).iter() {
+        for (name, key) in self.attributes_of_on(person, day).iter() {
             if !closed.contains(name) {
                 closed.insert(name.clone(), key.clone());
             }
@@ -211,11 +251,13 @@ mod tests {
             person: key("mara"),
             name: name("team"),
             key: key("web"),
+            from: None,
         });
         values.insert_person_attribute(PersonAttribute {
             person: key("tom"),
             name: name("team"),
             key: key("web"),
+            from: None,
         });
         values
     }
@@ -310,6 +352,53 @@ mod tests {
     }
 
     #[test]
+    fn a_persons_attribute_holds_from_its_date() {
+        use time::macros::date;
+        let mut values = worked_month();
+        values.insert_person_attribute(PersonAttribute {
+            person: key("mara"),
+            name: name("team"),
+            key: key("data"),
+            from: Some(date!(2026 - 04 - 01)),
+        });
+        assert_eq!(
+            values.attributes_of_on(&key("mara"), date!(2026 - 03 - 31)),
+            tags(&["team=web"])
+        );
+        assert_eq!(
+            values.attributes_of_on(&key("mara"), date!(2026 - 04 - 01)),
+            tags(&["team=data"])
+        );
+        assert_eq!(values.attributes_of(&key("mara")), tags(&["team=data"]));
+        assert_eq!(
+            values.close_on(&Tags::new(), &key("mara"), date!(2026 - 03 - 15)),
+            tags(&["person=mara", "team=web", "department=engineering"])
+        );
+        // An earlier-dated value recorded later does not undo a later one.
+        values.insert_person_attribute(PersonAttribute {
+            person: key("mara"),
+            name: name("team"),
+            key: key("mobile"),
+            from: Some(date!(2026 - 02 - 01)),
+        });
+        assert_eq!(
+            values.attributes_of_on(&key("mara"), date!(2026 - 03 - 15)),
+            tags(&["team=mobile"])
+        );
+        assert_eq!(
+            values.attributes_of_on(&key("mara"), date!(2026 - 05 - 01)),
+            tags(&["team=data"])
+        );
+        // Before every dated value, the undated one holds.
+        assert_eq!(
+            values.attributes_of_on(&key("mara"), date!(2026 - 01 - 01)),
+            tags(&["team=web"])
+        );
+        values.remove_person_attribute(&key("mara"), &name("team"));
+        assert_eq!(values.attributes_of(&key("mara")), Tags::new());
+    }
+
+    #[test]
     fn a_later_record_for_the_same_key_replaces_the_earlier_one() {
         let mut values = worked_month();
         values.insert_tag_value(tag_value("feature", "KD-1", &["project=store"]));
@@ -341,6 +430,7 @@ mod tests {
             person: key("mara"),
             name: name("team"),
             key: key("data"),
+            from: None,
         });
         assert_eq!(values.attributes_of(&key("mara")), tags(&["team=data"]));
         values.remove_person_attribute(&key("mara"), &name("team"));

@@ -16,6 +16,9 @@ pub enum ApiError {
     Unauthorized,
     #[error("your role cannot do this")]
     Forbidden,
+    /// A capability the caller's grants do not cover; the message names it.
+    #[error("{0}")]
+    NoCapability(String),
     #[error("not found")]
     NotFound,
     #[error("{0}")]
@@ -45,7 +48,7 @@ impl ApiError {
         match self {
             Self::BadRequest(_) => StatusCode::BAD_REQUEST,
             Self::Unauthorized => StatusCode::UNAUTHORIZED,
-            Self::Forbidden => StatusCode::FORBIDDEN,
+            Self::Forbidden | Self::NoCapability(_) => StatusCode::FORBIDDEN,
             Self::NotFound => StatusCode::NOT_FOUND,
             Self::Conflict(_) => StatusCode::CONFLICT,
             Self::Gone(_) => StatusCode::GONE,
@@ -60,7 +63,7 @@ impl ApiError {
         match self {
             Self::BadRequest(_) => "bad_request",
             Self::Unauthorized => "unauthorized",
-            Self::Forbidden => "forbidden",
+            Self::Forbidden | Self::NoCapability(_) => "forbidden",
             Self::NotFound => "not_found",
             Self::Conflict(_) => "conflict",
             Self::Gone(_) => "gone",

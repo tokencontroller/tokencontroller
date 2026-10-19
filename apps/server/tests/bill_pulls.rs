@@ -49,8 +49,9 @@ fn config() -> Config {
         secret_key: KEY.to_owned(),
         smtp_url: None,
         smtp_from: None,
-        prices_refresh: false,
-        embeddings: None,
+        price_table: None,
+        rates_refresh: false,
+        classifier: None,
     }
 }
 
@@ -58,7 +59,7 @@ struct Kestrel {
     state: AppState,
     app: Router,
     organization_id: Uuid,
-    controller: String,
+    org_manager: String,
     agent_manager: String,
 }
 
@@ -90,7 +91,7 @@ async fn kestrel(pool: &PgPool) -> TestResult<Kestrel> {
     .fetch_one(pool)
     .await?;
     Ok(Kestrel {
-        controller: session(pool, created.person_id).await?,
+        org_manager: session(pool, created.person_id).await?,
         agent_manager: session(pool, mia).await?,
         state,
         app,
@@ -224,12 +225,12 @@ async fn last_error(pool: &PgPool, id: Uuid) -> TestResult<Option<String>> {
     )
 }
 
-async fn bills(kestrel: &Kestrel, period: &str) -> TestResult<Vec<Value>> {
+async fn bills(kestrel: &Kestrel, from: &str, to: &str) -> TestResult<Vec<Value>> {
     let answer = send(
         &kestrel.app,
         Method::GET,
-        &format!("/api/v1/bills?period={period}"),
-        &kestrel.controller,
+        &format!("/api/v1/bills?from={from}&to={to}"),
+        &kestrel.org_manager,
         None,
     )
     .await?;
@@ -238,7 +239,7 @@ async fn bills(kestrel: &Kestrel, period: &str) -> TestResult<Vec<Value>> {
 }
 
 #[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
-async fn a_controller_connects_a_bill_source_and_the_key_never_comes_back(pool: PgPool) {
+async fn an_org_manager_connects_a_bill_source_and_the_key_never_comes_back(pool: PgPool) {
     let kestrel = kestrel(&pool).await.unwrap();
     let openai = json!({ "provider": "openai", "key": "sk-admin-Wn3xJ8kPq2Rt" });
 
@@ -256,7 +257,7 @@ async fn a_controller_connects_a_bill_source_and_the_key_never_comes_back(pool: 
         &kestrel.app,
         Method::POST,
         "/api/v1/bill-connections",
-        &kestrel.controller,
+        &kestrel.org_manager,
         Some(json_body(
             &json!({ "provider": "anthropic_console", "key": "  " }),
         )),
@@ -273,7 +274,7 @@ async fn a_controller_connects_a_bill_source_and_the_key_never_comes_back(pool: 
         &kestrel.app,
         Method::POST,
         "/api/v1/bill-connections",
-        &kestrel.controller,
+        &kestrel.org_manager,
         Some(json_body(&openai)),
     )
     .await
@@ -306,7 +307,7 @@ async fn a_controller_connects_a_bill_source_and_the_key_never_comes_back(pool: 
         &kestrel.app,
         Method::GET,
         "/api/v1/bill-connections",
-        &kestrel.controller,
+        &kestrel.org_manager,
         None,
     )
     .await
@@ -329,7 +330,7 @@ async fn a_controller_connects_a_bill_source_and_the_key_never_comes_back(pool: 
         &kestrel.app,
         Method::POST,
         &format!("/api/v1/bill-connections/{id}/pull"),
-        &kestrel.controller,
+        &kestrel.org_manager,
         None,
     )
     .await
@@ -339,7 +340,7 @@ async fn a_controller_connects_a_bill_source_and_the_key_never_comes_back(pool: 
         &kestrel.app,
         Method::POST,
         &format!("/api/v1/bill-connections/{}/pull", Uuid::new_v4()),
-        &kestrel.controller,
+        &kestrel.org_manager,
         None,
     )
     .await
@@ -350,7 +351,7 @@ async fn a_controller_connects_a_bill_source_and_the_key_never_comes_back(pool: 
         &kestrel.app,
         Method::DELETE,
         &format!("/api/v1/bill-connections/{id}"),
-        &kestrel.controller,
+        &kestrel.org_manager,
         None,
     )
     .await
@@ -360,7 +361,7 @@ async fn a_controller_connects_a_bill_source_and_the_key_never_comes_back(pool: 
         &kestrel.app,
         Method::DELETE,
         &format!("/api/v1/bill-connections/{id}"),
-        &kestrel.controller,
+        &kestrel.org_manager,
         None,
     )
     .await
@@ -369,7 +370,7 @@ async fn a_controller_connects_a_bill_source_and_the_key_never_comes_back(pool: 
 }
 
 #[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
-async fn the_job_pulls_this_and_last_period_and_a_second_pull_changes_nothing(pool: PgPool) {
+async fn the_job_pulls_this_and_last_month_and_a_second_pull_changes_nothing(pool: PgPool) {
     let kestrel = kestrel(&pool).await.unwrap();
     let server = MockServer::start().await;
     mock_openai(&server).await;
@@ -387,37 +388,50 @@ async fn the_job_pulls_this_and_last_period_and_a_second_pull_changes_nothing(po
     assert_eq!(last_error(&pool, openai).await.unwrap(), None);
     assert_eq!(last_error(&pool, console).await.unwrap(), None);
 
-    let september = bills(&kestrel, "2026-09").await.unwrap();
+    let september = bills(&kestrel, "2026-09-01", "2026-09-30").await.unwrap();
     let figures: Vec<(String, String, String, String)> = september
         .iter()
         .map(|bill| {
             (
                 bill["provider"].as_str().unwrap_or_default().to_owned(),
-                bill["cost_source"].as_str().unwrap_or_default().to_owned(),
-                bill["gross"].as_str().unwrap_or_default().to_owned(),
+                bill["lines"][0]["charging"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .to_owned(),
+                bill["amount"].as_str().unwrap_or_default().to_owned(),
                 bill["source"].as_str().unwrap_or_default().to_owned(),
             )
         })
         .collect();
-    assert!(figures.contains(&(
-        "openai".to_owned(),
-        "api_key".to_owned(),
-        "58.27".to_owned(),
-        "pulled".to_owned()
-    )));
-    assert!(figures.contains(&(
-        "anthropic".to_owned(),
-        "api_key".to_owned(),
-        "48.31".to_owned(),
-        "pulled".to_owned()
-    )));
+    assert!(
+        figures.contains(&(
+            "openai".to_owned(),
+            "api_key".to_owned(),
+            "58.27".to_owned(),
+            "pulled".to_owned()
+        )),
+        "{figures:?}"
+    );
+    assert!(
+        figures.contains(&(
+            "anthropic".to_owned(),
+            "api_key".to_owned(),
+            "48.31".to_owned(),
+            "pulled".to_owned()
+        )),
+        "{figures:?}"
+    );
     let openai_bill = september
         .iter()
         .find(|bill| bill["provider"] == "openai")
         .unwrap();
-    assert_eq!(openai_bill["lines"].as_array().map(Vec::len), Some(4));
-    assert_eq!(openai_bill["lines"][3]["amount"], "0.000123");
-    let october = bills(&kestrel, "2026-10").await.unwrap();
+    assert_eq!(openai_bill["from"], "2026-09-01");
+    assert_eq!(openai_bill["to"], "2026-09-30");
+    assert_eq!(openai_bill["currency"], "USD");
+    // The figures line, then the provider's own lines.
+    assert_eq!(openai_bill["lines"].as_array().map(Vec::len), Some(5));
+    assert_eq!(openai_bill["lines"][4]["amount"], "0.000123");
+    let october = bills(&kestrel, "2026-10-01", "2026-10-31").await.unwrap();
     assert_eq!(october.len(), 2, "this month's bills so far");
 
     // Not due again until tomorrow.
@@ -432,7 +446,7 @@ async fn the_job_pulls_this_and_last_period_and_a_second_pull_changes_nothing(po
         &kestrel.app,
         Method::POST,
         &format!("/api/v1/bill-connections/{openai}/pull"),
-        &kestrel.controller,
+        &kestrel.org_manager,
         None,
     )
     .await
@@ -442,11 +456,11 @@ async fn the_job_pulls_this_and_last_period_and_a_second_pull_changes_nothing(po
             .await
             .unwrap();
     assert_eq!(again, "1 of 1 bill sources pulled, 0 bills changed");
-    let revisions: i64 = sqlx::query_scalar("SELECT count(*) FROM bill_revisions")
+    let bill_events: i64 = sqlx::query_scalar("SELECT count(*) FROM events WHERE kind = 'bill'")
         .fetch_one(&pool)
         .await
         .unwrap();
-    assert_eq!(revisions, 4);
+    assert_eq!(bill_events, 4);
 }
 
 #[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
@@ -483,7 +497,7 @@ async fn a_refused_key_is_that_connections_problem_and_an_outage_is_the_jobs(poo
         &kestrel.app,
         Method::GET,
         "/api/v1/bill-connections",
-        &kestrel.controller,
+        &kestrel.org_manager,
         None,
     )
     .await
@@ -556,7 +570,7 @@ async fn a_csv_bill_file_is_previewed_then_uploaded(pool: PgPool) {
         &kestrel.app,
         Method::POST,
         "/api/v1/bills/csv/preview",
-        &kestrel.controller,
+        &kestrel.org_manager,
         Some(csv_body(BILLS_CSV)),
     )
     .await
@@ -569,36 +583,41 @@ async fn a_csv_bill_file_is_previewed_then_uploaded(pool: PgPool) {
         .unwrap_or_default();
     assert_eq!(shown.len(), 3);
     assert_eq!(shown[0]["provider"], "openai");
-    assert_eq!(shown[0]["net"], "1234.56");
+    assert_eq!(shown[0]["from"], "2026-03-01");
+    assert_eq!(shown[0]["to"], "2026-03-31");
+    assert_eq!(shown[0]["amount"], "1234.56");
     assert_eq!(shown[0]["exchange_rate"], "0.92");
-    assert_eq!(shown[2]["provider"], "other");
+    assert_eq!(
+        shown[2]["provider"], "cursor",
+        "provider names are lower case"
+    );
     assert_eq!(shown[2]["currency"], "EUR");
-    let saved: i64 = sqlx::query_scalar("SELECT count(*) FROM bills")
+    let saved: i64 = sqlx::query_scalar("SELECT count(*) FROM events WHERE kind = 'bill'")
         .fetch_one(&pool)
         .await
         .unwrap();
     assert_eq!(saved, 0, "a preview saves nothing");
 
-    let broken = "period,cost_source,gross,discount,credit,net,currency\n\
-                  2026-09,api_key,10,0,0,10,USD\n\
-                  2026-09,seat,30,0,0,30,USD\n";
+    let broken = "provider,from,to,amount,currency\n\
+                  openai,2026-09-01,2026-09-30,10,USD\n\
+                  openai,2026-09-30,2026-09-01,30,USD\n";
     let problem = send(
         &kestrel.app,
         Method::POST,
         "/api/v1/bills/csv/preview",
-        &kestrel.controller,
+        &kestrel.org_manager,
         Some(csv_body(broken)),
     )
     .await
     .unwrap();
     assert_eq!(problem.json["bills"], json!([]));
     assert_eq!(problem.json["problem"]["row"], 3);
-    assert_eq!(problem.json["problem"]["column"], "cost_source");
+    assert_eq!(problem.json["problem"]["column"], "to");
     let refused = send(
         &kestrel.app,
         Method::POST,
         "/api/v1/bills/csv",
-        &kestrel.controller,
+        &kestrel.org_manager,
         Some(csv_body(broken)),
     )
     .await
@@ -606,42 +625,31 @@ async fn a_csv_bill_file_is_previewed_then_uploaded(pool: PgPool) {
     assert_eq!(refused.status, StatusCode::BAD_REQUEST);
     assert_eq!(
         refused.json["message"],
-        "Row 3, column cost_source: Seats and subscriptions are flat fees and have no bill. \
-         Leave this row out; finance handles them as before. Nothing was saved."
+        "Row 3, column to: The bill ends on 2026-09-01, before it starts on 2026-09-30. \
+         Nothing was saved."
     );
-    // One good row and one the bills area would refuse: the preview names
-    // it, and the upload stores neither.
-    let half_good = "period,cost_source,gross,discount,credit,net,currency\n\
-                     2026-09,api_key,10,0,0,10,USD\n\
-                     2026-08,api_key,10,-5,0,15,USD\n";
-    let negative = send(
-        &kestrel.app,
-        Method::POST,
-        "/api/v1/bills/csv/preview",
-        &kestrel.controller,
-        Some(csv_body(half_good)),
-    )
-    .await
-    .unwrap();
-    assert_eq!(negative.json["problem"]["row"], 3);
-    assert_eq!(negative.json["problem"]["column"], "discount");
+    // One good row and one the bills area would refuse: the upload stores
+    // neither.
+    let half_good = "provider,from,to,amount,currency\n\
+                     openai,2026-09-01,2026-09-30,10,USD\n\
+                     openai,2026-08-01,2026-08-31,-15,USD\n";
     let partial = send(
         &kestrel.app,
         Method::POST,
         "/api/v1/bills/csv",
-        &kestrel.controller,
+        &kestrel.org_manager,
         Some(csv_body(half_good)),
     )
     .await
     .unwrap();
-    assert_eq!(partial.status, StatusCode::BAD_REQUEST);
-    let saved: i64 = sqlx::query_scalar("SELECT count(*) FROM bills")
+    assert_eq!(partial.status, StatusCode::BAD_REQUEST, "{}", partial.json);
+    let saved: i64 = sqlx::query_scalar("SELECT count(*) FROM events WHERE kind = 'bill'")
         .fetch_one(&pool)
         .await
         .unwrap();
     assert_eq!(saved, 0, "a file with a problem saves nothing");
 
-    let not_a_controller = send(
+    let not_an_org_manager = send(
         &kestrel.app,
         Method::POST,
         "/api/v1/bills/csv",
@@ -650,13 +658,13 @@ async fn a_csv_bill_file_is_previewed_then_uploaded(pool: PgPool) {
     )
     .await
     .unwrap();
-    assert_eq!(not_a_controller.status, StatusCode::FORBIDDEN);
+    assert_eq!(not_an_org_manager.status, StatusCode::FORBIDDEN);
 
     let uploaded = send(
         &kestrel.app,
         Method::POST,
         "/api/v1/bills/csv",
-        &kestrel.controller,
+        &kestrel.org_manager,
         Some(csv_body(BILLS_CSV)),
     )
     .await
@@ -664,11 +672,12 @@ async fn a_csv_bill_file_is_previewed_then_uploaded(pool: PgPool) {
     assert_eq!(uploaded.status, StatusCode::CREATED, "{}", uploaded.json);
     assert_eq!(uploaded.json["changed"], 3);
     assert_eq!(uploaded.json["bills"][0]["source"], "csv");
+    assert_eq!(uploaded.json["bills"][0]["exchange_rate_given"], true);
     let twice = send(
         &kestrel.app,
         Method::POST,
         "/api/v1/bills/csv",
-        &kestrel.controller,
+        &kestrel.org_manager,
         Some(csv_body(BILLS_CSV)),
     )
     .await
@@ -677,30 +686,63 @@ async fn a_csv_bill_file_is_previewed_then_uploaded(pool: PgPool) {
         twice.json["changed"], 0,
         "the same file again changes nothing"
     );
+
+    // The bills are on record, and a restated one supersedes the first.
+    let march = bills(&kestrel, "2026-03-01", "2026-03-31").await.unwrap();
+    assert_eq!(march.len(), 2, "{march:?}");
+    let restated = "provider,from,to,amount,currency,exchange_rate\n\
+                    openai,2026-03-01,2026-03-31,1300,USD,0.92\n";
+    let changed = send(
+        &kestrel.app,
+        Method::POST,
+        "/api/v1/bills/csv",
+        &kestrel.org_manager,
+        Some(csv_body(restated)),
+    )
+    .await
+    .unwrap();
+    assert_eq!(changed.json["changed"], 1, "{}", changed.json);
+    let march = bills(&kestrel, "2026-03-01", "2026-03-31").await.unwrap();
+    let openai: Vec<&Value> = march
+        .iter()
+        .filter(|bill| bill["provider"] == "openai")
+        .collect();
+    assert_eq!(openai.len(), 1, "{march:?}");
+    assert_eq!(openai[0]["amount"], "1300.00");
+    let with_reversed = send(
+        &kestrel.app,
+        Method::GET,
+        "/api/v1/bills?from=2026-03-01&to=2026-03-31&provider=openai&reversed=true",
+        &kestrel.org_manager,
+        None,
+    )
+    .await
+    .unwrap();
+    assert_eq!(with_reversed.json.as_array().map(Vec::len), Some(2));
 }
 
 #[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
-async fn a_clouds_cost_export_is_one_periods_bill(pool: PgPool) {
+async fn a_clouds_cost_export_is_one_months_bill(pool: PgPool) {
     let kestrel = kestrel(&pool).await.unwrap();
-    let without_period = send(
+    let without_month = send(
         &kestrel.app,
         Method::POST,
         "/api/v1/bills/csv/preview?cloud=bedrock",
-        &kestrel.controller,
+        &kestrel.org_manager,
         Some(csv_body(BEDROCK_CSV)),
     )
     .await
     .unwrap();
     assert_eq!(
-        without_period.json["problem"]["message"],
-        "Give the period the export is the bill for, such as 2026-09."
+        without_month.json["problem"]["message"],
+        "Give the month the export is the bill for, such as 2026-03."
     );
 
     let uploaded = send(
         &kestrel.app,
         Method::POST,
-        "/api/v1/bills/csv?cloud=bedrock&period=2026-09",
-        &kestrel.controller,
+        "/api/v1/bills/csv?cloud=bedrock&month=2026-09",
+        &kestrel.org_manager,
         Some(csv_body(BEDROCK_CSV)),
     )
     .await
@@ -708,8 +750,9 @@ async fn a_clouds_cost_export_is_one_periods_bill(pool: PgPool) {
     assert_eq!(uploaded.status, StatusCode::CREATED, "{}", uploaded.json);
     let bill = &uploaded.json["bills"][0];
     assert_eq!(bill["provider"], "aws_bedrock");
-    assert_eq!(bill["cost_source"], "cloud_marketplace");
-    assert_eq!(bill["period"], "2026-09");
+    assert_eq!(bill["from"], "2026-09-01");
+    assert_eq!(bill["to"], "2026-09-30");
+    assert_eq!(bill["lines"][0]["charging"], "cloud_marketplace");
     assert!(
         bill["lines"]
             .as_array()

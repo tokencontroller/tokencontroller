@@ -1,0 +1,86 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT provider, model, kind, per_million_nanos, valid_from, loaded_at FROM managed_price_rows",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "provider",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "managed_price_rows",
+            "name": "provider"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "model",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "managed_price_rows",
+            "name": "model"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "kind",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "managed_price_rows",
+            "name": "kind"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "per_million_nanos",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "managed_price_rows",
+            "name": "per_million_nanos"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "valid_from",
+        "type_info": "Date",
+        "origin": {
+          "Table": {
+            "table": "managed_price_rows",
+            "name": "valid_from"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "loaded_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "managed_price_rows",
+            "name": "loaded_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "63719c2bf7830a0584966a18b6ccc37b0e6b3c330f711379c72ebdbbc7465686"
+}

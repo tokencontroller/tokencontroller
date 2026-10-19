@@ -109,9 +109,14 @@ impl fmt::Display for ModelRef {
 #[serde(default, deny_unknown_fields)]
 pub struct Signals {
     pub branch: Option<String>,
+    pub working_directory: Option<String>,
     /// The repository, such as `kestrel/storefront`.
     pub repository: Option<String>,
+    /// The pull request number.
+    pub pull_request: Option<u64>,
     pub pull_request_title: Option<String>,
+    /// The type of the subagent that ran the session, if one did.
+    pub subagent_type: Option<String>,
     /// Keys found in the prompts, such as `KD-1`, once per mention.
     pub prompt_keys: Vec<String>,
     /// Values from a config file in the repository, by name.
@@ -274,6 +279,7 @@ mod tests {
             "reported_cost": {"nanos": 5, "currency": "USD"},
             "tags": {"feature": "KD-1"},
             "signals": {"branch": "KD-1-fix", "prompt_keys": ["KD-1", "KD-2"],
+                        "working_directory": "/w/shop", "pull_request": 7, "subagent_type": "review",
                         "config": {"project": "shop"}, "resource": {"service.name": "bot"}},
             "session": {"turns": 3, "result": "https://example.test/pr/1", "summary": "fixed it"}
         }"#;
@@ -284,6 +290,9 @@ mod tests {
         );
         assert_eq!(read.tags.get_str("feature").unwrap().as_str(), "KD-1");
         assert_eq!(read.signals.branch.as_deref(), Some("KD-1-fix"));
+        assert_eq!(read.signals.working_directory.as_deref(), Some("/w/shop"));
+        assert_eq!(read.signals.pull_request, Some(7));
+        assert_eq!(read.signals.subagent_type.as_deref(), Some("review"));
         assert_eq!(read.signals.prompt_keys, vec!["KD-1", "KD-2"]);
         assert_eq!(read.signals.config.get("project").unwrap(), "shop");
         assert_eq!(read.signals.resource.get("service.name").unwrap(), "bot");

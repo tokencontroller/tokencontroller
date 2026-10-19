@@ -1,0 +1,7 @@
+Hello {{name}},
+
+{{requester}} asks everyone at {{organization}} to check their sessions and submit them by {{until}}.{{note}}
+
+Open {{host}} to see what is still open, fix the feature where a rule got it wrong, and submit. An empty submit says there was nothing to add.
+
+Token Controller

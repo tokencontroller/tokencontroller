@@ -414,7 +414,11 @@ impl State {
                     error,
                 })?;
             for (index, (part, amount)) in parts.iter().zip(amounts).enumerate() {
-                let tags = self.values.close(&part.tags, &message.value.person);
+                let tags = self.values.close_on(
+                    &part.tags,
+                    &message.value.person,
+                    date_of(message.value.at),
+                );
                 lines.push(Line {
                     session_id: message.value.session_id.clone(),
                     message_id: message.value.message_id.clone(),
@@ -951,6 +955,7 @@ mod tests {
                 person: key(person),
                 name: name("team"),
                 key: key("web"),
+                from: None,
             }),
         )
     }
@@ -2312,6 +2317,7 @@ mod tests {
                 person: key("tom"),
                 name: name("team"),
                 key: key("data"),
+                from: None,
             }),
         ));
         let state = State::fold(&events, APRIL, Currency::USD).unwrap();

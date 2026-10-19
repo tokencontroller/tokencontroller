@@ -1,9 +1,10 @@
-//! Every door that brings token entries and telemetry in: the OpenTelemetry
-//! receiver at `/api/v1/ingest/otlp`, the token entries endpoint, manual entry
-//! and CSV import, and per-message dedupe (ADR 0006).
+//! The doors: how messages reach the log (docs: Collect). The token entries
+//! endpoint and CSV import take token entries; the OpenTelemetry receiver
+//! takes agent telemetry. Every door writes message events; the core's
+//! fold prices them and rules split them.
 //!
-//! Owner: the collection and integrations work. Keep this area's code, routes and queries in
-//! this folder, and its migrations in `migrations/` named
+//! Owner: the service platform work. Keep this area's code, routes and
+//! queries in this folder, and its migrations in `migrations/` named
 //! `<timestamp>_ingest_<what>.sql`.
 
 pub mod csv_import;
@@ -12,7 +13,6 @@ pub mod http;
 pub mod model;
 pub mod otlp;
 pub mod provider;
-pub mod seed;
 pub mod store;
 
 use axum::extract::DefaultBodyLimit;
@@ -20,6 +20,9 @@ use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
 use crate::AppState;
+
+pub use http::{MAX_ENTRIES_PER_CALL, MAX_REQUEST_BYTES, StoredEntries, TokenEntries};
+pub use store::{StoredEntry, TelemetryOutcome};
 
 /// This area's routes, relative to `/api/v1`.
 #[must_use]

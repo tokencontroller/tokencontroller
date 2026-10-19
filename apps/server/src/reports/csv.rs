@@ -191,7 +191,7 @@ fn escape(cell: &str) -> String {
     }
 }
 
-/// Re-writes a CSV text made elsewhere, such as the core's cost sheet, with
+/// Re-writes a CSV text made elsewhere, such as the core's cost report, with
 /// the same quoting and formula defusing as every other download.
 ///
 /// # Errors

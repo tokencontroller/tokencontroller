@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO bill_details (organization_id, event_id, source, is_final, lines)\n         VALUES ($1, $2, 'api', true, '[]'::jsonb) ON CONFLICT DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d4144759a24cf324e8137ce9e448430aed4946981e00039551484b3a89bdc08a"
+}

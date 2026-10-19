@@ -1,70 +1,19 @@
-//! Organization settings (docs: Account > Organization settings). Ticket
-//! systems, organization rules and the tag map have their own areas.
+//! Organization settings (docs: Account > Organization settings). Tag names,
+//! attribute names, rules, the price table and the cutoff have their own
+//! areas; this is the name, the reporting currency, approval and sign-in.
 
 use axum::Json;
 use axum::extract::State;
 use serde::{Deserialize, Serialize};
-use time::OffsetDateTime;
+use time::{Date, OffsetDateTime};
 use utoipa::ToSchema;
 use uuid::Uuid;
 
 use super::Role;
 use crate::AppState;
-use crate::change::Change;
 use crate::error::ApiError;
+use crate::events::Log;
 use crate::sign_in::Member;
-
-/// How a provider charges the organization. It decides what the close
-/// reconciles against (docs: Account > Bills).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum CostSource {
-    Subscription,
-    Seat,
-    UsageAtApiRates,
-    ApiKey,
-    CloudMarketplace,
-    Reseller,
-}
-
-impl CostSource {
-    pub(crate) const fn as_str(self) -> &'static str {
-        match self {
-            Self::Subscription => "subscription",
-            Self::Seat => "seat",
-            Self::UsageAtApiRates => "usage_at_api_rates",
-            Self::ApiKey => "api_key",
-            Self::CloudMarketplace => "cloud_marketplace",
-            Self::Reseller => "reseller",
-        }
-    }
-
-    pub(crate) fn from_db(value: &str) -> Option<Self> {
-        [
-            Self::Subscription,
-            Self::Seat,
-            Self::UsageAtApiRates,
-            Self::ApiKey,
-            Self::CloudMarketplace,
-            Self::Reseller,
-        ]
-        .into_iter()
-        .find(|source| source.as_str() == value)
-    }
-}
-
-impl From<CostSource> for tokencontroller_core::CostSource {
-    fn from(source: CostSource) -> Self {
-        match source {
-            CostSource::Subscription => Self::Subscription,
-            CostSource::Seat => Self::Seat,
-            CostSource::UsageAtApiRates => Self::UsageAtApiRates,
-            CostSource::ApiKey => Self::ApiKey,
-            CostSource::CloudMarketplace => Self::CloudMarketplace,
-            CostSource::Reseller => Self::Reseller,
-        }
-    }
-}
 
 /// An organization and its settings.
 #[derive(Debug, Clone, Serialize, ToSchema)]
@@ -73,15 +22,20 @@ pub struct Organization {
     pub name: String,
     /// Used in invite links.
     pub slug: String,
-    /// How the provider charges; `null` until a controller picks one.
-    pub cost_source: Option<CostSource>,
-    /// The one currency the organization computes in, such as `EUR`.
+    /// The one currency figures are shown in, such as `EUR`. The price
+    /// table is in US dollars.
     pub reporting_currency: String,
-    /// Whether people managers approve token entries before the close.
+    /// Whether submissions need approval.
     pub approval: bool,
     /// Email domains magic-link sign-in is limited to; empty means any.
     pub sign_in_domains: Vec<String>,
+    /// The cutoff in force: figures up to it are frozen. `null` until an
+    /// org manager sets one.
+    #[serde(with = "crate::dates::option_day")]
+    #[schema(value_type = Option<String>, format = Date)]
+    pub cutoff: Option<Date>,
     #[serde(with = "time::serde::rfc3339")]
+    #[schema(value_type = String, format = DateTime)]
     pub created_at: OffsetDateTime,
 }
 
@@ -89,10 +43,6 @@ pub struct Organization {
 #[derive(Debug, Default, Deserialize, ToSchema)]
 pub struct OrganizationChange {
     pub name: Option<String>,
-    /// `null` sets it back to "none yet".
-    #[serde(default)]
-    #[schema(value_type = Option<CostSource>)]
-    pub cost_source: Change<CostSource>,
     pub reporting_currency: Option<String>,
     pub approval: Option<bool>,
     pub sign_in_domains: Option<Vec<String>>,
@@ -109,10 +59,12 @@ pub(super) async fn get_organization(
     State(state): State<AppState>,
     member: Member,
 ) -> Result<Json<Organization>, ApiError> {
-    Ok(Json(load(&state.db, member.organization_id).await?))
+    Ok(Json(
+        load_with_cutoff(&state, member.organization_id).await?,
+    ))
 }
 
-/// Change the organization's settings. Controllers only.
+/// Change the organization's settings. Org managers only.
 #[utoipa::path(
     patch,
     path = "/organization",
@@ -130,7 +82,7 @@ pub(super) async fn update_organization(
     Json(change): Json<OrganizationChange>,
 ) -> Result<Json<Organization>, ApiError> {
     member.require_session()?;
-    member.require_role(Role::Controller)?;
+    member.require_role(Role::OrgManager)?;
     let name = change
         .name
         .as_deref()
@@ -146,20 +98,15 @@ pub(super) async fn update_organization(
         .as_deref()
         .map(validate_domains)
         .transpose()?;
-    let set_cost_source = change.cost_source.is_given();
-    let cost_source = change.cost_source.into_value().map(CostSource::as_str);
     sqlx::query!(
         r#"UPDATE organizations SET
              name = coalesce($2, name),
-             cost_source = CASE WHEN $3 THEN $4 ELSE cost_source END,
-             reporting_currency = coalesce($5, reporting_currency),
-             approval = coalesce($6, approval),
-             sign_in_domains = coalesce($7, sign_in_domains)
+             reporting_currency = coalesce($3, reporting_currency),
+             approval = coalesce($4, approval),
+             sign_in_domains = coalesce($5, sign_in_domains)
            WHERE id = $1"#,
         member.organization_id,
         name,
-        set_cost_source,
-        cost_source,
         currency,
         change.approval,
         domains.as_deref()
@@ -173,7 +120,19 @@ pub(super) async fn update_organization(
         "organization.settings_changed",
         None,
     );
-    Ok(Json(load(&state.db, member.organization_id).await?))
+    Ok(Json(
+        load_with_cutoff(&state, member.organization_id).await?,
+    ))
+}
+
+async fn load_with_cutoff(
+    state: &AppState,
+    organization_id: Uuid,
+) -> Result<Organization, ApiError> {
+    let mut organization = load(&state.db, organization_id).await?;
+    let log = Log::load(state, organization_id).await?;
+    organization.cutoff = log.fold(OffsetDateTime::now_utc())?.cutoff();
+    Ok(organization)
 }
 
 pub(super) async fn load(
@@ -181,7 +140,7 @@ pub(super) async fn load(
     organization_id: Uuid,
 ) -> Result<Organization, ApiError> {
     let row = sqlx::query!(
-        r#"SELECT id, name, slug, cost_source, reporting_currency, approval, sign_in_domains, created_at
+        r#"SELECT id, name, slug, reporting_currency, approval, sign_in_domains, created_at
            FROM organizations WHERE id = $1"#,
         organization_id
     )
@@ -192,12 +151,32 @@ pub(super) async fn load(
         id: row.id,
         name: row.name,
         slug: row.slug,
-        cost_source: row.cost_source.as_deref().and_then(CostSource::from_db),
         reporting_currency: row.reporting_currency,
         approval: row.approval,
         sign_in_domains: row.sign_in_domains,
+        cutoff: None,
         created_at: row.created_at,
     })
+}
+
+/// The organization's reporting currency.
+///
+/// # Errors
+///
+/// Fails if the organization does not exist or a query fails.
+pub async fn reporting_currency(
+    db: &sqlx::PgPool,
+    organization_id: Uuid,
+) -> Result<tokencontroller_core::Currency, ApiError> {
+    let code = sqlx::query_scalar!(
+        "SELECT reporting_currency FROM organizations WHERE id = $1",
+        organization_id
+    )
+    .fetch_optional(db)
+    .await?
+    .ok_or(ApiError::NotFound)?;
+    tokencontroller_core::Currency::new(&code)
+        .map_err(|error| ApiError::Internal(anyhow::anyhow!("stored currency {code}: {error}")))
 }
 
 pub(crate) fn validate_currency(code: &str) -> Result<String, ApiError> {
@@ -238,25 +217,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn cost_sources_are_the_core_ones() {
-        for source in [
-            CostSource::Subscription,
-            CostSource::Seat,
-            CostSource::UsageAtApiRates,
-            CostSource::ApiKey,
-            CostSource::CloudMarketplace,
-            CostSource::Reseller,
-        ] {
-            let core = tokencontroller_core::CostSource::from(source);
-            assert_eq!(
-                serde_json::to_value(source).unwrap(),
-                serde_json::to_value(core).unwrap()
-            );
-            assert_eq!(CostSource::from_db(source.as_str()), Some(source));
-        }
-    }
-
-    #[test]
     fn currencies_are_three_letters() {
         assert_eq!(validate_currency(" eur ").unwrap(), "EUR");
         assert!(validate_currency("EURO").is_err());
@@ -272,24 +232,10 @@ mod tests {
     }
 
     #[test]
-    fn cost_sources_round_trip() {
-        for source in [
-            CostSource::Seat,
-            CostSource::UsageAtApiRates,
-            CostSource::Reseller,
-        ] {
-            assert_eq!(CostSource::from_db(source.as_str()), Some(source));
-        }
-        assert_eq!(CostSource::from_db("barter"), None);
-    }
-
-    #[test]
-    fn null_and_missing_are_different_changes() {
-        let missing: OrganizationChange = serde_json::from_str("{}").unwrap();
-        assert_eq!(missing.cost_source, Change::Keep);
-        let null: OrganizationChange = serde_json::from_str(r#"{"cost_source": null}"#).unwrap();
-        assert_eq!(null.cost_source, Change::Clear);
-        let seat: OrganizationChange = serde_json::from_str(r#"{"cost_source": "seat"}"#).unwrap();
-        assert_eq!(seat.cost_source, Change::Set(CostSource::Seat));
+    fn a_change_leaves_out_what_it_does_not_name() {
+        let change: OrganizationChange = serde_json::from_str(r#"{"approval": true}"#).unwrap();
+        assert_eq!(change.approval, Some(true));
+        assert_eq!(change.name, None);
+        assert_eq!(change.reporting_currency, None);
     }
 }

@@ -3,7 +3,7 @@
 
 use std::time::Duration;
 
-use reqwest::header::{HeaderMap, LINK, RETRY_AFTER};
+use reqwest::header::{HeaderMap, RETRY_AFTER};
 use reqwest::{RequestBuilder, StatusCode, Url};
 use serde::de::DeserializeOwned;
 use serde_json::Value;
@@ -14,10 +14,9 @@ use super::{Connection, Credentials, SyncError, TicketSystem, text};
 /// The longest provider message kept in an error, in characters.
 const MAX_MESSAGE_CHARS: usize = 300;
 
-/// A successful answer: its JSON body and its headers.
+/// A successful answer: its JSON body.
 pub(super) struct Reply<T> {
     pub body: T,
-    pub headers: HeaderMap,
 }
 
 /// The URL of `segments` below the connection's base URL, each segment
@@ -42,14 +41,14 @@ pub(super) async fn send<T: DeserializeOwned>(
     let system = connection.system;
     let unreachable =
         |error: reqwest::Error| SyncError::Network(format!("{}: {error}", system.name()));
-    let response = signed_in(connection, request)?
+    let response = signed_in(connection, request)
         .send()
         .await
         .map_err(unreachable)?;
     let status = response.status();
     let headers = response.headers().clone();
     let body = response.text().await.map_err(unreachable)?;
-    // Azure DevOps answers a token it does not know with a sign-in page.
+    // Some systems answer a token they do not know with a sign-in page.
     if status == StatusCode::NON_AUTHORITATIVE_INFORMATION {
         return Err(not_accepted(system));
     }
@@ -59,35 +58,21 @@ pub(super) async fn send<T: DeserializeOwned>(
     }
     let body = serde_json::from_str(&body)
         .map_err(|error| SyncError::Format(format!("{}: {error}", system.name())))?;
-    Ok(Reply { body, headers })
+    Ok(Reply { body })
 }
 
-fn signed_in(
-    connection: &Connection,
-    request: RequestBuilder,
-) -> Result<RequestBuilder, SyncError> {
+fn signed_in(connection: &Connection, request: RequestBuilder) -> RequestBuilder {
     let credentials = &connection.credentials;
-    Ok(match connection.system {
+    match connection.system {
         TicketSystem::Jira => match credentials {
             Credentials::EmailAndToken { email, token } => request.basic_auth(email, Some(token)),
-            Credentials::Token(_) => {
-                return Err(SyncError::Unauthorized(
-                    "Jira Cloud needs the account email together with the API token.".to_owned(),
-                ));
-            }
         },
-        TicketSystem::AzureDevOps => request.basic_auth("", Some(credentials.token())),
-        TicketSystem::GitHubIssues => request
-            .bearer_auth(credentials.token())
-            .header("X-GitHub-Api-Version", "2022-11-28"),
-    })
+    }
 }
 
 fn not_accepted(system: TicketSystem) -> SyncError {
     let credential = match system {
         TicketSystem::Jira => "account email and API token",
-        TicketSystem::AzureDevOps => "personal access token",
-        TicketSystem::GitHubIssues => "token",
     };
     SyncError::Unauthorized(format!(
         "{} did not accept the {credential}. Check it under Settings, Ticket systems.",
@@ -134,7 +119,7 @@ fn header<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
         .map(str::trim)
 }
 
-/// From `Retry-After` in seconds, else from `GitHub`'s `x-ratelimit-reset`
+/// From `Retry-After` in seconds, else from `x-ratelimit-reset`
 /// (seconds since 1970).
 fn retry_after(headers: &HeaderMap, now: OffsetDateTime) -> Option<Duration> {
     if let Some(seconds) = header(headers, RETRY_AFTER.as_str()).and_then(|v| v.parse().ok()) {
@@ -145,7 +130,7 @@ fn retry_after(headers: &HeaderMap, now: OffsetDateTime) -> Option<Duration> {
     Some(Duration::from_secs(u64::try_from(wait).unwrap_or_default()))
 }
 
-/// The error text of an answer: `message` (`GitHub`, Azure DevOps),
+/// The error text of an answer: `message`,
 /// `errorMessages` and `errors` (Jira Cloud), or the body as plain text.
 fn provider_message(body: &str) -> String {
     let json: Option<Value> = serde_json::from_str(body).ok();
@@ -173,39 +158,6 @@ fn provider_message(body: &str) -> String {
     message.chars().take(MAX_MESSAGE_CHARS).collect()
 }
 
-/// The `rel="next"` URL of a `Link` header. A link to any other host than
-/// the connection's is refused, so credentials never leave it.
-pub(super) fn next_link(
-    headers: &HeaderMap,
-    connection: &Connection,
-) -> Result<Option<Url>, SyncError> {
-    let next = header(headers, LINK.as_str()).and_then(|value| {
-        value.split(',').find_map(|link| {
-            let (target, params) = link.split_once(';')?;
-            let is_next = params
-                .split(';')
-                .any(|param| matches!(param.trim(), "rel=\"next\"" | "rel=next"));
-            is_next.then(|| target.trim().trim_start_matches('<').trim_end_matches('>'))
-        })
-    });
-    let Some(next) = next else {
-        return Ok(None);
-    };
-    let unexpected = || {
-        SyncError::Format(format!(
-            "{} sent a next page link that is not on {}",
-            connection.system.name(),
-            connection.base_url
-        ))
-    };
-    let next = Url::parse(next).map_err(|_| unexpected())?;
-    let base = endpoint(connection, &[])?;
-    if next.origin() != base.origin() {
-        return Err(unexpected());
-    }
-    Ok(Some(next))
-}
-
 #[cfg(test)]
 mod tests {
     use reqwest::header::HeaderValue;
@@ -214,9 +166,12 @@ mod tests {
 
     fn connection(base_url: &str) -> Connection {
         Connection {
-            system: TicketSystem::GitHubIssues,
+            system: TicketSystem::Jira,
             base_url: base_url.to_owned(),
-            credentials: Credentials::Token("t".to_owned()),
+            credentials: Credentials::EmailAndToken {
+                email: "dev@acme.example".to_owned(),
+                token: "t".to_owned(),
+            },
         }
     }
 
@@ -230,46 +185,21 @@ mod tests {
 
     #[test]
     fn endpoints_encode_each_segment() {
-        let ado = Connection {
-            base_url: "https://dev.azure.com/acme/".to_owned(),
+        let spaced = Connection {
+            base_url: "https://acme.atlassian.net/".to_owned(),
             ..connection("")
         };
-        let url = endpoint(&ado, &["Fabrikam Fiber", "_apis", "wit", "wiql"]).unwrap();
+        let url = endpoint(&spaced, &["rest", "api", "3", "Fabrikam Fiber"]).unwrap();
         assert_eq!(
             url.as_str(),
-            "https://dev.azure.com/acme/Fabrikam%20Fiber/_apis/wit/wiql"
+            "https://acme.atlassian.net/rest/api/3/Fabrikam%20Fiber"
         );
-        let github = endpoint(
-            &connection("https://api.github.com"),
-            &["repos", "acme", "a/b"],
-        )
-        .unwrap();
-        assert_eq!(github.as_str(), "https://api.github.com/repos/acme/a%2Fb");
+        let escaped =
+            endpoint(&connection("https://acme.atlassian.net"), &["repos", "a/b"]).unwrap();
+        assert_eq!(escaped.as_str(), "https://acme.atlassian.net/repos/a%2Fb");
         assert!(matches!(
-            endpoint(&connection("api.github.com"), &[]),
+            endpoint(&connection("acme.atlassian.net"), &[]),
             Err(SyncError::Network(_))
-        ));
-    }
-
-    #[test]
-    fn next_links_are_read_and_kept_on_the_same_host() {
-        let base = connection("https://api.github.com");
-        let link = r#"<https://api.github.com/repositories/1/issues?page=2>; rel="next", <https://api.github.com/repositories/1/issues?page=9>; rel="last""#;
-        let next = next_link(&headers(&[("link", link)]).unwrap(), &base).unwrap();
-        assert_eq!(
-            next.map(String::from).as_deref(),
-            Some("https://api.github.com/repositories/1/issues?page=2")
-        );
-        let last_only = r#"<https://api.github.com/repositories/1/issues?page=1>; rel="prev""#;
-        assert_eq!(
-            next_link(&headers(&[("link", last_only)]).unwrap(), &base),
-            Ok(None)
-        );
-        assert_eq!(next_link(&HeaderMap::new(), &base), Ok(None));
-        let elsewhere = r#"<https://collector.example/steal?page=2>; rel="next""#;
-        assert!(matches!(
-            next_link(&headers(&[("link", elsewhere)]).unwrap(), &base),
-            Err(SyncError::Format(_))
         ));
     }
 
@@ -291,7 +221,7 @@ mod tests {
         .unwrap();
         assert_eq!(
             failure(
-                TicketSystem::GitHubIssues,
+                TicketSystem::Jira,
                 StatusCode::FORBIDDEN,
                 &limited,
                 "{}",
@@ -324,7 +254,7 @@ mod tests {
         let long = "x".repeat(1_000);
         assert_eq!(provider_message(&long).chars().count(), MAX_MESSAGE_CHARS);
         let server_error = failure(
-            TicketSystem::AzureDevOps,
+            TicketSystem::Jira,
             StatusCode::INTERNAL_SERVER_ERROR,
             &HeaderMap::new(),
             r#"{"$id":"1","message":"TF400898: An internal error occurred."}"#,

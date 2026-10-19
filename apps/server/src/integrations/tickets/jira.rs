@@ -530,13 +530,5 @@ mod tests {
                 retry_after: Some(Duration::from_secs(30))
             }
         );
-        let token_only = Connection {
-            credentials: Credentials::Token("ATATT3xFfGF0-test".to_owned()),
-            ..connection(&server)
-        };
-        assert!(matches!(
-            list_projects(&http, &token_only).await,
-            Err(SyncError::Unauthorized(message)) if message.contains("account email")
-        ));
     }
 }

@@ -27,8 +27,10 @@ pub enum Scope {
 #[serde(rename_all = "snake_case")]
 pub enum Signal {
     Branch,
+    WorkingDirectory,
     Repository,
     PullRequestTitle,
+    SubagentType,
     /// Each key found in the prompts, one at a time.
     PromptKeys,
     AgentName,
@@ -80,6 +82,8 @@ impl Rule {
         let one = |text: &'m Option<String>| text.iter().map(String::as_str).collect();
         match &self.signal {
             Signal::Branch => one(&signals.branch),
+            Signal::WorkingDirectory => one(&signals.working_directory),
+            Signal::SubagentType => one(&signals.subagent_type),
             Signal::Repository => one(&signals.repository),
             Signal::PullRequestTitle => one(&signals.pull_request_title),
             Signal::AgentName => one(&message.agent_name),
@@ -205,8 +209,11 @@ mod tests {
             tags: Tags::new(),
             signals: Signals {
                 branch: Some("feature/KD-1-login".to_owned()),
+                working_directory: Some("/work/shop".to_owned()),
                 repository: Some("kestrel/shop".to_owned()),
+                pull_request: Some(12),
                 pull_request_title: Some("KD-9: fix".to_owned()),
+                subagent_type: Some("review".to_owned()),
                 prompt_keys: vec!["KD-9".to_owned(), "KD-2".to_owned()],
                 config: [("project".to_owned(), "shop".to_owned())]
                     .into_iter()
@@ -299,6 +306,8 @@ mod tests {
         };
         for signal in [
             Signal::Repository,
+            Signal::WorkingDirectory,
+            Signal::SubagentType,
             Signal::AgentName,
             Signal::Config("project".to_owned()),
             Signal::Resource("service.name".to_owned()),

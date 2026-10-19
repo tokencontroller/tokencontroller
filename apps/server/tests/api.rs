@@ -17,8 +17,9 @@ fn test_config() -> Config {
         secret_key: "0123456789abcdef0123456789abcdef".to_owned(),
         smtp_url: None,
         smtp_from: None,
-        prices_refresh: false,
-        embeddings: None,
+        price_table: None,
+        rates_refresh: false,
+        classifier: None,
     }
 }
 
