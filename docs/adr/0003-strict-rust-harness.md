@@ -4,7 +4,7 @@ The service, the CLI and the shared libraries are one Cargo workspace. Rust is w
 
 The harness files (the lint block in `Cargo.toml`, `clippy.toml`, `deny.toml`, `rust-toolchain.toml`, the workflows and the golden test data) are owned by the maintainer: a change to them needs a pull request label that only the maintainer sets.
 
-Acceptance tests are data: a folder per case under `tests/golden/` with token entries, a bill, rules and the expected cost sheet as CSV, one case per scenario in the docs. The money core also gets property tests (`proptest`) and nightly mutation testing (`cargo-mutants`).
+Acceptance tests are data: a folder per case under `tests/golden/` with messages, a price table, a bill, rules and the expected figures (cost per filter, reconciliation, plan, deviation) as CSV, one case per scenario in the docs. The money core also gets property tests (`proptest`) and nightly mutation testing (`cargo-mutants`).
 
 ## Why
 
