@@ -7,16 +7,16 @@ branding:
 
 inputs:
   token:
-    description: A service token (tc_svc_…) from the web app, under Settings. Its creator is the agent manager of everything this step reports.
+    description: A service token (tc_svc_…) from the web app, under Settings. Its creator is the person of every message this step reports.
     required: true
   project:
-    description: The project this job's work belongs to. Wins over matching by repository.
+    description: The project of this job's work. Wins over a rule on the repository.
     required: false
-  ticket:
-    description: The ticket this job's work belongs to. Wins over every rule. Without it, TC_TICKET from an earlier step is used.
+  feature:
+    description: The feature of this job's work. Wins over every rule. Without it, TC_FEATURE set by an earlier step is used.
     required: false
   tags:
-    description: Any other tags from your organization's list, as name=value, separated by commas, spaces or new lines.
+    description: Any other tags, as name=value, separated by commas, spaces or new lines.
     required: false
   url:
     description: The address of a self-hosted Token Controller. Leave it out for the hosted service.
@@ -24,8 +24,8 @@ inputs:
     default: https://app.tokencontroller.com
 
 outputs:
-  token-entries:
-    description: How many token entries this step reported.
+  messages:
+    description: How many messages this step reported.
 
 runs:
   using: node24

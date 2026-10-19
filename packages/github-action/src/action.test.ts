@@ -18,9 +18,9 @@ async function fakeTc(folder: string): Promise<void> {
     'if [ "$1" = "--version" ]; then echo "tc 1.0.0"; exit 0; fi',
     'echo "args: $*" >&2',
     'echo "token: $TC_TOKEN url: $TC_URL" >&2',
-    'echo "project: $TC_PROJECT ticket: $TC_TICKET tags: $TC_TAGS" >&2',
+    'echo "project: $TC_PROJECT feature: $TC_FEATURE tags: $TC_TAGS" >&2',
     'echo "signals: $TC_SIGNALS" >&2',
-    'echo \'{"submitted":2,"list_value":"3.20","currency":"USD","share_on_tickets_percent":100}\'',
+    'echo \'{"submitted":2,"cost":"3.20","currency":"USD","share_on_features_percent":100}\'',
   ].join('\n')
   await writeFile(join(folder, 'tc'), script)
   await chmod(join(folder, 'tc'), 0o755)
@@ -43,9 +43,9 @@ test('the action runs tc submit with the inputs and reports the count', {
       PATH: `${folder}${delimiter}${process.env.PATH}`,
       INPUT_TOKEN: 'tc_svc_secret',
       INPUT_URL: 'https://app.tokencontroller.com',
-      INPUT_PROJECT: 'storefront',
+      INPUT_PROJECT: 'shop',
       INPUT_TAGS: 'purpose=code-review',
-      TC_TICKET: 'KD-214',
+      TC_FEATURE: 'KD-214',
       GITHUB_SERVER_URL: 'https://github.com',
       GITHUB_REPOSITORY: 'kestrel/storefront',
       GITHUB_HEAD_REF: 'kd-214-checkout',
@@ -59,16 +59,13 @@ test('the action runs tc submit with the inputs and reports the count', {
   assert.match(stdout, /^::add-mask::tc_svc_secret$/m)
   assert.match(stderr, /^args: submit --json$/m)
   assert.match(stderr, /token: tc_svc_secret url: https:\/\/app.tokencontroller.com/)
-  assert.match(stderr, /project: storefront ticket: KD-214 tags: purpose=code-review/)
+  assert.match(stderr, /project: shop feature: KD-214 tags: purpose=code-review/)
   assert.match(
     stderr,
     /signals: \{"repository":"github.com\/kestrel\/storefront","branch":"kd-214-checkout","pull_request":88,"pull_request_title":"KD-214 Checkout"\}/,
   )
-  assert.equal(await readFile(output, 'utf8'), 'token-entries=2\n')
-  assert.match(
-    await readFile(summary, 'utf8'),
-    /Reported 2 token entries on KD-214 · storefront, 3.20 USD\./,
-  )
+  assert.equal(await readFile(output, 'utf8'), 'messages=2\n')
+  assert.match(await readFile(summary, 'utf8'), /Reported 2 messages on KD-214 · shop, 3.20 USD\./)
 })
 
 test('the action fails with a plain error when the token is missing', async () => {
