@@ -224,6 +224,8 @@ mod tests {
         assert_eq!(marked_up.plan(march()).unwrap(), usd("279"));
         assert_eq!(shop().amount().unwrap(), usd("750"));
         assert_eq!(marked_up.check(), Ok(()));
+        marked_up.markup_basis_points = MAX_MARKUP;
+        assert_eq!(marked_up.check(), Ok(()));
         marked_up.markup_basis_points = MAX_MARKUP.saturating_add(1);
         assert_eq!(
             marked_up.check(),

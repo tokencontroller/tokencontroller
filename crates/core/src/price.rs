@@ -350,6 +350,8 @@ mod tests {
         assert_eq!(cost.label, CostLabel::UnknownModel);
         assert!(!table().knows(&unknown.model));
         assert!(table().knows(&sonnet()));
+        assert!(!table().knows(&ModelRef::new("anthropic", "mystery-1")));
+        assert!(!table().knows(&ModelRef::new("acme", "claude-sonnet-4-5")));
     }
 
     #[test]

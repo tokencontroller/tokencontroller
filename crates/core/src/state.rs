@@ -2190,6 +2190,42 @@ mod tests {
     }
 
     #[test]
+    fn submissions_of_other_people_and_windows_stand_beside_each_other() {
+        let mut events = worked_month();
+        events.push(event(
+            "sub2",
+            datetime!(2026-04-04 09:00 UTC),
+            Record::Submit(Submit {
+                person: key("mara"),
+                window: march(),
+            }),
+        ));
+        events.push(event(
+            "sub3",
+            datetime!(2026-04-04 11:00 UTC),
+            Record::Submit(Submit {
+                person: key("tom"),
+                window: march(),
+            }),
+        ));
+        events.push(event(
+            "sub4",
+            datetime!(2026-04-04 12:00 UTC),
+            Record::Submit(Submit {
+                person: key("mara"),
+                window: DateRange::new(date!(2026 - 02 - 01), date!(2026 - 02 - 28)).unwrap(),
+            }),
+        ));
+        let three = State::fold(&events, APRIL, Currency::USD).unwrap();
+        let ids: Vec<&str> = three
+            .submissions()
+            .iter()
+            .map(|submission| submission.id.as_str())
+            .collect();
+        assert_eq!(ids, vec!["sub2", "sub3", "sub4"]);
+    }
+
+    #[test]
     fn the_history_lists_every_tag_value_with_its_cost_so_far() {
         let state = state();
         let history = state.history().unwrap();

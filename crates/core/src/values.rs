@@ -289,6 +289,15 @@ mod tests {
     }
 
     #[test]
+    fn a_default_brought_earlier_wins_over_one_brought_later() {
+        let mut values = Values::default();
+        values.insert_tag_value(tag_value("a", "1", &["x=from-a"]));
+        values.insert_tag_value(tag_value("b", "1", &["x=from-b"]));
+        let closed = values.close(&tags(&["a=1", "b=1"]), &key("p"));
+        assert_eq!(closed, tags(&["a=1", "b=1", "x=from-a", "person=p"]));
+    }
+
+    #[test]
     fn a_cycle_in_the_defaults_ends() {
         let mut values = Values::default();
         values.insert_tag_value(tag_value("a", "1", &["b=1"]));
