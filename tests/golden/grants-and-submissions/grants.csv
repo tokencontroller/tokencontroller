@@ -1,0 +1,6 @@
+id,recorded_at,person,capability,filter
+g1,2026-01-01T00:00:00Z,lea,view,client=acme
+g2,2026-01-01T00:00:00Z,tom,view,person=tom
+g3,2026-01-01T00:00:00Z,jan,view,
+g4,2026-01-01T00:00:00Z,jan,adjust,
+g5,2026-01-01T00:00:00Z,jan,cutoff,

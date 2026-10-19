@@ -1,0 +1,88 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT event_id, exchange_rate_nanos, exchange_rate_given, source, is_final, lines\n         FROM bill_details WHERE organization_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "event_id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "bill_details",
+            "name": "event_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "exchange_rate_nanos",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "bill_details",
+            "name": "exchange_rate_nanos"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "exchange_rate_given",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "bill_details",
+            "name": "exchange_rate_given"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "source",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "bill_details",
+            "name": "source"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "is_final",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "bill_details",
+            "name": "is_final"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "lines",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "bill_details",
+            "name": "lines"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "be01df9b3f61f005ba2862727e1361a051d23bc975e71a4b63a583462f8d63fb"
+}

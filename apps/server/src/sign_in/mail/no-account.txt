@@ -4,6 +4,6 @@ You asked to sign in to Token Controller as {{email}}. No organization has this 
 
 {{sign_up_url}}
 
-The link works once and for {{expires_minutes}} minutes. Joining your team instead? Ask your controller for an invite. If you did not ask to sign in, ignore this email.
+The link works once and for {{expires_minutes}} minutes. Joining your team instead? Ask your org manager for an invite. If you did not ask to sign in, ignore this email.
 
 Token Controller · {{host}}

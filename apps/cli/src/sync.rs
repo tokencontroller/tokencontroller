@@ -3,14 +3,13 @@
 //! Files that have not changed since the last run are skipped, and reading a
 //! file again changes nothing.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
 use crate::error::Result;
 use crate::folders::Scope;
-use crate::keys::{KeyPattern, find_all};
-use crate::placing::KeyCount;
+use crate::keys::KeyPattern;
 use crate::sources::{self, FileContents, Harness};
 use crate::store::Store;
 
@@ -28,25 +27,27 @@ impl Sources {
     }
 }
 
-/// What to read and which sessions get a draft token entry.
+/// What to read and which sessions get a number.
 pub struct Reading<'a> {
-    pub patterns: &'a [KeyPattern],
-    pub pattern_text: &'a str,
-    /// Sessions that started earlier get no draft.
+    /// The pattern feature keys are found with, if any.
+    pub pattern: Option<&'a KeyPattern>,
+    /// Sessions that started earlier get no number.
     pub since_ms: i64,
-    /// Sessions outside these folders get no draft.
+    /// Sessions outside these folders get no number.
     pub scope: Scope,
+    /// Windows already submitted, in milliseconds: sessions inside them
+    /// keep their number wherever they ran.
+    pub submitted: Vec<(i64, i64)>,
 }
 
-/// Reads new and changed session files and creates draft token entries for
-/// the sessions that count.
+/// Reads new and changed session files and numbers the sessions that
+/// count.
 pub fn sync(store: &mut Store, found: &Sources, reading: &mut Reading<'_>) -> Result<()> {
-    let patterns = reading.patterns;
-    let pattern_text = reading.pattern_text;
-    // Keys are found while reading, so new patterns mean reading again.
-    if store.meta("key_patterns")?.as_deref() != Some(pattern_text) {
+    let pattern_text = reading.pattern.map(KeyPattern::as_str).unwrap_or_default();
+    // Keys are found while reading, so a new pattern means reading again.
+    if store.meta("key_pattern")?.as_deref().unwrap_or_default() != pattern_text {
         store.forget_files()?;
-        store.set_meta("key_patterns", pattern_text)?;
+        store.set_meta("key_pattern", pattern_text)?;
     }
     let mut repositories: HashMap<String, Option<String>> = HashMap::new();
     let batch = store.batch()?;
@@ -61,14 +62,17 @@ pub fn sync(store: &mut Store, found: &Sources, reading: &mut Reading<'_>) -> Re
             .and_then(|duration| i64::try_from(duration.as_millis()).ok())
             .unwrap_or(0);
         let path_text = path.to_string_lossy().into_owned();
-        if store_unchanged(&batch, &path_text, metadata.len(), modified_ms) {
+        if batch
+            .file_unchanged(&path_text, metadata.len(), modified_ms)
+            .unwrap_or(false)
+        {
             continue;
         }
         let Ok(mut contents) = sources::read(*harness, path) else {
             continue;
         };
         fill_repositories(&mut contents, &mut repositories);
-        let keys = key_counts(&contents, patterns);
+        let keys = keys_found(&contents, reading.pattern);
         batch.add_file(
             &path_text,
             *harness,
@@ -79,19 +83,8 @@ pub fn sync(store: &mut Store, found: &Sources, reading: &mut Reading<'_>) -> Re
         )?;
     }
     batch.commit()?;
-    store.create_entries(reading.since_ms, &mut reading.scope)?;
+    store.create_sessions(reading.since_ms, &mut reading.scope, &reading.submitted)?;
     Ok(())
-}
-
-fn store_unchanged(
-    batch: &crate::store::Batch<'_>,
-    path: &str,
-    size: u64,
-    modified_ms: i64,
-) -> bool {
-    batch
-        .file_unchanged(path, size, modified_ms)
-        .unwrap_or(false)
 }
 
 /// Claude Code writes the working directory, not the repository; the
@@ -112,12 +105,12 @@ fn fill_repositories(contents: &mut FileContents, cache: &mut HashMap<String, Op
     }
 }
 
-/// The ticket keys in a file's prompts and titles, per session, counted.
-fn key_counts(contents: &FileContents, patterns: &[KeyPattern]) -> Vec<(String, KeyCount)> {
-    if patterns.is_empty() {
+/// The feature keys in a file's prompts and titles: session, key and the
+/// time named, one row per mention. The text itself is dropped here.
+fn keys_found(contents: &FileContents, pattern: Option<&KeyPattern>) -> Vec<(String, String, i64)> {
+    let Some(pattern) = pattern else {
         return Vec::new();
-    }
-    let mut counts: BTreeMap<(String, String), KeyCount> = BTreeMap::new();
+    };
     let titles = contents
         .titles
         .iter()
@@ -126,44 +119,31 @@ fn key_counts(contents: &FileContents, patterns: &[KeyPattern]) -> Vec<(String, 
         .prompts
         .iter()
         .map(|prompt| (&prompt.session_id, prompt.at_ms, &prompt.text));
+    let mut found = Vec::new();
     for (session, at_ms, text) in prompts.chain(titles) {
-        for key in find_all(patterns, text) {
-            let count = counts
-                .entry((session.clone(), key.clone()))
-                .or_insert_with(|| KeyCount {
-                    key,
-                    count: 0,
-                    first_at_ms: at_ms,
-                    last_at_ms: at_ms,
-                });
-            count.count = count.count.saturating_add(1);
-            count.first_at_ms = count.first_at_ms.min(at_ms);
-            count.last_at_ms = count.last_at_ms.max(at_ms);
+        for key in pattern.find_all(text) {
+            found.push((session.clone(), key, at_ms));
         }
     }
-    counts
-        .into_iter()
-        .map(|((session, _), count)| (session, count))
-        .collect()
+    found
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::sources::Prompt;
-    use crate::store::Status;
 
-    fn everything<'a>(patterns: &'a [KeyPattern], text: &'a str) -> Reading<'a> {
+    fn everything(pattern: Option<&KeyPattern>) -> Reading<'_> {
         Reading {
-            patterns,
-            pattern_text: text,
+            pattern,
             since_ms: 0,
             scope: Scope::new(&[]),
+            submitted: Vec::new(),
         }
     }
 
-    fn patterns() -> Vec<KeyPattern> {
-        vec![KeyPattern::new(Some("storefront".into()), r"^KD-\d+").unwrap()]
+    fn pattern() -> KeyPattern {
+        KeyPattern::new(r"^KD-\d+").unwrap()
     }
 
     #[test]
@@ -184,17 +164,21 @@ mod tests {
             titles: vec![("s1".into(), "KD-1 checkout".into())],
             ..FileContents::default()
         };
-        let counts = key_counts(&contents, &patterns());
-        let kd1 = counts.iter().find(|(_, c)| c.key == "KD-1").unwrap();
-        assert_eq!(kd1.1.count, 3);
-        assert_eq!(kd1.1.first_at_ms, 0);
-        assert_eq!(kd1.1.last_at_ms, 20);
-        assert_eq!(counts.len(), 2);
-        assert!(key_counts(&contents, &[]).is_empty());
+        let found = keys_found(&contents, Some(&pattern()));
+        assert_eq!(found.len(), 4);
+        assert_eq!(
+            found.first().unwrap(),
+            &("s1".to_owned(), "KD-1".to_owned(), 10)
+        );
+        assert_eq!(
+            found.last().unwrap(),
+            &("s1".to_owned(), "KD-1".to_owned(), 0)
+        );
+        assert!(keys_found(&contents, None).is_empty());
     }
 
     #[test]
-    fn session_files_become_draft_entries_once() {
+    fn session_files_become_numbered_sessions_once() {
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join("s1.jsonl");
         std::fs::write(
@@ -211,32 +195,31 @@ mod tests {
             files: vec![(Harness::ClaudeCode, file.clone())],
         };
         let mut store = Store::open(&dir.path().join("tc.sqlite")).unwrap();
-        let first = patterns();
-        sync(&mut store, &found, &mut everything(&first, "p1")).unwrap();
-        sync(&mut store, &found, &mut everything(&first, "p1")).unwrap();
-        let entries = store.entries(&[Status::Draft]).unwrap();
-        assert_eq!(entries.len(), 1);
-        let keys = store.keys(Harness::ClaudeCode, "s1").unwrap();
-        assert_eq!(keys.first().map(|k| k.key.as_str()), Some("KD-214"));
+        let first = pattern();
+        sync(&mut store, &found, &mut everything(Some(&first))).unwrap();
+        sync(&mut store, &found, &mut everything(Some(&first))).unwrap();
+        assert_eq!(store.sessions().unwrap().len(), 1);
+        let keys = store.keys().unwrap();
+        assert_eq!(keys.get("claude-code:s1").unwrap(), &["KD-214"]);
 
-        // New patterns: the file is read again and keys follow them.
-        let other = vec![KeyPattern::new(None, r"OPS-\d+").unwrap()];
-        sync(&mut store, &found, &mut everything(&other, "p2")).unwrap();
-        assert!(store.keys(Harness::ClaudeCode, "s1").unwrap().is_empty());
-        assert_eq!(store.entries(&[Status::Draft]).unwrap().len(), 1);
+        // A new pattern: the file is read again and keys follow it.
+        let other = KeyPattern::new(r"OPS-\d+").unwrap();
+        sync(&mut store, &found, &mut everything(Some(&other))).unwrap();
+        assert!(store.keys().unwrap().is_empty());
+        assert_eq!(store.sessions().unwrap().len(), 1);
 
         // A missing file is skipped.
         let gone = Sources {
             files: vec![(Harness::ClaudeCode, dir.path().join("gone.jsonl"))],
         };
-        sync(&mut store, &gone, &mut everything(&other, "p2")).unwrap();
+        sync(&mut store, &gone, &mut everything(None)).unwrap();
 
-        // Once another folder is tracked, the draft goes away.
+        // Once another folder is tracked, the session no longer counts.
         let mut elsewhere = Reading {
             scope: Scope::new(&["/somewhere".into()]),
-            ..everything(&other, "p2")
+            ..everything(None)
         };
         sync(&mut store, &found, &mut elsewhere).unwrap();
-        assert!(store.entries(&[Status::Draft]).unwrap().is_empty());
+        assert!(store.sessions().unwrap().is_empty());
     }
 }

@@ -1,0 +1,4 @@
+id,recorded_at,session,message,person,provider,model,at,input,output,cache_write,cache_read,agent_harness,agent_name,reported_cost,tags,branch,prompt_keys
+m0,2026-02-20T11:00:00Z,S0,1,tom,anthropic,claude-sonnet-4-5,2026-02-20T10:00:00Z,5000000,,,,claude-code,,,,feature/KD-2-checkout,
+m5,2026-03-12T11:00:00Z,S4,1,tom,anthropic,claude-sonnet-4-5,2026-03-12T10:00:00Z,15000000,,,,claude-code,,,,feature/KD-2-login,
+m6,2026-03-13T11:00:00Z,S6,1,tom,anthropic,claude-sonnet-4-5,2026-03-13T10:00:00Z,1000000,,,,claude-code,,,,main,

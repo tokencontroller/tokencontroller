@@ -169,8 +169,9 @@ mod tests {
             secret_key: "0123456789abcdef0123456789abcdef".to_owned(),
             smtp_url: None,
             smtp_from: smtp_from.map(str::to_owned),
-            prices_refresh: true,
-            embeddings: None,
+            price_table: None,
+            rates_refresh: true,
+            classifier: None,
         }
     }
 

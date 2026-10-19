@@ -1,5 +1,0 @@
-entry,person,agent_harness,agent_name,started_at,status,arrival,bill,tags,configured,signals,summary,hand_split
-1,mara,Claude Code,,2026-10-14T09:00:00Z,submitted,token_sheet,,,,branch=KD-214-saved-card;repository=kestrel/storefront,Fix the checkout error with a saved card,
-2,tom,Claude Code,,2026-10-15T09:00:00Z,submitted,token_sheet,,,,branch=main;repository=kestrel/storefront,Upgrade dependencies,
-3,lena,Claude Code,,2026-10-16T09:00:00Z,submitted,token_sheet,,,,branch=main;repository=lena/notes,Other work,
-4,felix,Codex,,2026-10-17T09:00:00Z,submitted,token_sheet,openai-2026-10,,,branch=KD-231-autocomplete;repository=kestrel/storefront,Address autocomplete,

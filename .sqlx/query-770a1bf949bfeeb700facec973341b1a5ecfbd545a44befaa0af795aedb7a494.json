@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE bill_details SET is_final = true WHERE organization_id = $1 AND event_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "770a1bf949bfeeb700facec973341b1a5ecfbd545a44befaa0af795aedb7a494"
+}

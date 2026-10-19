@@ -1,10 +1,10 @@
 //! Exchange rates. An organization computes in one reporting currency. A bill
 //! in another currency keeps its own amounts and the rate of its date, and a
-//! report can be shown in another currency at the rate of the period's last
+//! report can be shown in another currency at the rate of the range's last
 //! day (docs: Account > Bills, glossary: Reporting currency).
 //!
 //! Rates are reference rates per euro, as the European Central Bank
-//! publishes them, kept per day in `exchange_rates` (ADR 0019). A rate
+//! publishes them, kept per day in `exchange_rates` (ADR 0024). A rate
 //! between two other currencies goes through the euro. Converting itself is
 //! the core's [`ExchangeRate`].
 
@@ -24,7 +24,7 @@ const MAX_DAYS_BACK: i64 = 10;
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum RateError {
     #[error(
-        "there is no exchange rate from {from} to {to} for {day} yet: it arrives with the daily rate refresh, or a controller can enter it"
+        "there is no exchange rate from {from} to {to} for {day} yet: it arrives with the daily rate refresh, or an org manager can enter it"
     )]
     Missing {
         from: Currency,
@@ -128,10 +128,10 @@ where
     Ok(())
 }
 
-/// Converts amounts of one period. Token entries charged by a provider whose
+/// Converts amounts of one date range. Token entries charged by a provider whose
 /// bill is in their currency convert into the reporting currency at that
-/// bill's rate, so the cost sheet adds up to the bill; everything else
-/// converts at the rate of the period's last day.
+/// bill's rate, so the cost report adds up to the bill; everything else
+/// converts at the rate of the range's last day.
 #[derive(Debug, Clone)]
 pub struct Converter {
     to: Currency,
@@ -178,14 +178,14 @@ impl Converter {
         }
     }
 
-    /// Every rate of the period's day in use, for keeping with a closed
-    /// period.
+    /// Every rate of the range's day in use, for keeping with a finished
+    /// range.
     #[must_use]
     pub fn rates(&self) -> Vec<ExchangeRate> {
         self.rates.values().copied().collect()
     }
 
-    /// The rate of the period's day from `from` to `to`.
+    /// The rate of the range's day from `from` to `to`.
     ///
     /// # Errors
     ///
@@ -219,7 +219,7 @@ impl Converter {
         Ok(rate.convert(amount)?)
     }
 
-    /// `amount` in `to` at the period's day.
+    /// `amount` in `to` at the range's day.
     ///
     /// # Errors
     ///

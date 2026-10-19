@@ -1,14 +1,13 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { getRouteApi, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState, type ReactNode, type SubmitEvent } from "react";
-import type { CostSource, Manages, NewOrganization } from "@/api/contract";
+import type { Manages, NewOrganization } from "@/api/contract";
 import { API_PREFIX, ApiError, call } from "@/api/client";
 import { api } from "@/api/endpoints";
 import { Button, buttonClass } from "@/components/ui/button";
 import { ErrorBox, Loading, Note } from "@/components/ui/display";
 import { Field, FormError, Input, Select } from "@/components/ui/form";
 import { additions } from "@/lib/additions";
-import { costSourceOrder, costSourceText } from "@/lib/cost-source";
 import { meQuery, queryClient } from "@/lib/queries";
 
 const signInRoute = getRouteApi("/sign-in");
@@ -77,7 +76,7 @@ function MockLink() {
 /**
  * Waits for the link from the mail. Once the link signs this browser in, in
  * another tab, the page moves on by itself. A browser that was signed in
- * all along, such as a controller trying an invite, stays here.
+ * all along, such as an org manager trying an invite, stays here.
  */
 function CheckYourEmail({ lead, onBack }: { lead: ReactNode; onBack: () => void }) {
   const navigate = useNavigate();
@@ -203,7 +202,6 @@ const currencies = ["USD", "EUR", "GBP", "CHF"];
 /** The sign-up questions. The service applies them when the link is used. */
 interface Choices {
   manages: Manages;
-  cost_source: CostSource | null;
   reporting_currency: string;
 }
 
@@ -220,7 +218,7 @@ export function SignUpPage(): ReactNode {
   const [linkGone, setLinkGone] = useState(false);
   const confirmed = token && !linkGone ? link.data?.email : undefined;
   const [form, setForm] = useState({ organization: "", email: "", name: "" });
-  const [choices, setChoices] = useState<Choices>({ manages: "people", cost_source: "usage_at_api_rates", reporting_currency: "USD" });
+  const [choices, setChoices] = useState<Choices>({ manages: "people", reporting_currency: "USD" });
   const [sentTo, setSentTo] = useState<string | null>(null);
   const start = `/?first_steps=${choices.manages}`;
   const signUp = useMutation({
@@ -302,7 +300,6 @@ export function SignUpPage(): ReactNode {
             ))}
           </div>
         </fieldset>
-        <CostSourceField value={choices.cost_source} onChange={(cost_source) => setChoices((c) => ({ ...c, cost_source }))} />
         <Field label="Reporting currency" hint="The one currency your organization computes in.">
           <Select value={choices.reporting_currency} onChange={(e) => setChoices((c) => ({ ...c, reporting_currency: e.target.value }))}>
             {currencies.map((c) => (
@@ -322,22 +319,6 @@ export function SignUpPage(): ReactNode {
         </Link>
       </p>
     </Frame>
-  );
-}
-
-/** How the provider charges: it decides what the close reconciles against. */
-export function CostSourceField({ value, onChange, disabled }: { value: CostSource | null; onChange: (value: CostSource | null) => void; disabled?: boolean }) {
-  return (
-    <Field label="Cost source" hint="How your provider charges you. It decides what the close checks against.">
-      <Select disabled={disabled} value={value ?? ""} onChange={(e) => onChange((e.target.value || null) as CostSource | null)}>
-        {costSourceOrder.map((source) => (
-          <option key={source} value={source}>
-            {costSourceText[source].name}
-          </option>
-        ))}
-        <option value="">None yet</option>
-      </Select>
-    </Field>
   );
 }
 

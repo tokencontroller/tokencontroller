@@ -17,7 +17,7 @@ impl TokenKind {
     pub const ALL: [Self; 4] = [Self::Input, Self::Output, Self::CacheWrite, Self::CacheRead];
 }
 
-/// Token counts by kind: the `tokens` field of a token entry.
+/// Token counts by kind: the `tokens` field of a message.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TokenCounts {

@@ -7,10 +7,10 @@ use time::{Date, OffsetDateTime, UtcOffset};
 use tokencontroller_core::{Currency, Money};
 
 use super::bill::{BillLine, BillOrigin, BillProvider, PulledBill};
+use super::month::{BillMonth, Charging};
 use super::pull::{
     MAX_PAGES, PullError, get_json, money_from_cents, period_end, period_start, rfc3339,
 };
-use tokencontroller_core::{CostSource, Period};
 
 /// Where the Enterprise Analytics API lives.
 pub const BASE_URL: &str = "https://api.anthropic.com";
@@ -18,7 +18,7 @@ pub const BASE_URL: &str = "https://api.anthropic.com";
 /// The bill's source API, as [`PulledBill::source_api`] gives it.
 pub const SOURCE_API: &str = "anthropic_enterprise";
 
-/// Days after a period ends until its figures count as final.
+/// Days after a month ends until its figures count as final.
 pub const FINAL_AFTER_DAYS: i64 = 30;
 
 const API_VERSION: &str = "2023-06-01";
@@ -70,10 +70,10 @@ struct Report {
     charged: Vec<Money>,
 }
 
-/// Pulls one period's bill, one line per day, product and model at list
+/// Pulls one month's bill, one line per day, product and model at list
 /// price. Gross is the list price, net what was charged, and the discount
 /// the difference. Anthropic may revise the figures for a while, so the bill
-/// is final only [`FINAL_AFTER_DAYS`] after the period ends, counted from
+/// is final only [`FINAL_AFTER_DAYS`] after the month ends, counted from
 /// `today`.
 ///
 /// # Errors
@@ -86,7 +86,7 @@ pub async fn pull(
     client: &reqwest::Client,
     base_url: &str,
     key: &str,
-    period: Period,
+    period: BillMonth,
     today: Date,
 ) -> Result<PulledBill, PullError> {
     // A cursor expires when Anthropic refreshes its data (410 Gone); the
@@ -112,7 +112,7 @@ pub async fn pull(
     let refreshed = report.refreshed_at.is_some_and(|at| at >= end);
     let origin = BillOrigin {
         provider: BillProvider::Anthropic,
-        cost_source: CostSource::UsageAtApiRates,
+        cost_source: Charging::UsageAtApiRates,
         source_api: SOURCE_API,
         scope: report.organization_id,
     };
@@ -130,7 +130,7 @@ async fn read(
     client: &reqwest::Client,
     base_url: &str,
     key: &str,
-    period: Period,
+    period: BillMonth,
     today: Date,
 ) -> Result<Report, PullError> {
     let url = format!(
@@ -275,8 +275,8 @@ mod tests {
             .await;
     }
 
-    fn september() -> Period {
-        Period::parse("2026-09").unwrap()
+    fn september() -> BillMonth {
+        BillMonth::parse("2026-09").unwrap()
     }
 
     #[tokio::test]
@@ -295,7 +295,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(bill.provider(), BillProvider::Anthropic);
-        assert_eq!(bill.cost_source(), CostSource::UsageAtApiRates);
+        assert_eq!(bill.cost_source(), Charging::UsageAtApiRates);
         assert_eq!(
             bill.source_id(),
             "anthropic_enterprise:org_013FP9SaFPBg7Kw7fetjn6cF:2026-09"
@@ -396,7 +396,7 @@ mod tests {
             .mount(&server)
             .await;
         let client = crate::integrations::http::client().unwrap();
-        let october = Period::parse("2026-10").unwrap();
+        let october = BillMonth::parse("2026-10").unwrap();
         let bill = pull(&client, &server.uri(), KEY, october, date!(2026 - 10 - 12))
             .await
             .unwrap();

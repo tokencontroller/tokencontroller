@@ -1,9 +1,0 @@
-ticket,project,parent,title,tags
-ACME-42,acme-shop,,Checkout bug,
-ACME-43,acme-shop,,Gift cards,
-ACME-44,acme-shop,,Search filters,
-ACME-45,acme-shop,,Search ranking,
-ACME-50,acme-shop,,Order export,
-GLOBEX-7,globex-app,,Sync errors,
-GLOBEX-8,globex-app,,Offline mode,
-GLOBEX-9,globex-app,,Push settings,

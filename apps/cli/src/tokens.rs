@@ -1,10 +1,10 @@
-//! Token counts by kind.
+//! Token counts by kind, as the session files report them.
 
-use serde::Serialize;
+use tokencontroller_core::TokenCounts;
 
 /// Tokens of one model call or a sum of them. Cache writes are kept by cache
-/// lifetime because a one-hour write costs more; everywhere outside this
-/// machine they are one kind, `cache_write`.
+/// lifetime because the files report them apart; everywhere outside the
+/// readers they are one kind, `cache_write`.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Tokens {
     pub input: u64,
@@ -14,34 +14,14 @@ pub struct Tokens {
     pub cache_read: u64,
 }
 
-/// The four kinds the token entry schema uses.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
-pub struct TokenKinds {
-    pub input: u64,
-    pub output: u64,
-    pub cache_write: u64,
-    pub cache_read: u64,
-}
-
 impl Tokens {
-    /// Adds two counts, saturating: no session comes near the limit.
-    #[must_use]
-    pub fn plus(self, other: Self) -> Self {
-        Self {
-            input: self.input.saturating_add(other.input),
-            output: self.output.saturating_add(other.output),
-            cache_write_5m: self.cache_write_5m.saturating_add(other.cache_write_5m),
-            cache_write_1h: self.cache_write_1h.saturating_add(other.cache_write_1h),
-            cache_read: self.cache_read.saturating_add(other.cache_read),
-        }
-    }
-
     pub fn is_zero(self) -> bool {
         self == Self::default()
     }
 
-    pub fn kinds(self) -> TokenKinds {
-        TokenKinds {
+    /// The four kinds of the token entry schema and the core.
+    pub fn kinds(self) -> TokenCounts {
+        TokenCounts {
             input: self.input,
             output: self.output,
             cache_write: self.cache_write_5m.saturating_add(self.cache_write_1h),
@@ -63,18 +43,27 @@ mod tests {
             cache_write_1h: 4,
             cache_read: 5,
         };
-        let sum = a.plus(a);
-        assert_eq!(sum.input, 2);
-        assert_eq!(sum.cache_write_1h, 8);
-        let kinds = sum.kinds();
-        assert_eq!(kinds.cache_write, 14);
-        assert_eq!(kinds.cache_read, 10);
+        let kinds = a.kinds();
+        assert_eq!(kinds.cache_write, 7);
+        assert_eq!(kinds.cache_read, 5);
         assert!(Tokens::default().is_zero());
         assert!(!a.is_zero());
-        let max = Tokens {
-            input: u64::MAX,
+    }
+
+    #[test]
+    fn one_cache_write_of_either_kind_is_not_zero() {
+        let hour = Tokens {
+            cache_write_1h: 1,
             ..Tokens::default()
         };
-        assert_eq!(max.plus(a).input, u64::MAX);
+        assert!(!hour.is_zero());
+        assert_eq!(hour.kinds().cache_write, 1);
+        let kinds = Tokens {
+            input: 10,
+            output: 20,
+            ..Tokens::default()
+        }
+        .kinds();
+        assert_eq!((kinds.input, kinds.output, kinds.cache_read), (10, 20, 0));
     }
 }

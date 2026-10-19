@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT email FROM people WHERE organization_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "email",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "people",
+            "name": "email"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "f97d5f719f26947874b9162d3858377c71ec4707e8ae34f4950c878744fba20e"
+}

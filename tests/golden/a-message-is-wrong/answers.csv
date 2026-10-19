@@ -1,0 +1,7 @@
+as_of,kind,filter,from,to,argument,key,amount,note
+2026-04-05T00:00:00Z,reconcile,,,,b1,bill,350.00,
+2026-04-05T00:00:00Z,reconcile,,,,b1,messages,400.00,
+2026-04-05T00:00:00Z,reconcile,,,,b1,unexplained,-50.00,a message is wrong
+2026-04-05T00:00:00Z,reconcile,,,,b2,bill,400.00,
+2026-04-05T00:00:00Z,reconcile,,,,b2,messages,400.00,
+2026-04-05T00:00:00Z,reconcile,,,,b2,unexplained,0.00,

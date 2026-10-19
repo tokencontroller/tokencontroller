@@ -17,8 +17,9 @@ fn test_config() -> Config {
         secret_key: "0123456789abcdef0123456789abcdef".to_owned(),
         smtp_url: None,
         smtp_from: None,
-        prices_refresh: false,
-        embeddings: None,
+        price_table: None,
+        rates_refresh: false,
+        classifier: None,
     }
 }
 
@@ -69,6 +70,17 @@ fn the_committed_openapi_document_is_current() {
         current.trim_end(),
         "apps/server/openapi.json is out of date: run `cargo run -p tokencontroller-server -- openapi > apps/server/openapi.json`"
     );
+}
+
+#[test]
+fn tags_are_a_map_of_strings() {
+    // openapi-typescript needs `additionalProperties` to type the map;
+    // without it the client gets `Record<string, never>`.
+    let document: serde_json::Value =
+        serde_json::from_str(&tokencontroller_server::openapi_json().unwrap()).unwrap();
+    let tags = &document["components"]["schemas"]["Tags"];
+    assert_eq!(tags["type"], "object", "{tags}");
+    assert_eq!(tags["additionalProperties"]["type"], "string", "{tags}");
 }
 
 #[test]

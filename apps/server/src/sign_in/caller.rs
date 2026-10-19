@@ -8,8 +8,8 @@
 //!   accepts with [`Caller::require_credential`].
 //!
 //! Service tokens and the organization token keep working after the person
-//! who created them leaves: the token entries then show as an error until
-//! someone takes the token over (docs: Account > Roles).
+//! who created them leaves: their messages keep that person until someone
+//! takes the token over (docs: Account > Grants and roles).
 
 use axum::extract::{FromRef, FromRequestParts};
 use axum::http::header::{AUTHORIZATION, COOKIE, ORIGIN};
@@ -76,6 +76,8 @@ pub struct Caller {
     /// The signed-in person, or the person a token belongs to: for a service
     /// token, the agent manager of what it reports.
     pub person_id: Uuid,
+    /// That person's email: how the log names them, the tag value `person`.
+    pub email: String,
     /// That person's role. A read token sees what this role sees.
     pub role: Role,
     /// Whether that person has left the organization. Only service and
@@ -85,6 +87,16 @@ pub struct Caller {
 }
 
 impl Caller {
+    /// The caller as the log names them: the tag value `person`, their
+    /// email.
+    ///
+    /// # Errors
+    ///
+    /// [`ApiError::Internal`] for an address the core refuses.
+    pub fn person(&self) -> Result<tokencontroller_core::TagValue, ApiError> {
+        crate::events::person(&self.email)
+    }
+
     /// Refuses callers whose role is below `role`.
     ///
     /// # Errors
@@ -113,8 +125,8 @@ impl Caller {
 
     /// Refuses everything but a person signed in to the web app: changes to
     /// the organization are made by people in the browser, not by tokens,
-    /// and not by a CLI token either, which may only submit its person's
-    /// token sheet and edit their rules.
+    /// and not by a CLI token either, which may only record, split and
+    /// submit its person's own messages and edit their rules.
     ///
     /// # Errors
     ///
@@ -274,7 +286,7 @@ async fn session(state: &AppState, token: &str, from_cookie: bool) -> Result<Cal
           AND s.expires_at > now()
           AND p.id = s.person_id
           AND p.removed_at IS NULL
-        RETURNING p.id, p.organization_id, p.role, s.client
+        RETURNING p.id, p.organization_id, p.email, p.role, s.client
         "#,
         hash
     )
@@ -291,6 +303,7 @@ async fn session(state: &AppState, token: &str, from_cookie: bool) -> Result<Cal
     Ok(Caller {
         organization_id: row.organization_id,
         person_id: row.id,
+        email: row.email,
         role: parse_role(&row.role)?,
         person_removed: false,
         credential,
@@ -308,7 +321,7 @@ async fn api_token(state: &AppState, token: &str, kind: &str) -> Result<Caller, 
           AND t.kind = $2
           AND t.revoked_at IS NULL
           AND p.id = t.person_id
-        RETURNING t.id, t.organization_id, p.id AS person_id, p.role,
+        RETURNING t.id, t.organization_id, p.id AS person_id, p.email, p.role,
                   p.removed_at IS NOT NULL AS "person_removed!"
         "#,
         hash,
@@ -329,6 +342,7 @@ async fn api_token(state: &AppState, token: &str, kind: &str) -> Result<Caller, 
     Ok(Caller {
         organization_id: row.organization_id,
         person_id: row.person_id,
+        email: row.email,
         role: parse_role(&row.role)?,
         person_removed: row.person_removed,
         credential,
@@ -397,13 +411,15 @@ mod tests {
         let caller = Caller {
             organization_id: Uuid::nil(),
             person_id: Uuid::nil(),
+            email: "p@kestrel.example".to_owned(),
             role: Role::PeopleManager,
             person_removed: false,
             credential: Credential::BrowserSession,
         };
         assert!(caller.require_role(Role::AgentManager).is_ok());
         assert!(caller.require_role(Role::PeopleManager).is_ok());
-        assert!(caller.require_role(Role::Controller).is_err());
+        assert!(caller.require_role(Role::OrgManager).is_err());
+        assert_eq!(caller.person().unwrap().as_str(), "p@kestrel.example");
         assert!(caller.require_session().is_ok());
         assert!(
             caller

@@ -13,8 +13,7 @@ use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 use utoipa::ToSchema;
 
-use super::entry::{CheckedTokenEntry, NewTokenEntry, Signals};
-use super::model::TokenCounts;
+use super::entry::{CheckedTokenEntry, Facts, NewTokenEntry, Signals, TokensInput};
 
 /// The most rows one import may hold.
 pub const MAX_ROWS: usize = 10_000;
@@ -25,8 +24,6 @@ pub const COLUMNS: [&str; 22] = [
     "agent_name",
     "model",
     "provider",
-    "effort",
-    "speed",
     "started_at",
     "ended_at",
     "tokens.input",
@@ -35,13 +32,15 @@ pub const COLUMNS: [&str; 22] = [
     "tokens.cache_read",
     "reported_cost",
     "summary",
-    "ticket",
+    "feature",
     "project",
     "session_id",
+    "local_id",
     "signals.branch",
     "signals.working_directory",
     "signals.repository",
     "signals.pull_request",
+    "signals.pull_request_title",
     "signals.subagent_type",
 ];
 
@@ -169,19 +168,22 @@ fn time(cells: &BTreeMap<&str, &str>, column: &str) -> Result<OffsetDateTime, St
     })
 }
 
-fn count(cells: &BTreeMap<&str, &str>, column: &str) -> Result<u64, String> {
-    cells.get(column).map_or(Ok(0), |value| {
-        value
-            .replace(['_', ' '], "")
-            .parse()
-            .map_err(|_| format!("{column} {value:?} is not a whole number of tokens"))
-    })
+fn count(cells: &BTreeMap<&str, &str>, column: &str) -> Result<Option<u64>, String> {
+    cells
+        .get(column)
+        .map(|value| {
+            value
+                .replace(['_', ' '], "")
+                .parse()
+                .map_err(|_| format!("{column} {value:?} is not a whole number of tokens"))
+        })
+        .transpose()
 }
 
 fn entry_from_cells(cells: &BTreeMap<&str, &str>) -> Result<NewTokenEntry, String> {
     let reported_cost = cells
         .get("reported_cost")
-        .map(|value| super::entry::Amount::Text(value.replace(',', ".")));
+        .map(|value| crate::events::json::Amount::Text(value.replace(',', ".")));
     let pull_request = match cells.get("signals.pull_request") {
         None => None,
         Some(value) => Some(
@@ -204,11 +206,9 @@ fn entry_from_cells(cells: &BTreeMap<&str, &str>) -> Result<NewTokenEntry, Strin
         agent_name: text(cells, "agent_name"),
         model: required(cells, "model")?,
         provider: text(cells, "provider"),
-        effort: text(cells, "effort"),
-        speed: text(cells, "speed"),
         started_at: time(cells, "started_at")?,
         ended_at: time(cells, "ended_at")?,
-        tokens: TokenCounts {
+        tokens: TokensInput {
             input: count(cells, "tokens.input")?,
             output: count(cells, "tokens.output")?,
             cache_write: count(cells, "tokens.cache_write")?,
@@ -216,7 +216,8 @@ fn entry_from_cells(cells: &BTreeMap<&str, &str>) -> Result<NewTokenEntry, Strin
         },
         reported_cost,
         summary: text(cells, "summary"),
-        ticket: text(cells, "ticket"),
+        facts: Facts::default(),
+        feature: text(cells, "feature"),
         project: text(cells, "project"),
         tags,
         signals: Signals {
@@ -224,14 +225,15 @@ fn entry_from_cells(cells: &BTreeMap<&str, &str>) -> Result<NewTokenEntry, Strin
             working_directory: text(cells, "signals.working_directory"),
             repository: text(cells, "signals.repository"),
             pull_request,
+            pull_request_title: text(cells, "signals.pull_request_title"),
             subagent_type: text(cells, "signals.subagent_type"),
-            ticket_keys: Vec::new(),
+            keys: Vec::new(),
+            config: BTreeMap::new(),
         },
         session_id: text(cells, "session_id"),
         messages: Vec::new(),
         splits: Vec::new(),
-        placed_by: None,
-        local_id: None,
+        local_id: text(cells, "local_id"),
     })
 }
 
@@ -239,7 +241,7 @@ fn entry_from_cells(cells: &BTreeMap<&str, &str>) -> Result<NewTokenEntry, Strin
 mod tests {
     use super::*;
 
-    const FILE: &str = "\u{feff}agent_harness,model,started_at,ended_at,tokens.input,tokens.output,reported_cost,summary,ticket,tags.team\n\
+    const FILE: &str = "\u{feff}agent_harness,model,started_at,ended_at,tokens.input,tokens.output,reported_cost,summary,feature,tags.team\n\
         claude-code,claude-sonnet-5,2026-09-18T09:12:00Z,2026-09-18T09:40:00Z,1200,300,0.42,\"Fixed the cart, and tests\",KD-214,web\n\
         ,,,,,,,,,\n\
         codex-cli,gpt-5,2026-09-18T10:00:00Z,2026-09-18T09:00:00Z,10,1,,,,\n\
@@ -256,8 +258,9 @@ mod tests {
             first.entry.summary.as_deref(),
             Some("Fixed the cart, and tests")
         );
-        assert_eq!(first.entry.tokens.input, 1200);
+        assert_eq!(first.entry.tokens.input, Some(1200));
         assert_eq!(first.entry.tags["team"], "web");
+        assert_eq!(first.tags["feature"], "KD-214");
         assert_eq!(first.reported_cost.unwrap().nanos(), 420_000_000);
 
         assert_eq!(rows[1].line, 4);
@@ -280,7 +283,11 @@ mod tests {
             claude-code;claude-sonnet-5;2026-09-18T09:12:00Z;2026-09-18T09:40:00Z;1 200;0,5\n";
         let rows = parse(file).unwrap();
         let entry = rows[0].result.as_ref().unwrap();
-        assert_eq!(entry.entry.tokens.input, 1200);
+        assert_eq!(entry.entry.tokens.input, Some(1200));
+        assert!(
+            entry.messages[0].tokens.is_none(),
+            "three kinds missing is a count error"
+        );
         assert_eq!(entry.reported_cost.unwrap().nanos(), 500_000_000);
     }
 
@@ -304,22 +311,29 @@ mod tests {
     #[test]
     fn every_column_tc_writes_is_read() {
         let header = COLUMNS.join(",");
-        let row = "claude-code,review bot,claude-sonnet-5,anthropic,high,,2026-09-18T09:12:00Z,2026-09-18T09:40:00Z,1,2,3,4,0.1,did it,KD-1,storefront,s-9,KD-1-fix,/src/shop,github.com/kestrel/storefront,#42,review";
+        let row = "claude-code,review bot,claude-sonnet-5,anthropic,2026-09-18T09:12:00Z,2026-09-18T09:40:00Z,1,2,3,4,0.1,did it,KD-1,storefront,s-9,claude-code:s-9,KD-1-fix,/src/shop,github.com/kestrel/storefront,#42,KD-1 refunds,review";
         let rows = parse(&format!("{header}\n{row}\n")).unwrap();
-        let entry = &rows[0].result.as_ref().unwrap().entry;
+        let checked = rows[0].result.as_ref().unwrap();
+        let entry = &checked.entry;
         assert_eq!(entry.agent_name.as_deref(), Some("review bot"));
         assert_eq!(
-            entry.tokens,
-            TokenCounts {
+            checked.messages[0].tokens,
+            Some(tokencontroller_core::TokenCounts {
                 input: 1,
                 output: 2,
                 cache_write: 3,
                 cache_read: 4
-            }
+            })
         );
         assert_eq!(entry.project.as_deref(), Some("storefront"));
+        assert_eq!(entry.feature.as_deref(), Some("KD-1"));
         assert_eq!(entry.session_id.as_deref(), Some("s-9"));
+        assert_eq!(entry.local_id.as_deref(), Some("claude-code:s-9"));
         assert_eq!(entry.signals.pull_request, Some(42));
+        assert_eq!(
+            entry.signals.pull_request_title.as_deref(),
+            Some("KD-1 refunds")
+        );
         assert_eq!(entry.signals.subagent_type.as_deref(), Some("review"));
         assert_eq!(
             entry.signals.repository.as_deref(),

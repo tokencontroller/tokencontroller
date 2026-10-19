@@ -1,6 +1,0 @@
-entry,message,at,model,input,output,cache_write,cache_read,reported_cost,billed_cost,signals
-1,,,anthropic/claude-sonnet-4-5,,,,,41.87,,
-2,,,anthropic/claude-sonnet-4-5,,,,,3.40,,
-3,,,anthropic/claude-sonnet-4-5,,,,,2.10,,
-4,,,anthropic/claude-sonnet-4-5,,,,,1.25,,
-5,,,anthropic/claude-sonnet-4-5,,,,,0.80,,

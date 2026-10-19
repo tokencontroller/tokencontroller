@@ -1,6 +1,0 @@
-entry,person,agent_harness,agent_name,started_at,status,arrival,bill,tags,configured,signals,summary,hand_split
-1,mara,Claude Code,,2026-10-14T09:12:00Z,submitted,token_sheet,anthropic-api-2026-10,,,branch=KD-214-saved-card;repository=kestrel/storefront,Fix the checkout error with a saved card,
-2,tom,Claude Code,review bot,2026-10-14T10:30:00Z,submitted,automatic,anthropic-api-2026-10,purpose=code-review,,branch=saved-card-fix;repository=kestrel/storefront;pull_request=412;pull_request_title_keys=KD-214,,
-3,tom,Claude Code,review bot,2026-10-15T14:02:00Z,submitted,automatic,anthropic-api-2026-10,ticket=KD-240;purpose=code-review,,branch=slot-picker;repository=kestrel/storefront;pull_request=418;pull_request_title_keys=KD-214,,
-4,tom,Claude Code,dependency update,2026-10-16T02:00:00Z,submitted,automatic,anthropic-api-2026-10,,,branch=deps/nightly;repository=kestrel/storefront,,
-5,tom,Claude Code,docs check,2026-10-16T02:30:00Z,submitted,automatic,anthropic-api-2026-10,project=intranet,,branch=main;repository=kestrel/storefront,,

@@ -106,13 +106,14 @@ pub struct Config {
     /// The sign-in token `tc connect` received.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub token: Option<String>,
-    /// The classifier program, run when rules cannot decide.
+    /// A feature key pattern for working with no service connected.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub classifier: Option<String>,
-    /// A ticket key pattern for working with no service connected.
+    pub feature_key_pattern: Option<String>,
+    /// The person's own price table: a CSV file with the columns provider,
+    /// model, kind, `price_per_million` and `valid_from`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub ticket_key_pattern: Option<String>,
-    /// Sessions that started before this day get no draft token entry.
+    pub price_table: Option<String>,
+    /// Sessions that started before this day are not read.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub since: Option<String>,
     /// The folders whose sessions count. Empty: every folder.
@@ -126,16 +127,16 @@ pub struct Config {
 /// The settings `tc config` can show and change, and what each means.
 pub const SETTINGS: [(&str, &str); 5] = [
     (
-        "classifier",
-        "A program that picks a ticket when rules cannot decide. Empty switches it off.",
+        "feature-key-pattern",
+        "A feature key pattern, such as ^(KD|OPS)-\\d+, for use with no service connected.",
     ),
     (
-        "ticket-key-pattern",
-        "A ticket key pattern, such as ^(KD|OPS)-\\d+, for use with no service connected.",
+        "price-table",
+        "Your own price table: a CSV file with provider, model, kind, price_per_million, valid_from. Connected, the service's table is used.",
     ),
     (
         "since",
-        "A day, such as 2026-09-01. Sessions that started earlier get no token entry.",
+        "A day, such as 2026-09-01. Sessions that started earlier are not read.",
     ),
     (
         "folders",
@@ -150,8 +151,8 @@ pub const SETTINGS: [(&str, &str); 5] = [
 impl Config {
     pub fn get(&self, key: &str) -> Result<Option<String>> {
         Ok(match key {
-            "classifier" => self.classifier.clone(),
-            "ticket-key-pattern" => self.ticket_key_pattern.clone(),
+            "feature-key-pattern" => self.feature_key_pattern.clone(),
+            "price-table" => self.price_table.clone(),
             "since" => self.since.clone(),
             "folders" => self.folders_text(),
             "service" => self.service.clone(),
@@ -163,20 +164,25 @@ impl Config {
     pub fn set(&mut self, key: &str, value: &str) -> Result<()> {
         let value = Some(value.trim().to_owned()).filter(|value| !value.is_empty());
         match key {
-            "classifier" => self.classifier = value,
-            "ticket-key-pattern" => {
+            "feature-key-pattern" => {
                 if let Some(pattern) = &value
-                    && crate::keys::KeyPattern::new(None, pattern).is_none()
+                    && crate::keys::KeyPattern::new(pattern).is_none()
                 {
                     return Err(Error::usage(format!(
                         "{pattern} is not a pattern tc can use; write a regular expression such as ^(KD|OPS)-\\d+"
                     )));
                 }
-                self.ticket_key_pattern = value;
+                self.feature_key_pattern = value;
+            }
+            "price-table" => {
+                if let Some(path) = &value {
+                    crate::log::read_price_file(Path::new(path.as_str()))?;
+                }
+                self.price_table = value;
             }
             "since" => {
                 if let Some(day) = &value
-                    && day.parse::<jiff::civil::Date>().is_err()
+                    && crate::output::parse_date(day).is_none()
                 {
                     return Err(Error::usage(format!(
                         "{day} is not a day; write it as 2026-09-01"
@@ -238,8 +244,8 @@ fn unknown_setting(key: &str) -> Error {
     ))
 }
 
-/// Expands a leading `~` to the home folder, as the docs write paths such as
-/// `~/bin/pick-ticket`.
+/// Expands a leading `~` to the home folder, as people write paths such as
+/// `~/work/storefront`.
 pub fn expand_tilde(path: &str) -> PathBuf {
     match path.strip_prefix("~/").or_else(|| path.strip_prefix("~\\")) {
         Some(rest) => {
@@ -257,17 +263,17 @@ mod tests {
     #[test]
     fn settings_are_checked_before_they_are_kept() {
         let mut config = Config::default();
-        config.set("classifier", "~/bin/pick-ticket").unwrap();
-        config.set("ticket-key-pattern", r"^(KD|OPS)-\d+").unwrap();
+        config.set("feature-key-pattern", r"^(KD|OPS)-\d+").unwrap();
         config.set("since", "2026-09-01").unwrap();
         assert_eq!(config.get("since").unwrap().as_deref(), Some("2026-09-01"));
         assert!(config.set("since", "last week").is_err());
-        assert!(config.set("ticket-key-pattern", "(").is_err());
+        assert!(config.set("feature-key-pattern", "(").is_err());
+        assert!(config.set("price-table", "/no/such/file.csv").is_err());
         assert!(config.set("service", "https://x").is_err());
         assert!(config.set("colour", "blue").is_err());
         assert!(config.get("colour").is_err());
-        config.set("classifier", " ").unwrap();
-        assert_eq!(config.classifier, None);
+        config.set("feature-key-pattern", " ").unwrap();
+        assert_eq!(config.feature_key_pattern, None);
         let all = config.all();
         assert_eq!(all.len(), 5);
         assert_eq!(all.get("folders"), Some(&None));
@@ -280,7 +286,29 @@ mod tests {
         config.set("folders", "").unwrap();
         assert!(config.folders.is_empty());
         assert!(!config.all_folders);
-        assert_eq!(all.get("classifier"), Some(&None));
+        assert_eq!(all.get("price-table"), Some(&None));
+    }
+
+    #[test]
+    fn a_price_file_is_read_before_it_is_kept() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("prices.csv");
+        std::fs::write(
+            &file,
+            "provider,model,kind,price_per_million,valid_from\nanthropic,claude-sonnet-4-5,input,3,2026-01-01\n",
+        )
+        .unwrap();
+        let mut config = Config::default();
+        config
+            .set("price-table", &file.display().to_string())
+            .unwrap();
+        assert!(config.price_table.is_some());
+        std::fs::write(&file, "provider,model\nanthropic,x\n").unwrap();
+        assert!(
+            config
+                .set("price-table", &file.display().to_string())
+                .is_err()
+        );
     }
 
     #[test]
@@ -292,7 +320,7 @@ mod tests {
         assert_eq!(home.read_config().unwrap(), Config::default());
         let config = Config {
             service: Some("https://app.tokencontroller.com".into()),
-            token: Some("tc_ses_x".into()),
+            token: Some("tc_cli_x".into()),
             ..Config::default()
         };
         home.write_config(&config).unwrap();
@@ -320,5 +348,37 @@ mod tests {
             assert_eq!(expand_tilde("~/bin/x"), home.join("bin/x"));
             assert_eq!(expand_tilde("~"), home);
         }
+    }
+
+    #[test]
+    fn the_token_is_never_a_setting() {
+        let mut config = Config {
+            service: Some("https://tc.example.com".into()),
+            token: Some("tc_cli_secret".into()),
+            ..Config::default()
+        };
+        assert_eq!(
+            config.get("service").unwrap().as_deref(),
+            Some("https://tc.example.com")
+        );
+        assert!(config.get("token").is_err());
+        assert!(config.set("token", "x").is_err());
+        let names: Vec<&str> = config.all().keys().copied().collect();
+        assert_eq!(
+            names,
+            [
+                "feature-key-pattern",
+                "folders",
+                "price-table",
+                "service",
+                "since"
+            ]
+        );
+        assert!(
+            !config
+                .all()
+                .values()
+                .any(|value| value.as_deref() == Some("tc_cli_secret"))
+        );
     }
 }

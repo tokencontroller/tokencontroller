@@ -107,7 +107,7 @@ pub struct HandOver {
 }
 
 /// Your API tokens and CLI tokens, or every one in the organization for a
-/// controller.
+/// org manager.
 #[utoipa::path(
     get,
     path = "/api-tokens",
@@ -118,7 +118,7 @@ pub(super) async fn list(
     State(state): State<AppState>,
     member: Member,
 ) -> Result<Json<Vec<ApiToken>>, ApiError> {
-    let everyone = member.role >= Role::Controller;
+    let everyone = member.role >= Role::OrgManager;
     let rows = sqlx::query!(
         r#"SELECT t.id, t.kind, t.name, t.shown_prefix, t.person_id, t.created_at, t.last_used_at,
                   p.removed_at IS NOT NULL AS "needs_owner!"
@@ -170,7 +170,7 @@ pub(super) async fn list(
 }
 
 /// Create an API token. Anyone can create service and read tokens for
-/// themselves; only a controller creates the organization token.
+/// themselves; only an org manager creates the organization token.
 #[utoipa::path(
     post,
     path = "/api-tokens",
@@ -193,7 +193,7 @@ pub(super) async fn create(
         ));
     }
     if request.kind == TokenKind::Organization {
-        member.require_role(Role::Controller)?;
+        member.require_role(Role::OrgManager)?;
     }
     let name = request.name.trim().to_owned();
     if name.chars().count() > 100 {
@@ -241,7 +241,7 @@ pub(super) async fn create(
     ))
 }
 
-/// Revoke an API token or a CLI token: your own, or any as a controller.
+/// Revoke an API token or a CLI token: your own, or any as an org manager.
 #[utoipa::path(
     delete,
     path = "/api-tokens/{id}",
@@ -258,7 +258,7 @@ pub(super) async fn revoke(
     Path(id): Path<Uuid>,
 ) -> Result<StatusCode, ApiError> {
     member.require_session()?;
-    let everyone = member.role >= Role::Controller;
+    let everyone = member.role >= Role::OrgManager;
     let revoked = sqlx::query!(
         r#"UPDATE api_tokens SET revoked_at = now()
            WHERE id = $1 AND organization_id = $2 AND revoked_at IS NULL AND ($3 OR person_id = $4)"#,
@@ -298,7 +298,7 @@ pub(super) async fn revoke(
 
 /// Hand a service token over to another member, for example when its
 /// creator leaves. Only future token entries follow. Its owner or a
-/// controller can do this.
+/// org manager can do this.
 #[utoipa::path(
     post,
     path = "/api-tokens/{id}/hand-over",
@@ -318,7 +318,7 @@ pub(super) async fn hand_over(
     Json(request): Json<HandOver>,
 ) -> Result<StatusCode, ApiError> {
     member.require_session()?;
-    let everyone = member.role >= Role::Controller;
+    let everyone = member.role >= Role::OrgManager;
     let target_active = sqlx::query_scalar!(
         r#"SELECT EXISTS (SELECT 1 FROM people
            WHERE id = $1 AND organization_id = $2 AND removed_at IS NULL) AS "exists!""#,

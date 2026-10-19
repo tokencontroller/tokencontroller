@@ -1,0 +1,13 @@
+as_of,kind,filter,from,to,argument,key,amount,note
+2026-04-01T12:00:00Z,can,client=acme,,,lea view,true,,
+2026-04-01T12:00:00Z,can,client=acme;project=shop,,,lea view,true,,
+2026-04-01T12:00:00Z,can,project=shop,,,lea view,false,,
+2026-04-01T12:00:00Z,can,person=tom,,,tom view,true,,
+2026-04-01T12:00:00Z,can,person=mara,,,tom view,false,,
+2026-04-01T12:00:00Z,can,,,,tom record,true,,
+2026-04-01T12:00:00Z,can,,,,jan adjust,true,,
+2026-04-01T12:00:00Z,can,,,,jan cutoff,true,,
+2026-04-01T12:00:00Z,can,,,,jan assign,false,,
+2026-04-01T12:00:00Z,submissions,,,,,sub1,,mara 2026-03-01 to 2026-03-31; submitted
+2026-04-05T00:00:00Z,submissions,,,,,sub1,,mara 2026-03-01 to 2026-03-31; rejected: S1 is all KD-2
+2026-04-05T00:00:00Z,can,client=acme,,,lea view,false,,

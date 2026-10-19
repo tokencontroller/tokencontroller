@@ -1,0 +1,3 @@
+id,recorded_at,description,tags,median,markup_basis_points,estimator,from,to
+e1,2026-01-01T00:00:00Z,Shop,project=shop,750,,mara,2026-02-01,2026-05-11
+e2,2026-01-01T00:00:00Z,Login,feature=KD-1,500,,system-1,2026-03-01,2026-03-31

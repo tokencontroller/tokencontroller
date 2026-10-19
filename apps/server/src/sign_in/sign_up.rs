@@ -20,7 +20,7 @@ use utoipa::ToSchema;
 use super::links::{self, LinkSent, LinkToken};
 use crate::AppState;
 use crate::error::ApiError;
-use crate::organizations::{self, CostSource};
+use crate::organizations;
 
 /// What the founder manages. It picks the first steps the web app shows
 /// after sign-up.
@@ -63,9 +63,6 @@ pub struct NewOrganization {
     /// Your own name, as your colleagues will see it. Can be set later.
     #[serde(default)]
     pub name: Option<String>,
-    /// How the provider charges. Left out, it stays "none yet".
-    #[serde(default)]
-    pub cost_source: Option<CostSource>,
     /// The one currency the organization computes in, such as `EUR`. Left
     /// out, it is `USD`.
     #[serde(default)]
@@ -75,7 +72,7 @@ pub struct NewOrganization {
     pub manages: Option<Manages>,
 }
 
-/// Create an organization: the link signs in its first controller.
+/// Create an organization: the link signs in its first org manager.
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct SignUpRequest {
     pub email: String,
@@ -89,7 +86,6 @@ pub struct SignUpRequest {
 pub(super) struct SignUp {
     pub(super) organization_name: String,
     pub(super) person_name: Option<String>,
-    pub(super) cost_source: Option<CostSource>,
     pub(super) reporting_currency: Option<String>,
     pub(super) manages: Option<Manages>,
 }
@@ -104,7 +100,6 @@ impl SignUp {
                 .map(organizations::clean_name)
                 .transpose()?
                 .filter(|name| !name.is_empty()),
-            cost_source: new.cost_source,
             reporting_currency: new
                 .reporting_currency
                 .as_deref()
@@ -115,7 +110,7 @@ impl SignUp {
     }
 }
 
-/// Create an organization and email its first controller a link.
+/// Create an organization and email its first org manager a link.
 ///
 /// The organization exists once the link is used, in any browser. An
 /// address that is already a member gets an ordinary sign-in link instead:

@@ -1,3 +1,0 @@
-filter,budget,actual,difference,outcome
-project=acme-shop,1000.00,900.00,-100.00,underrun
-team=web,800.00,820.00,20.00,overrun

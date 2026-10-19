@@ -7,10 +7,10 @@ use time::{OffsetDateTime, UtcOffset};
 use tokencontroller_core::{Currency, Money};
 
 use super::bill::{BillLine, BillOrigin, BillProvider, PulledBill};
+use super::month::{BillMonth, Charging};
 use super::pull::{
     MAX_PAGES, PullError, get_json, has_ended, money_from_cents, period_end, period_start, rfc3339,
 };
-use tokencontroller_core::{CostSource, Period};
 
 /// Where the Admin API lives.
 pub const BASE_URL: &str = "https://api.anthropic.com";
@@ -55,9 +55,9 @@ struct CostItem {
     workspace_id: Option<String>,
 }
 
-/// Pulls one period's bill from the cost report, one line per workspace,
+/// Pulls one month's bill from the cost report, one line per workspace,
 /// day and kind of cost. Priority Tier usage is not in the cost report, so
-/// it shows as residual. The bill is final once the period has ended.
+/// it shows as a deviation. The bill is final once the billed range has ended.
 ///
 /// # Errors
 ///
@@ -69,7 +69,7 @@ pub async fn pull(
     client: &reqwest::Client,
     base_url: &str,
     admin_key: &str,
-    period: Period,
+    period: BillMonth,
 ) -> Result<PulledBill, PullError> {
     let base_url = base_url.trim_end_matches('/');
     let get = |path: &str| {
@@ -112,7 +112,7 @@ pub async fn pull(
                     .map_or(Currency::USD, |line: &BillLine| line.amount.currency());
                 let origin = BillOrigin {
                     provider: BillProvider::Anthropic,
-                    cost_source: CostSource::ApiKey,
+                    cost_source: Charging::ApiKey,
                     source_api: SOURCE_API,
                     scope: organization.id,
                 };
@@ -192,8 +192,8 @@ mod tests {
             .await;
     }
 
-    fn september() -> Period {
-        Period::parse("2026-09").unwrap()
+    fn september() -> BillMonth {
+        BillMonth::parse("2026-09").unwrap()
     }
 
     #[tokio::test]
@@ -231,7 +231,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(bill.provider(), BillProvider::Anthropic);
-        assert_eq!(bill.cost_source(), CostSource::ApiKey);
+        assert_eq!(bill.cost_source(), Charging::ApiKey);
         assert_eq!(bill.source_api(), "anthropic_console");
         assert_eq!(
             bill.source_id(),
@@ -278,7 +278,7 @@ mod tests {
             .mount(&server)
             .await;
         let client = crate::integrations::http::client().unwrap();
-        let later = Period::parse("2999-01").unwrap();
+        let later = BillMonth::parse("2999-01").unwrap();
         let bill = pull(&client, &server.uri(), KEY, later).await.unwrap();
         assert!(!bill.is_final());
         assert!(bill.gross().is_zero());

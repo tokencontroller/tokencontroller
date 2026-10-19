@@ -1,6 +1,6 @@
 import { defineConfig, devices } from "@playwright/test";
 
-// One journey per docs guide (quick start, review, monthly close, CSV export).
+// One journey per docs guide (check and submit, submissions, tags, reports, ...).
 // Until the service's API lands they run against the mock build, which holds
 // the docs' example organization; then they move to the compose image with
 // seed data.

@@ -1,15 +1,15 @@
-//! `tc status`: organization, person, agents found, rules, and today's cost
-//! and share on tickets.
+//! `tc status`: organization, person, agents found, rules, today's cost and
+//! share on features, the last submit, and an org manager's request to
+//! submit.
 
 use serde::Serialize;
+use tokencontroller_core::Money;
 
-use crate::amounts::{decimal, display};
-use crate::app::{App, day_of, start_of_day_ms};
+use crate::app::App;
 use crate::context::AskedToSubmit;
-use crate::entries::CURRENCY;
 use crate::error::Result;
-use crate::output::{self, percent};
-use crate::store::Status;
+use crate::log::Status;
+use crate::output::{self, decimal, display, percent};
 
 #[derive(Debug, Serialize)]
 struct Agents {
@@ -19,18 +19,18 @@ struct Agents {
 
 #[derive(Debug, Serialize)]
 struct Today {
-    list_value: String,
+    cost: String,
     currency: String,
-    share_on_tickets_percent: u64,
+    share_on_features_percent: u64,
     #[serde(skip)]
-    nanos: i64,
+    amount: Money,
 }
 
 #[derive(Debug, Serialize)]
-struct Sheet {
-    period_start: String,
-    period_end: String,
-    late: bool,
+struct LastSubmit {
+    from: String,
+    to: String,
+    status: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -41,10 +41,12 @@ struct View {
     person: Option<String>,
     agents: Vec<Agents>,
     rules: usize,
-    drafts: usize,
+    open: usize,
     today: Today,
-    token_sheet: Option<Sheet>,
+    last_submit: Option<LastSubmit>,
+    cutoff: Option<String>,
     asked_to_submit: Option<AskedToSubmit>,
+    as_of: String,
 }
 
 pub fn run(app: &mut App<'_>) -> Result<()> {
@@ -68,52 +70,51 @@ fn gather(app: &App<'_>) -> Result<View> {
         })
         .collect();
     let today = app.today();
-    let entries = app.entries(&[Status::Draft, Status::Rejected, Status::Submitted])?;
-    let (mut total, mut on_tickets) = (0_i64, 0_i64);
-    for entry in entries
+    let state = app.fold()?;
+    let sessions = crate::log::sessions(&state, &app.store.sessions()?)?;
+    let currency = state.currency();
+    let mut total = Money::zero(currency);
+    let mut on_features = Money::zero(currency);
+    for session in sessions
         .iter()
-        .filter(|entry| day_of(entry.started_ms) == today)
+        .filter(|session| session.started_at.date() == today)
     {
-        total = total.saturating_add(entry.value.nanos);
-        on_tickets = on_tickets.saturating_add(entry.on_tickets_nanos());
-    }
-    let drafts = entries
-        .iter()
-        .filter(|entry| entry.row.status != Status::Submitted)
-        .count();
-    let token_sheet = app.context.cadence.as_ref().map(|cadence| {
-        let start = cadence
-            .period_start
-            .parse::<jiff::civil::Date>()
-            .map_or(0, start_of_day_ms);
-        // Late: the service says an earlier period waits, or drafts from
-        // before this cadence period were never submitted.
-        let late = cadence.late
-            || entries
-                .iter()
-                .any(|entry| entry.row.status != Status::Submitted && entry.started_ms < start);
-        Sheet {
-            period_start: cadence.period_start.clone(),
-            period_end: cadence.period_end.clone(),
-            late,
+        if let Some(cost) = session.cost {
+            total = total.checked_add(cost)?;
         }
-    });
+        on_features = on_features.checked_add(session.on_features())?;
+    }
+    let open = sessions
+        .iter()
+        .filter(|session| session.status != Status::Submitted)
+        .count();
+    let last_submit = state
+        .submissions()
+        .iter()
+        .max_by_key(|submission| submission.window.to)
+        .map(|submission| LastSubmit {
+            from: submission.window.from.to_string(),
+            to: submission.window.to.to_string(),
+            status: submission.status.as_str().to_owned(),
+        });
     Ok(View {
         connected: connection.is_some(),
         service: connection.map(|c| c.service),
         organization: app.context.organization.as_ref().map(|o| o.name.clone()),
         person: app.context.person.as_ref().map(|p| p.email.clone()),
         agents,
-        rules: own_rules(app),
-        drafts,
+        rules: state.rules().count(),
+        open,
         today: Today {
-            list_value: decimal(total, CURRENCY),
-            currency: CURRENCY.code(),
-            share_on_tickets_percent: percent(on_tickets, total),
-            nanos: total,
+            cost: decimal(total),
+            currency: currency.code(),
+            share_on_features_percent: percent(on_features.nanos(), total.nanos()),
+            amount: total,
         },
-        token_sheet,
+        last_submit,
+        cutoff: state.cutoff().map(|date| date.to_string()),
         asked_to_submit: app.context.asked_to_submit.clone(),
+        as_of: output::utc(state.as_of()),
     })
 }
 
@@ -140,33 +141,28 @@ fn print(app: &mut App<'_>, view: &View) -> Result<()> {
         found.join(", ")
     };
     writeln!(app.out, "Agents        {found}")?;
+    writeln!(app.out, "Rules         {}", view.rules)?;
     writeln!(
         app.out,
-        "Rules         {} plus the built-in ones",
-        view.rules
+        "Today         {} · {}% on features",
+        display(view.today.amount),
+        view.today.share_on_features_percent
     )?;
     writeln!(
         app.out,
-        "Today         {} · {}% on tickets",
-        display(view.today.nanos, CURRENCY),
-        view.today.share_on_tickets_percent
+        "Open          {} sessions to check (tc review)",
+        view.open
     )?;
-    writeln!(
-        app.out,
-        "Drafts        {} to review (tc review)",
-        view.drafts
-    )?;
-    if let Some(sheet) = &view.token_sheet {
-        let note = if sheet.late {
-            " · late: submit with tc submit"
-        } else {
-            ""
-        };
-        writeln!(
+    match &view.last_submit {
+        Some(last) => writeln!(
             app.out,
-            "Token sheet   {} to {}{note}",
-            sheet.period_start, sheet.period_end
-        )?;
+            "Last submit   {} to {} · {}",
+            last.from, last.to, last.status
+        )?,
+        None => writeln!(app.out, "Last submit   none yet (tc submit)")?,
+    }
+    if let Some(cutoff) = &view.cutoff {
+        writeln!(app.out, "Cutoff        {cutoff}")?;
     }
     if let Some(asked) = &view.asked_to_submit {
         let by = asked
@@ -176,20 +172,54 @@ fn print(app: &mut App<'_>, view: &View) -> Result<()> {
             .unwrap_or_default();
         writeln!(
             app.out,
-            "Close         asked{by} to submit for {} (tc submit)",
-            asked.period
+            "Asked         asked{by} to submit before the cutoff moves to {} (tc submit)",
+            asked.cutoff
         )?;
     }
     Ok(())
 }
 
-/// The organization's rules besides the built-in ones, and the person's.
-fn own_rules(app: &App<'_>) -> usize {
-    let built_in = tokencontroller_core::Rule::defaults();
-    app.context
-        .organization_rules()
-        .iter()
-        .filter(|rule| !built_in.contains(rule))
-        .count()
-        .saturating_add(app.context.rules.len())
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokencontroller_core::Currency;
+
+    #[test]
+    fn the_json_names_today_s_cost_and_the_share_on_features() {
+        let view = View {
+            connected: false,
+            service: None,
+            organization: None,
+            person: None,
+            agents: vec![Agents {
+                agent_harness: "claude-code".into(),
+                sessions: 3,
+            }],
+            rules: 2,
+            open: 3,
+            today: Today {
+                cost: "4.50".into(),
+                currency: "USD".into(),
+                share_on_features_percent: 80,
+                amount: Money::from_nanos(4_500_000_000, Currency::USD),
+            },
+            last_submit: Some(LastSubmit {
+                from: "2026-10-01".into(),
+                to: "2026-10-11".into(),
+                status: "approved".into(),
+            }),
+            cutoff: None,
+            asked_to_submit: None,
+            as_of: "2026-10-19T09:00:00Z".into(),
+        };
+        let json = serde_json::to_value(&view).unwrap();
+        assert_eq!(
+            json["today"],
+            serde_json::json!({"cost": "4.50", "currency": "USD", "share_on_features_percent": 80})
+        );
+        assert_eq!(json["asked_to_submit"], serde_json::Value::Null);
+        assert_eq!(json["last_submit"]["status"], "approved");
+        assert_eq!(json["agents"][0]["sessions"], 3);
+        assert_eq!(json["open"], 3);
+    }
 }

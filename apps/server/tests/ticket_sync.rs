@@ -1,5 +1,6 @@
 //! Ticket systems over HTTP and the ticket sync job, against a real Postgres
-//! database and recorded Jira Cloud answers.
+//! database and recorded Jira Cloud answers. Synced issues become feature
+//! tag values in the event log, with the mapped project as their default.
 
 use std::sync::Arc;
 
@@ -22,7 +23,11 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 
 type TestResult<T> = Result<T, Box<dyn std::error::Error>>;
 
-const KEY: &str = "0123456789abcdef0123456789abcdef";
+/// The secret key of this test run: made once, never written down.
+fn key() -> &'static str {
+    static KEY: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    KEY.get_or_init(|| uuid::Uuid::new_v4().simple().to_string())
+}
 const SEARCH_PAGE_1: &str = include_str!("fixtures/tickets/jira/search_page_1.json");
 const SEARCH_PAGE_2: &str = include_str!("fixtures/tickets/jira/search_page_2.json");
 
@@ -30,11 +35,12 @@ fn config() -> Config {
     Config {
         database_url: "postgres://unused".to_owned(),
         public_url: "http://localhost:8080".to_owned(),
-        secret_key: KEY.to_owned(),
+        secret_key: key().to_owned(),
         smtp_url: None,
         smtp_from: None,
-        prices_refresh: false,
-        embeddings: None,
+        price_table: None,
+        rates_refresh: false,
+        classifier: None,
     }
 }
 
@@ -42,12 +48,12 @@ struct Kestrel {
     state: AppState,
     app: Router,
     organization_id: Uuid,
-    controller: String,
+    org_manager: String,
     agent_manager: String,
 }
 
 async fn session(pool: &PgPool, person_id: Uuid) -> TestResult<String> {
-    let session = secret::generate(secret::SESSION, KEY)?;
+    let session = secret::generate(secret::SESSION, key())?;
     sqlx::query("INSERT INTO sessions (token_hash, person_id, client, expires_at) VALUES ($1, $2, 'browser', now() + interval '1 day')")
         .bind(&session.hash)
         .bind(person_id)
@@ -74,22 +80,86 @@ async fn kestrel(pool: &PgPool) -> TestResult<Kestrel> {
     .bind(organization_id)
     .fetch_one(pool)
     .await?;
-    sqlx::query("INSERT INTO projects (organization_id, name) VALUES ($1, 'storefront')")
-        .bind(organization_id)
-        .execute(pool)
-        .await?;
-    // The epic exists by hand before the sync.
-    sqlx::query("INSERT INTO tickets (organization_id, key, title) VALUES ($1, 'KD-200', 'Checkout revamp')")
-        .bind(organization_id)
-        .execute(pool)
-        .await?;
-    Ok(Kestrel {
-        controller: session(pool, created.person_id).await?,
+    let kestrel = Kestrel {
+        org_manager: session(pool, created.person_id).await?,
         agent_manager: session(pool, mia).await?,
         state,
         app,
         organization_id,
-    })
+    };
+    // The project the issues map to is a tag value on record.
+    let project = send(
+        &kestrel.app,
+        Method::POST,
+        "/api/v1/tags/project/values",
+        &kestrel.org_manager,
+        Some(json!({ "key": "storefront", "title": "Kestrel storefront" })),
+    )
+    .await?;
+    assert_eq!(project.status, StatusCode::CREATED, "{}", project.json);
+    Ok(kestrel)
+}
+
+/// The feature tag values on record, by key: title, description,
+/// source status and the project default.
+async fn features(
+    kestrel: &Kestrel,
+) -> TestResult<
+    Vec<(
+        String,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        String,
+    )>,
+> {
+    let listed = send(
+        kestrel.app(),
+        Method::GET,
+        "/api/v1/tags",
+        &kestrel.org_manager,
+        None,
+    )
+    .await?;
+    if listed.status != StatusCode::OK {
+        return Err(format!("GET /tags: {} {}", listed.status, listed.json).into());
+    }
+    let text = |value: &Value, pointer: &str| {
+        value
+            .pointer(pointer)
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+    };
+    let mut rows: Vec<_> = listed
+        .json
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|name| name.get("name").and_then(Value::as_str) == Some("feature"))
+        .flat_map(|name| {
+            name.get("values")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default()
+        })
+        .map(|value| {
+            (
+                text(&value, "/key").unwrap_or_default(),
+                text(&value, "/title"),
+                text(&value, "/description"),
+                text(&value, "/source_status"),
+                text(&value, "/defaults/project").unwrap_or_default(),
+            )
+        })
+        .collect();
+    rows.sort();
+    Ok(rows)
+}
+
+impl Kestrel {
+    const fn app(&self) -> &Router {
+        &self.app
+    }
 }
 
 struct Answer {
@@ -123,7 +193,7 @@ async fn send(
 /// endpoint stores one, since the endpoint takes only Atlassian addresses.
 async fn jira_at(kestrel: &Kestrel, server: &MockServer) -> TestResult<Uuid> {
     let sealed = secrets::seal(
-        KEY,
+        key(),
         &json!({ "email": "dev@acme.example", "token": "ATATT3xFfGF0-test" }).to_string(),
     )?;
     let id: Uuid = sqlx::query_scalar(
@@ -161,7 +231,7 @@ async fn mock_search(server: &MockServer) {
 }
 
 #[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
-async fn a_controller_connects_a_ticket_system(pool: PgPool) {
+async fn an_org_manager_connects_a_ticket_system(pool: PgPool) {
     let kestrel = kestrel(&pool).await.unwrap();
     let connect = async |session: &str, body: Value| {
         send(
@@ -179,7 +249,7 @@ async fn a_controller_connects_a_ticket_system(pool: PgPool) {
     let refused = connect(&kestrel.agent_manager, jira.clone()).await;
     assert_eq!(refused.status, StatusCode::FORBIDDEN);
     let elsewhere = connect(
-        &kestrel.controller,
+        &kestrel.org_manager,
         json!({ "kind": "jira", "site": "https://evil.example", "token": "x", "email": "dev@acme.example" }),
     )
     .await;
@@ -189,13 +259,13 @@ async fn a_controller_connects_a_ticket_system(pool: PgPool) {
         "The address should be a Jira Cloud site, such as https://acme.atlassian.net."
     );
     let no_email = connect(
-        &kestrel.controller,
+        &kestrel.org_manager,
         json!({ "kind": "jira", "site": "https://acme.atlassian.net", "token": "ATATT3xFfGF0-secret" }),
     )
     .await;
     assert_eq!(no_email.status, StatusCode::BAD_REQUEST);
 
-    let connected = connect(&kestrel.controller, jira).await;
+    let connected = connect(&kestrel.org_manager, jira).await;
     assert_eq!(connected.status, StatusCode::CREATED, "{}", connected.json);
     assert_eq!(connected.json["kind"], "jira");
     assert_eq!(connected.json["site"], "https://acme.atlassian.net");
@@ -225,27 +295,34 @@ async fn a_controller_connects_a_ticket_system(pool: PgPool) {
         &kestrel.app,
         Method::PUT,
         &format!("/api/v1/ticket-systems/{id}/mappings"),
-        &kestrel.controller,
+        &kestrel.org_manager,
         Some(json!([{ "external": "KD", "external_name": "Kestrel storefront", "project": "storefront" }])),
     )
     .await
     .unwrap();
     assert_eq!(mapped.status, StatusCode::OK, "{}", mapped.json);
+    assert_eq!(mapped.json["mappings"][0]["external"], "KD");
     assert_eq!(
-        mapped.json["mappings"],
-        json!([{ "external": "KD", "external_name": "Kestrel storefront", "project": "storefront" }])
+        mapped.json["mappings"][0]["external_name"],
+        "Kestrel storefront"
     );
-    let pattern: Option<String> =
-        sqlx::query_scalar("SELECT ticket_key_pattern FROM projects WHERE name = 'storefront'")
-            .fetch_one(&pool)
-            .await
-            .unwrap();
-    assert_eq!(pattern.as_deref(), Some("^KD-\\d+"));
+    assert_eq!(mapped.json["mappings"][0]["project"], "storefront");
+    assert_eq!(
+        mapped.json["mappings"][0]["fields"],
+        json!([
+            "title",
+            "description",
+            "type",
+            "status",
+            "parent",
+            "assignee"
+        ])
+    );
     let unknown = send(
         &kestrel.app,
         Method::PUT,
         &format!("/api/v1/ticket-systems/{id}/mappings"),
-        &kestrel.controller,
+        &kestrel.org_manager,
         Some(json!([{ "external": "OPS", "project": "operations" }])),
     )
     .await
@@ -268,7 +345,7 @@ async fn a_controller_connects_a_ticket_system(pool: PgPool) {
         &kestrel.app,
         Method::POST,
         &format!("/api/v1/ticket-systems/{id}/sync"),
-        &kestrel.controller,
+        &kestrel.org_manager,
         None,
     )
     .await
@@ -278,7 +355,7 @@ async fn a_controller_connects_a_ticket_system(pool: PgPool) {
         &kestrel.app,
         Method::DELETE,
         &format!("/api/v1/ticket-systems/{id}"),
-        &kestrel.controller,
+        &kestrel.org_manager,
         None,
     )
     .await
@@ -288,7 +365,7 @@ async fn a_controller_connects_a_ticket_system(pool: PgPool) {
         &kestrel.app,
         Method::DELETE,
         &format!("/api/v1/ticket-systems/{id}"),
-        &kestrel.controller,
+        &kestrel.org_manager,
         None,
     )
     .await
@@ -297,7 +374,7 @@ async fn a_controller_connects_a_ticket_system(pool: PgPool) {
 }
 
 #[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
-async fn the_sync_writes_tickets_with_parents_and_assignees(pool: PgPool) {
+async fn the_sync_writes_features_with_parents_and_assignees(pool: PgPool) {
     let kestrel = kestrel(&pool).await.unwrap();
     let server = MockServer::start().await;
     mock_search(&server).await;
@@ -306,89 +383,85 @@ async fn the_sync_writes_tickets_with_parents_and_assignees(pool: PgPool) {
         &kestrel.app,
         Method::PUT,
         &format!("/api/v1/ticket-systems/{id}/mappings"),
-        &kestrel.controller,
+        &kestrel.org_manager,
         Some(json!([{ "external": "KD", "project": "storefront" }])),
     )
     .await
     .unwrap();
     assert_eq!(mapped.status, StatusCode::OK, "{}", mapped.json);
 
-    // A token entry names KD-215 in its branch before the ticket synced.
-    let entry: tokencontroller_server::ingest::entry::NewTokenEntry =
-        serde_json::from_value(json!({
+    // A token entry names KD-215 before the issue synced: the tag counts,
+    // and the answer says the value is not on record yet.
+    let answer = send(
+        &kestrel.app,
+        Method::POST,
+        "/api/v1/token-entries",
+        &kestrel.org_manager,
+        Some(json!({
             "agent_harness": "claude-code",
             "model": "claude-sonnet-5",
             "started_at": "2026-10-12T08:00:00Z",
             "ended_at": "2026-10-12T08:20:00Z",
-            "tokens": { "input": 1000, "output": 100 },
+            "tokens": { "input": 1000, "output": 100, "cache_read": 0, "cache_write": 0 },
+            "feature": "KD-215",
             "signals": { "branch": "feature/KD-215-cart" }
-        }))
-        .unwrap();
-    let person_id: Uuid =
-        sqlx::query_scalar("SELECT id FROM people WHERE email = 'ana.silva@acme.example'")
-            .fetch_one(&pool)
-            .await
-            .unwrap();
-    let mut tx = pool.begin().await.unwrap();
-    tokencontroller_server::ingest::store::store_token_entries(
-        &mut tx,
-        kestrel.organization_id,
-        person_id,
-        vec![entry],
-        tokencontroller_server::ingest::store::Door::Endpoint,
-        &tokencontroller_server::ingest::store::Pricing::none(),
+        })),
     )
     .await
     .unwrap();
-    tx.commit().await.unwrap();
-    let not_synced: bool = sqlx::query_scalar("SELECT ticket_not_synced FROM splits")
-        .fetch_one(&pool)
-        .await
-        .unwrap();
-    assert!(not_synced);
+    assert_eq!(answer.status, StatusCode::CREATED, "{}", answer.json);
+    assert_eq!(answer.json["unknown_tags"], json!(["feature: KD-215"]));
 
     let note = ticket_systems::sync_due(kestrel.state.clone())
         .await
         .unwrap();
-    assert_eq!(note, "1 of 1 ticket systems synced, 3 tickets written");
+    assert_eq!(note, "1 of 1 ticket systems synced, 3 features written");
 
-    let tickets: Vec<(String, String, Option<String>, Option<String>)> = sqlx::query_as(
-        "SELECT t.key, t.source, parent.key, a.email
-         FROM tickets t
-         LEFT JOIN tickets parent ON parent.id = t.parent_id
-         LEFT JOIN people a ON a.id = t.assignee_id
-         WHERE t.project_id IS NOT NULL ORDER BY t.key",
+    let synced = features(&kestrel).await.unwrap();
+    assert_eq!(synced.len(), 3, "{synced:?}");
+    assert_eq!(synced[0].0, "KD-214");
+    assert_eq!(
+        synced[0].1.as_deref(),
+        Some("Guest checkout fails with saved cards")
+    );
+    // The story links to its epic and names the assignee.
+    assert!(
+        synced[0].2.as_deref().is_some_and(|text| {
+            text.ends_with("Parent: KD-200\nAssignee: mia.krystof@acme.example")
+        }),
+        "{synced:?}"
+    );
+    assert_eq!(synced[0].3.as_deref(), Some("open"));
+    assert_eq!(synced[0].4, "storefront");
+    // Jira hides this assignee's email, so the name stands in.
+    assert_eq!(synced[1].0, "KD-215");
+    assert!(
+        synced[1]
+            .2
+            .as_deref()
+            .is_some_and(|text| text.contains("Parent: KD-200") && text.contains("Assignee: ")),
+        "{synced:?}"
+    );
+    assert_eq!(synced[1].3.as_deref(), Some("open"));
+    assert_eq!(synced[2].0, "KD-216");
+    assert_eq!(synced[2].4, "storefront");
+    let source_ids: Vec<Option<String>> = sqlx::query_scalar(
+        "SELECT payload->'tag_value'->>'source_id' FROM events
+         WHERE organization_id = $1 AND kind = 'tag value' AND payload->'tag_value'->>'name' = 'feature'
+         ORDER BY id",
     )
+    .bind(kestrel.organization_id)
     .fetch_all(&pool)
     .await
     .unwrap();
-    let row = |key: &str, parent: Option<&str>, assignee: Option<&str>| {
-        (
-            key.to_owned(),
-            "jira".to_owned(),
-            parent.map(str::to_owned),
-            assignee.map(str::to_owned),
-        )
-    };
-    assert_eq!(
-        tickets,
-        [
-            // The epic was there by hand; the story links to it.
-            row("KD-214", Some("KD-200"), Some("mia.krystof@acme.example")),
-            // Jira hides this assignee's email, so nobody is assigned.
-            row("KD-215", Some("KD-200"), None),
-            row("KD-216", None, None),
-        ]
+    assert_eq!(source_ids.len(), 3);
+    assert!(
+        source_ids
+            .iter()
+            .all(|id| id.as_deref().is_some_and(|id| id.contains("KD-"))),
+        "{source_ids:?}"
     );
-    let title: Option<String> =
-        sqlx::query_scalar("SELECT title FROM tickets WHERE key = 'KD-214'")
-            .fetch_one(&pool)
-            .await
-            .unwrap();
-    assert_eq!(
-        title.as_deref(),
-        Some("Guest checkout fails with saved cards")
-    );
+
     let (last_sync, error, synced_until_lag): (Option<time::OffsetDateTime>, Option<String>, bool) =
         sqlx::query_as(
             "SELECT s.last_sync_at, s.last_error,
@@ -405,26 +478,31 @@ async fn the_sync_writes_tickets_with_parents_and_assignees(pool: PgPool) {
         "the next sync asks from five minutes before this one"
     );
 
-    // The token entry is placed again and its ticket filled in.
-    let (ticket, project, not_synced): (String, String, bool) = sqlx::query_as(
-        "SELECT t.value, p.value, s.ticket_not_synced FROM splits s
-         JOIN split_tags t ON t.split_id = s.id AND t.name = 'ticket'
-         JOIN split_tags p ON p.split_id = s.id AND p.name = 'project'",
+    // The message's tag is now a value on record, so a report by feature
+    // shows the project it brings.
+    let report = send(
+        &kestrel.app,
+        Method::GET,
+        "/api/v1/reports/cost?from=2026-10-01&to=2026-10-31&by=project",
+        &kestrel.org_manager,
+        None,
     )
-    .fetch_one(&pool)
     .await
     .unwrap();
-    assert_eq!(
-        (ticket.as_str(), project.as_str()),
-        ("KD-215", "storefront")
+    assert_eq!(report.status, StatusCode::OK, "{}", report.json);
+    assert!(
+        report.json["rows"]
+            .as_array()
+            .is_some_and(|rows| rows.iter().any(|row| row["key"] == "storefront")),
+        "{}",
+        report.json
     );
-    assert!(!not_synced);
 
-    // Nothing is due again until the 15 minutes pass.
+    // Nothing is due again until the minutes pass.
     let quiet = ticket_systems::sync_due(kestrel.state.clone())
         .await
         .unwrap();
-    assert_eq!(quiet, "0 of 0 ticket systems synced, 0 tickets written");
+    assert_eq!(quiet, "0 of 0 ticket systems synced, 0 features written");
 }
 
 #[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
@@ -441,8 +519,8 @@ async fn a_refused_token_shows_on_the_ticket_system_not_the_status_page(pool: Pg
         .await;
     let id = jira_at(&kestrel, &server).await.unwrap();
     sqlx::query(
-        "INSERT INTO ticket_system_projects (organization_id, ticket_system_id, external_project, external_name, project_id)
-         SELECT $1, $2, 'KD', 'KD', id FROM projects WHERE name = 'storefront'",
+        "INSERT INTO ticket_system_projects (organization_id, ticket_system_id, external_project, external_name, project)
+         VALUES ($1, $2, 'KD', 'KD', 'storefront')",
     )
     .bind(kestrel.organization_id)
     .bind(id)
@@ -461,7 +539,7 @@ async fn a_refused_token_shows_on_the_ticket_system_not_the_status_page(pool: Pg
         &kestrel.app,
         Method::GET,
         "/api/v1/ticket-systems",
-        &kestrel.controller,
+        &kestrel.org_manager,
         None,
     )
     .await
@@ -489,11 +567,11 @@ async fn a_refused_token_shows_on_the_ticket_system_not_the_status_page(pool: Pg
         .as_array()
         .unwrap()
         .iter()
-        .find(|component| component["id"] == "price-tables")
+        .find(|component| component["id"] == "price-table")
         .unwrap()
         .clone();
     assert_eq!(
         prices["state"], "not_running",
-        "TC_PRICES_REFRESH is off in this test"
+        "TC_PRICE_TABLE is not set in this test"
     );
 }

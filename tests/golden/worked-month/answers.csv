@@ -1,0 +1,45 @@
+as_of,kind,filter,from,to,argument,key,amount,note
+2026-04-05T00:00:00Z,messages,,,,,S1/1,350.00,priced
+2026-04-05T00:00:00Z,messages,,,,,S1/2,50.00,priced
+2026-04-05T00:00:00Z,messages,,,,,S2/1,300.00,priced
+2026-04-05T00:00:00Z,messages,,,,,S3/1,100.00,priced
+2026-04-05T00:00:00Z,messages,,,,,S4/1,150.00,priced
+2026-04-05T00:00:00Z,lines,,,,,S1/1#0,350.00,hand; direct; client=acme;department=engineering;feature=KD-1;person=mara;project=shop;team=web
+2026-04-05T00:00:00Z,lines,,,,,S1/2#0,50.00,hand; direct; client=acme;department=engineering;feature=KD-1;person=mara;project=shop;team=web
+2026-04-05T00:00:00Z,lines,,,,,S2/1#0,180.00,hand; direct; client=acme;department=engineering;feature=KD-1;person=mara;project=shop;team=web
+2026-04-05T00:00:00Z,lines,,,,,S2/1#1,120.00,hand; direct; client=acme;department=engineering;feature=KD-2;person=mara;project=shop;team=web
+2026-04-05T00:00:00Z,lines,,,,,S3/1#0,100.00,hand; project overhead; client=acme;department=engineering;person=tom;project=shop;team=web
+2026-04-05T00:00:00Z,lines,,,,,S4/1#0,150.00,default; organization overhead; department=engineering;person=tom;team=web
+2026-04-05T00:00:00Z,cost,,2026-03-01,2026-03-31,,,950.00,
+2026-04-05T00:00:00Z,by,,2026-03-01,2026-03-31,person,mara,700.00,
+2026-04-05T00:00:00Z,by,,2026-03-01,2026-03-31,person,tom,250.00,
+2026-04-05T00:00:00Z,by,,2026-03-01,2026-03-31,feature,,250.00,
+2026-04-05T00:00:00Z,by,,2026-03-01,2026-03-31,feature,KD-1,580.00,
+2026-04-05T00:00:00Z,by,,2026-03-01,2026-03-31,feature,KD-2,120.00,
+2026-04-05T00:00:00Z,by,,2026-03-01,2026-03-31,project,,150.00,
+2026-04-05T00:00:00Z,by,,2026-03-01,2026-03-31,project,shop,800.00,
+2026-04-05T00:00:00Z,by,,2026-03-01,2026-03-31,client,,150.00,
+2026-04-05T00:00:00Z,by,,2026-03-01,2026-03-31,client,acme,800.00,
+2026-04-05T00:00:00Z,by,,2026-03-01,2026-03-31,team,web,950.00,
+2026-04-05T00:00:00Z,by,,2026-03-01,2026-03-31,department,engineering,950.00,
+2026-04-05T00:00:00Z,by_label,,2026-03-01,2026-03-31,,direct,700.00,
+2026-04-05T00:00:00Z,by_label,,2026-03-01,2026-03-31,,project overhead,100.00,
+2026-04-05T00:00:00Z,by_label,,2026-03-01,2026-03-31,,organization overhead,150.00,
+2026-04-05T00:00:00Z,reconcile,,,,b1,bill,1000.00,
+2026-04-05T00:00:00Z,reconcile,,,,b1,messages,950.00,
+2026-04-05T00:00:00Z,reconcile,,,,b1,unexplained,50.00,
+2026-04-05T00:00:00Z,plan,project=shop,2026-03-01,2026-03-31,,,232.50,
+2026-04-05T00:00:00Z,deviation,project=shop,2026-03-01,2026-03-31,,plan,232.50,
+2026-04-05T00:00:00Z,deviation,project=shop,2026-03-01,2026-03-31,,actual,800.00,
+2026-04-05T00:00:00Z,deviation,project=shop,2026-03-01,2026-03-31,,delta,-567.50,unfavourable
+2026-04-05T00:00:00Z,deviation,feature=KD-1,2026-03-01,2026-03-31,,plan,500.00,
+2026-04-05T00:00:00Z,deviation,feature=KD-1,2026-03-01,2026-03-31,,actual,580.00,
+2026-04-05T00:00:00Z,deviation,feature=KD-1,2026-03-01,2026-03-31,,delta,-80.00,unfavourable
+2026-04-05T00:00:00Z,plan,person=mara,2026-03-01,2026-03-31,,,139.50,
+2026-04-05T00:00:00Z,cost,person=mara,2026-03-01,2026-03-31,,,700.00,
+2026-04-05T00:00:00Z,plan,feature=KD-2,2026-03-01,2026-03-31,,none,,
+2026-04-05T00:00:00Z,share_sums,,2026-03-15,,,shop,6000,
+2026-04-05T00:00:00Z,history,,,,,client/acme,800.00,2026-03-09
+2026-04-05T00:00:00Z,history,,,,,feature/KD-1,580.00,2026-03-05
+2026-04-05T00:00:00Z,history,,,,,feature/KD-2,120.00,2026-03-05
+2026-04-05T00:00:00Z,history,,,,,project/shop,800.00,2026-03-09

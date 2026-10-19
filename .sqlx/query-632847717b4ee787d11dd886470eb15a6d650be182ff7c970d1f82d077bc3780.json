@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO sign_in_links\n             (token_hash, email, sign_up_organization_name, sign_up_person_name,\n              sign_up_reporting_currency, sign_up_manages,\n              poll_hash, expires_at)\n           VALUES ($1, $2, $3, $4, $5, $6, $7,\n                   now() + make_interval(mins => $8::bigint::int))",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Bytea",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Bytea",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "632847717b4ee787d11dd886470eb15a6d650be182ff7c970d1f82d077bc3780"
+}

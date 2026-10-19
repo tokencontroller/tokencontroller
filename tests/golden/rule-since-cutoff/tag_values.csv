@@ -1,0 +1,5 @@
+id,recorded_at,name,key,title,source_status,defaults
+v1,2026-01-01T00:00:00Z,feature,KD-1,Login,open,project=shop
+v2,2026-01-01T00:00:00Z,feature,KD-2,Checkout,open,project=shop
+v3,2026-01-01T00:00:00Z,project,shop,Shop,,client=acme
+v4,2026-01-01T00:00:00Z,client,acme,Acme,,

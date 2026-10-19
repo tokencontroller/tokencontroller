@@ -1,0 +1,19 @@
+as_of,kind,filter,from,to,argument,key,amount,note
+2026-03-19T00:00:00Z,cost,,2026-03-01,2026-03-31,,,950.00,
+2026-03-19T00:00:00Z,by,,2026-03-01,2026-03-31,feature,,250.00,
+2026-03-19T00:00:00Z,by,,2026-03-01,2026-03-31,feature,KD-1,580.00,
+2026-03-19T00:00:00Z,by,,2026-03-01,2026-03-31,feature,KD-2,120.00,
+2026-03-19T00:00:00Z,lines,,,,,S1/1#0,350.00,hand; direct; client=acme;department=engineering;feature=KD-1;person=mara;project=shop;team=web
+2026-03-19T00:00:00Z,lines,,,,,S1/2#0,50.00,hand; direct; client=acme;department=engineering;feature=KD-1;person=mara;project=shop;team=web
+2026-03-19T00:00:00Z,lines,,,,,S2/1#0,180.00,hand; direct; client=acme;department=engineering;feature=KD-1;person=mara;project=shop;team=web
+2026-03-19T00:00:00Z,lines,,,,,S2/1#1,120.00,hand; direct; client=acme;department=engineering;feature=KD-2;person=mara;project=shop;team=web
+2026-03-19T00:00:00Z,lines,,,,,S3/1#0,100.00,hand; project overhead; client=acme;department=engineering;person=tom;project=shop;team=web
+2026-03-19T00:00:00Z,lines,,,,,S4/1#0,150.00,default; organization overhead; department=engineering;person=tom;team=web
+2026-04-05T00:00:00Z,cost,,2026-03-01,2026-03-31,,,800.00,
+2026-04-05T00:00:00Z,by,,2026-03-01,2026-03-31,feature,,100.00,
+2026-04-05T00:00:00Z,by,,2026-03-01,2026-03-31,feature,KD-1,400.00,
+2026-04-05T00:00:00Z,by,,2026-03-01,2026-03-31,feature,KD-2,300.00,
+2026-04-05T00:00:00Z,lines,,,,,S1/1#0,350.00,hand; direct; client=acme;department=engineering;feature=KD-1;person=mara;project=shop;team=web
+2026-04-05T00:00:00Z,lines,,,,,S1/2#0,50.00,hand; direct; client=acme;department=engineering;feature=KD-1;person=mara;project=shop;team=web
+2026-04-05T00:00:00Z,lines,,,,,S2/1#0,300.00,hand; direct; client=acme;department=engineering;feature=KD-2;person=mara;project=shop;team=web
+2026-04-05T00:00:00Z,lines,,,,,S3/1#0,100.00,hand; project overhead; client=acme;department=engineering;person=tom;project=shop;team=web

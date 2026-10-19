@@ -1,4 +1,4 @@
-//! Plain text from ticket descriptions: HTML from Azure DevOps and the
+//! Plain text from ticket descriptions: HTML and the
 //! Atlassian Document Format from Jira Cloud. Tags and markup are dropped,
 //! common entities decoded, and whitespace collapsed: a run of whitespace
 //! with a line break becomes one line break, any other run one space.

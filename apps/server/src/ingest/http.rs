@@ -14,10 +14,9 @@ use utoipa::ToSchema;
 use super::csv_import::{self, RowProblem};
 use super::entry::NewTokenEntry;
 use super::otlp::{self, DecodeError, Encoding, Extracted, Signal};
-use super::store::{self, Door, StoredEntryBody, TelemetryOutcome};
+use super::store::{self, StoredEntry, TelemetryOutcome};
 use crate::AppState;
 use crate::error::{ApiError, ErrorBody};
-use crate::integrations::prices;
 use crate::sign_in::{Caller, CredentialKind, Member};
 
 /// The most token entries one call may send.
@@ -39,14 +38,16 @@ pub enum TokenEntries {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, ToSchema)]
 #[serde(untagged)]
 pub enum StoredEntries {
-    One(StoredEntryBody),
-    Many(Vec<StoredEntryBody>),
+    One(StoredEntry),
+    Many(Vec<StoredEntry>),
 }
 
-/// Report token entries. With a service token they arrive automatically,
-/// submitted, and the token's creator is their agent manager. Signed in,
-/// they are manual entries on your own token sheet, as drafts. Sending one
-/// again with the same `session_id` or `local_id` updates it.
+/// Report token entries: one message or session record, or a list. The
+/// person of every message is the token's creator, or you when signed in.
+/// Each becomes a message event; a message sent again with the same
+/// session id and message id is the same record, and an entry with a
+/// `local_id` seen before adds nothing. The answer carries each entry's
+/// cost, label and the tags that are no value on record.
 #[utoipa::path(
     post,
     path = "/token-entries",
@@ -55,7 +56,6 @@ pub enum StoredEntries {
     responses(
         (status = CREATED, body = StoredEntries),
         (status = BAD_REQUEST, description = "A token entry breaks the schema; nothing was stored", body = ErrorBody),
-        (status = CONFLICT, description = "A token entry is in a closed period; post an adjustment instead", body = ErrorBody),
     ),
 )]
 pub(super) async fn create_token_entries(
@@ -64,14 +64,9 @@ pub(super) async fn create_token_entries(
     Json(body): Json<TokenEntries>,
 ) -> Result<(StatusCode, Json<StoredEntries>), ApiError> {
     caller.require_credential(&[CredentialKind::Service, CredentialKind::Session])?;
-    let door = if caller.credential.kind() == CredentialKind::Service {
-        Door::Endpoint
-    } else {
-        if caller.person_removed {
-            return Err(ApiError::Unauthorized);
-        }
-        Door::Manual
-    };
+    if caller.credential.kind() == CredentialKind::Session && caller.person_removed {
+        return Err(ApiError::Unauthorized);
+    }
     let (one, entries) = match body {
         TokenEntries::One(entry) => (true, vec![*entry]),
         TokenEntries::Many(entries) => (false, entries),
@@ -81,19 +76,18 @@ pub(super) async fn create_token_entries(
             "send at most {MAX_ENTRIES_PER_CALL} token entries per call"
         )));
     }
-    let pricing = prices::current_pricing(&state.db).await?;
-    let mut tx = state.db.begin().await?;
-    let stored = store::store_token_entries(
-        &mut tx,
-        caller.organization_id,
-        caller.person_id,
-        entries,
-        door,
-        &pricing,
-    )
-    .await?;
-    tx.commit().await?;
-    let mut bodies: Vec<StoredEntryBody> = stored.iter().map(StoredEntryBody::from).collect();
+    let mut checked = Vec::new();
+    for (index, entry) in entries.into_iter().enumerate() {
+        checked.push(entry.check().map_err(|error| {
+            ApiError::BadRequest(if one {
+                error.0
+            } else {
+                format!("token entry {index}: {error}")
+            })
+        })?);
+    }
+    let mut bodies =
+        store::store_entries(&state, caller.organization_id, &caller.person()?, checked).await?;
     let answer = match (one, bodies.pop()) {
         (true, Some(body)) => StoredEntries::One(body),
         (_, last) => {
@@ -116,7 +110,7 @@ pub struct CsvPreview {
 /// What a CSV import saved.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, ToSchema)]
 pub struct CsvImported {
-    pub token_entries: Vec<StoredEntryBody>,
+    pub token_entries: Vec<StoredEntry>,
 }
 
 fn read_csv(body: &Bytes) -> Result<Vec<csv_import::Row>, ApiError> {
@@ -160,8 +154,8 @@ pub(super) async fn preview_csv(
     }))
 }
 
-/// Import a CSV file of token entries onto your token sheet, as drafts.
-/// Every row must be readable; otherwise nothing is saved.
+/// Import a CSV file of token entries as your own messages. Every row must
+/// be readable; otherwise nothing is saved.
 #[utoipa::path(
     post,
     path = "/token-entries/csv",
@@ -170,7 +164,6 @@ pub(super) async fn preview_csv(
     responses(
         (status = CREATED, body = CsvImported),
         (status = BAD_REQUEST, description = "A row cannot be read; nothing was saved", body = ErrorBody),
-        (status = CONFLICT, description = "A row is in a closed period", body = ErrorBody),
     ),
 )]
 pub(super) async fn import_csv(
@@ -187,24 +180,9 @@ pub(super) async fn import_csv(
         )));
     }
     let checked = rows.into_iter().filter_map(|row| row.result.ok()).collect();
-    let pricing = prices::current_pricing(&state.db).await?;
-    let mut tx = state.db.begin().await?;
-    let stored = store::store_checked(
-        &mut tx,
-        member.organization_id,
-        member.person_id,
-        checked,
-        Door::Csv,
-        &pricing,
-    )
-    .await?;
-    tx.commit().await?;
-    Ok((
-        StatusCode::CREATED,
-        Json(CsvImported {
-            token_entries: stored.iter().map(StoredEntryBody::from).collect(),
-        }),
-    ))
+    let token_entries =
+        store::store_entries(&state, member.organization_id, &member.person()?, checked).await?;
+    Ok((StatusCode::CREATED, Json(CsvImported { token_entries })))
 }
 
 fn decode_failure(error: &DecodeError) -> Response {
@@ -273,22 +251,17 @@ async fn receive(
     let outcome = if extracted.messages.is_empty() {
         TelemetryOutcome::default()
     } else {
-        let pricing = prices::current_pricing(&state.db).await?;
-        let mut tx = state.db.begin().await?;
-        let outcome = store::record_telemetry(
-            &mut tx,
+        store::store_telemetry(
+            state,
             caller.organization_id,
+            &caller.person()?,
             extracted.messages,
-            &pricing,
         )
-        .await?;
-        tx.commit().await?;
-        outcome
+        .await?
     };
     tracing::debug!(
         new = outcome.new_messages,
         known = outcome.known_messages,
-        late = outcome.late_messages,
         dropped = extracted.dropped_with_prompt_text,
         stripped = extracted.stripped_prompt_text,
         "telemetry received"

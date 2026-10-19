@@ -1,18 +1,19 @@
-//! Organizations (one account is one organization), members and invites, roles
-//! (agent manager, people manager, controller) and organization settings.
+//! Organizations (one account is one organization), members and invites,
+//! roles (agent manager, people manager, org manager), organization
+//! settings, rules and the context local tools read.
 //!
-//! Docs: Account > Organization settings, Account > Roles.
+//! Docs: Account > Organization settings, Account > Grants and roles.
 //!
 //! Owner: the service platform work. Keep this area's code, routes and queries in
 //! this folder, and its migrations in `migrations/` named
 //! `<timestamp>_organizations_<what>.sql`.
 
 mod audit;
+mod context;
 mod members;
 mod provisioning;
 mod role;
-mod rule_schema;
-mod rules;
+pub mod rules;
 mod settings;
 
 use serde::Serialize;
@@ -27,12 +28,13 @@ use crate::error::ApiError;
 use crate::tags;
 
 pub use audit::record_audit_event;
-pub use members::{MemberLimitView, MemberStatus, MemberView, clean_name, filters_of};
+pub use context::Context;
+pub use members::{MemberLimitView, MemberStatus, MemberView, clean_name, person_of};
 pub use provisioning::{add_member, member_by_email, only_organization, remove_member};
 pub use role::{Role, UnknownRole};
-pub use rules::{OrganizationRules, change_rule_tags, organization_rules, personal_rules};
+pub use rules::{RuleView, parse_rule};
 pub(crate) use settings::validate_currency;
-pub use settings::{CostSource, Organization};
+pub use settings::{Organization, reporting_currency};
 
 /// The longest organization name.
 const MAX_NAME_CHARS: usize = 100;
@@ -51,15 +53,9 @@ pub fn routes() -> OpenApiRouter<AppState> {
         .routes(routes!(members::set_filters))
         .routes(routes!(members::resend_invite))
         .routes(routes!(members::show_invite))
-        .routes(routes!(
-            rules::get_organization_rules,
-            rules::set_organization_rules
-        ))
-        .routes(routes!(
-            rules::get_personal_rules,
-            rules::set_personal_rules
-        ))
-        .routes(routes!(rules::context))
+        .routes(routes!(rules::list_rules, rules::add_rule))
+        .routes(routes!(rules::get_my_rules, rules::set_my_rules))
+        .routes(routes!(context::context))
 }
 
 /// An organization's name and short name.
@@ -75,12 +71,13 @@ pub struct OrganizationSummary {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Created {
     pub organization_id: Uuid,
-    /// The first member: a controller, who sets the organization up.
+    /// The first member: an org manager, who sets the organization up.
     pub person_id: Uuid,
 }
 
-/// Creates an organization with `email` as its first member, a controller,
-/// with the built-in tag names and the default tag map.
+/// Creates an organization with `email` as its first member, an org
+/// manager with the role's grants, and the built-in tag and attribute
+/// names.
 ///
 /// # Errors
 ///
@@ -96,13 +93,27 @@ pub async fn create(conn: &mut PgConnection, name: &str, email: &str) -> Result<
     .await?;
     let person_id = sqlx::query_scalar!(
         r#"INSERT INTO people (organization_id, email, role, joined_at)
-           VALUES ($1, $2, 'controller', now()) RETURNING id"#,
+           VALUES ($1, $2, 'org_manager', now()) RETURNING id"#,
         organization_id,
         email
     )
     .fetch_one(&mut *conn)
     .await?;
     tags::create_defaults(&mut *conn, organization_id).await?;
+    let log = crate::events::Log {
+        organization_id,
+        events: Vec::new(),
+    };
+    crate::grants::set_role_grants(
+        &mut *conn,
+        &log,
+        person_id,
+        &crate::events::person(email)?,
+        Role::OrgManager,
+        &[],
+        None,
+    )
+    .await?;
     tracing::info!(%organization_id, "organization created");
     Ok(Created {
         organization_id,
@@ -192,11 +203,11 @@ pub async fn summary(db: &PgPool, organization_id: Uuid) -> Result<OrganizationS
 ///
 /// [`ApiError::NotFound`] if there is no such person in the organization.
 pub async fn member(
-    db: &PgPool,
+    state: &AppState,
     organization_id: Uuid,
     person_id: Uuid,
 ) -> Result<MemberView, ApiError> {
-    members::list(db, organization_id, Some(person_id), true)
+    members::list(state, organization_id, Some(person_id), true)
         .await?
         .into_iter()
         .next()
@@ -208,8 +219,8 @@ pub async fn member(
 /// # Errors
 ///
 /// Fails if a query fails.
-pub async fn members(db: &PgPool, organization_id: Uuid) -> Result<Vec<MemberView>, ApiError> {
-    members::list(db, organization_id, None, false).await
+pub async fn members(state: &AppState, organization_id: Uuid) -> Result<Vec<MemberView>, ApiError> {
+    members::list(state, organization_id, None, false).await
 }
 
 /// An organization's settings.

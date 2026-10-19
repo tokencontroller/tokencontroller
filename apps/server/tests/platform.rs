@@ -18,17 +18,22 @@ use uuid::Uuid;
 
 type TestResult<T> = Result<T, Box<dyn std::error::Error>>;
 
-const KEY: &str = "0123456789abcdef0123456789abcdef";
+/// The secret key of this test run: made once, never written down.
+fn key() -> &'static str {
+    static KEY: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    KEY.get_or_init(|| uuid::Uuid::new_v4().simple().to_string())
+}
 
 fn config() -> Config {
     Config {
         database_url: "postgres://unused".to_owned(),
         public_url: "http://localhost:8080".to_owned(),
-        secret_key: KEY.to_owned(),
+        secret_key: key().to_owned(),
         smtp_url: None,
         smtp_from: None,
-        prices_refresh: false,
-        embeddings: None,
+        price_table: None,
+        rates_refresh: false,
+        classifier: None,
     }
 }
 
@@ -99,7 +104,7 @@ async fn post_form(app: &Router, path: &str, form: &str) -> TestResult<Answer> {
     answer(app, request).await
 }
 
-/// A new organization with a signed-in controller; returns the session.
+/// A new organization with a signed-in org manager; returns the session.
 async fn organization(pool: &PgPool, name: &str, email: &str) -> TestResult<(Uuid, String)> {
     let mut conn = pool.acquire().await?;
     let created = tokencontroller_server::organizations::create(&mut conn, name, email)
@@ -115,7 +120,7 @@ async fn session_for(pool: &PgPool, person_id: Uuid, client: &str) -> TestResult
     } else {
         secret::SESSION
     };
-    let session = secret::generate(prefix, KEY)?;
+    let session = secret::generate(prefix, key())?;
     sqlx::query("INSERT INTO sessions (token_hash, person_id, client, expires_at) VALUES ($1, $2, $3, now() + interval '1 day')")
         .bind(&session.hash)
         .bind(person_id)
@@ -127,7 +132,7 @@ async fn session_for(pool: &PgPool, person_id: Uuid, client: &str) -> TestResult
 
 /// Stores a sign-in link the way the service does, and returns its token.
 async fn link_for(pool: &PgPool, email: &str) -> TestResult<String> {
-    let link = secret::generate(secret::LINK, KEY)?;
+    let link = secret::generate(secret::LINK, key())?;
     sqlx::query("INSERT INTO sign_in_links (token_hash, email, expires_at) VALUES ($1, $2, now() + interval '15 minutes')")
         .bind(&link.hash)
         .bind(email)
@@ -166,7 +171,7 @@ async fn a_sign_up_link_creates_the_organization_and_signs_in(pool: PgPool) {
 
     // The mail is not readable here, so make a fresh link for the same
     // pending sign-up by reading the organization name from the stored link.
-    let token = secret::generate(secret::LINK, KEY).unwrap();
+    let token = secret::generate(secret::LINK, key()).unwrap();
     sqlx::query(
         "UPDATE sign_in_links SET token_hash = $1 WHERE email = 'n.berger@kestrel.example'",
     )
@@ -228,7 +233,7 @@ async fn a_sign_up_link_creates_the_organization_and_signs_in(pool: PgPool) {
     assert_eq!(me.status, StatusCode::OK);
     assert_eq!(me.json["person"]["email"], "n.berger@kestrel.example");
     assert_eq!(me.json["person"]["name"], "Nora Berger");
-    assert_eq!(me.json["person"]["role"], "controller");
+    assert_eq!(me.json["person"]["role"], "org_manager");
     assert_eq!(me.json["person"]["status"], "joined");
     assert_eq!(me.json["organization"]["name"], "Kestrel Digital");
     assert_eq!(me.json["organization"]["slug"], "kestrel-digital");
@@ -242,20 +247,8 @@ async fn a_sign_up_link_creates_the_organization_and_signs_in(pool: PgPool) {
     )
     .await
     .unwrap();
-    assert_eq!(settings.json["cost_source"], "seat");
     assert_eq!(settings.json["reporting_currency"], "EUR");
-
-    let map = send(
-        &app,
-        Method::GET,
-        "/api/v1/tag-map",
-        Auth::Cookie(&session),
-        None,
-    )
-    .await
-    .unwrap();
-    assert_eq!(map.json["cost_center"], "person");
-    assert_eq!(map.json["ladder"], json!(["ticket", "project"]));
+    assert_eq!(settings.json["approval"], false);
 
     // The link works once.
     let twice = post_form(
@@ -292,7 +285,7 @@ async fn a_sign_up_link_creates_the_organization_and_signs_in(pool: PgPool) {
 /// Gives the newest link for `email` a token the test knows: the mail
 /// that carries the real one is not readable here.
 async fn readable_link(pool: &PgPool, email: &str) -> TestResult<String> {
-    let token = secret::generate(secret::LINK, KEY)?;
+    let token = secret::generate(secret::LINK, key())?;
     sqlx::query(
         "UPDATE sign_in_links SET token_hash = $1
          WHERE token_hash = (SELECT token_hash FROM sign_in_links WHERE email = $2
@@ -376,7 +369,7 @@ async fn the_no_account_mail_creates_the_organization_without_a_second_mail(pool
     assert_eq!(me.status, StatusCode::OK);
     assert_eq!(me.json["person"]["email"], "jan@example.com");
     assert_eq!(me.json["person"]["name"], "Jan");
-    assert_eq!(me.json["person"]["role"], "controller");
+    assert_eq!(me.json["person"]["role"], "org_manager");
     assert_eq!(me.json["organization"]["name"], "Kestrel Digital");
     let settings = send(
         &app,
@@ -387,7 +380,6 @@ async fn the_no_account_mail_creates_the_organization_without_a_second_mail(pool
     )
     .await
     .unwrap();
-    assert_eq!(settings.json["cost_source"], "usage_at_api_rates");
     assert_eq!(settings.json["reporting_currency"], "EUR");
     // One link, one mail: nothing else was asked for.
     let links: i64 =
@@ -644,7 +636,7 @@ async fn a_local_tool_collects_its_session_once(pool: PgPool) {
     assert_eq!(waiting.json["status"], "waiting");
 
     // The person opens the mail's link in a browser.
-    let link = secret::generate(secret::LINK, KEY).unwrap();
+    let link = secret::generate(secret::LINK, key()).unwrap();
     sqlx::query("UPDATE sign_in_links SET token_hash = $1 WHERE poll_hash IS NOT NULL")
         .bind(&link.hash)
         .execute(&pool)
@@ -779,28 +771,29 @@ async fn a_local_tool_collects_its_session_once(pool: PgPool) {
 }
 
 #[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
-async fn a_controller_invites_and_the_invitee_joins(pool: PgPool) {
+async fn an_org_manager_invites_and_the_invitee_joins(pool: PgPool) {
     let app = app(&pool);
-    let (_, controller) = organization(&pool, "Kestrel Digital", "n.berger@kestrel.example")
+    let (_, org_manager) = organization(&pool, "Kestrel Digital", "n.berger@kestrel.example")
         .await
         .unwrap();
-    let tag = send(
+    // `team` is a built-in attribute; its value `web` goes on record first.
+    let web = send(
         &app,
         Method::POST,
-        "/api/v1/tags",
-        Auth::Cookie(&controller),
-        Some(json!({"name": "team"})),
+        "/api/v1/attributes/team/values",
+        Auth::Cookie(&org_manager),
+        Some(json!({"key": "web", "title": "Web team"})),
     )
     .await
     .unwrap();
-    assert_eq!(tag.status, StatusCode::CREATED);
+    assert_eq!(web.status, StatusCode::CREATED, "{}", web.text);
 
     let invited = send(
         &app,
         Method::POST,
         "/api/v1/members",
-        Auth::Cookie(&controller),
-        Some(json!({"email": "m.ortner@kestrel.example", "name": "Mara Ortner", "tags": {"team": "web"}})),
+        Auth::Cookie(&org_manager),
+        Some(json!({"email": "m.ortner@kestrel.example", "name": "Mara Ortner", "attributes": {"team": "web"}})),
     )
     .await
     .unwrap();
@@ -830,7 +823,7 @@ async fn a_controller_invites_and_the_invitee_joins(pool: PgPool) {
         &app,
         Method::POST,
         "/api/v1/members",
-        Auth::Cookie(&controller),
+        Auth::Cookie(&org_manager),
         Some(json!({"email": "m.ortner@kestrel.example"})),
     )
     .await
@@ -841,12 +834,22 @@ async fn a_controller_invites_and_the_invitee_joins(pool: PgPool) {
         &app,
         Method::POST,
         "/api/v1/members",
-        Auth::Cookie(&controller),
-        Some(json!({"email": "j.weber@kestrel.example", "tags": {"guild": "rust"}})),
+        Auth::Cookie(&org_manager),
+        Some(json!({"email": "j.weber@kestrel.example", "attributes": {"guild": "rust"}})),
     )
     .await
     .unwrap();
     assert_eq!(unknown_tag.status, StatusCode::BAD_REQUEST);
+    let unknown_value = send(
+        &app,
+        Method::POST,
+        "/api/v1/members",
+        Auth::Cookie(&org_manager),
+        Some(json!({"email": "j.weber@kestrel.example", "attributes": {"team": "data"}})),
+    )
+    .await
+    .unwrap();
+    assert_eq!(unknown_value.status, StatusCode::BAD_REQUEST);
 
     let token = link_for(&pool, "m.ortner@kestrel.example").await.unwrap();
     let used = post_form(&app, "/api/v1/sign-in/link", &format!("token={token}"))
@@ -857,7 +860,31 @@ async fn a_controller_invites_and_the_invitee_joins(pool: PgPool) {
         .await
         .unwrap();
     assert_eq!(me.json["person"]["status"], "joined");
-    assert_eq!(me.json["person"]["tags"], json!({"team": "web"}));
+    assert_eq!(me.json["person"]["attributes"], json!({"team": "web"}));
+    // A new person records their own messages and views their own figures.
+    let grants = send(
+        &app,
+        Method::GET,
+        "/api/v1/grants",
+        Auth::Cookie(&mara),
+        None,
+    )
+    .await
+    .unwrap();
+    assert_eq!(grants.status, StatusCode::OK, "{}", grants.text);
+    let mine: Vec<&str> = grants
+        .json
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|grant| grant["person"] == "m.ortner@kestrel.example")
+        .map(|grant| grant["capability"].as_str().unwrap_or_default())
+        .collect();
+    assert_eq!(mine, ["view"], "{}", grants.text);
+    assert_eq!(
+        grants.json[0]["filter"],
+        json!({"person": "m.ortner@kestrel.example"})
+    );
 
     // An agent manager cannot invite or change settings.
     let refused = send(
@@ -894,9 +921,9 @@ async fn a_controller_invites_and_the_invitee_joins(pool: PgPool) {
 }
 
 #[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
-async fn a_controller_changes_a_members_email(pool: PgPool) {
+async fn an_org_manager_changes_a_members_email(pool: PgPool) {
     let app = app(&pool);
-    let (_, controller) = organization(&pool, "Kestrel Digital", "n.berger@kestrel.example")
+    let (_, org_manager) = organization(&pool, "Kestrel Digital", "n.berger@kestrel.example")
         .await
         .unwrap();
     organization(&pool, "Osprey Labs", "o.lund@osprey.example")
@@ -906,7 +933,7 @@ async fn a_controller_changes_a_members_email(pool: PgPool) {
         &app,
         Method::GET,
         "/api/v1/me",
-        Auth::Cookie(&controller),
+        Auth::Cookie(&org_manager),
         None,
     )
     .await
@@ -922,7 +949,7 @@ async fn a_controller_changes_a_members_email(pool: PgPool) {
             &app,
             Method::PATCH,
             &path,
-            Auth::Cookie(&controller),
+            Auth::Cookie(&org_manager),
             Some(json!({"email": email})),
         )
         .await
@@ -934,7 +961,7 @@ async fn a_controller_changes_a_members_email(pool: PgPool) {
         &app,
         Method::PATCH,
         &path,
-        Auth::Cookie(&controller),
+        Auth::Cookie(&org_manager),
         Some(json!({"email": "  N.Berger+tc@Kestrel.example "})),
     )
     .await
@@ -947,7 +974,7 @@ async fn a_controller_changes_a_members_email(pool: PgPool) {
         &app,
         Method::PATCH,
         &path,
-        Auth::Cookie(&controller),
+        Auth::Cookie(&org_manager),
         Some(json!({"email": "n.berger+tc@kestrel.example"})),
     )
     .await
@@ -956,9 +983,9 @@ async fn a_controller_changes_a_members_email(pool: PgPool) {
 }
 
 #[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
-async fn the_last_controller_stays(pool: PgPool) {
+async fn the_last_org_manager_stays(pool: PgPool) {
     let app = app(&pool);
-    let (organization_id, controller) =
+    let (organization_id, org_manager) =
         organization(&pool, "Kestrel Digital", "n.berger@kestrel.example")
             .await
             .unwrap();
@@ -966,7 +993,7 @@ async fn the_last_controller_stays(pool: PgPool) {
         &app,
         Method::GET,
         "/api/v1/me",
-        Auth::Cookie(&controller),
+        Auth::Cookie(&org_manager),
         None,
     )
     .await
@@ -977,7 +1004,7 @@ async fn the_last_controller_stays(pool: PgPool) {
         &app,
         Method::PATCH,
         &format!("/api/v1/members/{id}"),
-        Auth::Cookie(&controller),
+        Auth::Cookie(&org_manager),
         Some(json!({"role": "agent_manager"})),
     )
     .await
@@ -987,16 +1014,16 @@ async fn the_last_controller_stays(pool: PgPool) {
         &app,
         Method::DELETE,
         &format!("/api/v1/members/{id}"),
-        Auth::Cookie(&controller),
+        Auth::Cookie(&org_manager),
         None,
     )
     .await
     .unwrap();
     assert_eq!(remove.status, StatusCode::CONFLICT);
 
-    // With a second controller, the first can leave, and their session ends.
+    // With a second org manager, the first can leave, and their session ends.
     let second: Uuid = sqlx::query_scalar(
-        "INSERT INTO people (organization_id, email, role, joined_at) VALUES ($1, 'p.shah@kestrel.example', 'controller', now()) RETURNING id",
+        "INSERT INTO people (organization_id, email, role, joined_at) VALUES ($1, 'p.shah@kestrel.example', 'org_manager', now()) RETURNING id",
     )
     .bind(organization_id)
     .fetch_one(&pool)
@@ -1017,7 +1044,7 @@ async fn the_last_controller_stays(pool: PgPool) {
         &app,
         Method::GET,
         "/api/v1/me",
-        Auth::Cookie(&controller),
+        Auth::Cookie(&org_manager),
         None,
     )
     .await
@@ -1040,12 +1067,11 @@ async fn organization_settings_change_and_stay_apart(pool: PgPool) {
         Method::PATCH,
         "/api/v1/organization",
         Auth::Cookie(&kestrel),
-        Some(json!({"cost_source": "seat", "reporting_currency": "eur", "approval": true, "sign_in_domains": ["kestrel.example"]})),
+        Some(json!({"reporting_currency": "eur", "approval": true, "sign_in_domains": ["kestrel.example"]})),
     )
     .await
     .unwrap();
     assert_eq!(changed.status, StatusCode::OK, "{}", changed.text);
-    assert_eq!(changed.json["cost_source"], "seat");
     assert_eq!(changed.json["reporting_currency"], "EUR");
     assert_eq!(changed.json["approval"], true);
     assert_eq!(changed.json["sign_in_domains"], json!(["kestrel.example"]));
@@ -1055,12 +1081,13 @@ async fn organization_settings_change_and_stay_apart(pool: PgPool) {
         Method::PATCH,
         "/api/v1/organization",
         Auth::Cookie(&kestrel),
-        Some(json!({"cost_source": null})),
+        Some(json!({"name": "Kestrel Digital GmbH"})),
     )
     .await
     .unwrap();
-    assert_eq!(cleared.json["cost_source"], Value::Null);
+    assert_eq!(cleared.json["name"], "Kestrel Digital GmbH");
     assert_eq!(cleared.json["approval"], true);
+    assert_eq!(cleared.json["reporting_currency"], "EUR");
 
     // Same name, another organization: its own short name and settings.
     let theirs = send(
@@ -1112,11 +1139,11 @@ async fn organization_settings_change_and_stay_apart(pool: PgPool) {
 #[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
 async fn requests_from_another_site_are_refused(pool: PgPool) {
     let app = app(&pool);
-    let (_, controller) = organization(&pool, "Kestrel Digital", "n.berger@kestrel.example")
+    let (_, org_manager) = organization(&pool, "Kestrel Digital", "n.berger@kestrel.example")
         .await
         .unwrap();
     let request = Request::patch("/api/v1/organization")
-        .header(header::COOKIE, format!("tc_session={controller}"))
+        .header(header::COOKIE, format!("tc_session={org_manager}"))
         .header(header::ORIGIN, "https://evil.example")
         .header(header::CONTENT_TYPE, "application/json")
         .body(Body::from(r#"{"approval": true}"#))
@@ -1130,7 +1157,7 @@ async fn requests_from_another_site_are_refused(pool: PgPool) {
 #[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
 async fn api_tokens_do_what_their_kind_allows(pool: PgPool) {
     let app = app(&pool);
-    let (organization_id, controller) =
+    let (organization_id, org_manager) =
         organization(&pool, "Kestrel Digital", "n.berger@kestrel.example")
             .await
             .unwrap();
@@ -1148,7 +1175,7 @@ async fn api_tokens_do_what_their_kind_allows(pool: PgPool) {
             .unwrap()
         }
     };
-    let read = create("read", controller.clone()).await;
+    let read = create("read", org_manager.clone()).await;
     assert_eq!(read.status, StatusCode::CREATED);
     let read_token = read.json["token"].as_str().unwrap().to_owned();
     assert!(read_token.starts_with("tc_read_"));
@@ -1180,7 +1207,7 @@ async fn api_tokens_do_what_their_kind_allows(pool: PgPool) {
     assert_eq!(write.status, StatusCode::UNAUTHORIZED);
 
     // A service token reports token entries; it reads nothing here.
-    let service = create("service", controller.clone()).await;
+    let service = create("service", org_manager.clone()).await;
     let service_token = service.json["token"].as_str().unwrap().to_owned();
     let refused = send(
         &app,
@@ -1193,7 +1220,7 @@ async fn api_tokens_do_what_their_kind_allows(pool: PgPool) {
     .unwrap();
     assert_eq!(refused.status, StatusCode::UNAUTHORIZED);
 
-    // Only a controller makes the organization token.
+    // Only a org_manager makes the organization token.
     let agent: Uuid = sqlx::query_scalar(
         "INSERT INTO people (organization_id, email, joined_at) VALUES ($1, 'm.ortner@kestrel.example', now()) RETURNING id",
     )
@@ -1207,11 +1234,11 @@ async fn api_tokens_do_what_their_kind_allows(pool: PgPool) {
         StatusCode::FORBIDDEN
     );
     assert_eq!(
-        create("organization", controller.clone()).await.status,
+        create("organization", org_manager.clone()).await.status,
         StatusCode::CREATED
     );
 
-    // Mara sees her tokens, the controller sees all.
+    // Mara sees her tokens, the org_manager sees all.
     assert_eq!(
         create("service", mara.clone()).await.status,
         StatusCode::CREATED
@@ -1230,7 +1257,7 @@ async fn api_tokens_do_what_their_kind_allows(pool: PgPool) {
         &app,
         Method::GET,
         "/api/v1/api-tokens",
-        Auth::Cookie(&controller),
+        Auth::Cookie(&org_manager),
         None,
     )
     .await
@@ -1245,7 +1272,7 @@ async fn api_tokens_do_what_their_kind_allows(pool: PgPool) {
         &app,
         Method::POST,
         &format!("/api/v1/api-tokens/{id}/hand-over"),
-        Auth::Cookie(&controller),
+        Auth::Cookie(&org_manager),
         Some(json!({"person_id": agent})),
     )
     .await
@@ -1275,7 +1302,7 @@ async fn api_tokens_do_what_their_kind_allows(pool: PgPool) {
         &app,
         Method::DELETE,
         &format!("/api/v1/api-tokens/{}", read.json["id"].as_str().unwrap()),
-        Auth::Cookie(&controller),
+        Auth::Cookie(&org_manager),
         None,
     )
     .await
@@ -1294,34 +1321,39 @@ async fn api_tokens_do_what_their_kind_allows(pool: PgPool) {
 }
 
 #[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
-async fn tags_and_the_tag_map(pool: PgPool) {
+async fn tag_names_and_values(pool: PgPool) {
     let app = app(&pool);
-    let (_, controller) = organization(&pool, "Kestrel Digital", "n.berger@kestrel.example")
+    let (_, org_manager) = organization(&pool, "Kestrel Digital", "n.berger@kestrel.example")
         .await
         .unwrap();
-    let auth = Auth::Cookie(&controller);
-    for name in ["team", "client", "epic"] {
-        let added = send(
-            &app,
-            Method::POST,
-            "/api/v1/tags",
-            auth,
-            Some(json!({"name": name})),
-        )
-        .await
-        .unwrap();
-        assert_eq!(added.status, StatusCode::CREATED);
-    }
-    let duplicate = send(
+    let auth = Auth::Cookie(&org_manager);
+    let added = send(
         &app,
         Method::POST,
         "/api/v1/tags",
         auth,
-        Some(json!({"name": "team"})),
+        Some(json!({"name": "epic"})),
     )
     .await
     .unwrap();
-    assert_eq!(duplicate.status, StatusCode::CONFLICT);
+    assert_eq!(added.status, StatusCode::CREATED, "{}", added.text);
+    // A name there already changes nothing; an attribute's name is taken.
+    for (taken, status) in [
+        ("epic", StatusCode::OK),
+        ("project", StatusCode::OK),
+        ("team", StatusCode::CONFLICT),
+    ] {
+        let duplicate = send(
+            &app,
+            Method::POST,
+            "/api/v1/tags",
+            auth,
+            Some(json!({"name": taken})),
+        )
+        .await
+        .unwrap();
+        assert_eq!(duplicate.status, status, "{taken}");
+    }
     let bad = send(
         &app,
         Method::POST,
@@ -1343,265 +1375,232 @@ async fn tags_and_the_tag_map(pool: PgPool) {
         .iter()
         .map(|tag| tag["name"].as_str().unwrap())
         .collect();
+    assert_eq!(names, ["client", "feature", "project", "epic"]);
+
+    // A value's defaults must be values on record.
+    let no_client = send(
+        &app,
+        Method::POST,
+        "/api/v1/tags/project/values",
+        auth,
+        Some(json!({"key": "shop", "defaults": {"client": "acme"}})),
+    )
+    .await
+    .unwrap();
     assert_eq!(
-        names,
-        ["person", "project", "ticket", "client", "epic", "team"]
+        no_client.status,
+        StatusCode::BAD_REQUEST,
+        "{}",
+        no_client.text
     );
-
-    let first = send(&app, Method::GET, "/api/v1/tag-map", auth, None)
-        .await
-        .unwrap();
-    let changed = send(
+    let acme = send(
         &app,
-        Method::PUT,
-        "/api/v1/tag-map",
+        Method::POST,
+        "/api/v1/tags/client/values",
         auth,
-        Some(json!({"cost_center": "team", "ladder": ["ticket", "epic", "project", "client"]})),
+        Some(json!({"key": "acme", "title": "Acme Corp"})),
     )
     .await
     .unwrap();
-    assert_eq!(changed.status, StatusCode::OK);
-    assert_eq!(changed.json["cost_center"], "team");
-    assert_eq!(first.json["version"], 1);
-    assert_eq!(changed.json["version"], 2);
-    let current = send(&app, Method::GET, "/api/v1/tag-map", auth, None)
-        .await
-        .unwrap();
-    assert_eq!(current.json["version"], 2);
-
-    let unknown = send(
+    assert_eq!(acme.status, StatusCode::CREATED, "{}", acme.text);
+    let shop = send(
         &app,
-        Method::PUT,
-        "/api/v1/tag-map",
+        Method::POST,
+        "/api/v1/tags/project/values",
         auth,
-        Some(json!({"cost_center": "guild", "ladder": []})),
+        Some(json!({"key": "shop", "defaults": {"client": "acme"}})),
     )
     .await
     .unwrap();
-    assert_eq!(unknown.status, StatusCode::BAD_REQUEST);
-
-    let in_use = send(&app, Method::DELETE, "/api/v1/tags/epic", auth, None)
+    assert_eq!(shop.status, StatusCode::CREATED, "{}", shop.text);
+    assert_eq!(shop.json["defaults"], json!({"client": "acme"}));
+    // The same key again supersedes the record; one value stays.
+    let renamed = send(
+        &app,
+        Method::POST,
+        "/api/v1/tags/project/values",
+        auth,
+        Some(json!({"key": "shop", "title": "Web shop", "defaults": {"client": "acme"}})),
+    )
+    .await
+    .unwrap();
+    assert_eq!(renamed.status, StatusCode::CREATED, "{}", renamed.text);
+    let listed = send(&app, Method::GET, "/api/v1/tags", auth, None)
         .await
         .unwrap();
-    assert_eq!(in_use.status, StatusCode::CONFLICT);
-    let built_in = send(&app, Method::DELETE, "/api/v1/tags/ticket", auth, None)
+    let projects = listed
+        .json
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|tag| tag["name"] == "project")
+        .unwrap();
+    assert_eq!(projects["values"].as_array().unwrap().len(), 1);
+    assert_eq!(projects["values"][0]["title"], "Web shop");
+    let unknown_name = send(
+        &app,
+        Method::POST,
+        "/api/v1/tags/guild/values",
+        auth,
+        Some(json!({"key": "rust"})),
+    )
+    .await
+    .unwrap();
+    assert_eq!(unknown_name.status, StatusCode::NOT_FOUND);
+
+    // Reversing the newer record brings the earlier one back; reversing
+    // that too retires the value.
+    let project_values = async || {
+        let listed = send(&app, Method::GET, "/api/v1/tags", auth, None)
+            .await
+            .unwrap();
+        listed
+            .json
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|tag| tag["name"] == "project")
+            .unwrap()["values"]
+            .clone()
+    };
+    let reversed = send(
+        &app,
+        Method::POST,
+        "/api/v1/reversals",
+        auth,
+        Some(json!({"event_id": renamed.json["id"]})),
+    )
+    .await
+    .unwrap();
+    assert_eq!(reversed.status, StatusCode::CREATED, "{}", reversed.text);
+    let values = project_values().await;
+    assert_eq!(values.as_array().unwrap().len(), 1);
+    assert_eq!(values[0]["title"], Value::Null);
+    assert_eq!(values[0]["id"], shop.json["id"]);
+    let reversed = send(
+        &app,
+        Method::POST,
+        "/api/v1/reversals",
+        auth,
+        Some(json!({"event_id": shop.json["id"]})),
+    )
+    .await
+    .unwrap();
+    assert_eq!(reversed.status, StatusCode::CREATED, "{}", reversed.text);
+    assert_eq!(project_values().await, json!([]));
+
+    let built_in = send(&app, Method::DELETE, "/api/v1/tags/project", auth, None)
         .await
         .unwrap();
     assert_eq!(built_in.status, StatusCode::CONFLICT);
-    send(
-        &app,
-        Method::PUT,
-        "/api/v1/tag-map",
-        auth,
-        Some(json!({"cost_center": "person", "ladder": ["ticket", "project"]})),
-    )
-    .await
-    .unwrap();
     let removed = send(&app, Method::DELETE, "/api/v1/tags/epic", auth, None)
         .await
         .unwrap();
     assert_eq!(removed.status, StatusCode::NO_CONTENT);
+    let gone = send(&app, Method::DELETE, "/api/v1/tags/epic", auth, None)
+        .await
+        .unwrap();
+    assert_eq!(gone.status, StatusCode::NOT_FOUND);
 }
 
 #[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
-async fn projects_repositories_clients_and_tickets(pool: PgPool) {
+async fn attributes_and_their_defaults_follow_people(pool: PgPool) {
     let app = app(&pool);
-    let (_, controller) = organization(&pool, "Kestrel Digital", "n.berger@kestrel.example")
+    let (_, org_manager) = organization(&pool, "Kestrel Digital", "n.berger@kestrel.example")
         .await
         .unwrap();
-    let auth = Auth::Cookie(&controller);
-    send(
+    let auth = Auth::Cookie(&org_manager);
+    let names = send(&app, Method::GET, "/api/v1/attributes", auth, None)
+        .await
+        .unwrap();
+    let names: Vec<&str> = names
+        .json
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|name| name["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(names, ["department", "location", "team"]);
+
+    let no_department = send(
         &app,
         Method::POST,
-        "/api/v1/tags",
+        "/api/v1/attributes/team/values",
         auth,
-        Some(json!({"name": "client"})),
+        Some(json!({"key": "web", "defaults": {"department": "engineering"}})),
     )
     .await
     .unwrap();
-
-    let storefront = send(
+    assert_eq!(no_department.status, StatusCode::BAD_REQUEST);
+    let engineering = send(
         &app,
         Method::POST,
-        "/api/v1/projects",
+        "/api/v1/attributes/department/values",
         auth,
-        Some(json!({"name": "storefront", "ticket_key_pattern": "^KD-\\d+", "tags": {"client": "acme"}, "repositories": ["Kestrel/Storefront"]})),
+        Some(json!({"key": "engineering"})),
     )
     .await
     .unwrap();
     assert_eq!(
-        storefront.status,
+        engineering.status,
         StatusCode::CREATED,
         "{}",
-        storefront.text
+        engineering.text
     );
-    assert_eq!(
-        storefront.json["repositories"],
-        json!(["kestrel/storefront"])
-    );
-    let storefront_id = storefront.json["id"].as_str().unwrap().to_owned();
-
-    let taken = send(
+    let web = send(
         &app,
         Method::POST,
-        "/api/v1/projects",
+        "/api/v1/attributes/team/values",
         auth,
-        Some(json!({"name": "shop-v2", "repositories": ["kestrel/storefront"]})),
+        Some(json!({"key": "web", "defaults": {"department": "engineering"}})),
     )
     .await
     .unwrap();
-    assert_eq!(taken.status, StatusCode::CONFLICT);
-    assert!(
-        taken.json["message"]
-            .as_str()
-            .unwrap()
-            .contains("storefront")
-    );
-    // Nothing of the refused project stays behind.
-    let projects = send(&app, Method::GET, "/api/v1/projects", auth, None)
+    assert_eq!(web.status, StatusCode::CREATED, "{}", web.text);
+    assert_eq!(web.json["defaults"], json!({"department": "engineering"}));
+
+    let me = send(&app, Method::GET, "/api/v1/me", auth, None)
         .await
         .unwrap();
-    assert_eq!(projects.json.as_array().unwrap().len(), 1);
-
-    let bad_pattern = send(
+    let id = me.json["person"]["id"].as_str().unwrap().to_owned();
+    let unknown = send(
         &app,
         Method::POST,
-        "/api/v1/projects",
+        &format!("/api/v1/people/{id}/attributes"),
         auth,
-        Some(json!({"name": "x", "ticket_key_pattern": "KD-("})),
+        Some(json!({"name": "team", "key": "data"})),
     )
     .await
     .unwrap();
-    assert_eq!(bad_pattern.status, StatusCode::BAD_REQUEST);
-
-    let claims = send(
+    assert_eq!(unknown.status, StatusCode::BAD_REQUEST);
+    let set = send(
         &app,
         Method::POST,
-        "/api/v1/projects",
+        &format!("/api/v1/people/{id}/attributes"),
         auth,
-        Some(json!({"name": "claims-portal", "tags": {"client": "globex"}})),
+        Some(json!({"name": "team", "key": "web", "from": "2026-03-01"})),
     )
     .await
     .unwrap();
-    let claims_id = claims.json["id"].as_str().unwrap().to_owned();
-    let clients = send(&app, Method::GET, "/api/v1/clients", auth, None)
+    assert_eq!(set.status, StatusCode::CREATED, "{}", set.text);
+    let members = send(&app, Method::GET, "/api/v1/members", auth, None)
         .await
         .unwrap();
     assert_eq!(
-        clients.json,
-        json!([{"name": "acme", "projects": ["storefront"]}, {"name": "globex", "projects": ["claims-portal"]}])
+        members.json[0]["attributes"]["team"], "web",
+        "{}",
+        members.text
     );
-
-    // A ticket lands on the project whose pattern matches its key.
-    let epic = send(
+    let nobody = send(
         &app,
         Method::POST,
-        "/api/v1/tickets",
+        &format!("/api/v1/people/{}/attributes", Uuid::new_v4()),
         auth,
-        Some(json!({"key": "KD-200", "title": "Checkout rebuild"})),
+        Some(json!({"name": "team", "key": "web"})),
     )
     .await
     .unwrap();
-    assert_eq!(epic.status, StatusCode::CREATED);
-    assert_eq!(epic.json["project_id"], storefront_id.as_str());
-    assert_eq!(epic.json["source"], "manual");
-    let epic_id = epic.json["id"].as_str().unwrap().to_owned();
-    let story = send(
-        &app,
-        Method::POST,
-        "/api/v1/tickets",
-        auth,
-        Some(
-            json!({"key": "KD-214", "title": " Fix checkout redirect loop ", "parent_id": epic_id}),
-        ),
-    )
-    .await
-    .unwrap();
-    assert_eq!(story.json["title"], "Fix checkout redirect loop");
-    let story_id = story.json["id"].as_str().unwrap().to_owned();
-    let duplicate = send(
-        &app,
-        Method::POST,
-        "/api/v1/tickets",
-        auth,
-        Some(json!({"key": "KD-214"})),
-    )
-    .await
-    .unwrap();
-    assert_eq!(duplicate.status, StatusCode::CONFLICT);
-
-    // A ticket never sits inside itself, however deep.
-    let cycle = send(
-        &app,
-        Method::PATCH,
-        &format!("/api/v1/tickets/{epic_id}"),
-        auth,
-        Some(json!({"parent_id": story_id})),
-    )
-    .await
-    .unwrap();
-    assert_eq!(cycle.status, StatusCode::BAD_REQUEST);
-
-    let moved = send(
-        &app,
-        Method::PATCH,
-        &format!("/api/v1/tickets/{story_id}"),
-        auth,
-        Some(json!({"project_id": claims_id, "title": null})),
-    )
-    .await
-    .unwrap();
-    assert_eq!(moved.json["project_id"], claims_id.as_str());
-    assert_eq!(moved.json["title"], Value::Null);
-    assert_eq!(moved.json["parent_id"], epic_id.as_str());
-
-    let found = send(&app, Method::GET, "/api/v1/tickets?q=checkout", auth, None)
-        .await
-        .unwrap();
-    assert_eq!(found.json.as_array().unwrap().len(), 1);
-    let children = send(
-        &app,
-        Method::GET,
-        &format!("/api/v1/tickets?parent_id={epic_id}"),
-        auth,
-        None,
-    )
-    .await
-    .unwrap();
-    assert_eq!(children.json.as_array().unwrap().len(), 1);
-
-    // Archiving frees the repository.
-    let archived = send(
-        &app,
-        Method::DELETE,
-        &format!("/api/v1/projects/{storefront_id}"),
-        auth,
-        None,
-    )
-    .await
-    .unwrap();
-    assert_eq!(archived.status, StatusCode::NO_CONTENT);
-    let reused = send(
-        &app,
-        Method::PATCH,
-        &format!("/api/v1/projects/{claims_id}"),
-        auth,
-        Some(json!({"repositories": ["kestrel/storefront"], "ticket_key_pattern": "^CP-\\d+"})),
-    )
-    .await
-    .unwrap();
-    assert_eq!(reused.status, StatusCode::OK, "{}", reused.text);
-    assert_eq!(reused.json["ticket_key_pattern"], "^CP-\\d+");
-    let with_archived = send(
-        &app,
-        Method::GET,
-        "/api/v1/projects?archived=true",
-        auth,
-        None,
-    )
-    .await
-    .unwrap();
-    assert_eq!(with_archived.json.as_array().unwrap().len(), 2);
+    assert_eq!(nobody.status, StatusCode::NOT_FOUND);
 }
 
 #[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
@@ -1624,14 +1623,16 @@ async fn the_status_endpoint_shows_each_part(pool: PgPool) {
             "service",
             "bill-pulls",
             "ticket-sync",
-            "price-tables",
+            "submit-reminders",
+            "price-table",
+            "exchange-rates",
             "sign-in-email"
         ]
     );
     assert_eq!(fresh.json["components"][0]["state"], "operational");
     assert_eq!(fresh.json["components"][1]["state"], "not_running");
     // Without TC_SMTP_URL no sign-in mail goes out.
-    assert_eq!(fresh.json["components"][4]["state"], "not_running");
+    assert_eq!(fresh.json["components"][6]["state"], "not_running");
 
     let mut with_mail = config();
     with_mail.smtp_url = Some("smtp://localhost:2525".to_owned());
@@ -1645,7 +1646,7 @@ async fn the_status_endpoint_shows_each_part(pool: PgPool) {
             .await
             .unwrap();
         (
-            answer.json["components"][4]["state"].clone(),
+            answer.json["components"][6]["state"].clone(),
             answer.json["status"].clone(),
         )
     };
@@ -1687,14 +1688,14 @@ async fn the_status_endpoint_shows_each_part(pool: PgPool) {
 async fn the_mcp_server_reads_the_organization(pool: PgPool) {
     let app = app(&pool);
     tokencontroller_server::seed::load(&pool).await.unwrap();
-    let mara = session_for(&pool, tokencontroller_server::seed::ids::MARA, "browser")
+    let nadia = session_for(&pool, tokencontroller_server::seed::ids::NADIA, "browser")
         .await
         .unwrap();
     let read = send(
         &app,
         Method::POST,
         "/api/v1/api-tokens",
-        Auth::Cookie(&mara),
+        Auth::Cookie(&nadia),
         Some(json!({"kind": "read"})),
     )
     .await
@@ -1734,28 +1735,64 @@ async fn the_mcp_server_reads_the_organization(pool: PgPool) {
     )
     .await
     .unwrap();
-    assert_eq!(list.json["result"]["tools"].as_array().unwrap().len(), 5);
+    let tools: Vec<&str> = list.json["result"]["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|tool| tool["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        tools,
+        [
+            "organization",
+            "tag_values",
+            "attributes",
+            "people",
+            "plans",
+            "report"
+        ]
+    );
 
-    let tickets = send(
+    let features = send(
         &app,
         Method::POST,
         "/api/v1/mcp",
         Auth::Bearer(&token),
         Some(rpc(
             "tools/call",
-            json!({"name": "tickets", "arguments": {"project": "storefront", "query": "KD-21"}}),
+            json!({"name": "tag_values", "arguments": {"name": "feature", "query": "KD-2"}}),
         )),
     )
     .await
     .unwrap();
-    let result = &tickets.json["result"]["structuredContent"]["result"];
-    assert_eq!(result.as_array().unwrap().len(), 1);
-    assert_eq!(result[0]["key"], "KD-214");
+    let result = &features.json["result"]["structuredContent"]["result"];
+    assert_eq!(result.as_array().unwrap().len(), 1, "{}", features.text);
+    assert_eq!(result[0]["key"], "KD-2");
+    assert_eq!(result[0]["defaults"]["project"], "shop");
     assert!(
-        tickets.json["result"]["content"][0]["text"]
+        features.json["result"]["content"][0]["text"]
             .as_str()
             .unwrap()
-            .contains("Fix checkout redirect loop")
+            .contains("Returns portal")
+    );
+    let report = send(
+        &app,
+        Method::POST,
+        "/api/v1/mcp",
+        Auth::Bearer(&token),
+        Some(rpc(
+            "tools/call",
+            json!({"name": "report", "arguments": {"from": "2026-03-01", "to": "2026-03-31", "by": "feature"}}),
+        )),
+    )
+    .await
+    .unwrap();
+    let rows = &report.json["result"]["structuredContent"]["result"]["rows"];
+    assert!(
+        rows.as_array()
+            .is_some_and(|rows| rows.iter().any(|row| row["key"] == "KD-1")),
+        "{}",
+        report.text
     );
 
     let unknown = send(
@@ -1790,95 +1827,8 @@ async fn the_mcp_server_reads_the_organization(pool: PgPool) {
     assert_eq!(anonymous.status, StatusCode::UNAUTHORIZED);
 }
 
-#[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
-async fn the_seed_is_the_docs_example_organization(pool: PgPool) {
-    tokencontroller_server::seed::load(&pool).await.unwrap();
-    tokencontroller_server::seed::load(&pool).await.unwrap();
-    let app = app(&pool);
-    let invite = send(
-        &app,
-        Method::GET,
-        "/api/v1/invites/kestrel-4f2a",
-        Auth::None,
-        None,
-    )
-    .await
-    .unwrap();
-    assert_eq!(invite.json["organization_name"], "Kestrel Digital");
-
-    // The core crate sees the same organization.
-    let directory = tokencontroller_server::projects::directory(
-        &pool,
-        tokencontroller_server::seed::ids::ORGANIZATION,
-    )
-    .await
-    .unwrap();
-    assert_eq!(directory.people.len(), 9);
-    let mara = tokencontroller_core::TagValue::new("m.ortner@kestrel.example").unwrap();
-    let ticket = tokencontroller_core::TagValue::new("KD-214").unwrap();
-    assert_eq!(
-        directory.project_of_ticket(&ticket).unwrap().as_str(),
-        "storefront"
-    );
-    assert_eq!(
-        directory
-            .project_of_repository("kestrel/storefront")
-            .unwrap()
-            .as_str(),
-        "storefront"
-    );
-    let storefront = tokencontroller_core::TagValue::new("storefront").unwrap();
-    let inherited = directory.inherited_tags(Some(&mara), Some(&storefront), Some(&ticket));
-    assert_eq!(inherited.get_str("team").unwrap().as_str(), "web");
-    assert_eq!(inherited.get_str("client").unwrap().as_str(), "acme");
-    let found = directory.find_ticket_keys("feature/KD-231-checkout");
-    assert_eq!(found.first().unwrap().key.as_str(), "KD-231");
-
-    let nadia = session_for(&pool, tokencontroller_server::seed::ids::NADIA, "browser")
-        .await
-        .unwrap();
-    let members = send(
-        &app,
-        Method::GET,
-        "/api/v1/members",
-        Auth::Cookie(&nadia),
-        None,
-    )
-    .await
-    .unwrap();
-    assert_eq!(members.json.as_array().unwrap().len(), 9);
-    let priya = members
-        .json
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|m| m["name"] == "Priya Shah")
-        .unwrap();
-    assert_eq!(priya["filters"], json!([{"team": "web"}]));
-    let projects = send(
-        &app,
-        Method::GET,
-        "/api/v1/projects",
-        Auth::Cookie(&nadia),
-        None,
-    )
-    .await
-    .unwrap();
-    assert_eq!(projects.json.as_array().unwrap().len(), 4);
-    let values = send(
-        &app,
-        Method::GET,
-        "/api/v1/tags/team/values",
-        Auth::Cookie(&nadia),
-        None,
-    )
-    .await
-    .unwrap();
-    assert_eq!(values.json[0], json!({"value": "data", "records": 2}));
-}
-
 /// An Enterprise plan build as the tests see it: it keeps every audit
-/// event, has a controller notice and offers one sign-in provider.
+/// event, has an org manager notice and offers one sign-in provider.
 #[derive(Default)]
 struct Recorder {
     events: std::sync::Mutex<Vec<tokencontroller_core::extension::AuditEvent>>,
@@ -1902,7 +1852,7 @@ impl tokencontroller_core::Extension for Recorder {
         }
     }
 
-    fn controller_notice(&self) -> Option<String> {
+    fn org_manager_notice(&self) -> Option<String> {
         Some("The Enterprise plan renews in 30 days.".to_owned())
     }
 }
@@ -1970,7 +1920,7 @@ async fn identity_providers_add_remove_and_sign_in_members(pool: PgPool) {
             .unwrap(),
         ana
     );
-    let member = tokencontroller_server::organizations::member(&pool, org, ana)
+    let member = tokencontroller_server::organizations::member(&state, org, ana)
         .await
         .unwrap();
     assert_eq!(member.name, "Ana Weiss");
@@ -2002,7 +1952,7 @@ async fn identity_providers_add_remove_and_sign_in_members(pool: PgPool) {
             .unwrap(),
         ana
     );
-    // Nadia is the only controller.
+    // Nadia is the only org_manager.
     assert!(remove_member(&state, org, ids::NADIA, None).await.is_err());
 
     // OIDC signs Mara in with the same answer a magic link gives.
@@ -2022,7 +1972,7 @@ async fn identity_providers_add_remove_and_sign_in_members(pool: PgPool) {
     .unwrap();
     assert_eq!(me.json["person"]["email"], "m.ortner@kestrel.example");
     // The notice is for controllers only.
-    assert_eq!(me.json["controller_notice"], Value::Null);
+    assert_eq!(me.json["org_manager_notice"], Value::Null);
     assert!(
         tokencontroller_server::sign_in::start_session(&state, Uuid::nil())
             .await
@@ -2059,7 +2009,7 @@ async fn identity_providers_add_remove_and_sign_in_members(pool: PgPool) {
         .await
         .unwrap();
     assert_eq!(
-        me.json["controller_notice"],
+        me.json["org_manager_notice"],
         "The Enterprise plan renews in 30 days."
     );
     let removed = send(
@@ -2129,11 +2079,17 @@ async fn every_change_reaches_the_audit_log(pool: PgPool) {
         json!({"approval": true}),
     )
     .await;
-    call(Method::POST, "/api/v1/tags", json!({"name": "team"})).await;
+    call(Method::POST, "/api/v1/tags", json!({"name": "epic"})).await;
     call(
-        Method::PUT,
-        "/api/v1/tag-map",
-        json!({"cost_center": "team", "ladder": ["ticket", "project"]}),
+        Method::POST,
+        "/api/v1/tags/client/values",
+        json!({"key": "acme"}),
+    )
+    .await;
+    call(
+        Method::POST,
+        "/api/v1/attributes/team/values",
+        json!({"key": "web"}),
     )
     .await;
     let invited = call(
@@ -2169,9 +2125,9 @@ async fn every_change_reaches_the_audit_log(pool: PgPool) {
     )
     .await;
     call(
-        Method::PUT,
-        "/api/v1/organization/rules",
-        json!({"several_keys": "first_named"}),
+        Method::POST,
+        "/api/v1/rules",
+        json!({"name": "feature key in branch", "signal": "branch", "pattern": "(?P<key>KD-\\d+)", "tag_name": "feature"}),
     )
     .await;
     let revoked = send(
@@ -2187,17 +2143,13 @@ async fn every_change_reaches_the_audit_log(pool: PgPool) {
     let removed_tag = send(
         &app,
         Method::DELETE,
-        "/api/v1/tags/team",
+        "/api/v1/tags/epic",
         Auth::Cookie(&nadia),
         None,
     )
     .await
     .unwrap();
-    assert_eq!(
-        removed_tag.status,
-        StatusCode::CONFLICT,
-        "the tag map uses team"
-    );
+    assert_eq!(removed_tag.status, StatusCode::NO_CONTENT);
 
     let actions: Vec<String> = recorder
         .log()
@@ -2209,13 +2161,13 @@ async fn every_change_reaches_the_audit_log(pool: PgPool) {
         [
             "organization.settings_changed",
             "tag_name.added",
-            "tag_map.changed",
+            "tag_value.recorded",
             "member.invited",
             "member.changed",
             "member.filters_changed",
             "api_token.created",
             "api_token.handed_over",
-            "organization.rules_changed",
+            "rule.added",
             "api_token.revoked",
         ]
     );
@@ -2237,303 +2189,6 @@ async fn every_change_reaches_the_audit_log(pool: PgPool) {
         .map(|line| line.split(' ').next().unwrap_or_default())
         .collect();
     assert_eq!(last, ["member.signed_in", "organization.created"]);
-}
-
-#[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
-async fn rules_and_the_context_local_tools_read(pool: PgPool) {
-    use tokencontroller_server::seed::ids;
-    tokencontroller_server::seed::load(&pool).await.unwrap();
-    let app = app(&pool);
-    let mara = session_for(&pool, ids::MARA, "local_tool").await.unwrap();
-    let nadia = session_for(&pool, ids::NADIA, "browser").await.unwrap();
-
-    let context = send(
-        &app,
-        Method::GET,
-        "/api/v1/me/context",
-        Auth::Bearer(&mara),
-        None,
-    )
-    .await
-    .unwrap();
-    assert_eq!(context.status, StatusCode::OK, "{}", context.text);
-    let organization = &context.json["organization"];
-    assert_eq!(organization["name"], "Kestrel Digital");
-    assert_eq!(organization["currency"], "USD");
-    assert_eq!(organization["several_keys"], "most_often");
-    assert!(
-        organization["tag_names"]
-            .as_array()
-            .unwrap()
-            .contains(&json!("team"))
-    );
-    assert_eq!(organization["rules"][0]["name"], "ticket key in branch");
-    assert_eq!(
-        organization["rules"][0]["then"],
-        json!({"ticket_key_in": "branch"})
-    );
-    assert_eq!(organization["rules"][3]["then"], "repository_project");
-    assert_eq!(context.json["person"]["email"], "m.ortner@kestrel.example");
-    assert_eq!(context.json["person"]["tags"]["team"], "web");
-    assert_eq!(context.json["rules"], json!([]));
-    let storefront = context.json["projects"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|project| project["name"] == "storefront")
-        .unwrap();
-    assert_eq!(storefront["ticket_key_pattern"], "^KD-\\d+");
-    assert_eq!(storefront["repositories"], json!(["kestrel/storefront"]));
-    assert_eq!(context.json["cadence"], Value::Null);
-    assert_eq!(context.json["rejected"], json!([]));
-
-    // Personal rules in the core shape.
-    let review = json!({
-        "name": "review branches",
-        "when": [{"signal": "branch", "test": {"starts_with": "review/"}}],
-        "then": {"set_tags": {"purpose": "code-review"}}
-    });
-    let put = |rules: Value| {
-        let app = app.clone();
-        let mara = mara.clone();
-        async move {
-            send(
-                &app,
-                Method::PUT,
-                "/api/v1/me/rules",
-                Auth::Bearer(&mara),
-                Some(json!({"rules": rules})),
-            )
-            .await
-            .unwrap()
-        }
-    };
-    let saved = put(json!([review])).await;
-    assert_eq!(saved.status, StatusCode::OK, "{}", saved.text);
-    assert_eq!(saved.json["rules"], json!([review]));
-    let unknown_tag =
-        put(json!([{"name": "colour", "then": {"set_tags": {"colour": "red"}}}])).await;
-    assert_eq!(unknown_tag.status, StatusCode::BAD_REQUEST);
-    let person =
-        put(json!([{"name": "me", "then": {"set_tags": {"person": "k.novak@kestrel.example"}}}]))
-            .await;
-    assert_eq!(person.status, StatusCode::BAD_REQUEST);
-    let not_a_rule = put(json!([{"name": "x", "then": "guess"}])).await;
-    assert!(not_a_rule.status.is_client_error());
-
-    let directory = tokencontroller_server::projects::directory(&pool, ids::ORGANIZATION)
-        .await
-        .unwrap();
-    let mara_rules = &directory.people
-        [&tokencontroller_core::TagValue::new("m.ortner@kestrel.example").unwrap()]
-        .rules;
-    assert_eq!(mara_rules.len(), 1);
-    assert_eq!(mara_rules[0].name, "review branches");
-
-    // Organization rules: controllers change them; an empty list switches
-    // every rule off.
-    let refused = send(
-        &app,
-        Method::PUT,
-        "/api/v1/organization/rules",
-        Auth::Bearer(&mara),
-        Some(json!({"rules": []})),
-    )
-    .await
-    .unwrap();
-    assert_eq!(refused.status, StatusCode::FORBIDDEN);
-    let changed = send(
-        &app,
-        Method::PUT,
-        "/api/v1/organization/rules",
-        Auth::Cookie(&nadia),
-        Some(json!({"rules": [], "several_keys": "equal_split", "summary_match": false})),
-    )
-    .await
-    .unwrap();
-    assert_eq!(changed.status, StatusCode::OK, "{}", changed.text);
-    let read = send(
-        &app,
-        Method::GET,
-        "/api/v1/organization/rules",
-        Auth::Bearer(&mara),
-        None,
-    )
-    .await
-    .unwrap();
-    assert_eq!(
-        read.json,
-        json!({"rules": [], "several_keys": "equal_split", "summary_match": false})
-    );
-    let rules = tokencontroller_server::organizations::organization_rules(&pool, ids::ORGANIZATION)
-        .await
-        .unwrap();
-    assert!(rules.rules.is_empty());
-    assert!(!rules.summary_match);
-}
-
-#[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
-async fn merging_tag_values_reaches_every_record_and_rule(pool: PgPool) {
-    use tokencontroller_server::seed::ids;
-    tokencontroller_server::seed::load(&pool).await.unwrap();
-    let app = app(&pool);
-    let mara = session_for(&pool, ids::MARA, "local_tool").await.unwrap();
-    let nadia = session_for(&pool, ids::NADIA, "browser").await.unwrap();
-    let call = |method: Method, path: String, auth: &str, body: Option<Value>| {
-        let app = app.clone();
-        let auth = auth.to_owned();
-        async move {
-            let auth = if auth.starts_with(secret::CLI) {
-                Auth::Bearer(&auth)
-            } else {
-                Auth::Cookie(&auth)
-            };
-            send(&app, method, &path, auth, body).await.unwrap()
-        }
-    };
-    let set_tags = |value: &str| json!({"set_tags": {"client": value}});
-
-    // Hand-typed drift: "Acme Corp" next to the seed's "acme".
-    let mine = call(
-        Method::PUT,
-        "/api/v1/me/rules".to_owned(),
-        &mara,
-        Some(json!({"rules": [{"name": "acme work", "then": set_tags("Acme Corp")}]})),
-    )
-    .await;
-    assert_eq!(mine.status, StatusCode::OK, "{}", mine.text);
-    let theirs = call(
-        Method::PUT,
-        "/api/v1/organization/rules".to_owned(),
-        &nadia,
-        Some(json!({"rules": [{"name": "acme repo", "then": set_tags("Acme Corp")}]})),
-    )
-    .await;
-    assert_eq!(theirs.status, StatusCode::OK, "{}", theirs.text);
-    let tagged = call(
-        Method::PATCH,
-        format!("/api/v1/members/{}", ids::MARA),
-        &nadia,
-        Some(json!({"tags": {"team": "web", "client": "Acme Corp"}})),
-    )
-    .await;
-    assert_eq!(tagged.status, StatusCode::OK, "{}", tagged.text);
-    let filters = call(
-        Method::PUT,
-        format!("/api/v1/members/{}/filters", ids::KAI),
-        &nadia,
-        Some(json!([{"client": "acme"}, {"client": "Acme Corp"}])),
-    )
-    .await;
-    assert_eq!(filters.status, StatusCode::OK, "{}", filters.text);
-    // A token entry that carries the drifted value.
-    let split: Uuid = sqlx::query_scalar(
-        "WITH entry AS (
-             INSERT INTO token_entries (organization_id, agent_harness, model, provider, started_at,
-                                        ended_at, status, on_token_sheet, door)
-             VALUES ($1, 'claude_code', 'claude-sonnet', 'anthropic', now(), now(), 'submitted',
-                     false, 'endpoint')
-             RETURNING id)
-         INSERT INTO splits (token_entry_id, position, method, placed_by)
-         SELECT id, 0, 'whole', 'by hand' FROM entry RETURNING id",
-    )
-    .bind(ids::ORGANIZATION)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
-    sqlx::query(
-        "INSERT INTO split_tags (split_id, organization_id, name, value, source)
-         VALUES ($1, $2, 'client', 'Acme Corp', 'sent')",
-    )
-    .bind(split)
-    .bind(ids::ORGANIZATION)
-    .execute(&pool)
-    .await
-    .unwrap();
-
-    let merge = |name: &str, body: Value, auth: &str| {
-        call(
-            Method::POST,
-            format!("/api/v1/tags/{name}/merge"),
-            auth,
-            Some(body),
-        )
-    };
-    let body = json!({"from": ["Acme Corp"], "into": "acme"});
-    assert_eq!(
-        merge("client", body.clone(), &mara).await.status,
-        StatusCode::FORBIDDEN
-    );
-    assert_eq!(
-        merge("ticket", body.clone(), &nadia).await.status,
-        StatusCode::BAD_REQUEST
-    );
-    assert_eq!(
-        merge("colour", body.clone(), &nadia).await.status,
-        StatusCode::NOT_FOUND
-    );
-    assert_eq!(
-        merge("client", json!({"from": [], "into": "acme"}), &nadia)
-            .await
-            .status,
-        StatusCode::BAD_REQUEST
-    );
-    let merged = merge("client", body, &nadia).await;
-    assert_eq!(merged.status, StatusCode::OK, "{}", merged.text);
-    let values: Vec<&str> = merged
-        .json
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|value| value["value"].as_str().unwrap())
-        .collect();
-    assert!(values.contains(&"acme"));
-    assert!(!values.contains(&"Acme Corp"));
-    let entry_client: String =
-        sqlx::query_scalar("SELECT value FROM split_tags WHERE split_id = $1 AND name = 'client'")
-            .bind(split)
-            .fetch_one(&pool)
-            .await
-            .unwrap();
-    assert_eq!(entry_client, "acme");
-
-    let me = call(Method::GET, "/api/v1/me/rules".to_owned(), &mara, None).await;
-    assert_eq!(me.status, StatusCode::OK, "{}", me.text);
-    assert_eq!(me.json["rules"][0]["then"], set_tags("acme"));
-    let organization = call(
-        Method::GET,
-        "/api/v1/organization/rules".to_owned(),
-        &nadia,
-        None,
-    )
-    .await;
-    assert_eq!(organization.json["rules"][0]["then"], set_tags("acme"));
-    let members = call(Method::GET, "/api/v1/members".to_owned(), &nadia, None).await;
-    let member = |id: Uuid| {
-        members
-            .json
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|member| member["id"] == id.to_string())
-            .unwrap()
-            .clone()
-    };
-    assert_eq!(member(ids::MARA)["tags"]["client"], "acme");
-    // Kai's two filters became one.
-    assert_eq!(member(ids::KAI)["filters"], json!([{"client": "acme"}]));
-
-    // Removing the tag name takes it out of the rules too.
-    let removed = call(
-        Method::DELETE,
-        "/api/v1/tags/client".to_owned(),
-        &nadia,
-        None,
-    )
-    .await;
-    assert_eq!(removed.status, StatusCode::NO_CONTENT, "{}", removed.text);
-    let me = call(Method::GET, "/api/v1/me/rules".to_owned(), &mara, None).await;
-    assert_eq!(me.json["rules"][0]["then"], json!({"set_tags": {}}));
 }
 
 /// Hooks a build could add: a one-member limit.
@@ -2566,7 +2221,7 @@ fn hooked_app(pool: &PgPool) -> Router {
 
 #[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
 async fn a_hook_sets_the_member_limit(pool: PgPool) {
-    let (organization_id, controller) =
+    let (organization_id, org_manager) =
         organization(&pool, "Kestrel Digital", "n.berger@kestrel.example")
             .await
             .unwrap();
@@ -2576,7 +2231,7 @@ async fn a_hook_sets_the_member_limit(pool: PgPool) {
         &hooked_app(&pool),
         Method::POST,
         "/api/v1/members",
-        Auth::Cookie(&controller),
+        Auth::Cookie(&org_manager),
         Some(invite.clone()),
     )
     .await
@@ -2594,7 +2249,7 @@ async fn a_hook_sets_the_member_limit(pool: PgPool) {
         &app(&pool),
         Method::POST,
         "/api/v1/members",
-        Auth::Cookie(&controller),
+        Auth::Cookie(&org_manager),
         Some(invite),
     )
     .await
@@ -2615,12 +2270,12 @@ async fn member_limit_of(app: &Router, auth: Auth<'_>) -> TestResult<Answer> {
 
 #[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
 async fn every_member_reads_the_member_limit(pool: PgPool) {
-    let (_, controller) = organization(&pool, "Kestrel Digital", "n.berger@kestrel.example")
+    let (_, org_manager) = organization(&pool, "Kestrel Digital", "n.berger@kestrel.example")
         .await
         .unwrap();
 
     // The open build has no member limit.
-    let open = member_limit_of(&app(&pool), Auth::Cookie(&controller))
+    let open = member_limit_of(&app(&pool), Auth::Cookie(&org_manager))
         .await
         .unwrap();
     assert_eq!(open.status, StatusCode::OK, "{}", open.text);
@@ -2635,7 +2290,7 @@ async fn every_member_reads_the_member_limit(pool: PgPool) {
         &app(&pool),
         Method::POST,
         "/api/v1/members",
-        Auth::Cookie(&controller),
+        Auth::Cookie(&org_manager),
         Some(json!({"email": "m.ortner@kestrel.example", "name": "Mara Ortner"})),
     )
     .await
@@ -2651,7 +2306,7 @@ async fn every_member_reads_the_member_limit(pool: PgPool) {
         &app(&pool),
         Method::POST,
         "/api/v1/api-tokens",
-        Auth::Cookie(&controller),
+        Auth::Cookie(&org_manager),
         Some(json!({"kind": "read", "name": "Power BI"})),
     )
     .await
@@ -2665,7 +2320,7 @@ async fn every_member_reads_the_member_limit(pool: PgPool) {
     assert_eq!(signed_out.status, StatusCode::UNAUTHORIZED);
 
     // A build's hook sets a limit.
-    let hooked = member_limit_of(&hooked_app(&pool), Auth::Cookie(&controller))
+    let hooked = member_limit_of(&hooked_app(&pool), Auth::Cookie(&org_manager))
         .await
         .unwrap();
     assert_eq!(
@@ -2695,7 +2350,7 @@ async fn a_build_adds_api_routes_with_their_own_state(pool: PgPool) {
         format!("{} {}", added.greeting, member.organization_id)
     }
 
-    let (organization_id, controller) =
+    let (organization_id, org_manager) =
         organization(&pool, "Kestrel Digital", "n.berger@kestrel.example")
             .await
             .unwrap();
@@ -2721,7 +2376,7 @@ async fn a_build_adds_api_routes_with_their_own_state(pool: PgPool) {
         &app,
         Method::GET,
         "/api/v1/hello",
-        Auth::Cookie(&controller),
+        Auth::Cookie(&org_manager),
         None,
     )
     .await

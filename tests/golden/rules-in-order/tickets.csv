@@ -1,6 +1,0 @@
-ticket,project,parent,title,tags
-KD-231,storefront,,Address autocomplete,
-KD-240,storefront,,Delivery slot picker,
-KD-299,storefront,,Wishlist,feature=wishlist
-KD-300,storefront,KD-299,Share a wishlist,
-OPS-12,storefront,,Restart the search cluster,

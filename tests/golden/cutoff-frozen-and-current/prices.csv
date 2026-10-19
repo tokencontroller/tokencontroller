@@ -1,0 +1,5 @@
+id,recorded_at,provider,model,kind,per_million,valid_from,source
+p1,2026-01-01T00:00:00Z,anthropic,claude-sonnet-4-5,input,10,2026-01-01,managed
+p2,2026-01-01T00:00:00Z,anthropic,claude-sonnet-4-5,output,30,2026-01-01,managed
+p3,2026-01-01T00:00:00Z,anthropic,claude-sonnet-4-5,cache_write,12.5,2026-01-01,managed
+p4,2026-01-01T00:00:00Z,anthropic,claude-sonnet-4-5,cache_read,1,2026-01-01,managed

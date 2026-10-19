@@ -6,11 +6,11 @@ use time::OffsetDateTime;
 use tokencontroller_core::{Currency, Money};
 
 use super::bill::{BillLine, BillOrigin, BillProvider, PulledBill};
+use super::month::{BillMonth, Charging};
 use super::pull::{
     MAX_PAGES, PullError, get_json_and_headers, has_ended, period_end, period_start,
 };
 use crate::integrations::decimal::money_from_json_number;
-use tokencontroller_core::{CostSource, Period};
 
 /// Where the OpenAI API lives.
 pub const BASE_URL: &str = "https://api.openai.com";
@@ -54,8 +54,8 @@ struct Amount {
     currency: Option<String>,
 }
 
-/// Pulls one period's bill from the Costs API, one line per day, project,
-/// API key and line item. The bill is final once the period has ended.
+/// Pulls one month's bill from the Costs API, one line per day, project,
+/// API key and line item. The bill is final once the month has ended.
 ///
 /// # Errors
 ///
@@ -67,7 +67,7 @@ pub async fn pull(
     client: &reqwest::Client,
     base_url: &str,
     admin_key: &str,
-    period: Period,
+    period: BillMonth,
 ) -> Result<PulledBill, PullError> {
     let url = format!("{}/v1/organization/costs", base_url.trim_end_matches('/'));
     let query = [
@@ -118,7 +118,7 @@ pub async fn pull(
                     .map_or(Currency::USD, |line: &BillLine| line.amount.currency());
                 let origin = BillOrigin {
                     provider: BillProvider::OpenAi,
-                    cost_source: CostSource::ApiKey,
+                    cost_source: Charging::ApiKey,
                     source_api: SOURCE_API,
                     scope: organization.unwrap_or_else(|| UNNAMED_ORGANIZATION.to_owned()),
                 };
@@ -202,8 +202,8 @@ mod tests {
             .and(header("authorization", "Bearer sk-admin-test"))
     }
 
-    fn september() -> Period {
-        Period::parse("2026-09").unwrap()
+    fn september() -> BillMonth {
+        BillMonth::parse("2026-09").unwrap()
     }
 
     #[tokio::test]
@@ -237,7 +237,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(bill.provider(), BillProvider::OpenAi);
-        assert_eq!(bill.cost_source(), CostSource::ApiKey);
+        assert_eq!(bill.cost_source(), Charging::ApiKey);
         assert_eq!(
             bill.source_id(),
             "openai_costs:org-Wn3xJ8kPq2RtYv5LmB7cZd1A:2026-09"

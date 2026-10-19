@@ -1,27 +1,27 @@
-//! Bills and reconciliation (docs: Account > Bills, Reference > Bill schema).
+//! Bills and reconciliation (docs: Account > Bills, Reference > Bill
+//! schema).
 //!
-//! A bill is a provider's figure for one period's metered usage: gross,
-//! discount, credit and net. Every change a provider makes is kept as a new
-//! revision. Bill pulls and CSV uploads in the integrations area store bills
-//! through [`record_bill`]; the bills endpoint does the same.
+//! A bill is a provider's figure for metered usage over a date range:
+//! provider, first and last day, amount, currency. It is an event (ADR
+//! 0022). A restated bill is a new bill event for the same provider and
+//! range; the earlier one is reversed and stays visible. Bill pulls and CSV
+//! uploads in the integrations area store bills through [`record_bill`];
+//! the bills endpoint does the same.
 //!
-//! Owner: the close and reports work. Keep this area's code, routes and
-//! queries in this folder, and its migrations in `migrations/` named
-//! `<timestamp>_bills_<what>.sql`.
+//! Owner: the bills work. Keep this area's code, routes and queries in this
+//! folder.
 
 pub mod amount;
 pub mod ecb;
 pub mod rates;
-pub mod reconciliation;
 
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::Response;
 use serde::{Deserialize, Serialize};
-use sqlx::PgPool;
-use time::OffsetDateTime;
-use tokencontroller_core::{Currency, Money};
+use time::{Date, OffsetDateTime};
+use tokencontroller_core::{Bill, Currency, DateRange, Event, Money, Record, TagValue};
 use utoipa::{IntoParams, ToSchema};
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
@@ -29,9 +29,8 @@ use uuid::Uuid;
 
 use self::amount::{AmountError, RateNumber, format_amount, parse_amount, rate_number};
 use crate::AppState;
-use crate::close::period::{Period, PeriodDates};
 use crate::error::ApiError;
-use crate::organizations::Role;
+use crate::events::{self, Log, access, prefix};
 use crate::sign_in::{Caller, CredentialKind};
 
 /// This area's routes, relative to `/api/v1`.
@@ -40,57 +39,7 @@ pub fn routes() -> OpenApiRouter<AppState> {
     OpenApiRouter::new()
         .routes(routes!(post_bill, list_bills))
         .routes(routes!(get_bill))
-        .routes(routes!(reconciliation::get_reconciliation))
-}
-
-/// How a provider charges for what a bill covers: the metered cost sources.
-/// Seats and subscriptions are flat fees and have no bill. When one
-/// provider has bills from several cost sources, its token entries are
-/// charged on the first in this order.
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, ToSchema,
-)]
-#[serde(rename_all = "snake_case")]
-#[schema(as = BillCostSource)]
-pub enum CostSource {
-    UsageAtApiRates,
-    ApiKey,
-    CloudMarketplace,
-    Reseller,
-}
-
-impl CostSource {
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::UsageAtApiRates => "usage_at_api_rates",
-            Self::ApiKey => "api_key",
-            Self::CloudMarketplace => "cloud_marketplace",
-            Self::Reseller => "reseller",
-        }
-    }
-
-    /// The core's cost source.
-    #[must_use]
-    pub const fn core(self) -> tokencontroller_core::CostSource {
-        match self {
-            Self::UsageAtApiRates => tokencontroller_core::CostSource::UsageAtApiRates,
-            Self::ApiKey => tokencontroller_core::CostSource::ApiKey,
-            Self::CloudMarketplace => tokencontroller_core::CostSource::CloudMarketplace,
-            Self::Reseller => tokencontroller_core::CostSource::Reseller,
-        }
-    }
-
-    #[must_use]
-    pub fn parse(text: &str) -> Option<Self> {
-        match text {
-            "usage_at_api_rates" => Some(Self::UsageAtApiRates),
-            "api_key" => Some(Self::ApiKey),
-            "cloud_marketplace" => Some(Self::CloudMarketplace),
-            "reseller" => Some(Self::Reseller),
-            _ => None,
-        }
-    }
+        .routes(routes!(get_reconciliation))
 }
 
 /// How a bill reached Token Controller.
@@ -133,23 +82,22 @@ impl BillSource {
 /// A bill to store, from any source.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NewBill {
-    pub period: Period,
-    /// Who charged, such as `anthropic`, `openai` or `aws_bedrock`: the same
-    /// names token entries carry.
+    /// Who charged, such as `anthropic`, `openai` or `cursor`: the same
+    /// names messages carry.
     pub provider: String,
-    pub cost_source: CostSource,
-    pub gross: Money,
-    pub discount: Money,
-    pub credit: Money,
-    pub net: Money,
-    /// To the organization's reporting currency, at the bill's date. Left
-    /// out, it is filled from the reference rate of the period's last day.
+    /// The first and last day the bill covers.
+    pub range: DateRange,
+    /// What the provider charged for metered usage in the range, in the
+    /// bill's own currency.
+    pub amount: Money,
+    /// To the organization's reporting currency, at the bill's last day.
+    /// Left out, it is filled from the reference rate of that day.
     pub exchange_rate: Option<RateNumber>,
     pub source: BillSource,
     /// The provider's own detail, such as cost per workspace and day.
     pub lines: Vec<serde_json::Value>,
     /// The person who typed or sent it; `None` for a pull.
-    pub recorded_by: Option<Uuid>,
+    pub recorded_by: Option<TagValue>,
     /// Whether the provider will no longer change these figures. A pull can
     /// bring a bill before it is final; every other source is final.
     pub is_final: bool,
@@ -158,27 +106,16 @@ pub struct NewBill {
 /// Why a bill was refused.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum BillError {
-    #[error("the amounts must all be in the bill's currency, {0}")]
-    Currency(Currency),
-    #[error(
-        "gross minus discount minus credit must equal net: {gross} - {discount} - {credit} is not {net}"
-    )]
-    DoesNotAddUp {
-        gross: Money,
-        discount: Money,
-        credit: Money,
-        net: Money,
-    },
-    #[error("discount and credit are written as positive amounts that reduce the gross")]
-    NegativeReduction,
     #[error("{0:?} is not a provider: use lower-case letters, digits and _, such as anthropic")]
     Provider(String),
     #[error("{0:?} is not a currency code: use three capital letters, such as EUR")]
     NotACurrency(String),
+    #[error("the bill's amount is below zero")]
+    Negative,
     #[error(transparent)]
     Amount(#[from] AmountError),
-    #[error("the organization does not exist")]
-    NoOrganization,
+    #[error("{0}")]
+    Range(String),
 }
 
 impl From<BillError> for ApiError {
@@ -187,36 +124,56 @@ impl From<BillError> for ApiError {
     }
 }
 
-/// A stored bill revision.
+/// One bill next to the cost of its provider's messages in its range, in
+/// the core's currency (USD).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, ToSchema)]
+pub struct ReconciliationView {
+    #[schema(example = "USD")]
+    pub currency: String,
+    /// The bill, converted at its exchange rate when it is in another
+    /// currency.
+    #[schema(example = "1000.00")]
+    pub bill: String,
+    /// The cost of every message of the provider in the range.
+    #[schema(example = "950.00")]
+    pub messages: String,
+    /// What the bill has that no message explains. Negative means a
+    /// message is wrong.
+    #[schema(example = "50.00")]
+    pub unexplained: String,
+    pub a_message_is_wrong: bool,
+    /// Messages in the range with no counts; their cost is not in
+    /// `messages`.
+    pub count_errors: usize,
+    /// Models in the range with no price row, as `provider/model`.
+    pub unknown_models: Vec<String>,
+}
+
+/// A bill as the API shows it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, ToSchema)]
 pub struct BillView {
-    pub id: Uuid,
-    #[schema(value_type = String, example = "2026-09")]
-    pub period: Period,
+    /// The bill event's id.
+    pub id: String,
     pub provider: String,
-    pub cost_source: CostSource,
-    /// 1 for the first figure, higher after each restatement.
-    pub revision: i32,
-    #[schema(value_type = String, example = "USD")]
-    pub currency: Currency,
+    #[serde(with = "crate::dates::day")]
+    #[schema(value_type = String, format = Date)]
+    pub from: Date,
+    #[serde(with = "crate::dates::day")]
+    #[schema(value_type = String, format = Date)]
+    pub to: Date,
     #[schema(example = "1234.56")]
-    pub gross: String,
-    #[schema(example = "0.00")]
-    pub discount: String,
-    #[schema(example = "0.00")]
-    pub credit: String,
-    #[schema(example = "1234.56")]
-    pub net: String,
-    /// To the reporting currency; `null` until a rate for the bill's date is
-    /// known.
+    pub amount: String,
+    #[schema(example = "USD")]
+    pub currency: String,
+    /// To the reporting currency; `null` until a rate for the bill's last
+    /// day is known.
     #[schema(example = "0.9214")]
     pub exchange_rate: Option<String>,
     /// Whether the rate came with the bill, rather than from the reference
     /// rates.
     pub exchange_rate_given: bool,
     pub source: BillSource,
-    /// Whether the provider will no longer change these figures. The close
-    /// of the period waits for a bill that is not final.
+    /// Whether the provider will no longer change these figures.
     #[serde(rename = "final")]
     pub is_final: bool,
     #[schema(value_type = Vec<Object>)]
@@ -224,146 +181,32 @@ pub struct BillView {
     #[serde(with = "time::serde::rfc3339")]
     #[schema(value_type = String, format = DateTime)]
     pub recorded_at: OffsetDateTime,
+    pub recorded_by: Option<String>,
+    /// The reversal that replaced this bill, when a later bill restated
+    /// it.
+    pub reversed_by: Option<String>,
+    /// The bill against its messages; `null` for a reversed bill, or when
+    /// no rate to USD is known.
+    pub reconciliation: Option<ReconciliationView>,
 }
 
 /// The result of [`record_bill`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RecordedBill {
     pub bill: BillView,
-    /// False when the figures were the same as the latest revision's, so
+    /// False when the figures were the same as the bill in force, so
     /// nothing was stored.
     pub changed: bool,
 }
 
-/// Stores a bill. A new revision is written only when the figures differ
-/// from the latest one, so pulling the same bill twice changes nothing.
-///
-/// # Errors
-///
-/// [`BillError`] for figures that do not add up, or a database error.
-pub async fn record_bill(
-    db: &PgPool,
-    organization_id: Uuid,
-    bill: NewBill,
-) -> Result<Result<RecordedBill, BillError>, sqlx::Error> {
-    if let Err(error) = check(&bill) {
-        return Ok(Err(error));
-    }
-    let Some(reporting) = reporting_currency(db, organization_id).await? else {
-        return Ok(Err(BillError::NoOrganization));
-    };
-    let currency = bill.net.currency();
-    let (exchange_rate, given) = rate_for(db, &bill, reporting).await?;
-
-    let mut tx = db.begin().await?;
-    let bill_id = sqlx::query_scalar!(
-        r#"INSERT INTO bills (organization_id, period, provider, cost_source)
-           VALUES ($1, $2, $3, $4)
-           ON CONFLICT (organization_id, period, provider, cost_source)
-               DO UPDATE SET provider = EXCLUDED.provider
-           RETURNING id"#,
-        organization_id,
-        bill.period.first_day(),
-        bill.provider,
-        bill.cost_source.as_str(),
-    )
-    .fetch_one(&mut *tx)
-    .await?;
-
-    let latest = sqlx::query!(
-        r#"SELECT revision, currency, gross_nanos, discount_nanos, credit_nanos, net_nanos,
-                  exchange_rate_nanos, exchange_rate_given, lines, final
-           FROM bill_revisions WHERE bill_id = $1 ORDER BY revision DESC LIMIT 1
-           FOR UPDATE"#,
-        bill_id,
-    )
-    .fetch_optional(&mut *tx)
-    .await?;
-
-    let lines = serde_json::Value::Array(bill.lines.clone());
-    if let Some(latest) = &latest {
-        let same = latest.currency == currency.code()
-            && latest.gross_nanos == bill.gross.nanos()
-            && latest.discount_nanos == bill.discount.nanos()
-            && latest.credit_nanos == bill.credit.nanos()
-            && latest.net_nanos == bill.net.nanos()
-            && latest.lines == lines
-            && (!given || latest.exchange_rate_nanos == exchange_rate.map(RateNumber::nanos));
-        if same {
-            // The same figures, now final: the revision becomes final. A
-            // final bill never goes back.
-            let now_final = bill.is_final && !latest.r#final;
-            if now_final {
-                sqlx::query!(
-                    "UPDATE bill_revisions SET final = true WHERE bill_id = $1 AND revision = $2",
-                    bill_id,
-                    latest.revision,
-                )
-                .execute(&mut *tx)
-                .await?;
-            }
-            tx.commit().await?;
-            let view = latest_view(db, bill_id)
-                .await?
-                .ok_or(sqlx::Error::RowNotFound)?;
-            return Ok(Ok(RecordedBill {
-                bill: view,
-                changed: now_final,
-            }));
-        }
-    }
-    let revision = latest
-        .as_ref()
-        .map_or(Some(1), |latest| latest.revision.checked_add(1))
-        .ok_or(sqlx::Error::Protocol("too many bill revisions".to_owned()))?;
-    sqlx::query!(
-        r#"INSERT INTO bill_revisions
-               (bill_id, revision, currency, gross_nanos, discount_nanos, credit_nanos, net_nanos,
-                exchange_rate_nanos, exchange_rate_given, source, lines, recorded_by, final)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)"#,
-        bill_id,
-        revision,
-        currency.code(),
-        bill.gross.nanos(),
-        bill.discount.nanos(),
-        bill.credit.nanos(),
-        bill.net.nanos(),
-        exchange_rate.map(RateNumber::nanos),
-        given,
-        bill.source.as_str(),
-        lines,
-        bill.recorded_by,
-        bill.is_final,
-    )
-    .execute(&mut *tx)
-    .await?;
-    tx.commit().await?;
-    let view = latest_view(db, bill_id)
-        .await?
-        .ok_or(sqlx::Error::RowNotFound)?;
-    Ok(Ok(RecordedBill {
-        bill: view,
-        changed: true,
-    }))
-}
-
-/// The bill's rate to the reporting currency, and whether it came with the
-/// bill. Without one it is the reference rate of the period's last day.
-async fn rate_for(
-    db: &PgPool,
-    bill: &NewBill,
-    reporting: Currency,
-) -> Result<(Option<RateNumber>, bool), sqlx::Error> {
-    if let Some(rate) = bill.exchange_rate {
-        return Ok((Some(rate), true));
-    }
-    let currency = bill.net.currency();
-    let rate = rates::between(db, currency, reporting, bill.period.last_day())
-        .await?
-        .ok()
-        .filter(|_| currency != reporting)
-        .map(rate_number);
-    Ok((rate, false))
+/// What `bill_details` holds for one bill event.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Details {
+    exchange_rate: Option<RateNumber>,
+    exchange_rate_given: bool,
+    source: BillSource,
+    is_final: bool,
+    lines: Vec<serde_json::Value>,
 }
 
 /// Checks a bill as [`record_bill`] does, without the database, so a file
@@ -371,254 +214,384 @@ async fn rate_for(
 ///
 /// # Errors
 ///
-/// [`BillError`] for figures in several currencies, a negative discount or
-/// credit, a provider that is not a plain name, or figures that do not add
-/// up.
-pub(crate) fn check(bill: &NewBill) -> Result<(), BillError> {
-    let currency = bill.net.currency();
-    if [bill.gross, bill.discount, bill.credit]
-        .iter()
-        .any(|amount| amount.currency() != currency)
-    {
-        return Err(BillError::Currency(currency));
-    }
-    if bill.discount.nanos().is_negative() || bill.credit.nanos().is_negative() {
-        return Err(BillError::NegativeReduction);
-    }
-    let valid_provider = !bill.provider.is_empty()
-        && bill.provider.len() <= 40
-        && bill
-            .provider
-            .chars()
-            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_');
-    if !valid_provider {
+/// [`BillError`] for a provider that is not a plain name or an amount
+/// below zero.
+pub fn check(bill: &NewBill) -> Result<(), BillError> {
+    if !is_provider(&bill.provider) {
         return Err(BillError::Provider(bill.provider.clone()));
     }
-    let core = tokencontroller_core::Bill {
-        id: format!(
-            "{}-{}-{}",
-            bill.provider,
-            bill.cost_source.as_str(),
-            bill.period
-        ),
-        provider: bill.provider.clone(),
-        cost_source: bill.cost_source.core(),
-        period: bill.period,
-        gross: bill.gross,
-        discount: bill.discount,
-        credit: bill.credit,
-        net: bill.net,
-        exchange_rate: None,
-        revision: 1,
-    };
-    core.check().map_err(|_| BillError::DoesNotAddUp {
-        gross: bill.gross,
-        discount: bill.discount,
-        credit: bill.credit,
-        net: bill.net,
-    })
+    if bill.amount.nanos().is_negative() {
+        return Err(BillError::Negative);
+    }
+    Ok(())
 }
 
-/// The organization's reporting currency.
+/// Whether a text is a provider name: up to 40 lower-case letters, digits
+/// and `_`.
+#[must_use]
+pub fn is_provider(text: &str) -> bool {
+    !text.is_empty()
+        && text.len() <= 40
+        && text
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+}
+
+/// Stores a bill. A new bill event is written only when the figures differ
+/// from the bill in force for the same provider and range, which is then
+/// reversed; pulling the same bill twice changes nothing.
 ///
 /// # Errors
 ///
-/// A database error.
-pub async fn reporting_currency(
-    db: &PgPool,
+/// [`BillError`] for a bill that does not pass [`check`], or whatever
+/// writing the log fails with.
+pub async fn record_bill(
+    state: &AppState,
     organization_id: Uuid,
-) -> Result<Option<Currency>, sqlx::Error> {
-    let code = sqlx::query_scalar!(
-        "SELECT reporting_currency FROM organizations WHERE id = $1",
-        organization_id
-    )
-    .fetch_optional(db)
-    .await?;
-    Ok(code.and_then(|code| Currency::new(&code).ok()))
-}
+    bill: NewBill,
+) -> Result<Result<RecordedBill, BillError>, ApiError> {
+    if let Err(error) = check(&bill) {
+        return Ok(Err(error));
+    }
+    let log = Log::load(state, organization_id).await?;
+    let now = OffsetDateTime::now_utc();
+    let fold = log.fold(now)?;
+    let reporting = crate::organizations::reporting_currency(&state.db, organization_id).await?;
+    let (exchange_rate, given) = rate_for(state, &bill, reporting).await?;
 
-/// The latest revision of every bill of a period, or of every period.
-///
-/// # Errors
-///
-/// A database error.
-pub async fn latest_bills(
-    db: &PgPool,
-    organization_id: Uuid,
-    period: Option<Period>,
-) -> Result<Vec<BillView>, sqlx::Error> {
-    let rows = sqlx::query!(
-        r#"SELECT DISTINCT ON (b.id)
-                  b.id, b.period, b.provider, b.cost_source, r.revision, r.currency,
-                  r.gross_nanos, r.discount_nanos, r.credit_nanos, r.net_nanos,
-                  r.exchange_rate_nanos, r.exchange_rate_given, r.source, r.lines, r.recorded_at,
-                  r.final
-           FROM bills b JOIN bill_revisions r ON r.bill_id = b.id
-           WHERE b.organization_id = $1 AND ($2::date IS NULL OR b.period = $2)
-           ORDER BY b.id, r.revision DESC"#,
-        organization_id,
-        period.map(Period::first_day),
-    )
-    .fetch_all(db)
-    .await?;
-    let mut bills: Vec<BillView> = rows
-        .into_iter()
-        .filter_map(|row| {
-            view(RevisionRow {
-                id: row.id,
-                period: row.period,
-                provider: row.provider,
-                cost_source: row.cost_source,
-                revision: row.revision,
-                currency: row.currency,
-                gross_nanos: row.gross_nanos,
-                discount_nanos: row.discount_nanos,
-                credit_nanos: row.credit_nanos,
-                net_nanos: row.net_nanos,
-                exchange_rate_nanos: row.exchange_rate_nanos,
-                exchange_rate_given: row.exchange_rate_given,
-                source: row.source,
-                lines: row.lines,
-                recorded_at: row.recorded_at,
-                is_final: row.r#final,
-            })
+    let in_force = fold
+        .bills()
+        .find(|recorded| {
+            recorded.value.provider == bill.provider && recorded.value.range == bill.range
         })
-        .collect();
-    bills.sort_by(|a, b| {
-        b.period
-            .cmp(&a.period)
-            .then_with(|| a.provider.cmp(&b.provider))
-            .then_with(|| a.cost_source.as_str().cmp(b.cost_source.as_str()))
-    });
-    Ok(bills)
+        .cloned();
+    if let Some(current) = &in_force {
+        let details = details_of(state, organization_id, current.id.as_str()).await?;
+        let same = current.value.amount == bill.amount
+            && details
+                .as_ref()
+                .is_some_and(|details| details.lines == bill.lines)
+            && (!given
+                || details
+                    .as_ref()
+                    .is_some_and(|details| details.exchange_rate == exchange_rate));
+        if same {
+            let now_final =
+                bill.is_final && details.as_ref().is_some_and(|details| !details.is_final);
+            if now_final {
+                sqlx::query!(
+                    "UPDATE bill_details SET is_final = true WHERE organization_id = $1 AND event_id = $2",
+                    organization_id,
+                    current.id.as_str(),
+                )
+                .execute(&state.db)
+                .await?;
+            }
+            let view = view_of(state, organization_id, current.id.as_str(), now)
+                .await?
+                .ok_or(ApiError::NotFound)?;
+            return Ok(Ok(RecordedBill {
+                bill: view,
+                changed: now_final,
+            }));
+        }
+    }
+
+    let mut event = Event::new(
+        &events::new_id(prefix::BILL),
+        now,
+        Record::Bill(Bill {
+            provider: bill.provider.clone(),
+            range: bill.range,
+            amount: bill.amount,
+        }),
+    )
+    .map_err(|error| ApiError::Internal(error.into()))?;
+    if let Some(person) = &bill.recorded_by {
+        event = event.by(person.clone());
+    }
+    let mut new = vec![event.clone()];
+    if let Some(current) = &in_force {
+        let mut reversal = Event::new(
+            &events::new_id(prefix::REVERSAL),
+            now.saturating_add(time::Duration::microseconds(1)),
+            Record::Reversal(current.id.clone()),
+        )
+        .map_err(|error| ApiError::Internal(error.into()))?;
+        if let Some(person) = &bill.recorded_by {
+            reversal = reversal.by(person.clone());
+        }
+        new.push(reversal);
+    }
+    events::write(state, &log, &new).await?;
+    sqlx::query!(
+        r#"INSERT INTO bill_details
+               (organization_id, event_id, exchange_rate_nanos, exchange_rate_given, source, is_final, lines)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)"#,
+        organization_id,
+        event.id.as_str(),
+        exchange_rate.map(RateNumber::nanos),
+        given,
+        bill.source.as_str(),
+        bill.is_final,
+        serde_json::Value::Array(bill.lines),
+    )
+    .execute(&state.db)
+    .await?;
+    let view = view_of(
+        state,
+        organization_id,
+        event.id.as_str(),
+        now.saturating_add(time::Duration::seconds(1)),
+    )
+    .await?
+    .ok_or(ApiError::NotFound)?;
+    Ok(Ok(RecordedBill {
+        bill: view,
+        changed: true,
+    }))
 }
 
-/// Every revision of one bill, oldest first.
-///
-/// # Errors
-///
-/// A database error.
-pub async fn revisions(
-    db: &PgPool,
+/// The bill's rate to the reporting currency, and whether it came with the
+/// bill. Without one it is the reference rate of the range's last day.
+async fn rate_for(
+    state: &AppState,
+    bill: &NewBill,
+    reporting: Currency,
+) -> Result<(Option<RateNumber>, bool), sqlx::Error> {
+    if let Some(rate) = bill.exchange_rate {
+        return Ok((Some(rate), true));
+    }
+    let currency = bill.amount.currency();
+    let rate = rates::between(&state.db, currency, reporting, bill.range.to)
+        .await?
+        .ok()
+        .filter(|_| currency != reporting)
+        .map(rate_number);
+    Ok((rate, false))
+}
+
+async fn details_of(
+    state: &AppState,
     organization_id: Uuid,
-    bill_id: Uuid,
-) -> Result<Vec<BillView>, sqlx::Error> {
-    let rows = sqlx::query!(
-        r#"SELECT b.id, b.period, b.provider, b.cost_source, r.revision, r.currency,
-                  r.gross_nanos, r.discount_nanos, r.credit_nanos, r.net_nanos,
-                  r.exchange_rate_nanos, r.exchange_rate_given, r.source, r.lines, r.recorded_at,
-                  r.final
-           FROM bills b JOIN bill_revisions r ON r.bill_id = b.id
-           WHERE b.organization_id = $1 AND b.id = $2
-           ORDER BY r.revision"#,
+    event_id: &str,
+) -> Result<Option<Details>, sqlx::Error> {
+    let row = sqlx::query!(
+        "SELECT exchange_rate_nanos, exchange_rate_given, source, is_final, lines
+         FROM bill_details WHERE organization_id = $1 AND event_id = $2",
         organization_id,
-        bill_id,
+        event_id,
     )
-    .fetch_all(db)
+    .fetch_optional(&state.db)
+    .await?;
+    Ok(row.map(|row| Details {
+        exchange_rate: row
+            .exchange_rate_nanos
+            .and_then(|nanos| RateNumber::from_nanos(nanos).ok()),
+        exchange_rate_given: row.exchange_rate_given,
+        source: BillSource::parse(&row.source).unwrap_or(BillSource::Api),
+        is_final: row.is_final,
+        lines: row.lines.as_array().cloned().unwrap_or_default(),
+    }))
+}
+
+async fn all_details(
+    state: &AppState,
+    organization_id: Uuid,
+) -> Result<std::collections::BTreeMap<String, Details>, sqlx::Error> {
+    let rows = sqlx::query!(
+        "SELECT event_id, exchange_rate_nanos, exchange_rate_given, source, is_final, lines
+         FROM bill_details WHERE organization_id = $1",
+        organization_id,
+    )
+    .fetch_all(&state.db)
     .await?;
     Ok(rows
         .into_iter()
-        .filter_map(|row| {
-            view(RevisionRow {
-                id: row.id,
-                period: row.period,
-                provider: row.provider,
-                cost_source: row.cost_source,
-                revision: row.revision,
-                currency: row.currency,
-                gross_nanos: row.gross_nanos,
-                discount_nanos: row.discount_nanos,
-                credit_nanos: row.credit_nanos,
-                net_nanos: row.net_nanos,
-                exchange_rate_nanos: row.exchange_rate_nanos,
-                exchange_rate_given: row.exchange_rate_given,
-                source: row.source,
-                lines: row.lines,
-                recorded_at: row.recorded_at,
-                is_final: row.r#final,
-            })
+        .map(|row| {
+            (
+                row.event_id,
+                Details {
+                    exchange_rate: row
+                        .exchange_rate_nanos
+                        .and_then(|nanos| RateNumber::from_nanos(nanos).ok()),
+                    exchange_rate_given: row.exchange_rate_given,
+                    source: BillSource::parse(&row.source).unwrap_or(BillSource::Api),
+                    is_final: row.is_final,
+                    lines: row.lines.as_array().cloned().unwrap_or_default(),
+                },
+            )
         })
         .collect())
 }
 
-async fn latest_view(db: &PgPool, bill_id: Uuid) -> Result<Option<BillView>, sqlx::Error> {
-    let organization_id =
-        sqlx::query_scalar!("SELECT organization_id FROM bills WHERE id = $1", bill_id)
-            .fetch_one(db)
-            .await?;
-    Ok(revisions(db, organization_id, bill_id).await?.pop())
+/// The bill's reconciliation in the core's currency, or `None` when the
+/// bill's currency cannot be converted.
+async fn reconcile(
+    state: &AppState,
+    fold: &tokencontroller_core::State,
+    bill: &Bill,
+) -> Result<Option<ReconciliationView>, ApiError> {
+    let core = fold.currency();
+    let rate = rates::between(&state.db, bill.amount.currency(), core, bill.range.to).await?;
+    let Ok(rate) = rate else {
+        return Ok(None);
+    };
+    let converted = rate
+        .convert(bill.amount)
+        .map_err(|error| ApiError::Internal(error.into()))?;
+    let in_core = Bill {
+        provider: bill.provider.clone(),
+        range: bill.range,
+        amount: converted,
+    };
+    let messages = fold
+        .provider_cost(&bill.provider, bill.range)
+        .map_err(|error| ApiError::Internal(error.into()))?;
+    let reconciliation = in_core
+        .reconcile(messages.amount)
+        .map_err(|error| ApiError::Internal(error.into()))?;
+    Ok(Some(ReconciliationView {
+        currency: core.code(),
+        bill: events::json::money(reconciliation.bill),
+        messages: events::json::money(reconciliation.messages),
+        unexplained: events::json::money(reconciliation.unexplained),
+        a_message_is_wrong: reconciliation.a_message_is_wrong(),
+        count_errors: messages.count_errors.len(),
+        unknown_models: messages
+            .unknown_models
+            .iter()
+            .map(|model| format!("{}/{}", model.provider, model.model))
+            .collect(),
+    }))
 }
 
-struct RevisionRow {
-    id: Uuid,
-    period: time::Date,
-    provider: String,
-    cost_source: String,
-    revision: i32,
-    currency: String,
-    gross_nanos: i64,
-    discount_nanos: i64,
-    credit_nanos: i64,
-    net_nanos: i64,
-    exchange_rate_nanos: Option<i64>,
-    exchange_rate_given: bool,
-    source: String,
-    lines: serde_json::Value,
-    recorded_at: OffsetDateTime,
-    is_final: bool,
-}
-
-fn view(row: RevisionRow) -> Option<BillView> {
-    let currency = Currency::new(&row.currency).ok()?;
-    let money = |nanos| format_amount(Money::from_nanos(nanos, currency));
-    Some(BillView {
-        id: row.id,
-        period: Period::of_date(row.period),
-        provider: row.provider,
-        cost_source: CostSource::parse(&row.cost_source)?,
-        revision: row.revision,
-        currency,
-        gross: money(row.gross_nanos),
-        discount: money(row.discount_nanos),
-        credit: money(row.credit_nanos),
-        net: money(row.net_nanos),
-        exchange_rate: row
-            .exchange_rate_nanos
-            .and_then(|nanos| RateNumber::from_nanos(nanos).ok())
-            .map(|rate| rate.to_string()),
-        exchange_rate_given: row.exchange_rate_given,
-        source: BillSource::parse(&row.source)?,
-        is_final: row.is_final,
-        lines: row.lines.as_array().cloned().unwrap_or_default(),
-        recorded_at: row.recorded_at,
+/// The id of the reversal that reversed `id`, if any was recorded by
+/// `as_of`.
+fn reversed_by(log: &Log, id: &str, as_of: OffsetDateTime) -> Option<String> {
+    log.events.iter().find_map(|event| match &event.record {
+        Record::Reversal(target) if target.as_str() == id && event.recorded_at <= as_of => {
+            Some(event.id.as_str().to_owned())
+        }
+        _ => None,
     })
+}
+
+fn view(
+    event: &Event,
+    bill: &Bill,
+    details: Option<&Details>,
+    reversed_by: Option<String>,
+    reconciliation: Option<ReconciliationView>,
+) -> BillView {
+    BillView {
+        id: event.id.as_str().to_owned(),
+        provider: bill.provider.clone(),
+        from: bill.range.from,
+        to: bill.range.to,
+        amount: format_amount(bill.amount),
+        currency: bill.amount.currency().code(),
+        exchange_rate: details
+            .and_then(|details| details.exchange_rate)
+            .map(|rate| rate.to_string()),
+        exchange_rate_given: details.is_some_and(|details| details.exchange_rate_given),
+        source: details.map_or(BillSource::Api, |details| details.source),
+        is_final: details.is_none_or(|details| details.is_final),
+        lines: details
+            .map(|details| details.lines.clone())
+            .unwrap_or_default(),
+        recorded_at: event.recorded_at,
+        recorded_by: event
+            .recorded_by
+            .as_ref()
+            .map(|person| person.as_str().to_owned()),
+        reversed_by,
+        reconciliation,
+    }
+}
+
+/// Every bill in the log as of a moment, newest range first: the bills in
+/// force with their reconciliation, and the reversed ones without.
+///
+/// # Errors
+///
+/// Whatever loading the log fails with.
+pub async fn bills(
+    state: &AppState,
+    organization_id: Uuid,
+    as_of: OffsetDateTime,
+    include_reversed: bool,
+) -> Result<Vec<BillView>, ApiError> {
+    let log = Log::load(state, organization_id).await?;
+    let fold = log.fold(as_of)?;
+    let details = all_details(state, organization_id).await?;
+    let mut views = Vec::new();
+    for event in log.events.iter().filter(|event| event.recorded_at <= as_of) {
+        let Record::Bill(bill) = &event.record else {
+            continue;
+        };
+        let reversed = reversed_by(&log, event.id.as_str(), as_of);
+        if reversed.is_some() && !include_reversed {
+            continue;
+        }
+        let reconciliation = if reversed.is_some() {
+            None
+        } else {
+            reconcile(state, &fold, bill).await?
+        };
+        views.push(view(
+            event,
+            bill,
+            details.get(event.id.as_str()),
+            reversed,
+            reconciliation,
+        ));
+    }
+    views.sort_by(|a, b| {
+        b.from
+            .cmp(&a.from)
+            .then_with(|| a.provider.cmp(&b.provider))
+            .then_with(|| a.recorded_at.cmp(&b.recorded_at))
+    });
+    Ok(views)
+}
+
+/// One bill by its event id, as of a moment.
+///
+/// # Errors
+///
+/// Whatever loading the log fails with.
+pub async fn view_of(
+    state: &AppState,
+    organization_id: Uuid,
+    id: &str,
+    as_of: OffsetDateTime,
+) -> Result<Option<BillView>, ApiError> {
+    Ok(bills(state, organization_id, as_of, true)
+        .await?
+        .into_iter()
+        .find(|bill| bill.id == id))
 }
 
 /// A bill as the bills endpoint and the web app send it (docs: Reference >
 /// Bill schema). Amounts are decimal strings in `currency`.
 #[derive(Debug, Clone, Deserialize, ToSchema)]
 pub struct BillInput {
-    /// The calendar month, such as `2026-09`.
-    #[schema(value_type = String, example = "2026-09")]
-    pub period: Period,
     /// Who charged, such as `anthropic` or `openai`.
     #[schema(example = "anthropic")]
     pub provider: String,
-    pub cost_source: CostSource,
-    /// Before discount and credit. Left out, it is net plus discount plus
-    /// credit.
+    /// The first day the bill covers, `YYYY-MM-DD`.
+    #[schema(example = "2026-03-01")]
+    pub from: String,
+    /// The last day the bill covers, `YYYY-MM-DD`.
+    #[schema(example = "2026-03-31")]
+    pub to: String,
     #[schema(example = "1234.56")]
-    pub gross: Option<String>,
-    #[schema(example = "0")]
-    pub discount: Option<String>,
-    #[schema(example = "0")]
-    pub credit: Option<String>,
-    #[schema(example = "1234.56")]
-    pub net: String,
+    pub amount: String,
     #[schema(example = "USD")]
     pub currency: String,
-    /// To the organization's reporting currency, at the bill's date. Left
-    /// out, Token Controller fills it in.
+    /// To the organization's reporting currency, at the bill's last day.
+    /// Left out, Token Controller fills it in.
     #[schema(example = "0.9214")]
     pub exchange_rate: Option<String>,
     /// Typed in by hand in the web app, rather than sent by a program.
@@ -634,38 +607,23 @@ impl BillInput {
     ///
     /// # Errors
     ///
-    /// [`BillError`] for an amount, currency or rate that cannot be read.
-    pub fn into_new_bill(self, recorded_by: Uuid) -> Result<NewBill, BillError> {
+    /// [`BillError`] for an amount, currency, date or rate that cannot be
+    /// read.
+    pub fn into_new_bill(self, recorded_by: TagValue) -> Result<NewBill, BillError> {
         let currency = Currency::new(&self.currency)
             .map_err(|_| BillError::NotACurrency(self.currency.clone()))?;
-        let read = |text: Option<&str>| -> Result<Money, BillError> {
-            text.map_or(Ok(Money::zero(currency)), |text| {
-                Ok(parse_amount(text, currency)?)
-            })
-        };
-        let net = parse_amount(&self.net, currency)?;
-        let discount = read(self.discount.as_deref())?;
-        let credit = read(self.credit.as_deref())?;
-        let gross = match self.gross.as_deref() {
-            Some(text) => parse_amount(text, currency)?,
-            None => net
-                .checked_add(discount)
-                .and_then(|sum| sum.checked_add(credit))
-                .map_err(|_| BillError::Amount(AmountError::Overflow))?,
-        };
+        let amount = parse_amount(&self.amount, currency)?;
+        let range = crate::dates::range(Some(&self.from), Some(&self.to))
+            .map_err(|error| BillError::Range(error.to_string()))?;
         let exchange_rate = self
             .exchange_rate
             .as_deref()
             .map(RateNumber::parse)
             .transpose()?;
         Ok(NewBill {
-            period: self.period,
-            provider: self.provider,
-            cost_source: self.cost_source,
-            gross,
-            discount,
-            credit,
-            net,
+            provider: self.provider.trim().to_owned(),
+            range,
+            amount,
             exchange_rate,
             source: if self.typed_in {
                 BillSource::Manual
@@ -679,20 +637,21 @@ impl BillInput {
     }
 }
 
-/// Send a bill for a period.
+/// Send a bill for a date range.
 ///
-/// Stores a new revision when the figures differ from the latest one, and
-/// answers 200 with the unchanged bill when they do not.
+/// Writes a bill event when the figures differ from the bill in force for
+/// the provider and range, reversing that one, and answers 200 with the
+/// unchanged bill when they do not. Org managers only.
 #[utoipa::path(
     post,
     path = "/bills",
     tag = "bills",
     request_body = BillInput,
     responses(
-        (status = CREATED, description = "Stored as a new revision", body = BillView),
+        (status = CREATED, description = "Stored as a bill event", body = BillView),
         (status = OK, description = "The same figures were already stored", body = BillView),
-        (status = BAD_REQUEST, description = "The figures cannot be read or do not add up", body = crate::error::ErrorBody),
-        (status = FORBIDDEN, description = "Only a controller can send bills", body = crate::error::ErrorBody),
+        (status = BAD_REQUEST, description = "The figures cannot be read", body = crate::error::ErrorBody),
+        (status = FORBIDDEN, description = "Only an org manager can send bills", body = crate::error::ErrorBody),
     ),
 )]
 pub(crate) async fn post_bill(
@@ -700,10 +659,11 @@ pub(crate) async fn post_bill(
     caller: Caller,
     Json(input): Json<BillInput>,
 ) -> Result<(StatusCode, Json<BillView>), ApiError> {
-    caller.require_role(Role::Controller)?;
     caller.require_credential(&[CredentialKind::Session, CredentialKind::Service])?;
-    let bill = input.into_new_bill(caller.person_id)?;
-    let recorded = record_bill(&state.db, caller.organization_id, bill).await??;
+    let person = caller.person()?;
+    require_org_manager(&state, &caller).await?;
+    let bill = input.into_new_bill(person)?;
+    let recorded = record_bill(&state, caller.organization_id, bill).await??;
     let status = if recorded.changed {
         StatusCode::CREATED
     } else {
@@ -712,13 +672,32 @@ pub(crate) async fn post_bill(
     Ok((status, Json(recorded.bill)))
 }
 
+/// Refuses callers who are not org managers as of now.
+async fn require_org_manager(state: &AppState, caller: &Caller) -> Result<(), ApiError> {
+    let person = caller.person()?;
+    let log = Log::load(state, caller.organization_id).await?;
+    let fold = log.fold(OffsetDateTime::now_utc())?;
+    access::require_org_manager(&fold, &person)
+}
+
 /// Which bills to list.
-#[derive(Debug, Deserialize, IntoParams)]
+#[derive(Debug, Default, Deserialize, IntoParams)]
 #[into_params(parameter_in = Query)]
 pub struct BillsQuery {
-    /// Only this period, such as `2026-09`.
-    #[param(value_type = Option<String>, example = "2026-09")]
-    pub period: Option<Period>,
+    /// The moment to look back to; default now.
+    #[param(example = "2026-04-01T00:00:00Z")]
+    pub as_of: Option<String>,
+    /// Only bills whose range starts on or after this day.
+    #[param(example = "2026-03-01")]
+    pub from: Option<String>,
+    /// Only bills whose range ends on or before this day.
+    #[param(example = "2026-03-31")]
+    pub to: Option<String>,
+    /// Only this provider.
+    #[param(example = "anthropic")]
+    pub provider: Option<String>,
+    /// `true` to include reversed bills.
+    pub reversed: Option<bool>,
     /// `csv` for the table as a CSV file instead of JSON.
     #[param(example = "csv")]
     pub format: Option<String>,
@@ -726,22 +705,22 @@ pub struct BillsQuery {
 
 /// The columns of the bills table and its CSV file.
 const BILL_COLUMNS: &[crate::reports::csv::Column] = &[
-    ("period", "/period"),
+    ("id", "/id"),
     ("provider", "/provider"),
-    ("cost_source", "/cost_source"),
-    ("revision", "/revision"),
+    ("from", "/from"),
+    ("to", "/to"),
+    ("amount", "/amount"),
     ("currency", "/currency"),
-    ("gross", "/gross"),
-    ("discount", "/discount"),
-    ("credit", "/credit"),
-    ("net", "/net"),
     ("exchange_rate", "/exchange_rate"),
     ("source", "/source"),
     ("final", "/final"),
+    ("messages", "/reconciliation/messages"),
+    ("unexplained", "/reconciliation/unexplained"),
     ("recorded_at", "/recorded_at"),
+    ("reversed_by", "/reversed_by"),
 ];
 
-/// The latest revision of every bill, newest period first.
+/// The bills in force, newest range first, each with its reconciliation.
 #[utoipa::path(
     get,
     path = "/bills",
@@ -749,7 +728,7 @@ const BILL_COLUMNS: &[crate::reports::csv::Column] = &[
     params(BillsQuery),
     responses(
         (status = OK, description = "The bills, as JSON or CSV", content((Vec<BillView> = "application/json"), (String = "text/csv"))),
-        (status = FORBIDDEN, description = "Only a controller can read bills", body = crate::error::ErrorBody),
+        (status = FORBIDDEN, description = "Only an org manager can read bills", body = crate::error::ErrorBody),
     ),
 )]
 pub(crate) async fn list_bills(
@@ -757,68 +736,185 @@ pub(crate) async fn list_bills(
     caller: Caller,
     Query(query): Query<BillsQuery>,
 ) -> Result<Response, ApiError> {
-    caller.require_role(Role::Controller)?;
-    let bills = latest_bills(&state.db, caller.organization_id, query.period).await?;
-    let filename = query.period.map_or_else(
-        || "bills.csv".to_owned(),
-        |period| format!("bills-{period}.csv"),
-    );
+    require_org_manager(&state, &caller).await?;
+    let as_of = crate::dates::as_of(query.as_of.as_deref())?;
+    let from = crate::dates::parse_optional(query.from.as_deref())?;
+    let to = crate::dates::parse_optional(query.to.as_deref())?;
+    let bills: Vec<BillView> = bills(
+        &state,
+        caller.organization_id,
+        as_of,
+        query.reversed.unwrap_or(false),
+    )
+    .await?
+    .into_iter()
+    .filter(|bill| from.is_none_or(|from| bill.from >= from))
+    .filter(|bill| to.is_none_or(|to| bill.to <= to))
+    .filter(|bill| {
+        query
+            .provider
+            .as_deref()
+            .is_none_or(|provider| bill.provider == provider)
+    })
+    .collect();
     crate::reports::csv::table(
         &bills,
         BILL_COLUMNS,
         crate::reports::csv::wants_csv(query.format.as_deref()),
-        &filename,
+        "bills.csv",
     )
 }
 
-/// Every revision of one bill, oldest first.
+/// One bill and the bills it restated, oldest first.
 #[utoipa::path(
     get,
     path = "/bills/{id}",
     tag = "bills",
-    params(("id" = Uuid, Path, description = "The bill"), crate::reports::csv::FormatQuery),
+    params(("id" = String, Path, description = "The bill event's id"), crate::reports::csv::FormatQuery),
     responses(
-        (status = OK, description = "The bill's revisions, as JSON or CSV", content((Vec<BillView> = "application/json"), (String = "text/csv"))),
+        (status = OK, description = "The bill and the ones it restated, as JSON or CSV", content((Vec<BillView> = "application/json"), (String = "text/csv"))),
         (status = NOT_FOUND, description = "No such bill", body = crate::error::ErrorBody),
     ),
 )]
 pub(crate) async fn get_bill(
     State(state): State<AppState>,
     caller: Caller,
-    Path(id): Path<Uuid>,
+    Path(id): Path<String>,
     Query(query): Query<crate::reports::csv::FormatQuery>,
 ) -> Result<Response, ApiError> {
-    caller.require_role(Role::Controller)?;
-    let revisions = revisions(&state.db, caller.organization_id, id).await?;
-    let Some(first) = revisions.first() else {
+    require_org_manager(&state, &caller).await?;
+    let all = bills(
+        &state,
+        caller.organization_id,
+        OffsetDateTime::now_utc(),
+        true,
+    )
+    .await?;
+    let Some(bill) = all.iter().find(|bill| bill.id == id) else {
         return Err(ApiError::NotFound);
     };
+    let mut history: Vec<BillView> = all
+        .iter()
+        .filter(|other| {
+            other.provider == bill.provider
+                && other.from == bill.from
+                && other.to == bill.to
+                && other.recorded_at <= bill.recorded_at
+        })
+        .cloned()
+        .collect();
+    history.sort_by_key(|view| view.recorded_at);
     let filename = format!(
-        "bill-{}-{}-{}.csv",
-        first.period,
-        first.provider,
-        first.cost_source.as_str()
+        "bill-{}-{}.csv",
+        bill.provider,
+        crate::dates::text(bill.from)
     );
-    crate::reports::csv::table(&revisions, BILL_COLUMNS, query.wants_csv(), &filename)
+    crate::reports::csv::table(&history, BILL_COLUMNS, query.wants_csv(), &filename)
+}
+
+/// One row of the reconciliation table.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, ToSchema)]
+pub struct ReconciliationRow {
+    pub bill_id: String,
+    pub provider: String,
+    #[serde(with = "crate::dates::day")]
+    #[schema(value_type = String, format = Date)]
+    pub from: Date,
+    #[serde(with = "crate::dates::day")]
+    #[schema(value_type = String, format = Date)]
+    pub to: Date,
+    #[serde(rename = "final")]
+    pub is_final: bool,
+    #[serde(flatten)]
+    pub figures: ReconciliationView,
+}
+
+/// Which reconciliation to show.
+#[derive(Debug, Default, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
+pub struct ReconciliationQuery {
+    /// The moment to look back to; default now.
+    pub as_of: Option<String>,
+    /// Only this provider.
+    pub provider: Option<String>,
+    /// `csv` for the table as a CSV file instead of JSON.
+    pub format: Option<String>,
+}
+
+const RECONCILIATION_COLUMNS: &[crate::reports::csv::Column] = &[
+    ("provider", "/provider"),
+    ("from", "/from"),
+    ("to", "/to"),
+    ("currency", "/currency"),
+    ("bill", "/bill"),
+    ("messages", "/messages"),
+    ("unexplained", "/unexplained"),
+    ("a_message_is_wrong", "/a_message_is_wrong"),
+    ("final", "/final"),
+    ("bill_id", "/bill_id"),
+];
+
+/// Each bill against the cost of its provider's messages in its range, with
+/// the line no message explains. Org managers only.
+#[utoipa::path(
+    get,
+    path = "/reconciliation",
+    tag = "bills",
+    params(ReconciliationQuery),
+    responses(
+        (status = OK, description = "One row per bill in force", content((Vec<ReconciliationRow> = "application/json"), (String = "text/csv"))),
+        (status = FORBIDDEN, description = "Only an org manager can read the reconciliation", body = crate::error::ErrorBody),
+    ),
+)]
+pub(crate) async fn get_reconciliation(
+    State(state): State<AppState>,
+    caller: Caller,
+    Query(query): Query<ReconciliationQuery>,
+) -> Result<Response, ApiError> {
+    require_org_manager(&state, &caller).await?;
+    let as_of = crate::dates::as_of(query.as_of.as_deref())?;
+    let rows: Vec<ReconciliationRow> = bills(&state, caller.organization_id, as_of, false)
+        .await?
+        .into_iter()
+        .filter(|bill| {
+            query
+                .provider
+                .as_deref()
+                .is_none_or(|provider| bill.provider == provider)
+        })
+        .filter_map(|bill| {
+            Some(ReconciliationRow {
+                bill_id: bill.id,
+                provider: bill.provider,
+                from: bill.from,
+                to: bill.to,
+                is_final: bill.is_final,
+                figures: bill.reconciliation?,
+            })
+        })
+        .collect();
+    crate::reports::csv::table(
+        &rows,
+        RECONCILIATION_COLUMNS,
+        crate::reports::csv::wants_csv(query.format.as_deref()),
+        "reconciliation.csv",
+    )
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use time::macros::date;
 
     fn usd(text: &str) -> Money {
         parse_amount(text, Currency::USD).unwrap()
     }
 
-    fn bill(gross: &str, discount: &str, credit: &str, net: &str) -> NewBill {
+    fn bill(amount: &str) -> NewBill {
         NewBill {
-            period: Period::parse("2026-09").unwrap(),
             provider: "anthropic".to_owned(),
-            cost_source: CostSource::UsageAtApiRates,
-            gross: usd(gross),
-            discount: usd(discount),
-            credit: usd(credit),
-            net: usd(net),
+            range: DateRange::new(date!(2026 - 03 - 01), date!(2026 - 03 - 31)).unwrap(),
+            amount: usd(amount),
             exchange_rate: None,
             source: BillSource::Api,
             lines: Vec::new(),
@@ -828,62 +924,55 @@ mod tests {
     }
 
     #[test]
-    fn a_bill_must_add_up() {
-        assert_eq!(check(&bill("100", "10", "5", "85")), Ok(()));
-        assert!(matches!(
-            check(&bill("100", "10", "5", "86")),
-            Err(BillError::DoesNotAddUp { .. })
-        ));
-        assert_eq!(
-            check(&bill("100", "-10", "0", "110")),
-            Err(BillError::NegativeReduction)
-        );
-    }
-
-    #[test]
-    fn a_bill_has_one_currency_and_a_plain_provider() {
-        let mut mixed = bill("100", "0", "0", "100");
-        mixed.gross = parse_amount("100", Currency::EUR).unwrap();
-        assert_eq!(check(&mixed), Err(BillError::Currency(Currency::USD)));
-        let mut odd = bill("100", "0", "0", "100");
+    fn a_bill_has_a_plain_provider_and_an_amount_at_or_above_zero() {
+        assert_eq!(check(&bill("1000")), Ok(()));
+        assert_eq!(check(&bill("0")), Ok(()));
+        assert_eq!(check(&bill("-1")), Err(BillError::Negative));
+        let mut odd = bill("100");
         odd.provider = "Anthropic Inc".to_owned();
         assert!(matches!(check(&odd), Err(BillError::Provider(_))));
+        assert!(is_provider("aws_bedrock"));
+        assert!(!is_provider(""));
     }
 
     #[test]
-    fn gross_defaults_to_net_plus_reductions() {
+    fn the_input_reads_dates_amount_and_rate() {
         let input = BillInput {
-            period: Period::parse("2026-09").unwrap(),
             provider: "openai".to_owned(),
-            cost_source: CostSource::ApiKey,
-            gross: None,
-            discount: Some("10".to_owned()),
-            credit: None,
-            net: "90".to_owned(),
+            from: "2026-03-01".to_owned(),
+            to: "2026-03-31".to_owned(),
+            amount: "90".to_owned(),
             currency: "USD".to_owned(),
             exchange_rate: Some("0.9".to_owned()),
             typed_in: true,
             lines: Vec::new(),
         };
-        let new = input.into_new_bill(Uuid::nil()).unwrap();
-        assert_eq!(new.gross, usd("100"));
-        assert_eq!(new.credit, usd("0"));
+        let new = input
+            .into_new_bill(TagValue::new("mara@example.com").unwrap())
+            .unwrap();
+        assert_eq!(new.amount, usd("90"));
+        assert_eq!(new.range.days(), 31);
         assert_eq!(new.source, BillSource::Manual);
         assert_eq!(new.exchange_rate, Some(RateNumber::parse("0.9").unwrap()));
         assert_eq!(check(&new), Ok(()));
+        let backwards = BillInput {
+            from: "2026-03-31".to_owned(),
+            to: "2026-03-01".to_owned(),
+            provider: "openai".to_owned(),
+            amount: "1".to_owned(),
+            currency: "USD".to_owned(),
+            exchange_rate: None,
+            typed_in: false,
+            lines: Vec::new(),
+        };
+        assert!(matches!(
+            backwards.into_new_bill(TagValue::new("mara@example.com").unwrap()),
+            Err(BillError::Range(_))
+        ));
     }
 
     #[test]
-    fn names_round_trip() {
-        for source in [
-            CostSource::UsageAtApiRates,
-            CostSource::ApiKey,
-            CostSource::CloudMarketplace,
-            CostSource::Reseller,
-        ] {
-            assert_eq!(CostSource::parse(source.as_str()), Some(source));
-        }
-        assert_eq!(CostSource::parse("seat"), None);
+    fn source_names_round_trip() {
         for source in [
             BillSource::Pulled,
             BillSource::Csv,

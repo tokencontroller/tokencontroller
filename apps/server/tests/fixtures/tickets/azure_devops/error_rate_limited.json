@@ -1,9 +1,0 @@
-{
-  "$id": "1",
-  "innerException": null,
-  "message": "TF400733: The request has been throttled. Please wait and try again.",
-  "typeName": "Microsoft.TeamFoundation.Framework.Server.RequestBlockedException, Microsoft.TeamFoundation.Framework.Server",
-  "typeKey": "RequestBlockedException",
-  "errorCode": 0,
-  "eventId": 3000
-}

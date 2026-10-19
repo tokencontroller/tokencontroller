@@ -8,7 +8,7 @@
 //! states and times only, never customer data, because it is public.
 //!
 //! Owner: the service platform. The status signals (token entries arriving,
-//! attribution rate, reconciliation residual) go here too.
+//! attribution rate, reconciliation deviation) go here too.
 
 use std::time::Duration;
 
@@ -108,7 +108,8 @@ pub enum PartState {
 /// One part of the service, as status.tokencontroller.com lists them.
 #[derive(Debug, Serialize, ToSchema)]
 pub struct Component {
-    /// `service`, `bill-pulls`, `ticket-sync`, `price-tables` or
+    /// `service`, `bill-pulls`, `ticket-sync`, `submit-reminders`,
+    /// `price-table`, `exchange-rates` or
     /// `sign-in-email`.
     pub id: &'static str,
     pub state: PartState,
@@ -127,7 +128,13 @@ pub struct ServiceStatus {
 }
 
 /// The jobs status.tokencontroller.com shows, by their component id.
-const JOBS: [&str; 3] = ["bill-pulls", "ticket-sync", "price-tables"];
+const JOBS: [&str; 5] = [
+    "bill-pulls",
+    "ticket-sync",
+    "submit-reminders",
+    "price-table",
+    "exchange-rates",
+];
 
 /// The state of every part status.tokencontroller.com shows.
 #[utoipa::path(
@@ -197,7 +204,7 @@ async fn status(State(state): State<AppState>) -> (StatusCode, Json<ServiceStatu
 
 /// The background jobs, each from its heartbeat in the job runner's
 /// `job_runs` table through [`job_state`]. A job this instance does not run,
-/// such as the price refresh with `TC_PRICES_REFRESH=off`, shows as not
+/// such as the exchange rate refresh with `TC_RATES_REFRESH=off`, shows as not
 /// running.
 async fn job_components(state: &AppState) -> Vec<Component> {
     let jobs = crate::jobs::standard(&state.config);
@@ -351,7 +358,7 @@ mod tests {
         assert_eq!(on_time.state, PartState::Operational);
         assert_eq!(on_time.last_success_at, Some(now));
         // Switched off on this instance: not running, whatever ran before.
-        let off = job_component("price-tables", None, Some(&ran), now);
+        let off = job_component("price-table", None, Some(&ran), now);
         assert_eq!(off.state, PartState::NotRunning);
     }
 

@@ -1,12 +1,11 @@
-//! Golden cases: one folder per docs scenario in `tests/golden`. Each case
-//! describes an organization, its token entries and its bills as CSV, and
-//! holds what the core must make of them: the splits, the cost sheet and,
-//! where the scenario has them, reports, token budgets and the close check.
-//! `tests/golden/README.md` describes the files.
+//! Golden cases: one folder per scenario in `tests/golden`. Each case is an
+//! event log written as CSV files, one per kind of event, and a list of
+//! queries; it holds what the fold must answer. `tests/golden/README.md`
+//! describes the files.
 //!
-//! Every output this test computes is also written to
-//! `target/tmp/golden/<case>/`, so a new case's expected files can be
-//! checked by hand against the docs and then copied in.
+//! Every answer this test computes is also written to
+//! `target/tmp/golden/<case>/answers.csv`, so a new case's expected file can
+//! be checked by hand against the spec and then copied in.
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
@@ -14,21 +13,20 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use serde::de::DeserializeOwned;
-use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
+use time::{Date, OffsetDateTime};
 use tokencontroller_core::{
-    Adjustment, Bill, BlockRequest, CloseCheck, CostSheet, CostSheetRequest, Currency,
-    ExchangeRate, Filter, HandShare, History, Message, MessageId, MessageSignals, ModelPrice,
-    ModelRef, Money, Organization, Period, Person, PriceTable, Project, Rule, Segment, SessionId,
-    Signals, Split, Status, TagMap, TagName, TagValue, Tags, Ticket, TicketKeyPattern, TokenBudget,
-    TokenCounts, TokenEntry, Usage, Version, actual, group_by,
+    Accept, Approval, AttributeValue, Bill, Capability, DateRange, Decision, Distribution,
+    Estimate, Event, EventId, Filter, Grant, Message, MessageId, ModelRef, Money, PersonAttribute,
+    PriceRow, Record, Rule, Scope, SessionId, Share, Signal, Split, SplitPart, SplitTarget, State,
+    Submit, TagName, TagValue, TagValueRecord, Tags, TextPattern, Then, TokenCounts,
 };
 
 type Row = BTreeMap<String, String>;
 type Outcome<T> = Result<T, String>;
 
 #[test]
-fn golden_cases_match_their_expected_files() {
+fn golden_cases_match_their_expected_answers() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/golden");
     let mut cases: Vec<PathBuf> = fs::read_dir(&root)
         .unwrap()
@@ -42,554 +40,574 @@ fn golden_cases_match_their_expected_files() {
     for case in &cases {
         let name = case.file_name().unwrap().to_string_lossy().into_owned();
         match run(case, &out.join(&name)) {
-            Ok(differences) => failures.extend(
-                differences
-                    .into_iter()
-                    .map(|difference| format!("{name}: {difference}")),
-            ),
+            Ok(Some(difference)) => failures.push(format!("{name}: {difference}")),
+            Ok(None) => {}
             Err(error) => failures.push(format!("{name}: {error}")),
         }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n\n"));
 }
 
-/// Runs one case and returns how its outputs differ from what it expects.
-fn run(case: &Path, out: &Path) -> Outcome<Vec<String>> {
-    let settings: BTreeMap<String, String> = rows(case, "organization.csv")?
-        .ok_or("organization.csv is missing")?
-        .into_iter()
-        .map(|row| Ok((cell(&row, "setting")?, cell(&row, "value")?)))
-        .collect::<Outcome<_>>()?;
-    let setting = |name: &str| settings.get(name).map_or("", String::as_str);
-    let period = Period::parse(setting("period")).map_err(|error| error.to_string())?;
-    let organization = organization(case, &settings)?;
-    let prices = price_table(case, setting("price_version"))?;
-    let entries = token_entries(case, prices.currency())?;
-
-    let mut outputs: Vec<(&str, String)> = Vec::new();
-    let mut splits: Vec<(String, Status, Period, Vec<Split>)> = Vec::new();
-    let mut shown = String::from("entry,tags,amount,placed_by,notes\n");
-    for (id, bill, entry) in &entries {
-        let result = entry
-            .split(&organization, &prices, None)
-            .map_err(|error| format!("entry {id}: {error}"))?;
-        for split in &result.splits {
-            let mut notes: Vec<String> = Vec::new();
-            if split.ticket_not_synced {
-                notes.push("ticket not synced".to_owned());
-            }
-            notes.extend(
-                split
-                    .value
-                    .unknown_models
-                    .iter()
-                    .map(|model| format!("unknown model {model}")),
-            );
-            notes.extend(result.dropped.iter().map(|name| format!("dropped {name}")));
-            let _ignored = writeln!(
-                shown,
-                "{},{},{},{},{}",
-                id,
-                tag_list(&split.tags),
-                exact(split.value.list),
-                split.placed_by,
-                notes.join("; ")
-            );
+/// Runs one case and returns how its answers differ from what it expects.
+fn run(case: &Path, out: &Path) -> Outcome<Option<String>> {
+    let events = events(case)?;
+    let currency = tokencontroller_core::Currency::USD;
+    let mut text = String::from("as_of,kind,filter,from,to,argument,key,amount,note\n");
+    let mut folds: BTreeMap<OffsetDateTime, State> = BTreeMap::new();
+    for row in rows(case, "queries.csv")?.ok_or("queries.csv is missing")? {
+        let as_of = moment(&cell(&row, "as_of")?)?;
+        if let std::collections::btree_map::Entry::Vacant(slot) = folds.entry(as_of) {
+            slot.insert(State::fold(&events, as_of, currency).map_err(|error| error.to_string())?);
         }
-        splits.push((bill.clone(), entry.status, entry.period(), result.splits));
+        let state = folds.get(&as_of).ok_or("fold missing")?;
+        let answers = answer(state, &row)?;
+        let prefix = [
+            cell(&row, "as_of")?,
+            cell(&row, "kind")?,
+            cell(&row, "filter")?,
+            cell(&row, "from")?,
+            cell(&row, "to")?,
+            cell(&row, "argument")?,
+        ]
+        .join(",");
+        for (key, amount, note) in answers {
+            let _ignored = writeln!(text, "{prefix},{key},{amount},{note}");
+        }
     }
-    outputs.push(("splits.csv", shown));
-
-    let sheet = cost_sheet(case, &organization, period, &settings, &splits)?;
-    outputs.push(("cost_sheet.csv", sheet));
-
-    let in_reports: Vec<(&Tags, Money)> = splits
-        .iter()
-        .filter(|(_, status, entry_period, _)| {
-            status.counts_in_reports() && *entry_period == period
-        })
-        .flat_map(|(_, _, _, splits)| splits)
-        .map(|split| (&split.tags, split.value.list))
-        .collect();
-    if let Some(reports) = reports(case, &in_reports, prices.currency())? {
-        outputs.push(("reports.csv", reports));
-    }
-    if let Some(budgets) = budgets(case, &in_reports, period, prices.currency())? {
-        outputs.push(("budgets.csv", budgets));
-    }
-    if case.join("close.csv").exists() {
-        let check = CloseCheck::of(
-            period,
-            organization.approval,
-            entries.iter().map(|(_, _, entry)| entry),
-        );
-        outputs.push((
-            "close.csv",
-            format!(
-                "unapproved,without_agent_manager,rejected,can_close\n{},{},{},{}\n",
-                check.unapproved,
-                check.without_agent_manager,
-                check.rejected,
-                check.can_close()
-            ),
-        ));
-    }
-
     fs::create_dir_all(out).map_err(|error| error.to_string())?;
-    let mut differences = Vec::new();
-    for (file, actual) in outputs {
-        fs::write(out.join(file), &actual).map_err(|error| error.to_string())?;
-        let expected = fs::read_to_string(case.join(file))
-            .map_err(|error| format!("{file}: {error}"))?
-            .replace("\r\n", "\n");
-        if expected.trim_end() != actual.trim_end() {
-            differences.push(format!(
-                "{file} differs\n--- expected\n{expected}\n--- actual\n{actual}"
+    fs::write(out.join("answers.csv"), &text).map_err(|error| error.to_string())?;
+    let expected = fs::read_to_string(case.join("answers.csv"))
+        .map_err(|error| format!("answers.csv: {error}"))?
+        .replace("\r\n", "\n");
+    if expected.trim_end() == text.trim_end() {
+        Ok(None)
+    } else {
+        Ok(Some(format!(
+            "answers.csv differs\n--- expected\n{expected}\n--- actual\n{text}"
+        )))
+    }
+}
+
+/// One query's answers as (key, amount, note) rows.
+fn answer(state: &State, row: &Row) -> Outcome<Vec<(String, String, String)>> {
+    let filter = Filter(tags(&cell(row, "filter")?)?);
+    let from = cell(row, "from")?;
+    let to = cell(row, "to")?;
+    let argument = cell(row, "argument")?;
+    let window = || -> Outcome<DateRange> {
+        DateRange::new(date(&from)?, date(&to)?).map_err(|error| error.to_string())
+    };
+    let money = |amount: Money| exact(amount);
+    let fail = |error: tokencontroller_core::MoneyError| error.to_string();
+    let mut answers = Vec::new();
+    match cell(row, "kind")?.as_str() {
+        "messages" => {
+            for line in state.message_costs() {
+                answers.push((
+                    format!("{}/{}", line.session_id, line.message_id),
+                    line.cost.amount.map(money).unwrap_or_default(),
+                    cost_label(line.cost.label).to_owned(),
+                ));
+            }
+        }
+        "lines" => {
+            for line in state.lines() {
+                let assigned_by = serde_json::to_value(line.assigned_by)
+                    .map_err(|error| error.to_string())?
+                    .as_str()
+                    .unwrap_or_default()
+                    .to_owned();
+                answers.push((
+                    format!("{}/{}#{}", line.session_id, line.message_id, line.part),
+                    money(line.amount),
+                    format!(
+                        "{assigned_by}; {}; {}",
+                        line.label.as_str(),
+                        tag_list(&line.tags)
+                    ),
+                ));
+            }
+        }
+        "cost" => {
+            let cost = state.cost(&filter, window()?).map_err(fail)?;
+            answers.push((String::new(), money(cost.amount), cost_notes(&cost)));
+        }
+        "by" => {
+            let by = name(&argument)?;
+            for (value, amount) in state.by_tag(&filter, window()?, &by).map_err(fail)? {
+                answers.push((
+                    value.map(|value| value.to_string()).unwrap_or_default(),
+                    money(amount),
+                    String::new(),
+                ));
+            }
+        }
+        "by_label" => {
+            for (label, amount) in state.by_label(&filter, window()?).map_err(fail)? {
+                answers.push((label.as_str().to_owned(), money(amount), String::new()));
+            }
+        }
+        "reconcile" => {
+            let bill = state
+                .bills()
+                .find(|bill| bill.id.as_str() == argument)
+                .ok_or_else(|| format!("no bill {argument}"))?;
+            let reconciliation = state.reconcile(&bill.value).map_err(fail)?;
+            answers.push(("bill".to_owned(), money(reconciliation.bill), String::new()));
+            answers.push((
+                "messages".to_owned(),
+                money(reconciliation.messages),
+                String::new(),
+            ));
+            let note = if reconciliation.a_message_is_wrong() {
+                "a message is wrong"
+            } else {
+                ""
+            };
+            answers.push((
+                "unexplained".to_owned(),
+                money(reconciliation.unexplained),
+                note.to_owned(),
             ));
         }
+        other => return answer_more(state, row, other, &filter, window().ok()),
     }
-    Ok(differences)
+    Ok(answers)
 }
 
-/// The organization: settings, people, projects, tickets and rules.
-fn organization(case: &Path, settings: &BTreeMap<String, String>) -> Outcome<Organization> {
-    let setting = |name: &str| settings.get(name).map_or("", String::as_str);
-    let currency =
-        Currency::new(setting("reporting_currency")).map_err(|error| error.to_string())?;
-    let mut organization = Organization::new(currency, word(setting("cost_source"))?);
-    organization.approval = setting("approval") == "true";
-    organization.tag_names = list(setting("tag_names"))
-        .map(name)
-        .collect::<Outcome<_>>()?;
-    let cost_center = match setting("cost_center") {
-        "" => TagName::person(),
-        text => name(text)?,
-    };
-    let ladder = match setting("ladder") {
-        "" => TagMap::default().ladder().to_vec(),
-        text => list(text).map(name).collect::<Outcome<_>>()?,
-    };
-    organization.tag_map = TagMap::new(cost_center, ladder).map_err(|error| error.to_string())?;
-    if !setting("several_keys").is_empty() {
-        organization.several_keys = word(setting("several_keys"))?;
+/// The answers of the tier 2 and other kinds of query.
+fn answer_more(
+    state: &State,
+    row: &Row,
+    kind: &str,
+    filter: &Filter,
+    window: Option<DateRange>,
+) -> Outcome<Vec<(String, String, String)>> {
+    let window = || window.ok_or_else(|| "the query needs from and to".to_owned());
+    let from = cell(row, "from")?;
+    let argument = cell(row, "argument")?;
+    let money = |amount: Money| exact(amount);
+    let fail = |error: tokencontroller_core::MoneyError| error.to_string();
+    let mut answers = Vec::new();
+    match kind {
+        "plan" => match state.plan(filter, window()?).map_err(fail)? {
+            Some(plan) => answers.push((String::new(), money(plan), String::new())),
+            None => answers.push(("none".to_owned(), String::new(), String::new())),
+        },
+        "deviation" => match state.deviation(filter, window()?).map_err(fail)? {
+            Some(deviation) => {
+                answers.push(("plan".to_owned(), money(deviation.plan), String::new()));
+                answers.push((
+                    "actual".to_owned(),
+                    money(deviation.actual.amount),
+                    cost_notes(&deviation.actual),
+                ));
+                let note = if deviation.is_favourable() {
+                    "favourable"
+                } else {
+                    "unfavourable"
+                };
+                answers.push(("delta".to_owned(), money(deviation.delta), note.to_owned()));
+            }
+            None => answers.push(("none".to_owned(), String::new(), String::new())),
+        },
+        "forecast" => {
+            let past = list(&argument)
+                .map(|range| {
+                    let (from, to) = range
+                        .split_once("..")
+                        .ok_or_else(|| format!("{range} is not from..to"))?;
+                    DateRange::new(date(from)?, date(to)?).map_err(|error| error.to_string())
+                })
+                .collect::<Outcome<Vec<_>>>()?;
+            let forecast = state.forecast(filter, &past, window()?).map_err(fail)?;
+            answers.push((String::new(), money(forecast), String::new()));
+        }
+        "can" => {
+            let (person, capability) = argument
+                .split_once(' ')
+                .ok_or_else(|| format!("{argument} is not person capability"))?;
+            let capability: Capability = word(capability)?;
+            let allowed = state.can(&value(person)?, capability, filter);
+            answers.push((allowed.to_string(), String::new(), String::new()));
+        }
+        "share_sums" => {
+            for sum in state.share_sums(date(&from)?) {
+                let note = if sum.is_over() { "over 1" } else { "" };
+                answers.push((
+                    sum.project.to_string(),
+                    sum.basis_points.to_string(),
+                    note.to_owned(),
+                ));
+            }
+        }
+        "submissions" => {
+            for submission in state.submissions() {
+                let status = match &submission.status {
+                    tokencontroller_core::SubmissionStatus::Rejected { reason } => {
+                        format!("rejected: {reason}")
+                    }
+                    other => other.as_str().to_owned(),
+                };
+                answers.push((
+                    submission.id.to_string(),
+                    String::new(),
+                    format!("{} {}; {}", submission.person, submission.window, status),
+                ));
+            }
+        }
+        "cutoff" => {
+            let cutoff = state.cutoff().map(|date| date.to_string());
+            answers.push((
+                cutoff.unwrap_or_else(|| "none".to_owned()),
+                String::new(),
+                state
+                    .frozen_as_of()
+                    .map(|moment| moment.format(&Rfc3339).unwrap_or_default())
+                    .unwrap_or_default(),
+            ));
+        }
+        "history" => {
+            for entry in state.history().map_err(fail)? {
+                answers.push((
+                    format!("{}/{}", entry.name, entry.key),
+                    money(entry.cost_so_far),
+                    entry
+                        .last_activity
+                        .map(|date| date.to_string())
+                        .unwrap_or_default(),
+                ));
+            }
+        }
+        other => return Err(format!("unknown query kind {other}")),
     }
-    organization.missing_tickets = list(setting("missing_tickets"))
-        .map(value)
-        .collect::<Outcome<_>>()?;
+    Ok(answers)
+}
 
-    let directory = &mut organization.directory;
-    for row in rows(case, "people.csv")?.unwrap_or_default() {
-        directory.people.insert(
-            value(&cell(&row, "person")?)?,
-            Person {
-                tags: tags(&cell(&row, "tags")?)?,
-                rules: Vec::new(),
-            },
-        );
+fn cost_label(label: tokencontroller_core::CostLabel) -> &'static str {
+    match label {
+        tokencontroller_core::CostLabel::Priced => "priced",
+        tokencontroller_core::CostLabel::CountError => "count error",
+        tokencontroller_core::CostLabel::UnknownModel => "unknown model",
     }
-    for row in rows(case, "projects.csv")?.unwrap_or_default() {
-        let pattern = cell(&row, "ticket_key_pattern")?;
-        directory.projects.insert(
-            value(&cell(&row, "project")?)?,
-            Project {
-                tags: tags(&cell(&row, "tags")?)?,
-                ticket_key_pattern: optional(&pattern)
-                    .map(|pattern| TicketKeyPattern::new(pattern).map_err(|e| e.to_string()))
-                    .transpose()?,
-                repositories: list(&cell(&row, "repositories")?)
-                    .map(str::to_owned)
-                    .collect(),
-            },
-        );
-    }
-    for row in rows(case, "tickets.csv")?.unwrap_or_default() {
-        directory.tickets.insert(
-            value(&cell(&row, "ticket")?)?,
-            Ticket {
-                project: optional(&cell(&row, "project")?).map(value).transpose()?,
-                parent: optional(&cell(&row, "parent")?).map(value).transpose()?,
+}
+
+/// What a cost leaves out, as a note.
+fn cost_notes(cost: &tokencontroller_core::Cost) -> String {
+    let mut notes: Vec<String> = cost
+        .count_errors
+        .iter()
+        .map(|(session, message)| format!("count error {session}/{message}"))
+        .collect();
+    notes.extend(
+        cost.unknown_models
+            .iter()
+            .map(|model| format!("unknown model {model}")),
+    );
+    notes.join("; ")
+}
+
+/// The event log of a case, from every event file it has.
+fn events(case: &Path) -> Outcome<Vec<Event>> {
+    let mut events = Vec::new();
+    let mut push = |row: &Row, record: Record| -> Outcome<()> {
+        let mut event = Event::new(
+            &cell(row, "id")?,
+            moment(&cell(row, "recorded_at")?)?,
+            record,
+        )
+        .map_err(|error| error.to_string())?;
+        if let Some(older) = row.get("supersedes").and_then(|text| optional(text)) {
+            event = event.superseding(EventId::new(older).map_err(|error| error.to_string())?);
+        }
+        events.push(event);
+        Ok(())
+    };
+    for row in rows(case, "tag_values.csv")?.unwrap_or_default() {
+        push(
+            &row,
+            Record::TagValue(TagValueRecord {
+                name: name(&cell(&row, "name")?)?,
+                key: value(&cell(&row, "key")?)?,
                 title: optional(&cell(&row, "title")?).map(str::to_owned),
-                tags: tags(&cell(&row, "tags")?)?,
+                description: None,
+                source_id: None,
+                source_status: optional(&cell(&row, "source_status")?).map(str::to_owned),
+                defaults: tags(&cell(&row, "defaults")?)?,
+            }),
+        )?;
+    }
+    for row in rows(case, "attribute_values.csv")?.unwrap_or_default() {
+        push(
+            &row,
+            Record::AttributeValue(AttributeValue {
+                name: name(&cell(&row, "name")?)?,
+                key: value(&cell(&row, "key")?)?,
+                title: None,
+                defaults: tags(&cell(&row, "defaults")?)?,
+            }),
+        )?;
+    }
+    for row in rows(case, "person_attributes.csv")?.unwrap_or_default() {
+        push(
+            &row,
+            Record::PersonAttribute(PersonAttribute {
+                person: value(&cell(&row, "person")?)?,
+                name: name(&cell(&row, "name")?)?,
+                key: value(&cell(&row, "key")?)?,
+                from: cell(&row, "from")
+                    .ok()
+                    .as_deref()
+                    .and_then(optional)
+                    .map(|text| {
+                        Date::parse(text, &time::format_description::well_known::Iso8601::DATE)
+                            .map_err(|error| format!("{text}: {error}"))
+                    })
+                    .transpose()?,
+            }),
+        )?;
+    }
+    for row in rows(case, "prices.csv")?.unwrap_or_default() {
+        push(
+            &row,
+            Record::PriceRow(PriceRow {
+                provider: cell(&row, "provider")?,
+                model: cell(&row, "model")?,
+                kind: word(&cell(&row, "kind")?)?,
+                per_million: usd(&cell(&row, "per_million")?)?,
+                valid_from: date(&cell(&row, "valid_from")?)?,
+                source: word(&cell(&row, "source")?)?,
+            }),
+        )?;
+    }
+    for row in rows(case, "messages.csv")?.unwrap_or_default() {
+        push(&row, Record::Message(Box::new(message(&row)?)))?;
+    }
+    for row in rows(case, "splits.csv")?.unwrap_or_default() {
+        let session_id = session(&cell(&row, "session")?)?;
+        let target = match optional(&cell(&row, "message")?) {
+            Some(message) => SplitTarget::Message {
+                session_id,
+                message_id: MessageId::new(message).map_err(|error| error.to_string())?,
             },
-        );
+            None => SplitTarget::Session(session_id),
+        };
+        push(
+            &row,
+            Record::Split(Split {
+                target,
+                parts: parts(&cell(&row, "parts")?)?,
+            }),
+        )?;
+    }
+    more_events(case, &mut push)?;
+    Ok(events)
+}
+
+/// The rest of the event files: bills, plans, access, rules and the other
+/// events.
+fn more_events(case: &Path, push: &mut dyn FnMut(&Row, Record) -> Outcome<()>) -> Outcome<()> {
+    for row in rows(case, "bills.csv")?.unwrap_or_default() {
+        push(
+            &row,
+            Record::Bill(Bill {
+                provider: cell(&row, "provider")?,
+                range: range(&row)?,
+                amount: usd(&cell(&row, "amount")?)?,
+            }),
+        )?;
+    }
+    for row in rows(case, "estimates.csv")?.unwrap_or_default() {
+        push(
+            &row,
+            Record::Estimate(Estimate {
+                description: cell(&row, "description")?,
+                tags: tags(&cell(&row, "tags")?)?,
+                distribution: Distribution::point(usd(&cell(&row, "median")?)?),
+                markup_basis_points: match cell(&row, "markup_basis_points")?.as_str() {
+                    "" => 0,
+                    text => number(text)?,
+                },
+                estimator: cell(&row, "estimator")?,
+                range: range(&row)?,
+            }),
+        )?;
+    }
+    for row in rows(case, "accepts.csv")?.unwrap_or_default() {
+        push(
+            &row,
+            Record::Accept(Accept {
+                estimate: EventId::new(&cell(&row, "estimate")?)
+                    .map_err(|error| error.to_string())?,
+            }),
+        )?;
+    }
+    for row in rows(case, "shares.csv")?.unwrap_or_default() {
+        push(
+            &row,
+            Record::Share(Share {
+                person: value(&cell(&row, "person")?)?,
+                project: value(&cell(&row, "project")?)?,
+                fraction_basis_points: number(&cell(&row, "fraction_basis_points")?)?,
+                from: date(&cell(&row, "from")?)?,
+                to: optional(&cell(&row, "to")?).map(date).transpose()?,
+            }),
+        )?;
+    }
+    for row in rows(case, "grants.csv")?.unwrap_or_default() {
+        push(
+            &row,
+            Record::Grant(Grant {
+                person: value(&cell(&row, "person")?)?,
+                capability: word(&cell(&row, "capability")?)?,
+                filter: Filter(tags(&cell(&row, "filter")?)?),
+            }),
+        )?;
     }
     for row in rows(case, "rules.csv")?.unwrap_or_default() {
-        let rule = rule(&row)?;
-        match cell(&row, "owner")?.as_str() {
-            "organization" => organization.rules.push(rule),
-            person => organization
-                .directory
-                .people
-                .get_mut(&value(person)?)
-                .ok_or_else(|| format!("rule {} belongs to unknown person {person}", rule.name))?
-                .rules
-                .push(rule),
-        }
+        push(&row, Record::Rule(rule(&row)?))?;
     }
-    Ok(organization)
+    for row in rows(case, "cutoffs.csv")?.unwrap_or_default() {
+        push(&row, Record::Cutoff(date(&cell(&row, "date")?)?))?;
+    }
+    for row in rows(case, "submits.csv")?.unwrap_or_default() {
+        push(
+            &row,
+            Record::Submit(Submit {
+                person: value(&cell(&row, "person")?)?,
+                window: range(&row)?,
+            }),
+        )?;
+    }
+    for row in rows(case, "approvals.csv")?.unwrap_or_default() {
+        let decision = match cell(&row, "decision")?.as_str() {
+            "approved" => Decision::Approved,
+            "rejected" => Decision::Rejected {
+                reason: cell(&row, "reason")?,
+            },
+            other => return Err(format!("unknown decision {other}")),
+        };
+        push(
+            &row,
+            Record::Approval(Approval {
+                submission: EventId::new(&cell(&row, "submission")?)
+                    .map_err(|error| error.to_string())?,
+                decision,
+            }),
+        )?;
+    }
+    for row in rows(case, "reversals.csv")?.unwrap_or_default() {
+        push(
+            &row,
+            Record::Reversal(EventId::new(&cell(&row, "of")?).map_err(|error| error.to_string())?),
+        )?;
+    }
+    Ok(())
 }
 
-/// A rule from `owner,name,when,then`. `when` holds conditions such as
-/// `branch starts_with review/`, separated by `;`. `then` is
-/// `set name=value;...`, `ticket_key_in SOURCE` or `repository_project`.
-fn rule(row: &Row) -> Outcome<Rule> {
-    let when = list(&cell(row, "when")?)
-        .map(|condition| {
-            let mut words = condition.splitn(3, ' ');
-            let signal = words.next().unwrap_or_default();
-            let test = words.next().unwrap_or_default();
-            let test = match words.next() {
-                Some(argument) => {
-                    let mut test_with_argument = serde_json::Map::new();
-                    test_with_argument.insert(test.to_owned(), argument.into());
-                    serde_json::Value::Object(test_with_argument)
-                }
-                None => serde_json::json!(test),
-            };
-            Ok(serde_json::json!({ "signal": signal, "test": test }))
+/// A message from a row of `messages.csv`. Counts all empty means no
+/// counts.
+fn message(row: &Row) -> Outcome<Message> {
+    let count = |kind: &str| -> Outcome<Option<u64>> {
+        optional(&cell(row, kind)?).map(number).transpose()
+    };
+    let counts = [
+        count("input")?,
+        count("output")?,
+        count("cache_write")?,
+        count("cache_read")?,
+    ];
+    let tokens = if counts.iter().all(Option::is_none) {
+        None
+    } else {
+        let at = |index: usize| counts.get(index).copied().flatten().unwrap_or(0);
+        Some(TokenCounts {
+            input: at(0),
+            output: at(1),
+            cache_write: at(2),
+            cache_read: at(3),
         })
-        .collect::<Outcome<Vec<_>>>()?;
-    let then = cell(row, "then")?;
-    let then = match then.split_once(' ') {
-        Some(("set", pairs)) => serde_json::json!({ "set_tags": tags(pairs)? }),
-        Some(("ticket_key_in", source)) => serde_json::json!({ "ticket_key_in": source }),
-        _ => serde_json::json!(then),
     };
-    serde_json::from_value(serde_json::json!({
-        "name": cell(row, "name")?,
-        "when": when,
-        "then": then,
-    }))
-    .map_err(|error| format!("rule {row:?}: {error}"))
-}
-
-/// The price table of the version the period closes with: every row of
-/// `prices.csv` up to that version, later rows replacing earlier ones. Prices
-/// are in USD, as published.
-fn price_table(case: &Path, version: &str) -> Outcome<PriceTable> {
-    let mut by_version: BTreeMap<u32, Vec<Row>> = BTreeMap::new();
-    for row in rows(case, "prices.csv")?.unwrap_or_default() {
-        let number: u32 = cell(&row, "version")?
-            .parse()
-            .map_err(|error| format!("version: {error}"))?;
-        by_version.entry(number).or_default().push(row);
-    }
-    let mut table = PriceTable::new(Currency::USD);
-    let mut history: Option<History<PriceTable>> = None;
-    for rows in by_version.values() {
-        for row in rows {
-            let price = |kind: &str| -> Outcome<Money> {
-                Money::parse(&cell(row, kind)?, Currency::USD).map_err(|error| error.to_string())
-            };
-            table
-                .insert(
-                    model(&cell(row, "model")?)?,
-                    ModelPrice {
-                        input: price("input")?,
-                        output: price("output")?,
-                        cache_write: price("cache_write")?,
-                        cache_read: price("cache_read")?,
-                    },
-                )
-                .map_err(|error| error.to_string())?;
-        }
-        match &mut history {
-            Some(history) => {
-                history.record(table.clone());
-            }
-            None => history = Some(History::new(table.clone())),
-        }
-    }
-    let Some(history) = history else {
-        return Ok(table);
+    let signals = tokencontroller_core::Signals {
+        branch: optional(&cell(row, "branch")?).map(str::to_owned),
+        prompt_keys: cell(row, "prompt_keys")?
+            .split(' ')
+            .filter(|key| !key.is_empty())
+            .map(str::to_owned)
+            .collect(),
+        ..tokencontroller_core::Signals::default()
     };
-    match version {
-        "" => Ok(history.current().1.clone()),
-        number => {
-            let number: u32 = number
-                .parse()
-                .map_err(|error| format!("price_version: {error}"))?;
-            Version::new(number)
-                .and_then(|version| history.get(version))
-                .cloned()
-                .ok_or_else(|| format!("no price table version {number}"))
-        }
-    }
-}
-
-/// The token entries with the bill each is charged on, from
-/// `token_entries.csv` and `messages.csv`.
-fn token_entries(case: &Path, currency: Currency) -> Outcome<Vec<(String, String, TokenEntry)>> {
-    let mut messages: BTreeMap<String, Vec<Row>> = BTreeMap::new();
-    for row in rows(case, "messages.csv")?.unwrap_or_default() {
-        messages.entry(cell(&row, "entry")?).or_default().push(row);
-    }
-    let mut entries = Vec::new();
-    for row in rows(case, "token_entries.csv")?.ok_or("token_entries.csv is missing")? {
-        let id = cell(&row, "entry")?;
-        let started_at = moment(&cell(&row, "started_at")?)?;
-        let session =
-            SessionId::new(&format!("session-{id}")).map_err(|error| error.to_string())?;
-        let signals = signals(&cell(&row, "signals")?)?;
-        let own = messages.remove(&id).unwrap_or_default();
-        let (totals, calls): (Vec<&Row>, Vec<&Row>) = own
-            .iter()
-            .partition(|row| row.get("message").is_none_or(String::is_empty));
-        let segments = if calls.is_empty() {
-            let usage = totals
-                .into_iter()
-                .map(|row| usage(row, currency))
-                .collect::<Outcome<Vec<_>>>()?;
-            if usage.is_empty() {
-                Vec::new()
-            } else {
-                vec![Segment {
-                    signals: signals.clone(),
-                    usage,
-                }]
-            }
-        } else if totals.is_empty() {
-            let calls = calls
-                .into_iter()
-                .map(|row| {
-                    let message_signals = message_signals(&cell(row, "signals")?)?;
-                    Ok(Message {
-                        session_id: session.clone(),
-                        message_id: MessageId::new(&cell(row, "message")?)
-                            .map_err(|error| error.to_string())?,
-                        request_id: None,
-                        at: moment(&cell(row, "at")?)?,
-                        usage: usage(row, currency)?,
-                        signals: message_signals,
-                    })
-                })
-                .collect::<Outcome<Vec<_>>>()?;
-            TokenEntry::segments_from_messages(&signals, calls)
-        } else {
-            return Err(format!("entry {id} has both messages and totals"));
-        };
-        let ended_at = own
-            .iter()
-            .filter_map(|row| optional(row.get("at").map_or("", String::as_str)))
-            .map(moment)
-            .collect::<Outcome<Vec<_>>>()?
-            .into_iter()
-            .max()
-            .unwrap_or(started_at);
-        let entry = TokenEntry {
-            agent_harness: cell(&row, "agent_harness")?,
-            agent_name: optional(&cell(&row, "agent_name")?).map(str::to_owned),
-            agent_manager: optional(&cell(&row, "person")?).map(value).transpose()?,
-            session_id: Some(session),
-            started_at,
-            ended_at,
-            summary: optional(&cell(&row, "summary")?).map(str::to_owned),
-            arrival: word(&cell(&row, "arrival")?)?,
-            status: word(&cell(&row, "status")?)?,
-            tags: tags(&cell(&row, "tags")?)?,
-            configured: tags(&cell(&row, "configured")?)?,
-            signals,
-            segments,
-            hand_split: hand_split(&cell(&row, "hand_split")?)?,
-        };
-        entries.push((id, cell(&row, "bill")?, entry));
-    }
-    if let Some(entry) = messages.keys().next() {
-        return Err(format!("messages.csv names unknown entry {entry}"));
-    }
-    Ok(entries)
-}
-
-/// One message's or one entry's usage.
-fn usage(row: &Row, currency: Currency) -> Outcome<Usage> {
-    let count = |kind: &str| -> Outcome<u64> {
-        match row.get(kind).map_or("", String::as_str) {
-            "" => Ok(0),
-            text => text.parse().map_err(|error| format!("{kind}: {error}")),
-        }
-    };
-    let money = |column: &str| -> Outcome<Option<Money>> {
-        optional(row.get(column).map_or("", String::as_str))
-            .map(|text| Money::parse(text, currency).map_err(|error| error.to_string()))
-            .transpose()
-    };
-    Ok(Usage {
-        model: model(&cell(row, "model")?)?,
-        tokens: TokenCounts {
-            input: count("input")?,
-            output: count("output")?,
-            cache_write: count("cache_write")?,
-            cache_read: count("cache_read")?,
-        },
-        reported_cost: money("reported_cost")?,
-        billed_cost: money("billed_cost")?,
+    Ok(Message {
+        session_id: session(&cell(row, "session")?)?,
+        message_id: MessageId::new(&cell(row, "message")?).map_err(|error| error.to_string())?,
+        person: value(&cell(row, "person")?)?,
+        model: ModelRef::new(&cell(row, "provider")?, &cell(row, "model")?),
+        tokens,
+        at: moment(&cell(row, "at")?)?,
+        agent_harness: cell(row, "agent_harness")?,
+        agent_name: optional(&cell(row, "agent_name")?).map(str::to_owned),
+        reported_cost: optional(&cell(row, "reported_cost")?)
+            .map(usd)
+            .transpose()?,
+        tags: tags(&cell(row, "tags")?)?,
+        signals,
+        session: tokencontroller_core::SessionFacts::default(),
     })
 }
 
-/// The cost sheet as CSV, with a block per row of `bills.csv`.
-fn cost_sheet(
-    case: &Path,
-    organization: &Organization,
-    period: Period,
-    settings: &BTreeMap<String, String>,
-    splits: &[(String, Status, Period, Vec<Split>)],
-) -> Outcome<String> {
-    let currency = organization.reporting_currency;
-    let mut bills: Vec<Bill> = Vec::new();
-    for row in rows(case, "bills.csv")?.unwrap_or_default() {
-        let id = cell(&row, "bill")?;
-        let bill_currency =
-            Currency::new(&cell(&row, "currency")?).map_err(|error| error.to_string())?;
-        let amount = |column: &str| -> Outcome<Money> {
-            Money::parse(&cell(&row, column)?, bill_currency).map_err(|error| error.to_string())
-        };
-        bills.push(Bill {
-            id,
-            provider: cell(&row, "provider")?,
-            cost_source: word(&cell(&row, "cost_source")?)?,
-            period: Period::parse(&cell(&row, "period")?).map_err(|error| error.to_string())?,
-            gross: amount("gross")?,
-            discount: amount("discount")?,
-            credit: amount("credit")?,
-            net: amount("net")?,
-            exchange_rate: optional(&cell(&row, "rate")?)
-                .map(|rate| {
-                    ExchangeRate::new(bill_currency, currency, rate)
-                        .map_err(|error| error.to_string())
-                })
-                .transpose()?,
-            revision: match cell(&row, "revision")?.as_str() {
-                "" => 1,
-                text => text.parse().map_err(|error| format!("revision: {error}"))?,
-            },
-        });
-    }
-    if let Some((bill, _, _, _)) = splits
-        .iter()
-        .find(|(bill, _, _, _)| !bill.is_empty() && !bills.iter().any(|known| known.id == *bill))
-    {
-        return Err(format!("an entry names bill {bill}, which bills.csv lacks"));
-    }
-    // Entries on no bill, such as usage on a seat plan, are not on the cost
-    // sheet.
-    let blocks = bills
-        .iter()
-        .map(|bill| BlockRequest {
-            bill,
-            splits: splits
-                .iter()
-                .filter(|(entry_bill, status, entry_period, _)| {
-                    *entry_bill == bill.id
-                        && status.counts(organization.approval)
-                        && *entry_period == period
-                })
-                .flat_map(|(_, _, _, splits)| splits)
-                .collect(),
-        })
-        .collect();
-    let adjustments = rows(case, "adjustments.csv")?
-        .unwrap_or_default()
-        .iter()
-        .map(|row| {
-            Ok(Adjustment {
-                period,
-                tags: tags(&cell(row, "tags")?)?,
-                amount: Money::parse(&cell(row, "amount")?, currency)
-                    .map_err(|error| error.to_string())?,
-                reason: cell(row, "reason")?,
-                posted_by: value(&cell(row, "posted_by")?)?,
-                posted_at: moment(&cell(row, "posted_at")?)?,
-                late: cell(row, "late")? == "true",
+/// A rule from `name,scope,order,signal,pattern,then`. `scope` is
+/// `organization` or a person. `signal` is a word, or `config NAME` or
+/// `resource NAME`. `then` is `tag name=key` or `key_of name`.
+fn rule(row: &Row) -> Outcome<Rule> {
+    let scope = match cell(row, "scope")?.as_str() {
+        "organization" => Scope::Organization,
+        person => Scope::Person(value(person)?),
+    };
+    let signal_text = cell(row, "signal")?;
+    let signal = match signal_text.split_once(' ') {
+        Some(("config", name)) => Signal::Config(name.to_owned()),
+        Some(("resource", name)) => Signal::Resource(name.to_owned()),
+        _ => word(&signal_text)?,
+    };
+    let then_text = cell(row, "then")?;
+    let then = match then_text.split_once(' ') {
+        Some(("tag", pair)) => {
+            let (tag_name, key) = pair
+                .split_once('=')
+                .ok_or_else(|| format!("{pair} is not name=key"))?;
+            Then::Tag {
+                name: name(tag_name)?,
+                key: value(key)?,
+            }
+        }
+        Some(("key_of", tag_name)) => Then::KeyOf {
+            name: name(tag_name)?,
+        },
+        _ => return Err(format!("{then_text} is not tag name=key or key_of name")),
+    };
+    Ok(Rule {
+        name: cell(row, "name")?,
+        scope,
+        order: number(&cell(row, "order")?)?,
+        signal,
+        pattern: TextPattern::new(&cell(row, "pattern")?).map_err(|error| error.to_string())?,
+        then,
+    })
+}
+
+/// Split parts written as `60 feature=KD-1|40 feature=KD-2`.
+fn parts(text: &str) -> Outcome<Vec<SplitPart>> {
+    text.split('|')
+        .map(str::trim)
+        .filter(|part| !part.is_empty())
+        .map(|part| {
+            let (weight, part_tags) = part.split_once(' ').unwrap_or((part, ""));
+            Ok(SplitPart {
+                weight: number(weight)?,
+                tags: tags(part_tags)?,
             })
         })
-        .collect::<Outcome<Vec<_>>>()?;
-    let columns = list(settings.get("columns").map_or("", String::as_str))
-        .map(name)
-        .collect::<Outcome<Vec<_>>>()?;
-    CostSheet::build(&CostSheetRequest {
-        period,
-        reporting_currency: currency,
-        tag_map: &organization.tag_map,
-        columns: &columns,
-        blocks,
-        adjustments: &adjustments,
-    })
-    .map_err(|error| error.to_string())?
-    .to_csv()
-    .map_err(|error| error.to_string())
-}
-
-/// `reports.csv`: for each filter and grouping it names, in order, what the
-/// splits come to by value, with an empty value for splits without the tag.
-/// An empty grouping gives the filter's total.
-fn reports(case: &Path, items: &[(&Tags, Money)], currency: Currency) -> Outcome<Option<String>> {
-    let Some(expected) = rows(case, "reports.csv")? else {
-        return Ok(None);
-    };
-    let mut asked: Vec<(String, String)> = Vec::new();
-    for row in expected {
-        let key = (cell(&row, "filter")?, cell(&row, "group_by")?);
-        if !asked.contains(&key) {
-            asked.push(key);
-        }
-    }
-    let mut text = String::from("filter,group_by,value,amount\n");
-    for (filter, by) in asked {
-        let tag_filter = Filter(tags(&filter)?);
-        let groups = match by.as_str() {
-            "" => vec![(
-                None,
-                actual(items.iter().copied(), &tag_filter, currency)
-                    .map_err(|error| error.to_string())?,
-            )],
-            by => group_by(items.iter().copied(), &tag_filter, &name(by)?, currency)
-                .map_err(|error| error.to_string())?,
-        };
-        for (group, amount) in groups {
-            let _ignored = writeln!(
-                text,
-                "{filter},{by},{},{}",
-                group.map(|group| group.to_string()).unwrap_or_default(),
-                exact(amount)
-            );
-        }
-    }
-    Ok(Some(text))
-}
-
-/// `budgets.csv`: each token budget next to what its filter matches.
-fn budgets(
-    case: &Path,
-    items: &[(&Tags, Money)],
-    period: Period,
-    currency: Currency,
-) -> Outcome<Option<String>> {
-    let Some(expected) = rows(case, "budgets.csv")? else {
-        return Ok(None);
-    };
-    let mut text = String::from("filter,budget,actual,difference,outcome\n");
-    for row in expected {
-        let filter = cell(&row, "filter")?;
-        let budget = TokenBudget {
-            filter: Filter(tags(&filter)?),
-            period,
-            amount: Money::parse(&cell(&row, "budget")?, currency)
-                .map_err(|error| error.to_string())?,
-        };
-        let compared = budget
-            .compare(items.iter().copied())
-            .map_err(|error| error.to_string())?;
-        let outcome = serde_json::to_value(compared.outcome).map_err(|error| error.to_string())?;
-        let _ignored = writeln!(
-            text,
-            "{filter},{},{},{},{}",
-            exact(compared.budget),
-            exact(compared.actual),
-            exact(compared.difference),
-            outcome.as_str().unwrap_or_default()
-        );
-    }
-    Ok(Some(text))
+        .collect()
 }
 
 /// The rows of a CSV file in the case, or `None` if it has no such file.
@@ -634,6 +652,10 @@ fn value(text: &str) -> Outcome<TagValue> {
     TagValue::new(text).map_err(|error| error.to_string())
 }
 
+fn session(text: &str) -> Outcome<SessionId> {
+    SessionId::new(text).map_err(|error| error.to_string())
+}
+
 /// Tags written as `name=value` pairs separated by `;`.
 fn tags(text: &str) -> Outcome<Tags> {
     Tags::parse(list(text)).map_err(|error| error.to_string())
@@ -647,91 +669,36 @@ fn tag_list(tags: &Tags) -> String {
         .join(";")
 }
 
-/// A model written as `provider/model`.
-fn model(text: &str) -> Outcome<ModelRef> {
-    let (provider, model) = text
-        .split_once('/')
-        .ok_or_else(|| format!("model {text} is not provider/model"))?;
-    Ok(ModelRef::new(provider, model))
+fn usd(text: &str) -> Outcome<Money> {
+    Money::parse(text, tokencontroller_core::Currency::USD).map_err(|error| error.to_string())
 }
 
 fn moment(text: &str) -> Outcome<OffsetDateTime> {
     OffsetDateTime::parse(text, &Rfc3339).map_err(|error| format!("{text}: {error}"))
 }
 
-/// An enum value written the way its JSON spells it, such as `submitted`.
-fn word<T: DeserializeOwned>(text: &str) -> Outcome<T> {
-    serde_json::from_value(serde_json::Value::String(text.to_owned()))
-        .map_err(|error| format!("{text}: {error}"))
+fn date(text: &str) -> Outcome<Date> {
+    let format = time::macros::format_description!("[year]-[month]-[day]");
+    Date::parse(text, &format).map_err(|error| format!("{text}: {error}"))
 }
 
-/// A session's signals, written as `name=value` pairs separated by `;`.
-/// Ticket key lists are separated by spaces.
-fn signals(text: &str) -> Outcome<Signals> {
-    let mut signals = Signals::default();
-    for (key, value) in pairs(text)? {
-        let keys = || value.split(' ').map(str::to_owned).collect::<Vec<_>>();
-        match key {
-            "branch" => signals.branch = Some(value.to_owned()),
-            "working_directory" => signals.working_directory = Some(value.to_owned()),
-            "repository" => signals.repository = Some(value.to_owned()),
-            "pull_request" => signals.pull_request = Some(number(value)?),
-            "subagent_type" => signals.subagent_type = Some(value.to_owned()),
-            "prompt_keys" => signals.prompt_ticket_keys = keys(),
-            "session_title_keys" => signals.session_title_ticket_keys = keys(),
-            "pull_request_title_keys" => signals.pull_request_title_ticket_keys = keys(),
-            other => return Err(format!("unknown signal {other}")),
-        }
-    }
-    Ok(signals)
+/// The `from` and `to` columns as a range.
+fn range(row: &Row) -> Outcome<DateRange> {
+    DateRange::new(date(&cell(row, "from")?)?, date(&cell(row, "to")?)?)
+        .map_err(|error| error.to_string())
 }
 
-/// One message's signals, written like a session's.
-fn message_signals(text: &str) -> Outcome<MessageSignals> {
-    let mut signals = MessageSignals::default();
-    for (key, value) in pairs(text)? {
-        match key {
-            "branch" => signals.branch = Some(value.to_owned()),
-            "working_directory" => signals.working_directory = Some(value.to_owned()),
-            "repository" => signals.repository = Some(value.to_owned()),
-            "pull_request" => signals.pull_request = Some(number(value)?),
-            "subagent_type" => signals.subagent_type = Some(value.to_owned()),
-            "prompt_keys" => {
-                signals.prompt_ticket_keys = value.split(' ').map(str::to_owned).collect();
-            }
-            other => return Err(format!("unknown message signal {other}")),
-        }
-    }
-    Ok(signals)
-}
-
-fn pairs(text: &str) -> Outcome<Vec<(&str, &str)>> {
-    list(text)
-        .map(|pair| {
-            pair.split_once('=')
-                .map(|(key, value)| (key.trim(), value.trim()))
-                .ok_or_else(|| format!("{pair} is not name=value"))
-        })
-        .collect()
-}
-
-fn number(text: &str) -> Outcome<u64> {
+fn number<T: std::str::FromStr>(text: &str) -> Outcome<T>
+where
+    T::Err: std::fmt::Display,
+{
     text.parse().map_err(|error| format!("{text}: {error}"))
 }
 
-/// A split by hand, such as `60 ticket=ACME-50|40 ticket=GLOBEX-7`.
-fn hand_split(text: &str) -> Outcome<Vec<HandShare>> {
-    text.split('|')
-        .map(str::trim)
-        .filter(|share| !share.is_empty())
-        .map(|share| {
-            let (weight, share_tags) = share.split_once(' ').unwrap_or((share, ""));
-            Ok(HandShare {
-                weight: number(weight)?,
-                tags: tags(share_tags)?,
-            })
-        })
-        .collect()
+/// An enum value written the way its JSON spells it, such as `input`.
+fn word<T: DeserializeOwned>(text: &str) -> Outcome<T> {
+    serde_json::from_value(serde_json::Value::String(text.to_owned()))
+        .map_err(|error| format!("{text}: {error}"))
 }
 
 /// An amount with every digit it has, at least to the cent, such as
@@ -752,4 +719,105 @@ fn exact(money: Money) -> String {
         digits
     };
     format!("{sign}{units}.{digits}")
+}
+
+#[cfg(test)]
+mod helper_tests {
+    use super::*;
+
+    #[test]
+    fn amounts_are_written_with_every_digit_they_have() {
+        assert_eq!(exact(usd("52.98").unwrap()), "52.98");
+        assert_eq!(exact(usd("0.0015").unwrap()), "0.0015");
+        assert_eq!(exact(usd("-567.5").unwrap()), "-567.50");
+        assert_eq!(exact(usd("0").unwrap()), "0.00");
+        assert_eq!(exact(usd("1000").unwrap()), "1000.00");
+    }
+
+    #[test]
+    fn split_parts_read_weights_and_tags() {
+        let two = parts("60 feature=KD-1|40 feature=KD-2").unwrap();
+        assert_eq!(two.len(), 2);
+        assert_eq!(two.first().unwrap().weight, 60);
+        assert_eq!(
+            two.get(1)
+                .unwrap()
+                .tags
+                .get_str("feature")
+                .unwrap()
+                .as_str(),
+            "KD-2"
+        );
+        let whole = parts("1").unwrap();
+        assert!(whole.first().unwrap().tags.is_empty());
+        assert!(parts("x feature=KD-1").is_err());
+    }
+
+    #[test]
+    fn rules_read_their_scope_signal_and_action() {
+        let row: Row = [
+            ("name", "feature key in branch"),
+            ("scope", "organization"),
+            ("order", "10"),
+            ("signal", "branch"),
+            ("pattern", r"KD-\d+"),
+            ("then", "key_of feature"),
+        ]
+        .into_iter()
+        .map(|(key, value)| (key.to_owned(), value.to_owned()))
+        .collect();
+        let read = rule(&row).unwrap();
+        assert_eq!(read.scope, Scope::Organization);
+        assert_eq!(read.signal, Signal::Branch);
+        assert_eq!(
+            read.then,
+            Then::KeyOf {
+                name: TagName::feature()
+            }
+        );
+        let mut personal = row.clone();
+        personal.insert("scope".to_owned(), "tom".to_owned());
+        personal.insert("signal".to_owned(), "config project".to_owned());
+        personal.insert("then".to_owned(), "tag project=shop".to_owned());
+        let read = rule(&personal).unwrap();
+        assert_eq!(read.scope, Scope::Person(TagValue::new("tom").unwrap()));
+        assert_eq!(read.signal, Signal::Config("project".to_owned()));
+        assert!(matches!(read.then, Then::Tag { .. }));
+        let mut broken = row;
+        broken.insert("then".to_owned(), "nothing".to_owned());
+        assert!(rule(&broken).is_err());
+    }
+
+    #[test]
+    fn a_message_without_any_count_has_no_counts() {
+        let row: Row = [
+            ("session", "S1"),
+            ("message", "1"),
+            ("person", "mara"),
+            ("provider", "anthropic"),
+            ("model", "claude-sonnet-4-5"),
+            ("at", "2026-03-02T10:00:00Z"),
+            ("input", ""),
+            ("output", ""),
+            ("cache_write", ""),
+            ("cache_read", ""),
+            ("agent_harness", "claude-code"),
+            ("agent_name", ""),
+            ("reported_cost", ""),
+            ("tags", ""),
+            ("branch", ""),
+            ("prompt_keys", "KD-1 KD-2"),
+        ]
+        .into_iter()
+        .map(|(key, value)| (key.to_owned(), value.to_owned()))
+        .collect();
+        let none = message(&row).unwrap();
+        assert_eq!(none.tokens, None);
+        assert_eq!(none.signals.prompt_keys, vec!["KD-1", "KD-2"]);
+        let mut some = row;
+        some.insert("output".to_owned(), "5".to_owned());
+        let counts = message(&some).unwrap().tokens.unwrap();
+        assert_eq!(counts.input, 0);
+        assert_eq!(counts.output, 5);
+    }
 }

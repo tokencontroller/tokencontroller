@@ -1,3 +1,0 @@
-bill,provider,cost_source,period,currency,gross,discount,credit,net,rate,revision
-openai-2026-10,openai,api_key,2026-10,USD,12.00,0,0,12.00,,1
-anthropic-2026-10,anthropic,api_key,2026-10,USD,14.00,0,0,14.00,,2

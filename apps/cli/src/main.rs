@@ -1,26 +1,24 @@
 //! `tc`, the Token Controller command line (ADR 0010, ADR 0017).
 //!
-//! It reads the session files of Claude Code and Codex on this machine, keeps
-//! draft token entries in a local `SQLite` file, places them with the rules,
-//! asks the optional classifier, and submits token sheets over the public
-//! API. It works with no service connected. There is no background process:
-//! each command reads what is new and then does its job.
+//! It reads the session files of Claude Code and Codex on this machine,
+//! keeps an event log in a local `SQLite` file, folds it with the accounting
+//! core to split every session with the rules, and submits the person's
+//! messages over the public API. It works with no service connected. There
+//! is no background process: each command reads what is new and then does
+//! its job.
 
 mod amounts;
 mod api;
 mod app;
-mod classifier;
 mod cli;
 mod commands;
 mod context;
-mod entries;
 mod error;
 mod folders;
 mod home;
 mod keys;
+mod log;
 mod output;
-mod placing;
-mod prices;
 mod repo;
 mod sources;
 mod store;

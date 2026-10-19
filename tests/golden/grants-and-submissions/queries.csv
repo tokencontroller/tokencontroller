@@ -1,0 +1,13 @@
+as_of,kind,filter,from,to,argument
+2026-04-01T12:00:00Z,can,client=acme,,,lea view
+2026-04-01T12:00:00Z,can,client=acme;project=shop,,,lea view
+2026-04-01T12:00:00Z,can,project=shop,,,lea view
+2026-04-01T12:00:00Z,can,person=tom,,,tom view
+2026-04-01T12:00:00Z,can,person=mara,,,tom view
+2026-04-01T12:00:00Z,can,,,,tom record
+2026-04-01T12:00:00Z,can,,,,jan adjust
+2026-04-01T12:00:00Z,can,,,,jan cutoff
+2026-04-01T12:00:00Z,can,,,,jan assign
+2026-04-01T12:00:00Z,submissions,,,,
+2026-04-05T00:00:00Z,submissions,,,,
+2026-04-05T00:00:00Z,can,client=acme,,,lea view

@@ -1,0 +1,10 @@
+as_of,kind,filter,from,to,argument,key,amount,note
+2026-04-05T00:00:00Z,lines,,,,,S0/1#0,50.00,default; organization overhead; department=engineering;person=tom;team=web
+2026-04-05T00:00:00Z,lines,,,,,S4/1#0,150.00,rule; direct; client=acme;department=engineering;feature=KD-2;person=tom;project=shop;team=web
+2026-04-05T00:00:00Z,lines,,,,,S6/1#0,10.00,default; organization overhead; department=engineering;person=tom;team=web
+2026-04-05T00:00:00Z,by,,2026-03-01,2026-03-31,feature,,10.00,
+2026-04-05T00:00:00Z,by,,2026-03-01,2026-03-31,feature,KD-2,150.00,
+2026-04-05T00:00:00Z,by,,2026-02-01,2026-02-28,feature,,50.00,
+2026-04-05T00:00:00Z,by_label,,2026-03-01,2026-03-31,,direct,150.00,
+2026-04-05T00:00:00Z,by_label,,2026-03-01,2026-03-31,,project overhead,0.00,
+2026-04-05T00:00:00Z,by_label,,2026-03-01,2026-03-31,,organization overhead,10.00,

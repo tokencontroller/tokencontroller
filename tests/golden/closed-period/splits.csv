@@ -1,7 +1,0 @@
-entry,tags,amount,placed_by,notes
-1,person=mara;project=storefront;team=web;ticket=KD-214,7.50,rule: ticket key in branch,
-2,person=mara;project=storefront;team=web;ticket=KD-240,10.50,rule: ticket key in branch,
-3,person=tom;project=storefront;team=web;ticket=KD-231,0.00,rule: ticket key in branch,unknown model openai/new-model
-4,,1.20,no ticket,
-5,person=lena;project=storefront;team=data;ticket=KD-214,3.00,rule: ticket key in branch,
-6,person=lena;team=data,6.00,no ticket,
