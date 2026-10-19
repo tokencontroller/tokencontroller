@@ -13,15 +13,15 @@ Version numbers follow semantic versioning. A new major version can change the A
 
 First release.
 
-- The [Claude Code mod](/collect/claude-code) and the [CLI](/collect/cli), `tc`, which read session files, place token entries with your rules and submit token sheets.
+- The [Claude Code mod](/collect/claude-code) and the [CLI](/collect/cli), `tc`, which read session files, split sessions with your rules and submit.
 - [Telemetry ingest](/collect/telemetry) over OpenTelemetry for Claude Code, Codex CLI, Gemini CLI, Copilot CLI and Cursor.
-- The [token entries endpoint](/collect/token-entries) for any other agent, and [token entries by hand or from a CSV file](/collect/manual).
+- The [token entries endpoint](/collect/token-entries) for any other agent, and [messages by hand or from a CSV file](/collect/manual).
 - The [GitHub Action](/collect/github-action) for agents that run in CI, such as a PR review bot.
-- [Rules](/attribute/rules), [repository mappings](/account/projects#repositories) and [ticket key patterns](/account/projects#ticket-keys) that place token entries on tickets and projects, and an optional [classifier](/attribute/classifier) on your own machine.
+- [Rules](/attribute/rules) over signals that split sessions onto features and projects.
 - [Bills](/account/bills) from Anthropic and OpenAI, and any bill by CSV.
-- Ticket sync from [Jira Cloud](/account/projects#jira), [Azure DevOps](/account/projects#azure-devops) and [GitHub Issues](/account/projects#github-issues).
-- [Token budgets and token estimates](/account/token-budgets), compared with actual cost.
-- [Approval](/account/cadence#approval), the [close](/account/close), [adjustments](/account/close#adjustments) and the [cost sheet](/account/close#cost-sheet).
-- [Reports](/report/reports) by person, team and any tag and by client, project and ticket, [tags](/account/tags) with a tag map for the cost center and the cost object, the [outliers](/report/reports#outliers) report and the [agent harness](/report/reports#agent-harness) report.
+- Feature sync from [Jira Cloud](/account/tags#jira).
+- [Estimates and plans](/account/estimates), with [deviation and forecast](/report/deviation).
+- [Submit and approval](/account/submit), the [cutoff](/account/cutoff) and the [price table](/account/price-table).
+- [Reports](/report/reports) as the cost of any filter of [tags](/account/tags) and [attributes](/account/attributes), as of any date, and the [agent harness](/report/reports#agent-harness) report.
 - [CSV exports](/report/exports), the [reporting API](/report/exports#reporting-api) and the [raw export](/report/exports#raw-export).
 - The [self-hosted Docker image](/self-hosting): the same product as the hosted Team plan, from the same open code.

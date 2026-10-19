@@ -1,51 +1,77 @@
 ---
 title: "Data model"
-description: "The records Token Controller keeps and the rules that hold between them."
+description: "The ten record types, the events, and the eleven formulas every figure is computed with."
 ---
 
-The records Token Controller keeps, and the rules that hold between them. The terms are defined in the [glossary](/glossary); [How it works](/concepts) shows them together.
+An organization is an append-only log of events. The records below are what the log holds; the formulas are how every figure is computed from it, as of a date. The terms are in the [glossary](/glossary); [How it works](/concepts) shows them together.
 
-## Records {#records}
+## Source records {#source}
 
-| Record | What it holds |
+Added by anyone or any door, never changed.
+
+| | Record | Holds |
+| --- | --- | --- |
+| 1 | Message | Person, provider, model, token counts by kind (input, output, cache read, cache write), time, session id, message id, agent harness, optional agent name. Session facts: turns, tool calls, retries and reruns, duration, subagents, files touched, result pointer, summary. Never prompts. An agent's reported cost may be stored as a fact; it is never the figure. See [Token entry schema](/reference/token-entry). |
+| 2 | Bill | Provider, date range, amount, currency. Metered usage only. See [Bill schema](/reference/bill). |
+| 3 | Estimate | Description, tag set, amount as a probability distribution in dollars (bands with a median), optional markup inside the amount, the estimator that made it. Many may exist for one tag set. |
+| 4 | Tag value | Tag name, key, optional title and description, source id, default tags. Built-in tag names: `project`, `feature`, `client`. |
+| 5 | Share | Person, project, fraction, from date, to date. |
+| 6 | Price table row | Provider, model, token kind, price per million, valid from. See [Price tables](/reference/pricing-tables). |
+| 7 | Attribute value | Like a tag value, for people: team, department, location, with default attributes. |
+
+## Assignments {#assignments}
+
+Need a capability. Each supersedes the earlier assignment on the same target; the earlier one stays in the log.
+
+| | Record | Holds |
+| --- | --- | --- |
+| 8 | Split | On a session or one message: a list of (fraction, tag set), fractions summing to 1. Default: one split of 100 percent; equal fractions when a session names several features and nobody decides. |
+| 9 | Accept | Makes one estimate the plan for its tag set. |
+| 10 | Grant | (person, capability, filter). See [Grants and roles](/account/roles). |
+
+## Other events {#events}
+
+| Event | Meaning |
 | --- | --- |
-| Organization | Cost source, approval on or off, members and their roles, reporting currency, tag names, tag map. |
-| Person | A member. The default cost center. Carries tags, such as `team`, that its token entries inherit. |
-| Project | Tags such as `client`, mapped repositories, ticket key pattern. |
-| Ticket | Synced from a ticket system or created by hand. A key; optionally a title, a description, a parent ticket and an assignee. |
-| Token entry | Agent harness, optional agent name, model, tokens by kind, optional reported cost, list value, billed value, start and end time, summary, agent manager, splits, whether it arrived automatically or on a token sheet, status, evidence. See [Token entry schema](/reference/token-entry). |
-| Split | One share of a token entry with its own tags. Most token entries are one split. |
-| Tag | A tag name and a value on a split, a person, a project or a ticket. One value per tag name. Built in: `person`, `ticket`, `project`. All optional except `person`. |
-| Tag map | Which tag fills the cost center, and the ladder of tags that fills the cost object. |
-| Filter | A set of tags. Reports, token budgets and people managers' access are filters. |
-| Token sheet | One agent manager, one cadence period, their reviewed token entries. Submitted or late. |
-| Cadence | The rhythm in which token sheets are due, set per project or organization by a people manager. |
-| Token budget | Money a human has planned for a filter and a period. |
-| Token estimate | A probability distribution of what a described piece of work will cost, with its median. Stands alone or carries any tags. Becomes a token budget when a person accepts it. |
-| Telemetry event | One model call. Joins to token entries by session and message ID. |
-| Cost source | One way a provider charges: subscription, seat, usage at API rates, API key, cloud marketplace or reseller. |
-| Bill | A provider's figure for one period: gross, discount, credit, net, currency and exchange rate, cost source, revision. See [Bill schema](/reference/bill). |
-| Period | One calendar month, open or closed. |
-| Cost sheet | The locked account of one closed period, adding up to the bill. |
-| Rule | Ordered. Organization rules run before personal ones. |
+| Cutoff | One date per organization, moved by an org manager. See [Cutoff](/account/cutoff). |
+| Submit | A person submits all their own messages inside a window. Approval of a submission is optional per organization: approve, or reject with a reason. |
+| Rule | A pattern over signals that gives a tag value, with scope (organization or person) and order. Writes splits on arrival and runs back over unassigned messages since the cutoff. "Remember" on a hand assignment creates one. |
+| Reversal | Cancels any earlier event. |
 
-There is no agent record. An agent is whatever caused a token entry, described on the entry by agent harness, agent name and model.
+Signals are not records: branch, repository, pull request title, keys in prompts, config file values, telemetry resource attributes. They are carried with the session and read by rules.
 
-## Token entry status {#status}
+## Formulas {#formulas}
 
-| Status | Meaning |
-| --- | --- |
-| Draft | Still on the machine, waiting for its token sheet. |
-| Submitted | Counts in reports. Automatic token entries start here. |
-| Approved | A people manager accepted it. Only used when approval is on. |
-| Rejected | Sent back to its agent manager with a reason. Does not count until fixed. |
-| Locked | Its period is closed. |
+Cost accounting. _t(e)_ is the time of message _e_, _p_ the price table, _F_ a filter, _w_ a date range.
+
+| | | |
+| --- | --- | --- |
+| (1) | C(e) = Σ over kinds of tokens_kind(e) × p(provider, model, kind, as of t(e)) | Cost of a message. No counts: a count error, never zero. Unknown model: labelled, never zero. |
+| (2) | T*(s) = the split's tag set closed under defaults | Feature brings project, project brings client; the person brings their attributes, team brings department. |
+| (3) | C(F, w) = Σ fraction(s) × C(e(s)) over splits s with F ⊆ T*(s) and t(e) ∈ w | The only formula reports use. F is any set of tags and attributes. |
+| (4) | Bill(provider, r) = C({provider}, r) + R(provider, r), R ≥ 0 | Reconciliation on the bill's own range. R is a line on the bill. R < 0 means a message is wrong. |
+| (5) | Σ over the values of one tag name = C(F, w) | The values of one name partition the total. Filters on different names are never summed. |
+| | Labels | A split with a feature is direct; with a project and no feature, project overhead; with neither, organization overhead. |
+
+Management control. Reads cost accounting only through C(F, w).
+
+| | | |
+| --- | --- | --- |
+| (6) | Ĉ(w) = f(description(w), H) | An estimate from any estimator f. H is every tag value with its cost so far, last activity and source status. |
+| (7) | P(F, w) = amount of the accepted estimate for F, spread over w by the days of its date range | The plan. Markup is inside the amount. |
+| (8) | P(person q, w) = Σ over shares of q: fraction × P(project, w ∩ [from, to]) | A person's plan. Fractions over people may exceed 1; shown, never corrected. |
+| (9) | Δ(F, w) = P(F, w) − C(F, w) | Deviation. Positive is favourable. Labelled scope, trouble, or the estimate itself. |
+| (10) | C̃(F, next w) = g over past windows | Forecast. A report, not a record. |
+| (11) | H grows with every tagged value; f is refit | Learning. |
+
+The [worked month](/concepts#month) runs every formula on one bill.
 
 ## Rules that always hold {#rules}
 
 <ol class="steps">
-  <li><b>Every cost has a cost center and a cost object.</b><p>Both come from tags through the tag map. The cost center is by default the token entry's agent manager. The cost object is the first rung of the ladder with a value, by default ticket, then project, then organization.</p></li>
-  <li><b>No token entry without an agent manager.</b><p>One that has none shows as an error to people managers until someone takes it.</p></li>
-  <li><b>One value per tag name.</b><p>A split never carries two values of the same tag name, so cost grouped by one tag name adds up to the total.</p></li>
-  <li><b>History stays as it was.</b><p>When an automation gets a new agent manager, or a person, project or ticket changes its tags, only future token entries follow the change. Past splits keep the agent manager and tags they had. A closed period keeps the tag map it closed with.</p></li>
+  <li><b>Nothing is edited or deleted.</b><p>A correction is a reversal or a superseding assignment. Every figure is a fold of the log as of a date.</p></li>
+  <li><b>Every message has a person.</b><p>For a service token, the person who created it.</p></li>
+  <li><b>One value per tag name on a split.</b><p>So cost grouped by one tag name adds up to the total.</p></li>
+  <li><b>Only messages are summed.</b><p>Bills are reconciled against them, plans are compared with them. Nothing else carries cost.</p></li>
+  <li><b>Management control never writes into cost accounting.</b><p>Estimates, accepts and shares read C(F, w) and change no split.</p></li>
 </ol>

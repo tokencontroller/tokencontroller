@@ -1,79 +1,79 @@
 ---
 title: "Rules"
-description: "How rules place token entries on tickets and projects, in which order, what happens when nothing matches, and how sessions and subagents are split."
+description: "Signals against tags, how rules turn a pattern over signals into a tag value, their scope and order, running back since the cutoff, remembering a hand assignment, and splits."
 ---
 
-Rules set the tags of token entries: their ticket and project, and any other tag, such as `purpose: code-review` for sessions on a `review/` branch. Set them once, and people only fix the exceptions.
+A rule is a pattern over signals that gives a tag value, such as "key `^KD-\d+` in the branch is that feature" or "branch starts with `review/` is `purpose: code-review`". Set rules once, and people only fix the exceptions.
 
-![Rules: the organization rules in order, personal rules and the summary match](/screens/14-rules.png)
+## Signals are not tags {#signals}
 
-## Signals {#signals}
+A signal is a fact about a session that hints at where its cost belongs. A tag is a decision. Rules make the step from one to the other.
 
-A signal is a fact about a session that hints at where its cost belongs:
+| Signal | Comes from |
+| --- | --- |
+| Branch, working directory | Session files, through the mod and the CLI |
+| Repository | Session files, telemetry, the GitHub Action |
+| Pull request number and title | The mod, the CLI, the GitHub Action |
+| Keys found in prompts and the session title | Read on the machine; only the keys leave it |
+| Values in the repository's config file, `.tokencontroller.toml` | The mod, the CLI, the GitHub Action |
+| Telemetry resource attributes | `OTEL_RESOURCE_ATTRIBUTES`; see [Telemetry](/collect/telemetry#tags) |
+| Subagent type | Session files |
 
-- the branch and the working directory
-- the repository
-- the pull request number
-- the subagent type
-- ticket keys that match a project's [ticket key pattern](/account/projects#ticket-keys), found in the branch, the pull request title, the session title or your prompts
+Prompts and titles never leave the machine; see [Security and privacy](/security).
 
-Prompts and titles are read on the machine. Only the ticket keys found in them leave it, as [Security and privacy](/security) lists.
+## What a rule is {#rule}
 
-## Where rules run {#where}
+| Part | Meaning |
+| --- | --- |
+| Pattern | A signal, a test (`is`, `starts-with`, `contains`, `matches`, `is-set`) and a value. A regular expression can capture a key, such as `^(KD-\d+)`. |
+| Tag value | A fixed value, such as `project: shop`, or "that feature": the feature whose key the pattern captured. |
+| Scope | The organization, or one person. Organization rules run before personal ones. |
+| Order | Rules of one scope run in order; the first that finds a tag value for a tag name wins. |
 
-Rules run twice. **On the machine**, the Claude Code mod, the CLI and the GitHub Action apply your rules and ticket key patterns, and send each token entry with the ticket key they found. **In Token Controller**, the service checks every key against your synced tickets, runs the rules again on the signals it received, and tries a [summary match](#summary). Token entries from the token entries endpoint or a CSV import only get the second pass.
+A rule writes a [split](#splits) on arrival. A new or changed rule also runs back over every message since the [cutoff](/account/cutoff) that has no hand assignment, so a fix reaches past work. Figures as of the cutoff never change.
 
 ## The default rules {#defaults}
 
 | Rule | Sets |
 | --- | --- |
-| Ticket key in branch | That ticket |
-| Ticket key in pull request title | That ticket |
-| Ticket key in prompts or session title | That ticket |
-| Repository mapped to a project | That project, as project overhead |
+| Key matching a feature in the branch | That feature |
+| Key matching a feature in the pull request title | That feature |
+| Key matching a feature in the prompts or the session title | That feature |
+| Repository that a rule maps to a project | That project, as project overhead |
 
-Add your own in the web app under _Rules_, in the mod's pane, or with `tc rules`. A rule can set any tag on your organization's list.
+Add your own in the web app under _Rules_, in the mod's pane, or with `tc rules`. A rule can set any tag name.
 
 ## Order {#order}
 
-For the ticket and project, the first step that finds a place wins:
+For the feature and the project, the first step that finds a tag value wins:
 
-1. **A ticket named in the token entry.** Picked by hand in the mod or the CLI, passed to the [GitHub Action](/collect/github-action), or sent in the `ticket` field.
-2. **Rules that find a ticket**, by default in the order of the table above.
-3. **[Summary match](#summary).**
-4. **Rules that place on a project**, such as the repository rule.
-5. **[Nothing](#nothing).**
+1. **A tag set by hand.** Picked in the mod or the CLI, passed to the [GitHub Action](/collect/github-action), or sent in the call.
+2. **Rules that find a feature**, organization rules first, then personal ones, each in its order.
+3. **Rules that find a project**, such as the repository rule.
+4. **[Nothing](#nothing).**
 
-A ticket brings its own project. A project from a rule or a repository only counts when there is no ticket, or the ticket belongs to no project.
+A feature brings its project as a default tag; a project from a rule only counts when there is no feature. For every other tag name, all rules run, and when two set the same name, the organization rule wins, then the one listed first.
 
-Within a step, organization rules run before personal ones. Rules for other tags all run; when two set the same tag name, the organization rule wins, then the one listed first. A tag set by hand or sent with the token entry wins over every rule.
+## When prompts name several features {#several-keys}
 
-## When prompts name several tickets {#several-keys}
+A session that names several features and that nobody decides is split equally between them. Assign it by hand to change that, and tick _remember_ to make the hand assignment a rule.
 
-By default the ticket named most often wins; on a tie, the one named last. Keys in the session title count as named before the prompts. An organization can switch this to an equal split between the tickets, or to the first one named.
+<div class="note"><b>A mention is not work.</b> "The follow-up will be KD-260" names a feature the session did not work on. Rules cannot tell the difference. Fix it in the <a href="/attribute/review">check list</a>; the fix wins over every rule.</div>
 
-<div class="note"><b>A mention is not work.</b> "The follow-up ticket will be KD-260" names a ticket the session did not work on. Rules cannot tell the difference. The <a href="/attribute/classifier">classifier</a> can, and you can always place a token entry by hand.</div>
+## Remember {#remember}
 
-## Summary match {#summary}
-
-When no rule finds a ticket, Token Controller's [System 1 classifier](/glossary#system-1-classifier) reads the token entry's summary and gives each open estimate and ticket in the project the repository maps to, or else in the whole organization, a probability. If one clearly fits, the token entry goes there, marked _matched by summary_ in the review list and in reports; otherwise the next step runs. An organization can switch summary matching off under _Rules_.
-
-## When rules change {#changes}
-
-A new or changed rule runs again over the token entries of every open period, so a fix also reaches past work. Token entries placed by hand keep their place. Closed periods never change; correct them with an [adjustment](/account/close#adjustments).
+Every hand assignment in the check list, the mod or the web app offers _remember_. It creates a personal rule from the session's signals, such as "repository `kestrel/shop` is project Shop", and runs it back over your unassigned messages since the cutoff. Someone with assign on a filter can remember an organization rule.
 
 ## When nothing matches {#nothing}
 
-The token entry stays organization overhead with its person, and shows up in your [review list](/attribute/review), where you can add a ticket or project. See [cost kinds](/account/tags#kinds).
+A signal that matches no tag value leaves the message with no project: organization overhead, with its person. It is visible to whoever holds view there and shows in the [check list](/attribute/review), where one assignment can become a rule.
 
-## Sessions and subagents {#sessions}
+## Splits {#splits}
 
-One session is one token entry, but cost is measured per message, so a session splits exactly. Telemetry and bills join token entries by message and request IDs too.
+A split is the assignment a rule or a person writes: on a session or on one message, a list of fractions and tag sets that add up to 1. Without one, a session is one split of 100 percent. A new split supersedes the earlier one on the same session or message; the earlier one stays in the log.
 
-### Segments {#segments}
+- **By message.** A session that changes branch or working directory gets a split per message, so one morning's session can land exactly on two features.
+- **By fraction.** A person splits a session by hand, for example 60 percent on KD-1 and 40 percent on KD-2. These fractions are a judgment, not a measurement.
+- **Equal.** A session that names several features and nobody decides is split equally.
 
-A session that changes branch or working directory is split there into segments. Each becomes a [split](/account/tags#splits) with its own tags, so one morning's session can land on two tickets. A session that returns to a branch adds to that branch's split.
-
-### Subagents {#subagents}
-
-A subagent is placed on its own signals when they find a place, such as a review subagent on a pull request. Otherwise it takes the tickets of the session that started it, and keeps the other tags its own signals give, such as `purpose: code-review`.
+A subagent is split on its own signals when they find a tag value, such as a review subagent on a pull request. Otherwise it takes the split of the session that started it, and keeps the other tags its own signals give, such as `purpose: code-review`.

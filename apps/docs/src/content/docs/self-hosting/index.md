@@ -9,15 +9,15 @@ Self-hosted Token Controller is the same product as the hosted Team plan, from t
 
 | Part | What it is |
 | --- | --- |
-| The service | One program, written in Rust, in one Docker image. It serves the HTTP API and the web app, receives telemetry over OpenTelemetry (HTTP and protobuf), and runs the background jobs, such as bill pulls, ticket sync and price updates. Sign-in runs inside it too: magic link by email, and OIDC on the [Enterprise plan](/self-hosting/enterprise). |
+| The service | One program, written in Rust, in one Docker image. It serves the HTTP API and the web app, receives telemetry over OpenTelemetry (HTTP and protobuf), and runs the background jobs, such as bill pulls, Jira sync and exchange rates. Sign-in runs inside it too: magic link by email, and OIDC on the [Enterprise plan](/self-hosting/enterprise). |
 | Postgres | All data lives in one Postgres database. See [Postgres](#postgres). |
-| Email | Any SMTP server, for sign-in links, invites and late token sheet reminders. |
+| Email | Any SMTP server, for sign-in links, invites and the request to submit. |
 
 ## Getting started {#steps}
 
 <ol class="steps">
   <li><b>Start Postgres and the service.</b><p>See <a href="#docker">Docker</a> below.</p></li>
-  <li><b>Set your public URL and email.</b><p>See <a href="/self-hosting/configuration">Configuration</a>.</p></li>
+  <li><b>Set your public URL, email and price table.</b><p>The open edition ships without prices. See <a href="/self-hosting/configuration">Configuration</a>.</p></li>
   <li><b>Point the local tools at it.</b><p><code>tc connect https://tc.example.com</code>, and the telemetry endpoint at <code>https://tc.example.com/api/v1/ingest/otlp</code>.</p></li>
 </ol>
 
@@ -34,6 +34,8 @@ services:
       TC_PUBLIC_URL: https://tc.example.com
       TC_SECRET_KEY: change-me # at least 32 random characters, such as from openssl rand -hex 32
       TC_SMTP_URL: smtp://user:pass@mail.example.com:587
+      TC_PRICE_TABLE: /etc/tokencontroller/prices.csv
+    volumes: ["./prices.csv:/etc/tokencontroller/prices.csv:ro"]
     depends_on: [db]
   db:
     image: postgres:17
@@ -53,7 +55,7 @@ The service listens on port 8080; put a reverse proxy with TLS in front of it. T
 
 ## Postgres {#postgres}
 
-Postgres 15 or newer. A managed database from your cloud works as well as your own. Token entries are small, because no transcripts or prompts are stored: a 150-member organization fits in a small database instance.
+Postgres 15 or newer. A managed database from your cloud works as well as your own. Messages are small, because no transcripts or prompts are stored: a 150-member organization fits in a small database instance.
 
 ## Upgrades and backups {#upgrades}
 
@@ -64,7 +66,7 @@ docker compose up -d
 
 The service updates the database schema when it starts. Read the [changelog](/changelog) before a new major version.
 
-Only the Postgres database holds state, so backing it up backs up everything. The [raw export](/report/exports#raw-export) is a second copy in plain JSON.
+Only the Postgres database holds state, so backing it up backs up everything. The [raw export](/report/exports#raw-export) is a second copy of the event log in plain JSON.
 
 ## Support {#support}
 

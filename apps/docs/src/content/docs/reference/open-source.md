@@ -23,5 +23,4 @@ Report bugs and ask questions in GitHub issues. Pull requests from outside are n
 | Project | Used for |
 | --- | --- |
 | ccusage | How the CLI counts session files on the developer's machine: its readers follow ccusage's rules (MIT). |
-| LiteLLM, models.dev | Model prices for the [price tables](/reference/pricing-tables), refreshed daily. The CLI carries a copy of LiteLLM's list for estimates on the machine. |
-| Laya | The open local model in the reference [classifier](/attribute/classifier) script (Apache-2.0). |
+| LiteLLM, models.dev | Sources of the managed [price table](/reference/pricing-tables). The CLI carries a copy for figures on the machine. |

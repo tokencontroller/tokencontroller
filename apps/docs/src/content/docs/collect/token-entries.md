@@ -1,11 +1,9 @@
 ---
 title: "Token entries endpoint"
-description: "Report token entries from any agent with one HTTP call per session."
+description: "Report messages from any agent with one HTTP call per session. A token entry is one message or one session record."
 ---
 
-Any agent that can make an HTTP call can report its own token entries. Send one per session.
-
-![Token entries: every session with its agent, model, tickets and tags](/screens/11-token-entries.png)
+Any agent that can make an HTTP call can report its own usage. A token entry is one message, or one session with its messages. Send one per session.
 
 ## The call {#call}
 
@@ -16,10 +14,11 @@ Authorization: Bearer tc_svc_…
 {
   "agent_harness": "support-desk",
   "agent_name": "email answers",
+  "provider": "anthropic",
   "model": "claude-sonnet-5",
   "started_at": "2026-09-18T09:12:00Z",
   "ended_at": "2026-09-18T09:14:10Z",
-  "tokens": { "input": 4120, "output": 610, "cache_read": 18200 },
+  "tokens": { "input": 4120, "output": 610, "cache_read": 18200, "cache_write": 0 },
   "reported_cost": 0.031,
   "summary": "Answered refund question for order 1182",
   "project": "support",
@@ -27,7 +26,7 @@ Authorization: Bearer tc_svc_…
 }
 ```
 
-The person who created the service token is the agent manager, and the token entries are [automatic](/collect#automatic). Reported cost is optional; without it, Token Controller computes the list value from the model and the [price table](/reference/pricing-tables). Every field is in the [token entry schema](/reference/token-entry).
+The person who created the service token is the person of the message. `tokens` with all four kinds is required; a token entry without counts is saved as a count error with no cost. `reported_cost` is optional and is kept as a fact, never shown as the cost: the cost comes from the [price table](/account/price-table). Every field is in the [token entry schema](/reference/token-entry).
 
 To send several token entries in one call, send a list of up to 1,000. Either all of them are saved or none.
 
@@ -38,22 +37,21 @@ To send several token entries in one call, send a list of up to 1,000. Either al
 ```json
 {
   "id": "0b6f6c1e-5d1c-4c62-9d0a-3f3a3c9f1a52",
-  "status": "submitted",
-  "list_value": "0.03",
+  "cost": "0.03",
   "currency": "USD",
-  "cost_kind": "project_overhead",
-  "new_tags": []
+  "label": "project_overhead",
+  "unknown_tags": []
 }
 ```
 
-`list_value` is `null` for an unknown model until the price table knows it. Token Controller accepts every token entry and fits the pieces together afterwards:
+`cost` is `null` with the reason `unknown_model` until the price table has the model, or `count_error` when counts are missing. Token Controller accepts every token entry and fits the pieces together afterwards:
 
-- A tag that is not on your organization's list is kept, and `new_tags` names it. The org manager adds it to the list or maps it to an existing one.
-- A token entry for a session Token Controller already has is a [duplicate](/glossary#duplicate): accepted, counted once, and shown greyed out behind a toggle.
-- A token entry for a closed period is accepted and waits for the org manager to post it as an [adjustment](/account/close#adjustments).
+- A tag key that names no tag value yet is kept on the message, and `unknown_tags` names it. Someone with assign creates the value or reverses the tag.
+- A token entry for a message Token Controller already has, by session id and message id, is the same record, counted once.
+- A token entry dated before the [cutoff](/account/cutoff) is accepted, shown, and waits for an org manager to adjust it in.
 
 Only a request that is not a token entry at all, such as broken JSON, gets `400`.
 
 ## Tags {#placing}
 
-Name a ticket or a project in the call and add any tags on your organization's list, or let your rules set them. Tags named in the call win over every rule. When nothing places it, it is organization overhead with its person. See the [order](/attribute/rules#order).
+Name a feature or a project in the call and add any tags, or let your rules set them from the signals you send. Tags named in the call win over every rule. When nothing places it, it is organization overhead with its person. See the [order](/attribute/rules#order).

@@ -1,6 +1,6 @@
 ---
 title: "Security and privacy"
-description: "What leaves a person's machine, what a token entry contains, and who can see it."
+description: "What leaves a person's machine, what a message contains, and who can see it."
 ---
 
 Token Controller stores numbers, identifiers, a free-text summary per session, tags and the estimate descriptions you send, never what an agent read or wrote.
@@ -11,21 +11,22 @@ Transcripts, prompts, tool output and file contents. Nothing in Token Controller
 
 The [Estimates API](/reference/api#estimates) is the one place you send text on purpose: the description of the work and any context. Token Controller keeps it and trains its [System 1 classifier](/glossary#system-1-classifier) on it, together with the summaries of all organizations. The classifier answers with probabilities only.
 
-## What a token entry contains {#token-entry}
+## What a message contains {#token-entry}
 
-This is the full list. The summary and the tag values are the only text. The agent writes the summary, and on a token sheet you see it and the tags before you submit. Tag values are the names your organization uses, such as a team or a client. Every field is in the [token entry reference](/reference/token-entry).
+This is the full list. The summary and the tag values are the only text. The agent writes the summary, and you see it and the tags before you submit. Tag values are the names your organization uses, such as a project or a client. Every field is in the [token entry schema](/reference/token-entry).
 
 | Field | Example |
 | --- | --- |
 | Agent harness, model | claude-code, opus-5 |
 | Agent name | review bot (optional) |
-| Agent manager | m.ortner@kestrel.example |
-| Start and end time | 09:12 and 11:40 UTC |
-| Tokens by kind | input, output, cache write, cache read |
-| Reported cost | the agent's own cost figure, where it has one |
-| Signals | branch, working directory, repository, pull request number, subagent type, and ticket keys found in prompts, the session title and the pull request title (the keys only, never the text) |
+| Person | m.ortner@kestrel.example |
+| Time, session id, message id | 09:12 UTC, one id each |
+| Token counts by kind | input, output, cache read, cache write |
+| Reported cost | the agent's own cost figure, kept as a fact |
+| Session facts | turns, tool calls, retries, duration, subagents, files touched, result pointer |
+| Signals | branch, working directory, repository, pull request number and title, subagent type, config file values, and keys found in prompts and titles (the keys only, never the text) |
 | Summary | Fixed checkout redirect loop |
-| Tags | ticket KD-214, project storefront, kind direct, team web |
+| Tags | feature KD-214, project shop |
 
 ## What a feedback report contains {#feedback}
 
@@ -46,7 +47,7 @@ A report goes to us and is stored in the EU. It is deleted two years after its l
 
 ## Who sees what {#who-sees}
 
-An agent manager sees their own cost. A people manager sees cost per person for the filters they are assigned, such as a team or a client. An org manager sees everything. See [Roles](/account/roles), and [Scope](/scope#out) for why there is no aggregate-only mode.
+Everyone sees their own cost. A people manager sees cost per person inside the filters they were granted view on, such as a team or a client. An org manager sees everything. See [Grants and roles](/account/roles), and [Scope](/scope#out) for why there is no aggregate-only mode.
 
 ## Where data is stored {#hosting}
 

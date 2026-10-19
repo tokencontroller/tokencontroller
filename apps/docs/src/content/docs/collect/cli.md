@@ -1,9 +1,9 @@
 ---
 title: "CLI"
-description: "Install tc, connect or stay local, review, submit and export."
+description: "Install tc, connect or stay local, check, submit and export."
 ---
 
-The CLI, `tc`, reads session files, places token entries with your rules, and submits token sheets. It works with no service connected.
+The CLI, `tc`, reads session files, splits sessions with your rules, and submits. It works with no service connected.
 
 ## Install {#install}
 
@@ -24,16 +24,16 @@ tc connect https://app.tokencontroller.com/i/kestrel-4f2a   # your invite link
 tc status
 ```
 
-Without `tc connect` the CLI keeps everything on your machine. It still places token entries with your personal rules and shows reports.
+Without `tc connect` the CLI keeps everything on your machine. It still splits sessions with your personal rules and shows reports, priced with the copy of the price table built into the binary.
 
 ## Everyday commands {#daily}
 
 ```sh
-tc review                 # your draft token entries and where they were placed
-tc tag 5 ticket=KD-231    # set a tag on entry 5 by hand
-tc submit                 # submit your token sheet
-tc report --by team       # cost per value of any tag
-tc export --csv           # everything as CSV, for a spreadsheet
+tc review                   # your sessions since the last submit and where they were put
+tc tag 5 feature=KD-231     # set a tag on session 5 by hand
+tc submit                   # submit everything since your last submit
+tc report --by team         # cost per value of any tag or attribute
+tc export --csv             # every message as CSV, for a spreadsheet
 ```
 
 With no service, the export is enough to report by hand. Every command and setting is in the [CLI reference](/reference/cli).
@@ -51,4 +51,4 @@ Without a tracked folder, `tc` counts every session on the machine. The first ti
 
 ## What it reads {#sources}
 
-Session files of Claude Code and Codex, counted the way the open source ccusage project counts them. Every other agent reports by [telemetry](/collect/telemetry) or through the [token entries endpoint](/collect/token-entries). Reading the same files twice changes nothing, so run it as often as you like. There is no background process and no sync between your machines: each machine submits its own token entries.
+Session files of Claude Code and Codex, counted the way the open source ccusage project counts them: one message per model call, with its token counts by kind. Every other agent reports by [telemetry](/collect/telemetry) or through the [token entries endpoint](/collect/token-entries). Reading the same files twice changes nothing, so run it as often as you like. There is no background process and no sync between your machines: each machine submits its own messages.

@@ -3,25 +3,24 @@ title: "Organization settings"
 description: "What an org manager sets up once, inviting people, and how members sign in."
 ---
 
-An organization is one customer of Token Controller: its people, projects, tags and periods. An org manager sets it up once.
-
-![Settings: name, cost source, reporting currency, approval, cadence and sign-in domains](/screens/16-settings.png)
+An organization is one customer of Token Controller: one event log of its people, tag values, messages, bills and plans, with one cutoff and one reporting currency. An org manager sets it up once.
 
 ## Organization settings {#settings}
 
 | Setting | What it does |
 | --- | --- |
-| Cost source | How your provider charges you. It decides what the close reconciles against; see [Bills](/account/bills). |
-| Reporting currency | The one currency the organization computes in. Bills in other currencies are booked at the exchange rate of their date. |
-| Tag names and tag map | The tag names your organization uses, which tag is the cost center and the ladder for the cost object. See [Tags and the tag map](/account/tags). |
-| Ticket systems | Where tickets sync from. See [Ticket systems](/account/projects#ticket-systems). |
+| Reporting currency | The one currency figures are shown in. The price table is in US dollars; a bill keeps its own currency and the exchange rate of its last day. |
+| Price table | The managed table, with your own rows and overrides. See [Price table](/account/price-table). |
+| Tag names and tag values | Projects, features and clients, your own tag names, and the ticket systems features sync from. See [Tags](/account/tags). |
+| Attribute names | Team, department, location and their defaults. See [Attributes](/account/attributes). |
 | Organization rules | Rules that run before everyone's personal rules. See [Rules](/attribute/rules). |
-| Approval | On or off. See [Approval](/account/cadence#approval). |
+| Approval | Whether submissions need approval. See [Submit and approval](/account/submit). |
+| Cutoff | The date up to which figures are frozen. See [Cutoff](/account/cutoff). |
 | Sign-in | Which [sign-in](#sign-in) methods members may use, and which email domains. |
 
 ## People {#people}
 
-Invite people by email. Each gets a [role](/account/roles) and their tags, such as `team: web`. When a person changes team or leaves, only their future token entries follow; last month's reports do not change.
+Invite people by email. Each gets a [role](/account/roles) and their [attributes](/account/attributes), such as `team: web`. An attribute value has a from date, so when a person changes team, messages before that date keep the old team and figures as of an earlier date do not change.
 
 ## Sign-in {#sign-in}
 
