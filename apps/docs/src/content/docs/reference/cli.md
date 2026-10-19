@@ -3,7 +3,7 @@ title: "CLI"
 description: "Every tc command, flag, setting and environment variable."
 ---
 
-Every `tc` command. Each takes `--help`, and `tc` works with no service connected.
+Every `tc` command. Each takes `--help` and `--json`, and `tc` works with no service connected. A message whose session file has no token counts is kept as a count error, with no cost.
 
 ## Commands {#commands}
 
@@ -12,10 +12,10 @@ Every `tc` command. Each takes `--help`, and `tc` works with no service connecte
 | `tc connect URL` | Connect to an organization with an invite link, such as `https://app.tokencontroller.com/i/kestrel-4f2a`, or to a self-hosted instance by its address. |
 | `tc status` | Organization, person, agents found, rules, today's cost and share on features, when you last submitted, and an org manager's request to submit before the cutoff moves. |
 | `tc review` | List your sessions since your last submit and their splits. `--all` adds the submitted ones. |
-| `tc tag N NAME=VALUE…` | Set tags on session N (its number from `tc review`), such as `feature=KD-214` or `purpose=learning`. An empty value, such as `purpose=`, removes a tag. `--remember` makes the assignment a rule. |
-| `tc split N FEATURE=WEIGHT…` | Split session N between two or more features, such as `KD-231=60 KD-240=40`. Weights need not add up to 100; they become fractions that do add up to 1. |
+| `tc tag N NAME=VALUE…` | Set tags on session N (its number from `tc review`), such as `feature=KD-214` or `purpose=learning`. An empty value, such as `purpose=`, removes a tag. `--remember` makes the assignment a rule; it takes one tag value per name, as a rule sets one. |
+| `tc split N FEATURE=WEIGHT…` | Split session N between two or more features, such as `KD-231=60 KD-240=40`. Weights need not add up to 100; they become fractions that do add up to 1. `--remember` is refused: a rule names one tag value, so use `tc tag N feature=KEY --remember`. |
 | `tc submit` | Submit every message of yours since your last submit. With nothing new it tells the service there was nothing to add. For `--tag` and `--signal`, see [In CI and scripts](#scripts). |
-| `tc report --by NAME\|day` | Cost in a table, by any tag or attribute name or by day. `--filter NAME=VALUE` limits it and can be repeated; `--since 2026-10-01` sets the first day (default: the first of this month). |
+| `tc report --by NAME\|label\|day` | Cost in a table, by any tag or attribute name, by deviation label or by day; default `feature`. `--filter NAME=VALUE` limits it and can be repeated; `--since 2026-10-01` sets the first day (default: the first of this month). |
 | `tc export --csv` | Every message as CSV, the only format. |
 | `tc rules` | List, add, move and remove personal rules. See [Rules](#rules). |
 | `tc config [KEY [VALUE]]` | Show or change a setting. Without a key it lists every setting; an empty value removes one. See [Settings](#settings). |
@@ -60,6 +60,7 @@ Settings are kept in `config.toml` in the `tc` folder (see `TC_HOME` below).
 | Setting | What it does |
 | --- | --- |
 | `feature-key-pattern` | A feature key pattern, such as `^(KD\|OPS)-\d+`, for use with no service connected. Once connected, the organization's rules apply. |
+| `price-table` | The path of your own price table, a CSV with the columns `provider,model,kind,price_per_million,valid_from`, as in [Price tables](/reference/pricing-tables#file). `tc` ships no prices; without this file and with no service connected, every message is an unknown model with no cost. Once connected, the service's table is used. |
 | `since` | A day, such as `2026-09-01`. Sessions that started earlier are not read. Without it, the first run reaches back 31 days. |
 | `folders` | The tracked folders, set with `tc track` and `tc untrack`. `all` counts every folder without asking; an empty value removes the choice, so `tc` asks again. See [Folders](#folders). |
 | `service` | The service `tc` is connected to. Set by `tc connect`. |
@@ -82,5 +83,5 @@ With `--json` every command prints one JSON value and nothing else. Messages go 
 | `TC_URL`, `TC_TOKEN` | The service and token to use instead of the ones `tc connect` saved. With a service token, the messages carry the token's creator as their person. |
 | `TC_FEATURE`, `TC_PROJECT`, `TC_TAGS` | A feature, a project, or tags such as `purpose=code-review` for every session in this run. |
 | `TC_SIGNALS` | Signals for every session in this run, as JSON, such as `{"repository":"kestrel/storefront","pull_request":12}`. The names are those of `--signal`. |
-| `TC_HOME` | The folder for `config.toml` and the local database `tc.sqlite`. Default: `tokencontroller` in the system's folder for application data (`$XDG_DATA_HOME` or `~/.local/share` on Linux, `~/Library/Application Support` on macOS, `%APPDATA%` on Windows). |
+| `TC_HOME` | The folder for `config.toml` and the local event log `tc.sqlite`, which `tc` folds with the same accounting core as the service. Default: `tokencontroller` in the system's folder for application data (`$XDG_DATA_HOME` or `~/.local/share` on Linux, `~/Library/Application Support` on macOS, `%APPDATA%` on Windows). |
 | `CLAUDE_CONFIG_DIR`, `CODEX_HOME` | Where Claude Code and Codex keep their session files, as the agents themselves read them. |

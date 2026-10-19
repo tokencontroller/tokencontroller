@@ -24,7 +24,7 @@ tc connect https://app.tokencontroller.com/i/kestrel-4f2a   # your invite link
 tc status
 ```
 
-Without `tc connect` the CLI keeps everything on your machine. It still splits sessions with your personal rules and shows reports, priced with the copy of the price table built into the binary.
+Without `tc connect` the CLI keeps everything on your machine. It still splits sessions with your personal rules and shows reports. `tc` ships no prices: offline it prices with your own table, set with [`tc config price-table`](/reference/cli#settings); connected, it uses the service's.
 
 ## Everyday commands {#daily}
 
@@ -32,7 +32,7 @@ Without `tc connect` the CLI keeps everything on your machine. It still splits s
 tc review                   # your sessions since the last submit and where they were put
 tc tag 5 feature=KD-231     # set a tag on session 5 by hand
 tc submit                   # submit everything since your last submit
-tc report --by team         # cost per value of any tag or attribute
+tc report --by team         # cost per value of any tag or attribute (default: feature)
 tc export --csv             # every message as CSV, for a spreadsheet
 ```
 
