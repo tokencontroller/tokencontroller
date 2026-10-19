@@ -1,13 +1,13 @@
 //! Tenant isolation against the real service and a real Postgres database.
 //!
 //! Two organizations, Alpha Works and Bravo Holdings, each get data in every
-//! kind of object the API has: members, tags, projects, tickets, token
-//! entries, bills, a closed period with an adjustment and a cost sheet link,
-//! cadences, token budgets, a token forecast, saved reports, API tokens,
-//! bill connections and ticket systems. Then every route in the service's
-//! OpenAPI document is called as Alpha's members with Bravo's IDs, names and
-//! keys. Each call must be refused, or answer with nothing of Bravo's, and
-//! Bravo's data must be exactly as it was afterwards.
+//! kind of record the API has: members, tag and attribute values, rules,
+//! grants, messages, splits, estimates, shares, submissions, a cutoff,
+//! bills, price table rows, saved reports, API tokens, bill connections and
+//! ticket systems. Then every route in the service's OpenAPI document is
+//! called as Alpha's members with Bravo's ids, names and keys. Each call
+//! must be refused, or answer with nothing of Bravo's, and Bravo's data must
+//! be exactly as it was afterwards.
 //!
 //! A route without a case here fails `every_route_is_called_across_tenants`,
 //! so a new endpoint needs its isolation case.
@@ -23,11 +23,6 @@ use http_body_util::BodyExt as _;
 use serde_json::{Value, json};
 use sqlx::PgPool;
 use tokencontroller_core::NoExtension;
-use tokencontroller_server::budgets::embeddings::{EmbedError, Embedder};
-use tokencontroller_server::budgets::forecast;
-use tokencontroller_server::budgets::similarity::Embedding;
-use tokencontroller_server::config::EmbeddingsConfig;
-use tokencontroller_server::reports::scope::Scope;
 use tokencontroller_server::sign_in::secret;
 use tokencontroller_server::{AppState, Config, router};
 use tower::ServiceExt as _;
@@ -46,34 +41,9 @@ fn config() -> Config {
         secret_key: KEY.clone(),
         smtp_url: None,
         smtp_from: None,
-        prices_refresh: false,
-        // A model nobody answers at: a token forecast for another
-        // organization's ticket must be refused before the model is asked.
-        embeddings: Some(EmbeddingsConfig {
-            url: "http://127.0.0.1:9".to_owned(),
-            key: None,
-            model: "isolation-test".to_owned(),
-        }),
-    }
-}
-
-/// A stand-in for the embeddings model that Bravo's token forecast is made
-/// with: every text means the same.
-struct Constant;
-
-impl Embedder for Constant {
-    fn model(&self) -> &'static str {
-        "constant"
-    }
-
-    async fn embed(&self, texts: &[String]) -> Result<Vec<Embedding>, EmbedError> {
-        texts
-            .iter()
-            .map(|_| {
-                Embedding::from_millionths(vec![1_000_000, 0, 0])
-                    .map_err(|error| EmbedError::Unreadable(error.to_string()))
-            })
-            .collect()
+        price_table: None,
+        rates_refresh: false,
+        classifier: None,
     }
 }
 
@@ -223,26 +193,44 @@ async fn organization(pool: &PgPool, name: &str, email: &str) -> TestResult<(Uui
     Ok((created.organization_id, created.person_id))
 }
 
-/// A Claude Code session as `tc` sends it.
+/// A Claude Code session record as `tc` sends it.
 fn session_entry(
     local_id: &str,
     session_id: &str,
     started_at: &str,
-    ticket: &str,
+    feature: &str,
     summary: &str,
 ) -> Value {
     json!({
         "agent_harness": "claude-code",
         "model": "claude-opus-5",
+        "provider": "anthropic",
         "started_at": started_at,
         "ended_at": started_at.replace("00:00Z", "30:00Z"),
-        "tokens": {"input": 12000, "output": 3000},
+        "tokens": {"input": 12000, "output": 3000, "cache_read": 0, "cache_write": 0},
         "reported_cost": "0.42",
         "summary": summary,
-        "ticket": ticket,
+        "feature": feature,
         "session_id": session_id,
         "local_id": local_id
     })
+}
+
+async fn tag_value(
+    app: &Router,
+    session: &str,
+    name: &str,
+    key: &str,
+    defaults: Value,
+) -> TestResult<Value> {
+    must(
+        app,
+        Method::POST,
+        &format!("/api/v1/tags/{name}/values"),
+        session,
+        Payload::Json(json!({"key": key, "defaults": defaults})),
+    )
+    .await
 }
 
 // ---------------------------------------------------------------------------
@@ -250,7 +238,7 @@ fn session_entry(
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Cred {
-    /// Alice's browser session; she is Alpha's controller.
+    /// Alice's browser session; she is Alpha's org manager.
     Session,
     /// Alice's read token.
     Read,
@@ -269,8 +257,8 @@ enum Cred {
 struct Alpha {
     organization_id: Uuid,
     person_id: Uuid,
-    ticket_id: Uuid,
     service_token_id: Uuid,
+    estimate: String,
     session: String,
     read: String,
     service: String,
@@ -321,28 +309,27 @@ async fn alpha(app: &Router, pool: &PgPool) -> TestResult<Alpha> {
         Payload::Json(json!({"approval": true})),
     )
     .await?;
-    must(
+    tag_value(app, &session, "project", "alpha-app", json!({})).await?;
+    tag_value(
         app,
-        Method::POST,
-        "/api/v1/tags",
         &session,
-        Payload::Json(json!({"name": "client"})),
+        "feature",
+        "ALPHA-1",
+        json!({"project": "alpha-app"}),
     )
     .await?;
-    must(
+    let estimate = must(
         app,
         Method::POST,
-        "/api/v1/projects",
+        "/api/v1/estimates",
         &session,
-        Payload::Json(json!({"name": "alpha-app", "ticket_key_pattern": "^ALPHA-\\d+"})),
-    )
-    .await?;
-    let ticket = must(
-        app,
-        Method::POST,
-        "/api/v1/tickets",
-        &session,
-        Payload::Json(json!({"key": "ALPHA-1", "title": "Alpha onboarding"})),
+        Payload::Json(json!({
+            "work": "Alpha onboarding",
+            "tags": {"project": "alpha-app"},
+            "median": "100",
+            "from": "2026-10-01",
+            "to": "2026-10-31"
+        })),
     )
     .await?;
     let service_token = text_at(&service, "/token")?;
@@ -363,8 +350,8 @@ async fn alpha(app: &Router, pool: &PgPool) -> TestResult<Alpha> {
     Ok(Alpha {
         organization_id,
         person_id,
-        ticket_id: id_at(&ticket, "/id")?,
         service_token_id: id_at(&service, "/id")?,
+        estimate: text_at(&estimate, "/id")?,
         session: session.clone(),
         read: text_at(&read, "/token")?,
         service: service_token,
@@ -377,490 +364,433 @@ async fn alpha(app: &Router, pool: &PgPool) -> TestResult<Alpha> {
 // ---------------------------------------------------------------------------
 // Bravo: the organization whose data must stay its own
 
-/// What Alpha's members must never see, and the IDs they try.
+/// What Alpha's members must never see, and the ids they try.
 #[derive(Default)]
 struct Bravo {
     organization_id: Uuid,
     boss: String,
     bruno_browser: String,
-    bruno_cli: String,
     bruno: Uuid,
     petra: Uuid,
-    project: Uuid,
-    epic: Uuid,
-    ticket: Uuid,
     invite_code: String,
-    bill: Uuid,
-    link: Uuid,
-    link_secret: String,
-    rejected_entry: Uuid,
-    draft_entry: Uuid,
-    submitted_entry: Uuid,
-    locked_entry: Uuid,
+    estimate: String,
+    tag_value: String,
+    submission: String,
+    bill: String,
     read_token: Uuid,
     service_token: Uuid,
     cli_session: Uuid,
-    cadence: Uuid,
-    budget: Uuid,
-    saved_report: Uuid,
+    saved_report: String,
     bill_connection: Uuid,
     ticket_system: Uuid,
-    forecast: Uuid,
-    /// Every name, key, text and ID of Bravo's.
+    /// Every name, key, text and id of Bravo's.
     secrets: Vec<String>,
 }
 
-fn bravo_rule() -> Value {
-    json!({
-        "name": "Bravo branch rule",
-        "when": [{"signal": "branch", "test": {"starts_with": "bravo/"}}],
-        "then": {"set_tags": {"bravozone": "bravo-team"}}
-    })
-}
-
-async fn bravo_people(app: &Router, pool: &PgPool, bravo: &mut Bravo) -> TestResult<()> {
+async fn bravo(app: &Router, pool: &PgPool) -> TestResult<Bravo> {
+    let mut b = Bravo::default();
     let (organization_id, boss_id) =
         organization(pool, "Bravo Holdings", "boss@bravo.example").await?;
-    bravo.organization_id = organization_id;
-    bravo.boss = session_for(pool, boss_id, secret::SESSION).await?;
-    let boss = bravo.boss.clone();
-    for name in ["bravozone", "client"] {
+    b.organization_id = organization_id;
+    b.boss = session_for(pool, boss_id, secret::SESSION).await?;
+    let boss = b.boss.clone();
+    let boss = boss.as_str();
+
+    // People: Bruno joined, Petra is invited.
+    let bruno = must(
+        app,
+        Method::POST,
+        "/api/v1/members",
+        boss,
+        Payload::Json(json!({"email": "bruno@bravo.example", "name": "Bruno Bravo"})),
+    )
+    .await?;
+    b.bruno = id_at(&bruno, "/member/id")?;
+    sqlx::query("UPDATE people SET joined_at = now() WHERE id = $1")
+        .bind(b.bruno)
+        .execute(pool)
+        .await?;
+    b.bruno_browser = session_for(pool, b.bruno, secret::SESSION).await?;
+    let cli = session_for(pool, b.bruno, secret::CLI).await?;
+    let petra = must(
+        app,
+        Method::POST,
+        "/api/v1/members",
+        boss,
+        Payload::Json(json!({"email": "petra@bravo.example", "name": "Petra Bravo", "role": "people_manager"})),
+    )
+    .await?;
+    b.petra = id_at(&petra, "/member/id")?;
+    text_at(&petra, "/invite_url")?
+        .rsplit('/')
+        .next()
+        .unwrap_or_default()
+        .clone_into(&mut b.invite_code);
+
+    bravo_names(app, boss, &mut b).await?;
+    bravo_work(app, boss, &mut b).await?;
+    bravo_books(app, boss, &mut b).await?;
+    drop(cli);
+    b.secrets = bravo_ids(pool, organization_id).await?;
+    b.secrets.extend(
+        [
+            "Bravo Holdings",
+            "bravo-holdings",
+            "bruno@bravo.example",
+            "petra@bravo.example",
+            "Bruno Bravo",
+            "Petra Bravo",
+            "bravozone",
+            "bravo-zone-1",
+            "bravo-client",
+            "bravo-ledger",
+            "BRAVO-7",
+            "bravo-team",
+            "Bravo team",
+            "Bravo branch rule",
+            "Bravo ledger rebuild",
+            "777.77",
+            "bravo-session-1",
+            "bravo-session-2",
+            "bravo-session-3",
+            "bravo-local-1",
+            "bravo-local-2",
+            "bravo-local-3",
+            "Bravo ledger import",
+            "Bravo ledger export",
+            "Bravo September work",
+            "Bravo closes the year",
+            "Bravo quarterly",
+            "sk-admin-bravo-secret",
+            "bravo.atlassian.net",
+            "Bravo ledger board",
+            "ATATT3xFfGF0-bravo",
+        ]
+        .map(str::to_owned),
+    );
+    b.secrets.push(b.invite_code.clone());
+    b.secrets.push(b.estimate.clone());
+    b.secrets.push(b.tag_value.clone());
+    b.secrets.push(b.submission.clone());
+    b.secrets.push(b.bill.clone());
+    b.secrets.push(b.saved_report.clone());
+    b.secrets.sort();
+    b.secrets.dedup();
+    Ok(b)
+}
+
+/// Bravo's names and values, its rule, Bruno's grant and its price rows.
+async fn bravo_names(app: &Router, boss: &str, b: &mut Bravo) -> TestResult<()> {
+    // Names and values.
+    must(
+        app,
+        Method::POST,
+        "/api/v1/tags",
+        boss,
+        Payload::Json(json!({"name": "bravozone"})),
+    )
+    .await?;
+    tag_value(app, boss, "client", "bravo-client", json!({})).await?;
+    let ledger = tag_value(
+        app,
+        boss,
+        "project",
+        "bravo-ledger",
+        json!({"client": "bravo-client"}),
+    )
+    .await?;
+    b.tag_value = text_at(&ledger, "/id")?;
+    tag_value(
+        app,
+        boss,
+        "feature",
+        "BRAVO-7",
+        json!({"project": "bravo-ledger"}),
+    )
+    .await?;
+    tag_value(app, boss, "bravozone", "bravo-zone-1", json!({})).await?;
+    must(
+        app,
+        Method::POST,
+        "/api/v1/attributes/team/values",
+        boss,
+        Payload::Json(json!({"key": "bravo-team", "title": "Bravo team"})),
+    )
+    .await?;
+    must(
+        app,
+        Method::POST,
+        &format!("/api/v1/people/{}/attributes", b.bruno),
+        boss,
+        Payload::Json(json!({"name": "team", "key": "bravo-team", "from": "2026-01-01"})),
+    )
+    .await?;
+    must(
+        app,
+        Method::PUT,
+        &format!("/api/v1/members/{}/filters", b.petra),
+        boss,
+        Payload::Json(json!([{"team": "bravo-team"}])),
+    )
+    .await?;
+    must(
+        app,
+        Method::POST,
+        "/api/v1/rules",
+        boss,
+        Payload::Json(json!({"name": "Bravo branch rule", "signal": "branch", "pattern": "(?P<key>BRAVO-\\d+)", "tag_name": "feature"})),
+    )
+    .await?;
+    must(
+        app,
+        Method::POST,
+        "/api/v1/grants",
+        boss,
+        Payload::Json(json!({"person": "bruno@bravo.example", "capability": "view", "filter": {"project": "bravo-ledger"}})),
+    )
+    .await?;
+    must(
+        app,
+        Method::POST,
+        "/api/v1/price-table/rows",
+        boss,
+        // Bravo prices the model both organizations use; Alpha's figures
+        // must not move with it.
+        Payload::Json(json!({"provider": "anthropic", "model": "claude-opus-5", "kind": "input", "price_per_million": "7", "valid_from": "2026-01-01"})),
+    )
+    .await?;
+    for kind in ["output", "cache_read", "cache_write"] {
         must(
             app,
             Method::POST,
-            "/api/v1/tags",
-            &boss,
-            Payload::Json(json!({"name": name})),
+            "/api/v1/price-table/rows",
+            boss,
+            Payload::Json(json!({"provider": "anthropic", "model": "claude-opus-5", "kind": kind, "price_per_million": "7", "valid_from": "2026-01-01"})),
+        )
+        .await?;
+    }
+
+    Ok(())
+}
+
+/// Bravo's plan, tokens, messages and split.
+async fn bravo_work(app: &Router, boss: &str, b: &mut Bravo) -> TestResult<()> {
+    // Plans.
+    let estimate = must(
+        app,
+        Method::POST,
+        "/api/v1/estimates",
+        boss,
+        Payload::Json(json!({
+            "work": "Bravo ledger rebuild",
+            "tags": {"project": "bravo-ledger"},
+            "median": "777.77",
+            "from": "2026-10-01",
+            "to": "2026-12-31"
+        })),
+    )
+    .await?;
+    b.estimate = text_at(&estimate, "/id")?;
+    must(
+        app,
+        Method::POST,
+        &format!("/api/v1/estimates/{}/accept", b.estimate),
+        boss,
+        Payload::Empty,
+    )
+    .await?;
+    must(
+        app,
+        Method::POST,
+        "/api/v1/shares",
+        boss,
+        Payload::Json(json!({"person": "bruno@bravo.example", "project": "bravo-ledger", "fraction": "0.5", "from": "2026-10-01"})),
+    )
+    .await?;
+
+    // Tokens and messages.
+    let token = |kind: &'static str| async move {
+        must(
+            app,
+            Method::POST,
+            "/api/v1/api-tokens",
+            boss,
+            Payload::Json(json!({"kind": kind, "name": "bravo bot"})),
+        )
+        .await
+    };
+    let read = token("read").await?;
+    let service = token("service").await?;
+    b.read_token = id_at(&read, "/id")?;
+    b.service_token = id_at(&service, "/id")?;
+    let service_token = text_at(&service, "/token")?;
+    for (local, session, day, summary) in [
+        (
+            "bravo-local-1",
+            "bravo-session-1",
+            "2026-10-05T09:00:00Z",
+            "Bravo ledger import",
+        ),
+        (
+            "bravo-local-2",
+            "bravo-session-2",
+            "2026-10-06T09:00:00Z",
+            "Bravo ledger export",
+        ),
+        (
+            "bravo-local-3",
+            "bravo-session-3",
+            "2026-09-20T09:00:00Z",
+            "Bravo September work",
+        ),
+    ] {
+        must(
+            app,
+            Method::POST,
+            "/api/v1/token-entries",
+            &service_token,
+            Payload::Json(session_entry(local, session, day, "BRAVO-7", summary)),
         )
         .await?;
     }
     must(
         app,
-        Method::PUT,
-        "/api/v1/tag-map",
-        &boss,
-        Payload::Json(json!({"cost_center": "bravozone", "ladder": ["ticket", "project"]})),
-    )
-    .await?;
-    let bruno = must(
-        app,
         Method::POST,
-        "/api/v1/members",
-        &boss,
-        Payload::Json(json!({"email": "bruno@bravo.example", "name": "Bruno Bravo", "tags": {"bravozone": "bravo-team"}})),
+        "/api/v1/splits",
+        boss,
+        Payload::Json(json!({"session_id": "bravo-session-1", "parts": [
+            {"fraction": "0.5", "tags": {"feature": "BRAVO-7"}},
+            {"fraction": "0.5", "tags": {"project": "bravo-ledger"}}
+        ]})),
     )
     .await?;
-    bravo.bruno = id_at(&bruno, "/member/id")?;
-    sqlx::query("UPDATE people SET joined_at = now() WHERE id = $1")
-        .bind(bravo.bruno)
-        .execute(pool)
-        .await?;
-    let petra = must(
-        app,
-        Method::POST,
-        "/api/v1/members",
-        &boss,
-        Payload::Json(json!({"email": "petra@bravo.example", "name": "Petra Bravo", "role": "people_manager"})),
-    )
-    .await?;
-    bravo.petra = id_at(&petra, "/member/id")?;
-    let invite_url = text_at(&petra, "/invite_url")?;
-    invite_url
-        .rsplit('/')
-        .next()
-        .unwrap_or_default()
-        .clone_into(&mut bravo.invite_code);
-    must(
-        app,
-        Method::PUT,
-        &format!("/api/v1/members/{}/filters", bravo.petra),
-        &boss,
-        Payload::Json(json!([{"bravozone": "bravo-team"}])),
-    )
-    .await?;
-    must(
-        app,
-        Method::PUT,
-        "/api/v1/organization/rules",
-        &boss,
-        Payload::Json(json!({"rules": [bravo_rule()]})),
-    )
-    .await?;
-    bravo.bruno_browser = session_for(pool, bravo.bruno, secret::SESSION).await?;
-    must(
-        app,
-        Method::PUT,
-        "/api/v1/me/rules",
-        &bravo.bruno_browser,
-        Payload::Json(json!({"rules": [bravo_rule()]})),
-    )
-    .await?;
+    let tokens = must(app, Method::GET, "/api/v1/api-tokens", boss, Payload::Empty).await?;
+    b.cli_session = tokens
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|token| token["kind"] == "cli")
+        .and_then(|token| token["id"].as_str())
+        .and_then(|id| Uuid::parse_str(id).ok())
+        .unwrap_or_default();
+
     Ok(())
 }
 
-async fn bravo_catalog(app: &Router, bravo: &mut Bravo) -> TestResult<()> {
-    let boss = bravo.boss.clone();
-    let project = must(
+/// Bravo's submissions, cutoff, bill, saved report and integrations.
+async fn bravo_books(app: &Router, boss: &str, b: &mut Bravo) -> TestResult<()> {
+    // Submissions and the cutoff.
+    let submission = must(
         app,
         Method::POST,
-        "/api/v1/projects",
-        &boss,
-        Payload::Json(json!({
-            "name": "bravo-ledger",
-            "ticket_key_pattern": "^BRAVO-\\d+",
-            "tags": {"client": "bravo-client", "bravozone": "bravo-team"},
-            "repositories": ["bravo/ledger"]
-        })),
+        "/api/v1/submissions",
+        &b.bruno_browser,
+        Payload::Json(json!({"to": "2026-09-30"})),
     )
     .await?;
-    bravo.project = id_at(&project, "/id")?;
-    let epic = must(
+    b.submission = text_at(&submission, "/id")?;
+    must(
         app,
         Method::POST,
-        "/api/v1/tickets",
-        &boss,
-        Payload::Json(json!({"key": "BRAVO-1", "title": "Bravo epic"})),
+        "/api/v1/submit-requests",
+        boss,
+        Payload::Json(json!({"until": "2099-12-31", "message": "Bravo closes the year"})),
     )
     .await?;
-    bravo.epic = id_at(&epic, "/id")?;
-    let ticket = must(
+    must(
         app,
         Method::POST,
-        "/api/v1/tickets",
-        &boss,
-        Payload::Json(json!({
-            "key": "BRAVO-7",
-            "title": "Bravo payroll migration",
-            "description": "Bravo secret description",
-            "parent_id": bravo.epic,
-            "assignee_id": bravo.bruno
-        })),
+        "/api/v1/cutoff",
+        boss,
+        Payload::Json(json!({"cutoff": "2026-08-31"})),
     )
     .await?;
-    bravo.ticket = id_at(&ticket, "/id")?;
-    Ok(())
-}
 
-/// September is closed with a bill, an adjustment and a cost sheet link;
-/// October has a rejected, a draft and a submitted token entry.
-async fn bravo_work(app: &Router, pool: &PgPool, bravo: &mut Bravo) -> TestResult<()> {
-    let boss = bravo.boss.clone();
-    bravo.bruno_cli = session_for(pool, bravo.bruno, secret::CLI).await?;
-    let cli = bravo.bruno_cli.clone();
-    let september = must(
-        app,
-        Method::POST,
-        "/api/v1/token-sheets/submit",
-        &cli,
-        Payload::Json(json!({"token_entries": [session_entry("bravo-local-1", "bravo-session-1", "2026-09-10T09:00:00Z", "BRAVO-7", "Bravo secret summary")]})),
-    )
-    .await?;
-    bravo.locked_entry = id_at(&september, "/token_entries/0/id")?;
+    // Bills, reports and integrations.
     let bill = must(
         app,
         Method::POST,
         "/api/v1/bills",
-        &boss,
-        Payload::Json(json!({"period": "2026-09", "provider": "anthropic", "cost_source": "usage_at_api_rates", "net": "777.77", "currency": "USD"})),
+        boss,
+        Payload::Json(json!({"provider": "anthropic", "from": "2026-10-01", "to": "2026-10-31", "amount": "777.77", "currency": "USD", "typed_in": true, "lines": []})),
     )
     .await?;
-    bravo.bill = id_at(&bill, "/id")?;
-    must(
+    b.bill = text_at(&bill, "/bill/id").or_else(|_| text_at(&bill, "/id"))?;
+    let saved = must(
         app,
         Method::POST,
-        "/api/v1/periods/2026-09/close",
-        &boss,
-        Payload::Empty,
-    )
-    .await?;
-    must(
-        app,
-        Method::POST,
-        "/api/v1/periods/2026-09/adjustments",
-        &boss,
-        Payload::Json(json!({"amount": "-12.34", "reason": "Bravo credit note", "tags": {"project": "bravo-ledger"}})),
-    )
-    .await?;
-    let link = must(
-        app,
-        Method::POST,
-        "/api/v1/periods/2026-09/cost-sheet/links",
-        &boss,
-        Payload::Empty,
-    )
-    .await?;
-    bravo.link = id_at(&link, "/id")?;
-    text_at(&link, "/url")?
-        .rsplit('/')
-        .next()
-        .unwrap_or_default()
-        .clone_into(&mut bravo.link_secret);
-    must(
-        app,
-        Method::PATCH,
-        "/api/v1/organization",
-        &boss,
-        Payload::Json(json!({"approval": true})),
-    )
-    .await?;
-    Ok(())
-}
-
-async fn bravo_october(app: &Router, pool: &PgPool, bravo: &mut Bravo) -> TestResult<()> {
-    let boss = bravo.boss.clone();
-    let cli = bravo.bruno_cli.clone();
-    let october = must(
-        app,
-        Method::POST,
-        "/api/v1/token-sheets/submit",
-        &cli,
-        Payload::Json(json!({"token_entries": [session_entry("bravo-local-2", "bravo-session-2", "2026-10-05T09:00:00Z", "BRAVO-7", "Bravo rejected summary")]})),
-    )
-    .await?;
-    bravo.rejected_entry = id_at(&october, "/token_entries/0/id")?;
-    let draft = must(
-        app,
-        Method::POST,
-        "/api/v1/token-entries",
-        &cli,
-        Payload::Json(session_entry(
-            "bravo-local-3",
-            "bravo-session-3",
-            "2026-10-06T09:00:00Z",
-            "BRAVO-7",
-            "Bravo draft summary",
-        )),
-    )
-    .await?;
-    bravo.draft_entry = id_at(&draft, "/id")?;
-    let service = must(
-        app,
-        Method::POST,
-        "/api/v1/api-tokens",
-        &boss,
-        Payload::Json(json!({"kind": "service", "name": "Bravo bot"})),
-    )
-    .await?;
-    bravo.service_token = id_at(&service, "/id")?;
-    let submitted = must(
-        app,
-        Method::POST,
-        "/api/v1/token-entries",
-        &text_at(&service, "/token")?,
-        Payload::Json(session_entry(
-            "bravo-local-4",
-            "bravo-session-4",
-            "2026-10-07T09:00:00Z",
-            "BRAVO-7",
-            "Bravo submitted summary",
-        )),
-    )
-    .await?;
-    bravo.submitted_entry = id_at(&submitted, "/id")?;
-    must(
-        app,
-        Method::POST,
-        &format!("/api/v1/token-entries/{}/reject", bravo.rejected_entry),
-        &boss,
-        Payload::Json(json!({"reason": "Bravo rejection reason"})),
-    )
-    .await?;
-    let read = must(
-        app,
-        Method::POST,
-        "/api/v1/api-tokens",
-        &boss,
-        Payload::Json(json!({"kind": "read", "name": "Bravo reader"})),
-    )
-    .await?;
-    bravo.read_token = id_at(&read, "/id")?;
-    bravo.cli_session = sqlx::query_scalar(
-        "SELECT id FROM sessions WHERE person_id = $1 AND client = 'local_tool'",
-    )
-    .bind(bravo.bruno)
-    .fetch_one(pool)
-    .await?;
-    Ok(())
-}
-
-async fn bravo_settings(app: &Router, pool: &PgPool, bravo: &mut Bravo) -> TestResult<()> {
-    let boss = bravo.boss.clone();
-    let post = |path: &'static str, body: Value| {
-        let boss = boss.clone();
-        async move { must(app, Method::POST, path, &boss, Payload::Json(body)).await }
-    };
-    let cadence = must(
-        app,
-        Method::PUT,
-        "/api/v1/cadences",
-        &boss,
-        Payload::Json(json!({"project": "bravo-ledger", "kind": "weekly"})),
-    )
-    .await?;
-    bravo.cadence = id_at(&cadence, "/id")?;
-    let budget = post(
-        "/api/v1/token-budgets",
-        json!({"name": "Bravo budget", "filter": {"project": "bravo-ledger"}, "every_month": true, "period": "2026-09", "amount": "999.00"}),
-    )
-    .await?;
-    bravo.budget = id_at(&budget, "/id")?;
-    let saved = post(
         "/api/v1/reports/saved",
-        json!({"name": "Bravo saved report", "filter": "project:bravo-ledger", "by": "ticket"}),
+        boss,
+        Payload::Json(json!({"name": "Bravo quarterly", "filter": {"project": "bravo-ledger"}, "by": "feature"})),
     )
     .await?;
-    bravo.saved_report = id_at(&saved, "/id")?;
-    let connection = post(
+    b.saved_report = text_at(&saved, "/id")?;
+    let connection = must(
+        app,
+        Method::POST,
         "/api/v1/bill-connections",
-        json!({"provider": "openai", "key": "sk-bravo-secret-QZ7X"}),
+        boss,
+        Payload::Json(json!({"provider": "openai", "key": "sk-admin-bravo-secret"})),
     )
     .await?;
-    bravo.bill_connection = id_at(&connection, "/id")?;
-    let system = post(
+    b.bill_connection = id_at(&connection, "/id")?;
+    let ticket_system = must(
+        app,
+        Method::POST,
         "/api/v1/ticket-systems",
-        json!({"kind": "jira", "site": "https://bravo-holdings.atlassian.net", "token": "bravo-jira-token-WK3P", "email": "boss@bravo.example"}),
+        boss,
+        Payload::Json(json!({"kind": "jira", "site": "https://bravo.atlassian.net", "token": "ATATT3xFfGF0-bravo", "email": "bruno@bravo.example"})),
     )
     .await?;
-    bravo.ticket_system = id_at(&system, "/id")?;
+    b.ticket_system = id_at(&ticket_system, "/id")?;
     must(
         app,
         Method::PUT,
-        &format!("/api/v1/ticket-systems/{}/mappings", bravo.ticket_system),
-        &boss,
-        Payload::Json(json!([{"external": "BRAVOJ", "external_name": "Bravo Jira project", "project": "bravo-ledger"}])),
+        &format!("/api/v1/ticket-systems/{}/mappings", b.ticket_system),
+        boss,
+        Payload::Json(json!([{"external": "BRV", "external_name": "Bravo ledger board", "project": "bravo-ledger"}])),
     )
     .await?;
-    post("/api/v1/token-sheets/remind", json!({"period": "2026-10"})).await?;
-    must(
-        app,
-        Method::PUT,
-        "/api/v1/token-forecasts/settings",
-        &boss,
-        Payload::Json(json!({"enabled": true})),
-    )
-    .await?;
-    let boss_id: Uuid =
-        sqlx::query_scalar("SELECT id FROM people WHERE email = 'boss@bravo.example'")
-            .fetch_one(pool)
-            .await?;
-    let made = forecast::create(
-        pool,
-        &Constant,
-        bravo.organization_id,
-        boss_id,
-        &Scope::everything(),
-        "BRAVO-7",
-    )
-    .await
-    .map_err(|error| error.to_string())?;
-    bravo.forecast = made.id;
+
     Ok(())
 }
 
-/// Every ID in Bravo's rows, read from the database itself.
+/// Every uuid and event id of Bravo's in the database.
 async fn bravo_ids(pool: &PgPool, organization_id: Uuid) -> TestResult<Vec<String>> {
-    let mut ids = vec![organization_id.to_string()];
+    let mut ids: Vec<String> = Vec::new();
+    ids.push(organization_id.to_string());
+    let people: Vec<Uuid> = sqlx::query_scalar("SELECT id FROM people WHERE organization_id = $1")
+        .bind(organization_id)
+        .fetch_all(pool)
+        .await?;
+    ids.extend(people.iter().map(ToString::to_string));
+    let events: Vec<String> =
+        sqlx::query_scalar("SELECT id FROM events WHERE organization_id = $1")
+            .bind(organization_id)
+            .fetch_all(pool)
+            .await?;
+    // Role grants carry the person's uuid; their ids are covered by it.
+    ids.extend(events.into_iter().filter(|id| !id.starts_with("grt_role_")));
     for table in [
-        "people",
-        "projects",
-        "tickets",
-        "token_entries",
         "api_tokens",
-        "bills",
-        "cadences",
-        "token_budgets",
-        "saved_reports",
-        "cost_sheet_links",
         "bill_connections",
         "ticket_systems",
-        "token_forecasts",
-        "token_sheets",
-        "adjustments",
+        "saved_reports",
+        "submit_requests",
     ] {
-        let found: Vec<String> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+        let rows: Vec<String> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
             "SELECT id::text FROM {table} WHERE organization_id = $1"
         )))
         .bind(organization_id)
         .fetch_all(pool)
         .await?;
-        ids.extend(found);
-    }
-    for query in [
-        "SELECT s.id::text FROM splits s JOIN token_entries e ON e.id = s.token_entry_id WHERE e.organization_id = $1",
-        "SELECT s.id::text FROM sessions s JOIN people p ON p.id = s.person_id WHERE p.organization_id = $1",
-        "SELECT r.id::text FROM bill_revisions r JOIN bills b ON b.id = r.bill_id WHERE b.organization_id = $1",
-        "SELECT code FROM invites WHERE organization_id = $1",
-        "SELECT slug FROM organizations WHERE id = $1",
-    ] {
-        let found: Vec<String> = sqlx::query_scalar(query)
-            .bind(organization_id)
-            .fetch_all(pool)
-            .await?;
-        ids.extend(found);
+        ids.extend(rows);
     }
     Ok(ids)
 }
 
-async fn bravo(app: &Router, pool: &PgPool) -> TestResult<Bravo> {
-    let mut bravo = Bravo::default();
-    bravo_people(app, pool, &mut bravo).await?;
-    bravo_catalog(app, &mut bravo).await?;
-    bravo_work(app, pool, &mut bravo).await?;
-    bravo_october(app, pool, &mut bravo).await?;
-    bravo_settings(app, pool, &mut bravo).await?;
-    let mut secrets: Vec<String> = [
-        "Bravo Holdings",
-        "bravo.example",
-        "Bruno Bravo",
-        "Petra Bravo",
-        "bravozone",
-        "bravo-team",
-        "bravo-client",
-        "bravo-ledger",
-        "bravo/ledger",
-        "BRAVO-1",
-        "BRAVO-7",
-        "Bravo epic",
-        "Bravo payroll migration",
-        "Bravo secret description",
-        "Bravo secret summary",
-        "Bravo rejected summary",
-        "Bravo draft summary",
-        "Bravo submitted summary",
-        "Bravo rejection reason",
-        "Bravo credit note",
-        "Bravo branch rule",
-        "bravo-local-1",
-        "bravo-local-2",
-        "bravo-local-3",
-        "bravo-local-4",
-        "bravo-session-1",
-        "bravo-session-2",
-        "bravo-session-3",
-        "bravo-session-4",
-        "777.77",
-        "12.34",
-        "999.00",
-        "Bravo budget",
-        "Bravo saved report",
-        "Bravo bot",
-        "Bravo reader",
-        "QZ7X",
-        "WK3P",
-        "bravo-holdings.atlassian.net",
-        "BRAVOJ",
-        "Bravo Jira project",
-    ]
-    .map(str::to_owned)
-    .to_vec();
-    secrets.push(bravo.link_secret.clone());
-    secrets.extend(bravo_ids(pool, bravo.organization_id).await?);
-    bravo.secrets = secrets;
-    Ok(bravo)
-}
-
 // ---------------------------------------------------------------------------
-// The cases: every route, called by Alpha with Bravo's IDs
+// The cases: every route, called by Alpha with Bravo's ids
 
 /// One call Alpha makes.
 struct Ask {
@@ -873,9 +803,6 @@ struct Ask {
     expect: &'static [u16],
     /// JSON pointers into the answer and the values they must have.
     checks: Vec<(&'static str, Value)>,
-    /// The checks in place of [`Self::checks`] once Alpha has written: for
-    /// Alpha's own lists, which its writes fill.
-    after: Option<Vec<(&'static str, Value)>>,
     /// Bravo's names this answer may hold because Alpha stored them as its
     /// own: each counts only while Alpha's rows hold it.
     allow: Vec<&'static str>,
@@ -907,13 +834,6 @@ impl Ask {
         self
     }
 
-    fn after(mut self, pointer: &'static str, value: Value) -> Self {
-        self.after
-            .get_or_insert_with(Vec::new)
-            .push((pointer, value));
-        self
-    }
-
     fn allow(mut self, names: &[&'static str]) -> Self {
         self.allow.extend_from_slice(names);
         self
@@ -928,7 +848,6 @@ fn ask(method: Method, path: impl Into<String>) -> Ask {
         payload: Payload::Empty,
         expect: &[],
         checks: Vec::new(),
-        after: None,
         allow: Vec::new(),
     }
 }
@@ -968,31 +887,27 @@ fn case(method: &'static str, template: &'static str, asks: Vec<Ask>) -> Case {
     }
 }
 
-/// Bravo's names Alpha stored as its own with its writes: its project's
-/// repository, its token entries' tickets, sender IDs and sessions, its
-/// filters. Only Alpha's raw export holds them all.
-const ALPHA_STORED: [&str; 10] = [
-    "bravo-ledger",
-    "bravo/ledger",
-    "BRAVO-7",
-    "bravo-local-1",
-    "bravo-local-3",
-    "bravo-local-4",
+/// Bravo's names Alpha stored as its own with its writes: the session ids
+/// and feature key of the messages it sent, the member Bravo's telemetry
+/// named, and the project its saved report filters on. Only Alpha's own
+/// records hold them.
+const ALPHA_STORED: [&str; 5] = [
     "bravo-session-1",
     "bravo-session-2",
-    "bravo-session-3",
-    "bravo-session-4",
+    "BRAVO-7",
+    "bruno@bravo.example",
+    "bravo-ledger",
 ];
 
 const OK: &[u16] = &[200];
 const CREATED: &[u16] = &[201];
-const NO_CONTENT: &[u16] = &[204];
 const BAD_REQUEST: &[u16] = &[400];
 const NOT_FOUND: &[u16] = &[404];
 const CONFLICT: &[u16] = &[409];
 const ACCEPTED: &[u16] = &[202];
+const REFUSED: &[u16] = &[400, 404];
 
-fn people_cases(alpha: &Alpha, b: &Bravo) -> Vec<Case> {
+fn token_cases(alpha: &Alpha, b: &Bravo) -> Vec<Case> {
     let tokens = "/api/v1/api-tokens";
     vec![
         case("GET", "/api/v1/api-tokens", vec![get(tokens).expect(OK)]),
@@ -1023,13 +938,13 @@ fn people_cases(alpha: &Alpha, b: &Bravo) -> Vec<Case> {
                     .expect(NOT_FOUND),
                 post(format!("{tokens}/{}/hand-over", alpha.service_token_id))
                     .json(json!({"person_id": b.bruno}))
-                    .expect(BAD_REQUEST),
+                    .expect(REFUSED),
             ],
         ),
     ]
 }
 
-fn member_cases(alpha: &Alpha, b: &Bravo) -> Vec<Case> {
+fn member_cases(b: &Bravo) -> Vec<Case> {
     vec![
         case(
             "GET",
@@ -1043,6 +958,9 @@ fn member_cases(alpha: &Alpha, b: &Bravo) -> Vec<Case> {
                 post("/api/v1/members")
                     .json(json!({"email": "bruno@bravo.example"}))
                     .expect(CONFLICT),
+                post("/api/v1/members")
+                    .json(json!({"email": "second@alpha.example", "attributes": {"team": "bravo-team"}}))
+                    .expect(BAD_REQUEST),
             ],
         ),
         case(
@@ -1050,11 +968,8 @@ fn member_cases(alpha: &Alpha, b: &Bravo) -> Vec<Case> {
             "/api/v1/members/{id}",
             vec![
                 patch(format!("/api/v1/members/{}", b.bruno))
-                    .json(json!({"name": "Taken over", "role": "controller"}))
+                    .json(json!({"name": "Taken over", "role": "org_manager"}))
                     .expect(NOT_FOUND),
-                patch(format!("/api/v1/members/{}", alpha.person_id))
-                    .json(json!({"tags": {"bravozone": "bravo-team"}}))
-                    .expect(BAD_REQUEST),
             ],
         ),
         case(
@@ -1067,7 +982,7 @@ fn member_cases(alpha: &Alpha, b: &Bravo) -> Vec<Case> {
             "/api/v1/members/{id}/filters",
             vec![
                 put(format!("/api/v1/members/{}/filters", b.petra))
-                    .json(json!([{"client": "x"}]))
+                    .json(json!([{"project": "alpha-app"}]))
                     .expect(NOT_FOUND),
             ],
         ),
@@ -1080,13 +995,25 @@ fn member_cases(alpha: &Alpha, b: &Bravo) -> Vec<Case> {
             "GET",
             "/api/v1/invites/{code}",
             vec![
-                // An invite code is the invitee's key; a wrong one opens nothing.
-                get("/api/v1/invites/alpha-works-000000000000")
+                get(format!("/api/v1/invites/{}x", b.invite_code))
                     .by(Cred::Nobody)
                     .expect(NOT_FOUND),
-                get(format!("/api/v1/invites/{}x", b.invite_code)).expect(NOT_FOUND),
             ],
         ),
+        case(
+            "POST",
+            "/api/v1/people/{id}/attributes",
+            vec![
+                post(format!("/api/v1/people/{}/attributes", b.bruno))
+                    .json(json!({"name": "team", "key": "bravo-team"}))
+                    .expect(REFUSED),
+            ],
+        ),
+    ]
+}
+
+fn me_cases() -> Vec<Case> {
+    vec![
         case(
             "GET",
             "/api/v1/me",
@@ -1100,13 +1027,11 @@ fn member_cases(alpha: &Alpha, b: &Bravo) -> Vec<Case> {
             "GET",
             "/api/v1/me/context",
             vec![
-                get("/api/v1/me/context")
-                    .expect(OK)
-                    .allow(&["bravo/ledger"]),
+                get("/api/v1/me/context").expect(OK).allow(&ALPHA_STORED),
                 get("/api/v1/me/context")
                     .by(Cred::Cli)
                     .expect(OK)
-                    .allow(&["bravo/ledger"]),
+                    .allow(&ALPHA_STORED),
             ],
         ),
         case(
@@ -1119,8 +1044,33 @@ fn member_cases(alpha: &Alpha, b: &Bravo) -> Vec<Case> {
             "/api/v1/me/rules",
             vec![
                 put("/api/v1/me/rules")
-                    .json(json!({"rules": [bravo_rule()]}))
+                    .json(json!([{"name": "mine", "signal": "branch", "pattern": "(?P<key>ALPHA-\\d+)", "tag_name": "feature"}]))
+                    .expect(OK),
+                put("/api/v1/me/rules")
+                    .json(json!([{"name": "theirs", "signal": "branch", "pattern": "x", "tag_name": "bravozone"}]))
                     .expect(BAD_REQUEST),
+            ],
+        ),
+        case(
+            "GET",
+            "/api/v1/grants",
+            vec![
+                get("/api/v1/grants").expect(OK),
+                get("/api/v1/grants?person=bruno@bravo.example")
+                    .expect(OK)
+                    .check("", json!([])),
+            ],
+        ),
+        case(
+            "POST",
+            "/api/v1/grants",
+            vec![
+                post("/api/v1/grants")
+                    .json(json!({"person": "bruno@bravo.example", "capability": "view", "filter": {}}))
+                    .expect(REFUSED),
+                post("/api/v1/grants")
+                    .json(json!({"person": "alice@alpha.example", "capability": "view", "filter": {"project": "bravo-ledger"}}))
+                    .expect(REFUSED),
             ],
         ),
     ]
@@ -1142,37 +1092,60 @@ fn organization_cases() -> Vec<Case> {
             "/api/v1/organization",
             vec![
                 patch("/api/v1/organization")
-                    .json(json!({"approval": true}))
+                    .json(json!({"name": "Alpha Works", "reporting_currency": "USD"}))
                     .expect(OK),
             ],
         ),
         case(
             "GET",
             "/api/v1/organization/member-limit",
+            vec![get("/api/v1/organization/member-limit").expect(OK)],
+        ),
+        case(
+            "GET",
+            "/api/v1/rules",
+            vec![get("/api/v1/rules").expect(OK)],
+        ),
+        case(
+            "POST",
+            "/api/v1/rules",
             vec![
-                get("/api/v1/organization/member-limit")
-                    .expect(OK)
-                    .check("/members", json!(1)),
+                post("/api/v1/rules")
+                    .json(json!({"name": "Alpha rule", "signal": "branch", "pattern": "(?P<key>ALPHA-\\d+)", "tag_name": "feature"}))
+                    .expect(CREATED),
+                post("/api/v1/rules")
+                    .json(json!({"name": "Bravo copy", "signal": "branch", "pattern": "x", "tag_name": "feature", "key": "BRAVO-7"}))
+                    .expect(BAD_REQUEST),
             ],
         ),
         case(
             "GET",
-            "/api/v1/organization/rules",
-            vec![get("/api/v1/organization/rules").expect(OK)],
+            "/api/v1/cutoff",
+            vec![get("/api/v1/cutoff").expect(OK)],
         ),
         case(
-            "PUT",
-            "/api/v1/organization/rules",
+            "GET",
+            "/api/v1/price-table",
             vec![
-                put("/api/v1/organization/rules")
-                    .json(json!({"rules": [bravo_rule()]}))
-                    .expect(BAD_REQUEST),
+                get("/api/v1/price-table").expect(OK),
+                get("/api/v1/price-table?model=bravo-model")
+                    .expect(OK)
+                    .check("/rows", json!([])),
+            ],
+        ),
+        case(
+            "POST",
+            "/api/v1/price-table/rows",
+            vec![
+                post("/api/v1/price-table/rows")
+                    .json(json!({"provider": "anthropic", "model": "alpha-model", "kind": "input", "price_per_million": "3", "valid_from": "2026-01-01"}))
+                    .expect(CREATED),
             ],
         ),
     ]
 }
 
-fn tag_cases() -> Vec<Case> {
+fn tag_cases(b: &Bravo) -> Vec<Case> {
     vec![
         case("GET", "/api/v1/tags", vec![get("/api/v1/tags").expect(OK)]),
         case(
@@ -1185,238 +1158,230 @@ fn tag_cases() -> Vec<Case> {
             ],
         ),
         case(
-            "GET",
-            "/api/v1/tags/{name}/values",
-            vec![
-                get("/api/v1/tags/bravozone/values")
-                    .expect(OK)
-                    .check("", json!([])),
-                get("/api/v1/tags/client/values")
-                    .expect(OK)
-                    .check("", json!([])),
-                get("/api/v1/tags/person/values").expect(OK),
-                get("/api/v1/tags/project/values").expect(OK),
-                get("/api/v1/tags/ticket/values").expect(OK),
-            ],
+            "DELETE",
+            "/api/v1/tags/{name}",
+            vec![delete("/api/v1/tags/bravozone").expect(NOT_FOUND)],
         ),
         case(
             "POST",
-            "/api/v1/tags/{name}/merge",
+            "/api/v1/tags/{name}/values",
             vec![
-                post("/api/v1/tags/bravozone/merge")
-                    .json(json!({"from": ["bravo-team"], "into": "alpha"}))
+                post("/api/v1/tags/bravozone/values")
+                    .json(json!({"key": "alpha-zone"}))
                     .expect(NOT_FOUND),
-                // Alpha's own tag, with Bravo's values: nothing of Bravo's moves.
-                post("/api/v1/tags/client/merge")
-                    .json(json!({"from": ["bravo-client"], "into": "alpha-client"}))
-                    .expect(OK)
-                    .check("", json!([])),
-            ],
-        ),
-        case(
-            "DELETE",
-            "/api/v1/tags/{name}",
-            vec![
-                delete("/api/v1/tags/bravozone").expect(NOT_FOUND),
-                // Removing Alpha's own `client` leaves Bravo's `client` tags.
-                delete("/api/v1/tags/client").expect(NO_CONTENT),
-            ],
-        ),
-        case(
-            "GET",
-            "/api/v1/tag-map",
-            vec![
-                get("/api/v1/tag-map")
-                    .expect(OK)
-                    .check("/version", json!(1)),
-            ],
-        ),
-        case(
-            "PUT",
-            "/api/v1/tag-map",
-            vec![
-                put("/api/v1/tag-map")
-                    .json(json!({"cost_center": "bravozone", "ladder": []}))
+                post("/api/v1/tags/feature/values")
+                    .json(json!({"key": "ALPHA-2", "defaults": {"project": "bravo-ledger"}}))
                     .expect(BAD_REQUEST),
             ],
         ),
-    ]
-}
-
-fn project_cases(b: &Bravo) -> Vec<Case> {
-    vec![
         case(
             "GET",
-            "/api/v1/projects",
-            vec![
-                // Alpha's project names Bravo's repository as its own.
-                get("/api/v1/projects").expect(OK).allow(&["bravo/ledger"]),
-                get("/api/v1/projects?archived=true")
-                    .expect(OK)
-                    .allow(&["bravo/ledger"]),
-            ],
+            "/api/v1/attributes",
+            vec![get("/api/v1/attributes").expect(OK)],
         ),
         case(
             "POST",
-            "/api/v1/projects",
+            "/api/v1/attributes",
             vec![
-                post("/api/v1/projects")
-                    .json(json!({"name": "alpha-two", "repositories": ["bravo/ledger"]}))
+                post("/api/v1/attributes")
+                    .json(json!({"name": "alphafloor"}))
                     .expect(CREATED),
             ],
         ),
         case(
-            "PATCH",
-            "/api/v1/projects/{id}",
+            "POST",
+            "/api/v1/attributes/{name}/values",
             vec![
-                patch(format!("/api/v1/projects/{}", b.project))
-                    .json(json!({"name": "taken"}))
+                post("/api/v1/attributes/team/values")
+                    .json(json!({"key": "alpha-team", "defaults": {"department": "bravo-dept"}}))
+                    .expect(BAD_REQUEST),
+            ],
+        ),
+        case(
+            "POST",
+            "/api/v1/reversals",
+            vec![
+                post("/api/v1/reversals")
+                    .json(json!({"event_id": b.tag_value}))
+                    .expect(NOT_FOUND),
+                post("/api/v1/reversals")
+                    .json(json!({"event_id": b.estimate}))
                     .expect(NOT_FOUND),
             ],
         ),
         case(
-            "DELETE",
-            "/api/v1/projects/{id}",
-            vec![delete(format!("/api/v1/projects/{}", b.project)).expect(NOT_FOUND)],
+            "GET",
+            "/api/v1/events",
+            vec![
+                get("/api/v1/events").expect(OK).allow(&ALPHA_STORED),
+                get("/api/v1/events?kind=estimate").expect(OK),
+            ],
         ),
         case(
             "GET",
-            "/api/v1/clients",
-            vec![get("/api/v1/clients").expect(OK).check("", json!([]))],
+            "/api/v1/exports/raw",
+            vec![get("/api/v1/exports/raw").expect(OK).allow(&ALPHA_STORED)],
         ),
     ]
 }
 
-fn ticket_cases(alpha: &Alpha, b: &Bravo) -> Vec<Case> {
-    let tickets = "/api/v1/tickets";
+fn plan_cases(alpha: &Alpha, b: &Bravo) -> Vec<Case> {
+    vec![
+        case(
+            "POST",
+            "/api/v1/estimates",
+            vec![
+                post("/api/v1/estimates")
+                    .json(json!({"work": "Alpha copy", "tags": {"project": "bravo-ledger"}, "median": "1", "from": "2026-10-01", "to": "2026-10-31"}))
+                    .expect(REFUSED),
+            ],
+        ),
+        case(
+            "GET",
+            "/api/v1/estimates/{id}",
+            vec![
+                get(format!("/api/v1/estimates/{}", b.estimate)).expect(NOT_FOUND),
+                get(format!("/api/v1/estimates/{}", alpha.estimate)).expect(OK),
+            ],
+        ),
+        case(
+            "POST",
+            "/api/v1/estimates/{id}/accept",
+            vec![post(format!("/api/v1/estimates/{}/accept", b.estimate)).expect(NOT_FOUND)],
+        ),
+        case(
+            "GET",
+            "/api/v1/shares",
+            vec![get("/api/v1/shares").expect(OK).check("", json!([]))],
+        ),
+        case(
+            "POST",
+            "/api/v1/shares",
+            vec![
+                post("/api/v1/shares")
+                    .json(json!({"person": "bruno@bravo.example", "project": "alpha-app", "fraction": "0.5", "from": "2026-10-01"}))
+                    .expect(REFUSED),
+                post("/api/v1/shares")
+                    .json(json!({"person": "alice@alpha.example", "project": "bravo-ledger", "fraction": "0.5", "from": "2026-10-01"}))
+                    .expect(REFUSED),
+            ],
+        ),
+    ]
+}
+
+fn message_cases(b: &Bravo) -> Vec<Case> {
     vec![
         case(
             "GET",
-            "/api/v1/tickets",
+            "/api/v1/messages",
             vec![
-                get(tickets).expect(OK),
-                get(format!("{tickets}?project_id={}", b.project))
+                get("/api/v1/messages?from=2026-09-01&to=2026-10-31")
                     .expect(OK)
-                    .check("", json!([])),
-                get(format!("{tickets}?parent_id={}", b.epic))
+                    .allow(&ALPHA_STORED),
+                get("/api/v1/messages?from=2026-09-01&to=2026-10-31&session_id=bravo-session-3")
                     .expect(OK)
-                    .check("", json!([])),
-                get(format!("{tickets}?q=BRAVO"))
+                    .check("/messages", json!([])),
+                get("/api/v1/messages?from=2026-09-01&to=2026-10-31&filter=project:bravo-ledger")
                     .expect(OK)
-                    .check("", json!([])),
-            ],
-        ),
-        case(
-            "POST",
-            "/api/v1/tickets",
-            vec![
-                post(tickets)
-                    .json(json!({"key": "ALPHA-2", "project_id": b.project}))
-                    .expect(BAD_REQUEST),
-                post(tickets)
-                    .json(json!({"key": "ALPHA-3", "parent_id": b.ticket}))
-                    .expect(BAD_REQUEST),
-                post(tickets)
-                    .json(json!({"key": "ALPHA-4", "assignee_id": b.bruno}))
-                    .expect(BAD_REQUEST),
+                    .check("/messages", json!([])),
             ],
         ),
         case(
             "GET",
-            "/api/v1/tickets/{id}",
-            vec![get(format!("{tickets}/{}", b.ticket)).expect(NOT_FOUND)],
+            "/api/v1/sessions",
+            vec![
+                get("/api/v1/sessions?from=2026-09-01&to=2026-10-31")
+                    .expect(OK)
+                    .allow(&ALPHA_STORED),
+            ],
         ),
         case(
-            "PATCH",
-            "/api/v1/tickets/{id}",
+            "POST",
+            "/api/v1/splits",
             vec![
-                patch(format!("{tickets}/{}", b.ticket))
-                    .json(json!({"title": "taken"}))
-                    .expect(NOT_FOUND),
-                patch(format!("{tickets}/{}", alpha.ticket_id))
-                    .json(json!({"parent_id": b.epic}))
-                    .expect(BAD_REQUEST),
-                patch(format!("{tickets}/{}", alpha.ticket_id))
-                    .json(json!({"project_id": b.project}))
-                    .expect(BAD_REQUEST),
-                patch(format!("{tickets}/{}", alpha.ticket_id))
-                    .json(json!({"assignee_id": b.bruno}))
-                    .expect(BAD_REQUEST),
+                post("/api/v1/splits")
+                    .json(json!({"session_id": "bravo-session-3", "parts": [{"tags": {"feature": "ALPHA-1"}}]}))
+                    .expect(REFUSED),
             ],
         ),
         case(
             "GET",
-            "/api/v1/tickets/{key}/token-forecast",
-            vec![get("/api/v1/tickets/BRAVO-7/token-forecast").expect(NOT_FOUND)],
-        ),
-        case(
-            "POST",
-            "/api/v1/tickets/{key}/token-forecast",
-            vec![post("/api/v1/tickets/BRAVO-7/token-forecast").expect(NOT_FOUND)],
-        ),
-        case(
-            "POST",
-            "/api/v1/token-forecasts/{id}/accept",
+            "/api/v1/submissions",
             vec![
-                post(format!("/api/v1/token-forecasts/{}/accept", b.forecast))
-                    .json(json!({"amount": "30"}))
+                get("/api/v1/submissions").expect(OK),
+                get("/api/v1/submissions?person=bruno@bravo.example")
+                    .expect(OK)
+                    .check("", json!([])),
+            ],
+        ),
+        case(
+            "POST",
+            "/api/v1/submissions",
+            vec![
+                post("/api/v1/submissions")
+                    .json(json!({}))
+                    .expect(CREATED),
+            ],
+        ),
+        case(
+            "POST",
+            "/api/v1/submissions/{id}/approve",
+            vec![post(format!("/api/v1/submissions/{}/approve", b.submission)).expect(NOT_FOUND)],
+        ),
+        case(
+            "POST",
+            "/api/v1/submissions/{id}/reject",
+            vec![
+                post(format!("/api/v1/submissions/{}/reject", b.submission))
+                    .json(json!({"reason": "not ours"}))
                     .expect(NOT_FOUND),
             ],
         ),
         case(
             "GET",
-            "/api/v1/token-forecasts/settings",
-            vec![get("/api/v1/token-forecasts/settings").expect(OK)],
+            "/api/v1/submit-requests",
+            vec![get("/api/v1/submit-requests").expect(OK)],
         ),
         case(
-            "PUT",
-            "/api/v1/token-forecasts/settings",
+            "POST",
+            "/api/v1/submit-requests",
             vec![
-                put("/api/v1/token-forecasts/settings")
-                    .json(json!({"enabled": true}))
-                    .expect(OK),
+                post("/api/v1/submit-requests")
+                    .json(json!({"until": "2099-12-31"}))
+                    .expect(CREATED),
             ],
         ),
     ]
 }
 
-fn entry_cases() -> Vec<Case> {
-    let entries = "/api/v1/token-entries";
-    let csv = "agent_harness,model,started_at,ended_at,tokens.input,tokens.output,reported_cost,summary,ticket\n\
-               claude-code,claude-sonnet-5,2026-10-08T09:12:00Z,2026-10-08T09:40:00Z,41200,6100,0.42,Alpha CSV work,BRAVO-7\n";
+fn ingest_cases() -> Vec<Case> {
+    let csv = "agent_harness,model,started_at,ended_at,tokens.input,tokens.output,tokens.cache_read,tokens.cache_write,feature\n\
+               claude-code,claude-opus-5,2026-10-07T09:00:00Z,2026-10-07T09:30:00Z,100,10,0,0,ALPHA-1\n";
+    let otlp =
+        |signal: &str| post(format!("/api/v1/ingest/otlp/v1/{signal}")).by(Cred::Organization);
     vec![
         case(
             "POST",
             "/api/v1/token-entries",
             vec![
-                // Bravo's session and sender IDs, ticket and project name:
-                // a new token entry of Alpha's, nothing of Bravo's touched.
-                post(entries)
+                post("/api/v1/token-entries")
                     .by(Cred::Service)
                     .json(session_entry(
-                        "bravo-local-4",
-                        "bravo-session-4",
-                        "2026-10-08T09:00:00Z",
+                        "alpha-local-2",
+                        "bravo-session-1",
+                        "2026-10-07T09:00:00Z",
                         "BRAVO-7",
-                        "Alpha service work",
+                        "Alpha work under Bravo's names",
                     ))
-                    .expect(CREATED),
-                post(entries)
-                    .json(session_entry(
-                        "bravo-local-3",
-                        "bravo-session-3",
-                        "2026-10-08T11:00:00Z",
-                        "BRAVO-7",
-                        "Alpha manual work",
-                    ))
-                    .expect(CREATED),
+                    .expect(CREATED)
+                    .check("/unknown_tags", json!(["feature: BRAVO-7"])),
             ],
         ),
         case(
             "POST",
             "/api/v1/token-entries/csv/preview",
             vec![
-                post(format!("{entries}/csv/preview"))
+                post("/api/v1/token-entries/csv/preview")
                     .raw("text/csv", csv)
                     .expect(OK),
             ],
@@ -1425,89 +1390,11 @@ fn entry_cases() -> Vec<Case> {
             "POST",
             "/api/v1/token-entries/csv",
             vec![
-                post(format!("{entries}/csv"))
+                post("/api/v1/token-entries/csv")
                     .raw("text/csv", csv)
                     .expect(CREATED),
             ],
         ),
-    ]
-}
-
-fn decision_cases(b: &Bravo) -> Vec<Case> {
-    let entries = "/api/v1/token-entries";
-    let bravo_entries = [
-        b.rejected_entry,
-        b.draft_entry,
-        b.submitted_entry,
-        b.locked_entry,
-    ];
-    vec![
-        case(
-            "GET",
-            "/api/v1/token-entries/approval",
-            vec![
-                // Alpha's token entries carry Bravo's ticket key as their own.
-                get(format!("{entries}/approval"))
-                    .expect(OK)
-                    .allow(&["BRAVO-7"]),
-                get(format!("{entries}/approval?format=csv"))
-                    .expect(OK)
-                    .allow(&["BRAVO-7"]),
-            ],
-        ),
-        case(
-            "POST",
-            "/api/v1/token-entries/approve",
-            vec![
-                post(format!("{entries}/approve"))
-                    .json(json!({"token_entry_ids": bravo_entries}))
-                    .expect(OK)
-                    .check("/approved", json!(0)),
-            ],
-        ),
-        case(
-            "POST",
-            "/api/v1/token-entries/{id}/reject",
-            bravo_entries
-                .iter()
-                .map(|id| {
-                    post(format!("{entries}/{id}/reject"))
-                        .json(json!({"reason": "not yours"}))
-                        .expect(NOT_FOUND)
-                })
-                .collect(),
-        ),
-        case(
-            "PUT",
-            "/api/v1/token-entries/{id}/splits",
-            bravo_entries
-                .iter()
-                .map(|id| {
-                    put(format!("{entries}/{id}/splits"))
-                        .json(json!({"splits": [{"share_percent": 50}, {"share_percent": 50}]}))
-                        .expect(NOT_FOUND)
-                })
-                .collect(),
-        ),
-        case(
-            "PATCH",
-            "/api/v1/token-entries/{id}/tags",
-            bravo_entries
-                .iter()
-                .map(|id| {
-                    patch(format!("{entries}/{id}/tags"))
-                        .json(json!({"tags": {"ticket": "ALPHA-1"}}))
-                        .expect(NOT_FOUND)
-                })
-                .collect(),
-        ),
-    ]
-}
-
-fn telemetry_cases() -> Vec<Case> {
-    let otlp =
-        |signal: &str| post(format!("/api/v1/ingest/otlp/v1/{signal}")).by(Cred::Organization);
-    vec![
         case(
             "POST",
             "/api/v1/ingest/otlp/v1/logs",
@@ -1582,166 +1469,32 @@ fn trace_with_bravos_session() -> Value {
     }] })
 }
 
-fn sheet_cases(b: &Bravo) -> Vec<Case> {
-    vec![
-        case(
-            "GET",
-            "/api/v1/token-sheets/current",
-            vec![
-                get("/api/v1/token-sheets/current")
-                    .expect(OK)
-                    .allow(&["BRAVO-7"]),
-                get("/api/v1/token-sheets/current")
-                    .by(Cred::Cli)
-                    .expect(OK)
-                    .allow(&["BRAVO-7"]),
-                get("/api/v1/token-sheets/current?format=csv")
-                    .expect(OK)
-                    .allow(&["BRAVO-7"]),
-            ],
-        ),
-        case(
-            "POST",
-            "/api/v1/token-sheets/submit",
-            vec![
-                // The sender ID of Bravo's locked September token entry.
-                post("/api/v1/token-sheets/submit")
-                    .by(Cred::Cli)
-                    .json(json!({"token_entries": [session_entry("bravo-local-1", "bravo-session-1", "2026-10-09T09:00:00Z", "BRAVO-7", "Alpha CLI work")]}))
-                    .expect(OK),
-            ],
-        ),
-        case(
-            "GET",
-            "/api/v1/token-sheets/late",
-            vec![get("/api/v1/token-sheets/late").expect(OK), get("/api/v1/token-sheets/late?period=2026-10").expect(OK)],
-        ),
-        case("POST", "/api/v1/token-sheets/remind", vec![post("/api/v1/token-sheets/remind").json(json!({"period": "2026-10"})).expect(OK)]),
-        case("GET", "/api/v1/cadences", vec![get("/api/v1/cadences").expect(OK).check("", json!([]))]),
-        case(
-            "PUT",
-            "/api/v1/cadences",
-            vec![put("/api/v1/cadences").json(json!({"project": "bravo-ledger", "kind": "weekly"})).expect(NOT_FOUND)],
-        ),
-        case("DELETE", "/api/v1/cadences/{id}", vec![delete(format!("/api/v1/cadences/{}", b.cadence)).expect(NOT_FOUND)]),
-    ]
-}
-
-fn close_cases(b: &Bravo) -> Vec<Case> {
-    let september = "/api/v1/periods/2026-09";
-    vec![
-        case(
-            "GET",
-            "/api/v1/periods",
-            vec![
-                get("/api/v1/periods").expect(OK),
-                get("/api/v1/periods?format=csv").expect(OK),
-            ],
-        ),
-        // Bravo closed September; Alpha's September is its own and open.
-        case(
-            "GET",
-            "/api/v1/periods/{period}",
-            vec![get(september).expect(OK).check("/closed", json!(false))],
-        ),
-        case(
-            "POST",
-            "/api/v1/periods/{period}/adjustments",
-            vec![
-                post(format!("{september}/adjustments"))
-                    .json(json!({"amount": "1.00", "reason": "Alpha"}))
-                    .expect(CONFLICT),
-            ],
-        ),
-        case(
-            "POST",
-            "/api/v1/periods/{period}/close",
-            vec![post("/api/v1/periods/2026-10/close").expect(CONFLICT)],
-        ),
-        case(
-            "GET",
-            "/api/v1/periods/{period}/cost-sheet",
-            vec![
-                get(format!("{september}/cost-sheet"))
-                    .expect(OK)
-                    .check("/closed", json!(false)),
-                get(format!("{september}/cost-sheet?format=csv")).expect(OK),
-            ],
-        ),
-        case(
-            "GET",
-            "/api/v1/periods/{period}/cost-sheet/links",
-            vec![
-                get(format!("{september}/cost-sheet/links"))
-                    .expect(OK)
-                    .check("", json!([])),
-            ],
-        ),
-        case(
-            "POST",
-            "/api/v1/periods/{period}/cost-sheet/links",
-            vec![post(format!("{september}/cost-sheet/links")).expect(CONFLICT)],
-        ),
-        case(
-            "DELETE",
-            "/api/v1/cost-sheet-links/{id}",
-            vec![delete(format!("/api/v1/cost-sheet-links/{}", b.link)).expect(NOT_FOUND)],
-        ),
-        case(
-            "GET",
-            "/api/v1/shared/cost-sheets/{secret}",
-            vec![
-                // The link's secret is the key to it; a wrong one opens nothing.
-                get(format!("/api/v1/shared/cost-sheets/{}", "0".repeat(64)))
-                    .by(Cred::Nobody)
-                    .expect(NOT_FOUND),
-                get(format!("/api/v1/shared/cost-sheets/{}", "f".repeat(64))).expect(NOT_FOUND),
-            ],
-        ),
-        case(
-            "GET",
-            "/api/v1/reconciliation",
-            vec![
-                get("/api/v1/reconciliation?period=2026-09").expect(OK),
-                get("/api/v1/reconciliation?period=2026-09&format=csv").expect(OK),
-            ],
-        ),
-    ]
-}
-
 fn bill_cases(b: &Bravo) -> Vec<Case> {
-    let csv =
-        "period,cost_source,gross,discount,credit,net,currency\n2026-10,api_key,1,0,0,1,USD\n";
-    let bill = json!({"period": "2026-10", "provider": "anthropic", "cost_source": "usage_at_api_rates", "net": "1.00", "currency": "USD"});
+    let csv = "provider,from,to,amount,currency\nopenai,2026-10-01,2026-10-31,5.00,USD\n";
     vec![
         case(
             "GET",
             "/api/v1/bills",
             vec![
-                get("/api/v1/bills?period=2026-09")
+                get("/api/v1/bills").expect(OK),
+                get("/api/v1/bills?from=2026-09-01&to=2026-09-30&provider=anthropic&reversed=true")
                     .expect(OK)
                     .check("", json!([])),
-                get("/api/v1/bills?format=csv").expect(OK),
             ],
         ),
         case(
             "POST",
             "/api/v1/bills",
             vec![
-                post("/api/v1/bills").json(bill.clone()).expect(CREATED),
                 post("/api/v1/bills")
-                    .by(Cred::Service)
-                    .json(bill)
-                    .expect(OK),
+                    .json(json!({"provider": "anthropic", "from": "2026-10-01", "to": "2026-10-31", "amount": "5.00", "currency": "USD", "typed_in": true, "lines": []}))
+                    .expect(CREATED),
             ],
         ),
         case(
             "GET",
             "/api/v1/bills/{id}",
-            vec![
-                get(format!("/api/v1/bills/{}", b.bill)).expect(NOT_FOUND),
-                get(format!("/api/v1/bills/{}?format=csv", b.bill)).expect(NOT_FOUND),
-            ],
+            vec![get(format!("/api/v1/bills/{}", b.bill)).expect(NOT_FOUND)],
         ),
         case(
             "POST",
@@ -1755,145 +1508,153 @@ fn bill_cases(b: &Bravo) -> Vec<Case> {
         case(
             "POST",
             "/api/v1/bills/csv",
-            vec![
-                post("/api/v1/bills/csv")
-                    .raw("text/csv", csv)
-                    .expect(CREATED),
-            ],
+            vec![post("/api/v1/bills/csv").raw("text/csv", csv).expect(CREATED)],
+        ),
+        case(
+            "GET",
+            "/api/v1/reconciliation",
+            vec![get("/api/v1/reconciliation").expect(OK)],
         ),
         case(
             "GET",
             "/api/v1/bill-connections",
-            vec![
-                get("/api/v1/bill-connections")
-                    .expect(OK)
-                    .check("", json!([]))
-                    .after("/0/key_hint", json!("…A1B2"))
-                    .after("/1", Value::Null),
-            ],
+            vec![get("/api/v1/bill-connections").expect(OK)],
         ),
         case(
             "POST",
             "/api/v1/bill-connections",
             vec![
                 post("/api/v1/bill-connections")
-                    .json(json!({"provider": "openai", "key": "sk-alpha-key-A1B2"}))
+                    .json(json!({"provider": "openai", "key": "sk-admin-alpha-secret"}))
                     .expect(CREATED),
             ],
         ),
         case(
             "DELETE",
             "/api/v1/bill-connections/{id}",
-            vec![
-                delete(format!("/api/v1/bill-connections/{}", b.bill_connection)).expect(NOT_FOUND),
-            ],
+            vec![delete(format!("/api/v1/bill-connections/{}", b.bill_connection)).expect(NOT_FOUND)],
         ),
         case(
             "POST",
             "/api/v1/bill-connections/{id}/pull",
-            vec![
-                post(format!(
-                    "/api/v1/bill-connections/{}/pull",
-                    b.bill_connection
-                ))
-                .expect(NOT_FOUND),
-            ],
+            vec![post(format!("/api/v1/bill-connections/{}/pull", b.bill_connection)).expect(NOT_FOUND)],
         ),
     ]
 }
 
-fn integration_cases(b: &Bravo) -> Vec<Case> {
-    let system = format!("/api/v1/ticket-systems/{}", b.ticket_system);
+fn ticket_system_cases(b: &Bravo) -> Vec<Case> {
     vec![
-        case("GET", "/api/v1/ticket-systems", vec![get("/api/v1/ticket-systems").expect(OK).check("", json!([])).after("/0/site", json!("https://alpha-works.atlassian.net")).after("/1", Value::Null)]),
+        case(
+            "GET",
+            "/api/v1/ticket-systems",
+            vec![get("/api/v1/ticket-systems").expect(OK)],
+        ),
         case(
             "POST",
             "/api/v1/ticket-systems",
-            vec![post("/api/v1/ticket-systems")
-                .json(json!({"kind": "jira", "site": "https://alpha-works.atlassian.net", "token": "alpha-jira-C3D4", "email": "alice@alpha.example"}))
-                .expect(CREATED)],
+            vec![
+                post("/api/v1/ticket-systems")
+                    .json(json!({"kind": "jira", "site": "https://alpha.atlassian.net", "token": "ATATT3xFfGF0-alpha", "email": "alice@alpha.example"}))
+                    .expect(CREATED),
+            ],
         ),
-        case("DELETE", "/api/v1/ticket-systems/{id}", vec![delete(system.clone()).expect(NOT_FOUND)]),
+        case(
+            "DELETE",
+            "/api/v1/ticket-systems/{id}",
+            vec![delete(format!("/api/v1/ticket-systems/{}", b.ticket_system)).expect(NOT_FOUND)],
+        ),
         case(
             "PUT",
             "/api/v1/ticket-systems/{id}/mappings",
-            vec![put(format!("{system}/mappings")).json(json!([{"external": "ALPHA", "project": "alpha-app"}])).expect(NOT_FOUND)],
+            vec![
+                put(format!("/api/v1/ticket-systems/{}/mappings", b.ticket_system))
+                    .json(json!([{"external": "BRV", "project": "alpha-app"}]))
+                    .expect(NOT_FOUND),
+            ],
         ),
-        case("GET", "/api/v1/ticket-systems/{id}/projects", vec![get(format!("{system}/projects")).expect(NOT_FOUND)]),
-        case("POST", "/api/v1/ticket-systems/{id}/sync", vec![post(format!("{system}/sync")).expect(NOT_FOUND)]),
+        case(
+            "GET",
+            "/api/v1/ticket-systems/{id}/projects",
+            vec![get(format!("/api/v1/ticket-systems/{}/projects", b.ticket_system)).expect(NOT_FOUND)],
+        ),
+        case(
+            "POST",
+            "/api/v1/ticket-systems/{id}/sync",
+            vec![post(format!("/api/v1/ticket-systems/{}/sync", b.ticket_system)).expect(NOT_FOUND)],
+        ),
     ]
 }
 
-fn report_cases(b: &Bravo) -> Vec<Case> {
-    let saved = format!("/api/v1/reports/saved/{}", b.saved_report);
-    let entries = "/api/v1/reports/token-entries";
+fn report_cases() -> Vec<Case> {
+    let window = "from=2026-10-01&to=2026-10-31";
     vec![
         case(
             "GET",
             "/api/v1/reports/cost",
             vec![
-                get("/api/v1/reports/cost?period=2026-09&by=project").expect(OK),
-                get("/api/v1/reports/cost?period=2026-10&by=ticket&filter=project:bravo-ledger").expect(OK),
-                get("/api/v1/reports/cost?period=2026-10&by=bravozone&format=csv").expect(OK),
+                get(format!("/api/v1/reports/cost?{window}&by=project"))
+                    .expect(OK)
+                    .allow(&ALPHA_STORED),
+                get(format!("/api/v1/reports/cost?{window}&by=feature&filter=project:bravo-ledger"))
+                    .expect(OK)
+                    .check("/rows", json!([])),
+                get(format!("/api/v1/reports/cost?{window}&by=person&format=csv"))
+                    .expect(OK)
+                    .allow(&ALPHA_STORED),
             ],
         ),
         case(
             "GET",
-            "/api/v1/reports/agent-harness",
-            vec![get("/api/v1/reports/agent-harness?period=2026-09").expect(OK), get("/api/v1/reports/agent-harness?period=2026-10").expect(OK)],
+            "/api/v1/reports/deviation",
+            vec![
+                get(format!("/api/v1/reports/deviation?{window}")).expect(OK),
+                get(format!("/api/v1/reports/deviation?{window}&filter=project:bravo-ledger"))
+                    .expect(OK)
+                    .check("/rows/0/cost", json!("0.00"))
+                    .check("/rows/0/plan", Value::Null),
+            ],
         ),
         case(
             "GET",
-            "/api/v1/reports/outliers",
-            vec![get("/api/v1/reports/outliers?period=2026-09").expect(OK), get("/api/v1/reports/outliers?period=2026-10").expect(OK)],
+            "/api/v1/reports/forecast",
+            vec![
+                get(format!("/api/v1/reports/forecast?{window}&by=project"))
+                    .expect(OK)
+                    .allow(&ALPHA_STORED),
+                get(format!("/api/v1/reports/forecast?{window}&filter=project:bravo-ledger"))
+                    .expect(OK)
+                    .check("/rows/0/forecast", json!("0.00")),
+            ],
         ),
-        case("GET", "/api/v1/reports/saved", vec![get("/api/v1/reports/saved").expect(OK).check("", json!([])).after("/0/name", json!("Alpha copy")).after("/1", Value::Null).allow(&["bravo-ledger"])]),
+        case(
+            "GET",
+            "/api/v1/reports/saved",
+            vec![get("/api/v1/reports/saved").expect(OK).allow(&ALPHA_STORED)],
+        ),
         case(
             "POST",
             "/api/v1/reports/saved",
-            vec![post("/api/v1/reports/saved").json(json!({"name": "Alpha copy", "filter": "project:bravo-ledger", "by": "ticket"})).expect(CREATED)],
-        ),
-        case("GET", "/api/v1/reports/saved/{id}", vec![get(format!("{saved}?period=2026-09")).expect(NOT_FOUND)]),
-        case("DELETE", "/api/v1/reports/saved/{id}", vec![delete(saved).expect(NOT_FOUND)]),
-        case(
-            "GET",
-            "/api/v1/reports/token-entries",
             vec![
-                get(format!("{entries}?person={}", b.bruno)).expect(OK).check("/total", json!(0)),
-                get(format!("{entries}?filter=project:bravo-ledger")).expect(OK).check("/total", json!(0)),
-                get(format!("{entries}?status=submitted,approved,rejected,locked")).expect(OK).allow(&["BRAVO-7"]),
-                get(format!("{entries}?format=csv")).expect(OK).allow(&["BRAVO-7"]),
+                post("/api/v1/reports/saved")
+                    .json(json!({"name": "Alpha copy", "filter": {"project": "bravo-ledger"}, "by": "feature"}))
+                    .expect(CREATED),
             ],
         ),
-        case(
-            "GET",
-            "/api/v1/reports/token-budgets",
-            vec![get("/api/v1/reports/token-budgets?period=2026-10").expect(OK).allow(&["bravo-ledger"]), get("/api/v1/reports/token-budgets?period=2026-09").expect(OK).allow(&["bravo-ledger"])],
-        ),
-        case(
-            "GET",
-            "/api/v1/reports/token-budgets/{id}",
-            vec![get(format!("/api/v1/reports/token-budgets/{}?period=2026-10", b.budget)).expect(NOT_FOUND)],
-        ),
-        case("GET", "/api/v1/token-budgets", vec![get("/api/v1/token-budgets").expect(OK).check("", json!([])).after("/0/name", json!("Alpha watch")).after("/1", Value::Null).allow(&["bravo-ledger"]), get("/api/v1/token-budgets?format=csv").expect(OK).allow(&["bravo-ledger"])]),
-        case(
-            "POST",
-            "/api/v1/token-budgets",
-            vec![post("/api/v1/token-budgets")
-                .json(json!({"name": "Alpha watch", "filter": {"project": "bravo-ledger"}, "every_month": true, "period": "2026-09", "amount": "5.00"}))
-                .expect(CREATED)],
-        ),
-        case(
-            "PUT",
-            "/api/v1/token-budgets/{id}",
-            vec![put(format!("/api/v1/token-budgets/{}", b.budget)).json(json!({"every_month": true, "period": "2026-09", "amount": "1.00"})).expect(NOT_FOUND)],
-        ),
-        case("DELETE", "/api/v1/token-budgets/{id}", vec![delete(format!("/api/v1/token-budgets/{}", b.budget)).expect(NOT_FOUND)]),
-        case("GET", "/api/v1/exports/raw", vec![get("/api/v1/exports/raw").expect(OK).allow(&ALPHA_STORED)]),
     ]
 }
 
-/// The routes anyone may call, called with Bravo's addresses and names.
+fn cutoff_cases() -> Vec<Case> {
+    vec![case(
+        "POST",
+        "/api/v1/cutoff",
+        vec![
+            post("/api/v1/cutoff")
+                .json(json!({"cutoff": "2026-09-30"}))
+                .expect(CREATED),
+        ],
+    )]
+}
+
 fn public_cases() -> Vec<Case> {
     let bruno = json!({"email": "bruno@bravo.example"});
     vec![
@@ -1979,74 +1740,69 @@ fn mcp_call(tool: &str, arguments: &Value) -> Value {
     json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": tool, "arguments": arguments}})
 }
 
-/// The MCP tools Alpha calls; `every_mcp_tool_is_called` keeps this list
-/// complete.
-const MCP_TOOLS: [&str; 5] = ["organization", "members", "projects", "clients", "tickets"];
+const MCP_TOOLS: [&str; 6] = [
+    "organization",
+    "tag_values",
+    "attributes",
+    "people",
+    "plans",
+    "report",
+];
 
 fn mcp_cases() -> Vec<Case> {
     let mcp = "/api/v1/mcp";
     let mut asks = vec![
         post(mcp)
-            .json(json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}))
-            .expect(OK),
-        post(mcp)
             .json(json!({"jsonrpc": "2.0", "id": 1, "method": "tools/list"}))
             .expect(OK),
         post(mcp)
-            .json(mcp_call("tickets", &json!({"query": "BRAVO"})))
+            .json(mcp_call("tag_values", &json!({"query": "bravo"})))
             .expect(OK)
             .check("/result/structuredContent/result", json!([])),
         post(mcp)
-            .json(mcp_call("tickets", &json!({"project": "bravo-ledger"})))
+            .json(mcp_call("tag_values", &json!({"name": "bravozone"})))
             .expect(OK)
-            .check("/error/code", json!(-32602)),
+            .check("/result/structuredContent/result", json!([])),
         post(mcp)
-            .json(mcp_call("clients", &json!({})))
+            .json(mcp_call("report", &json!({"from": "2026-10-01", "to": "2026-10-31", "by": "feature", "filter": "project:bravo-ledger"})))
             .expect(OK)
-            .check("/result/structuredContent/result", json!({})),
+            .check("/result/structuredContent/result/rows", json!([])),
+        post(mcp)
+            .json(mcp_call("report", &json!({"from": "2026-10-01", "to": "2026-10-31", "by": "project"})))
+            .expect(OK)
+            .allow(&ALPHA_STORED),
     ];
-    for tool in MCP_TOOLS {
-        // Alpha's project names Bravo's repository as its own.
-        let stored: &[&str] = if tool == "projects" {
-            &["bravo/ledger"]
-        } else {
-            &[]
-        };
-        asks.push(
-            post(mcp)
-                .json(mcp_call(tool, &json!({})))
-                .expect(OK)
-                .allow(stored),
-        );
-        asks.push(
-            post(mcp)
-                .by(Cred::Read)
-                .json(mcp_call(tool, &json!({})))
-                .expect(OK)
-                .allow(stored),
-        );
+    for tool in ["organization", "attributes", "people", "plans"] {
+        asks.push(post(mcp).json(mcp_call(tool, &json!({}))).expect(OK));
     }
+    // The read token too.
+    asks.push(
+        post(mcp)
+            .by(Cred::Read)
+            .json(mcp_call("people", &json!({})))
+            .expect(OK),
+    );
     vec![case("POST", "/api/v1/mcp", asks)]
 }
 
 fn all_cases(alpha: &Alpha, bravo: &Bravo) -> Vec<Case> {
-    let mut cases = people_cases(alpha, bravo);
-    cases.extend(member_cases(alpha, bravo));
+    let mut cases = token_cases(alpha, bravo);
+    cases.extend(member_cases(bravo));
+    cases.extend(me_cases());
     cases.extend(organization_cases());
-    cases.extend(tag_cases());
-    cases.extend(project_cases(bravo));
-    cases.extend(ticket_cases(alpha, bravo));
-    cases.extend(close_cases(bravo));
+    cases.extend(tag_cases(bravo));
+    cases.extend(plan_cases(alpha, bravo));
+    cases.extend(message_cases(bravo));
     cases.extend(bill_cases(bravo));
-    cases.extend(integration_cases(bravo));
-    cases.extend(report_cases(bravo));
+    cases.extend(ticket_system_cases(bravo));
+    cases.extend(report_cases());
     cases.extend(mcp_cases());
-    // Alpha's token entries reuse Bravo's sender IDs and ticket keys, which
+    // Alpha's messages reuse Bravo's session ids and feature key, which
     // then are Alpha's own too; reads before them see none of that.
-    cases.extend(entry_cases());
-    cases.extend(decision_cases(bravo));
-    cases.extend(telemetry_cases());
-    cases.extend(sheet_cases(bravo));
+    cases.extend(ingest_cases());
+    // The cutoff freezes Alpha's earlier figures, so it goes after the
+    // writes that are dated before it.
+    cases.extend(cutoff_cases());
     // Signing out ends a session, so it goes last.
     cases.extend(public_cases());
     cases
@@ -2102,7 +1858,7 @@ struct Findings {
     calls: usize,
 }
 
-/// Bravo's names and IDs in `answer`, but for those `request` itself sent.
+/// Bravo's names and ids in `answer`, but for those `request` itself sent.
 fn leaks(bravo: &Bravo, request: &str, answer: &str) -> Vec<String> {
     bravo
         .secrets
@@ -2212,28 +1968,18 @@ async fn run(tenants: &Tenants<'_>, cases: &[Case], findings: &mut Findings) -> 
 
 /// Alpha's reads that count and total its usage: an organization lost from
 /// one of their queries would take in Bravo's without naming any of it.
-const ALPHA_AGGREGATES: [&str; 22] = [
-    "/api/v1/reports/cost?period=2026-09&by=project",
-    "/api/v1/reports/cost?period=2026-10&by=project",
-    "/api/v1/reports/cost?period=2026-10&by=ticket",
-    "/api/v1/reports/cost?period=2026-10&by=client",
-    "/api/v1/reports/agent-harness?period=2026-09",
-    "/api/v1/reports/agent-harness?period=2026-10",
-    "/api/v1/reports/outliers?period=2026-10",
-    "/api/v1/reports/token-budgets?period=2026-10",
-    "/api/v1/reports/token-entries?status=submitted,approved,rejected,locked",
-    "/api/v1/reconciliation?period=2026-09",
-    "/api/v1/reconciliation?period=2026-10",
-    "/api/v1/periods",
-    "/api/v1/periods/2026-09/cost-sheet",
-    "/api/v1/token-entries/approval",
-    "/api/v1/token-sheets/current",
-    "/api/v1/token-sheets/late?period=2026-10",
-    "/api/v1/organization/member-limit",
-    "/api/v1/me/context",
-    "/api/v1/clients",
-    "/api/v1/tags/client/values",
-    "/api/v1/tickets/ALPHA-1/token-forecast",
+const ALPHA_AGGREGATES: [&str; 12] = [
+    "/api/v1/reports/cost?from=2026-09-01&to=2026-09-30&by=project",
+    "/api/v1/reports/cost?from=2026-10-01&to=2026-10-31&by=project",
+    "/api/v1/reports/cost?from=2026-10-01&to=2026-10-31&by=feature",
+    "/api/v1/reports/cost?from=2026-10-01&to=2026-10-31&by=person",
+    "/api/v1/reports/deviation?from=2026-10-01&to=2026-10-31",
+    "/api/v1/reports/forecast?from=2026-10-01&to=2026-10-31&by=project",
+    "/api/v1/reconciliation",
+    "/api/v1/messages?from=2026-09-01&to=2026-10-31",
+    "/api/v1/sessions?from=2026-09-01&to=2026-10-31",
+    "/api/v1/submissions",
+    "/api/v1/price-table",
     "/api/v1/exports/raw",
 ];
 
@@ -2242,15 +1988,33 @@ async fn alpha_totals(app: &Router, alpha: &Alpha) -> TestResult<Vec<String>> {
     let mut totals = Vec::new();
     for path in ALPHA_AGGREGATES {
         let answer = call(app, Method::GET, path, &alpha.session, &Payload::Empty).await?;
-        // The export's own time is no total.
+        // The export's and the reports' own time is no total.
         let readable = answer.readable()?;
         let kept: Vec<&str> = readable
             .lines()
-            .filter(|line| !line.contains("\"exported_at\""))
+            .filter(|line| !line.contains("\"exported_at\"") && !line.contains("\"as_of\""))
             .collect();
-        totals.push(format!("{path}: {} {}", answer.status, kept.join("\n")));
+        let kept = kept.join("\n");
+        let kept = strip_as_of(&kept);
+        totals.push(format!("{path}: {} {kept}", answer.status));
     }
     Ok(totals)
+}
+
+/// A JSON answer without its `as_of` moments, which are the time of the
+/// call.
+fn strip_as_of(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some((before, after)) = rest.split_once("\"as_of\":\"") {
+        out.push_str(before);
+        let Some((_, tail)) = after.split_once('"') else {
+            return out;
+        };
+        rest = tail.strip_prefix(',').unwrap_or(tail);
+    }
+    out.push_str(rest);
+    out
 }
 
 /// Bravo's own view of its data, read through the API as Bravo.
@@ -2259,44 +2023,41 @@ async fn bravo_view(app: &Router, bravo: &Bravo) -> TestResult<Vec<String>> {
     let mut view = Vec::new();
     for path in [
         "/api/v1/organization".to_owned(),
-        "/api/v1/organization/rules".to_owned(),
         "/api/v1/members".to_owned(),
         "/api/v1/api-tokens".to_owned(),
         "/api/v1/tags".to_owned(),
-        "/api/v1/tag-map".to_owned(),
-        "/api/v1/tags/bravozone/values".to_owned(),
-        "/api/v1/tags/client/values".to_owned(),
-        "/api/v1/projects?archived=true".to_owned(),
-        "/api/v1/clients".to_owned(),
-        "/api/v1/tickets?limit=500".to_owned(),
-        format!("/api/v1/tickets/{}", bravo.ticket),
-        "/api/v1/cadences".to_owned(),
-        "/api/v1/token-budgets".to_owned(),
-        format!(
-            "/api/v1/reports/token-budgets/{}?period=2026-10",
-            bravo.budget
-        ),
+        "/api/v1/attributes".to_owned(),
+        "/api/v1/rules".to_owned(),
+        "/api/v1/grants".to_owned(),
+        "/api/v1/cutoff".to_owned(),
+        "/api/v1/price-table".to_owned(),
+        format!("/api/v1/estimates/{}", bravo.estimate),
+        "/api/v1/shares".to_owned(),
+        "/api/v1/messages?from=2026-09-01&to=2026-10-31".to_owned(),
+        "/api/v1/sessions?from=2026-09-01&to=2026-10-31".to_owned(),
+        "/api/v1/submissions".to_owned(),
+        "/api/v1/submit-requests".to_owned(),
+        "/api/v1/bills".to_owned(),
+        format!("/api/v1/bills/{}", bravo.bill),
+        "/api/v1/reconciliation".to_owned(),
         "/api/v1/reports/saved".to_owned(),
         "/api/v1/bill-connections".to_owned(),
         "/api/v1/ticket-systems".to_owned(),
-        "/api/v1/bills".to_owned(),
-        format!("/api/v1/bills/{}", bravo.bill),
-        "/api/v1/periods".to_owned(),
-        "/api/v1/periods/2026-09/cost-sheet".to_owned(),
-        "/api/v1/periods/2026-09/cost-sheet/links".to_owned(),
-        "/api/v1/reconciliation?period=2026-09".to_owned(),
-        "/api/v1/reports/token-entries?status=submitted,approved,rejected,locked".to_owned(),
-        "/api/v1/token-entries/approval".to_owned(),
-        "/api/v1/tickets/BRAVO-7/token-forecast".to_owned(),
-        "/api/v1/token-sheets/late".to_owned(),
+        "/api/v1/reports/cost?from=2026-10-01&to=2026-10-31&by=feature".to_owned(),
+        "/api/v1/reports/deviation?from=2026-10-01&to=2026-10-31".to_owned(),
+        "/api/v1/events".to_owned(),
     ] {
         let answer = call(app, Method::GET, &path, boss, &Payload::Empty).await?;
-        view.push(format!("{path}: {} {}", answer.status, answer.text()));
+        view.push(format!(
+            "{path}: {} {}",
+            answer.status,
+            strip_as_of(&answer.text())
+        ));
     }
     for path in [
-        "/api/v1/token-sheets/current",
         "/api/v1/me/rules",
         "/api/v1/me/context",
+        "/api/v1/submissions",
     ] {
         let answer = call(
             app,
@@ -2309,16 +2070,9 @@ async fn bravo_view(app: &Router, bravo: &Bravo) -> TestResult<Vec<String>> {
         view.push(format!(
             "{path} for Bruno: {} {}",
             answer.status,
-            answer.text()
+            strip_as_of(&answer.text())
         ));
     }
-    let shared = format!("/api/v1/shared/cost-sheets/{}", bravo.link_secret);
-    let answer = call(app, Method::GET, &shared, "", &Payload::Empty).await?;
-    view.push(format!(
-        "shared cost sheet: {} {}",
-        answer.status,
-        answer.text()
-    ));
     Ok(view)
 }
 
@@ -2338,10 +2092,7 @@ async fn organization_rows(pool: &PgPool, organization_id: Uuid) -> TestResult<V
     queries.extend(
         [
             "SELECT o::text FROM organizations o WHERE id = $1",
-            "SELECT s::text FROM splits s JOIN token_entries e ON e.id = s.token_entry_id WHERE e.organization_id = $1 ORDER BY 1",
-            "SELECT r::text FROM bill_revisions r JOIN bills b ON b.id = r.bill_id WHERE b.organization_id = $1 ORDER BY 1",
-            "SELECT d::text FROM token_entry_decisions d JOIN token_entries e ON e.id = d.token_entry_id WHERE e.organization_id = $1 ORDER BY 1",
-            "SELECT x::text FROM token_sheet_entries x JOIN token_sheets s ON s.id = x.token_sheet_id WHERE s.organization_id = $1 ORDER BY 1",
+            "SELECT r::text FROM submit_reminders r JOIN submit_requests q ON q.id = r.request_id WHERE q.organization_id = $1 ORDER BY 1",
             "SELECT count(*)::text FROM sessions s JOIN people p ON p.id = s.person_id WHERE p.organization_id = $1",
         ]
         .map(str::to_owned),
@@ -2397,22 +2148,17 @@ async fn every_route_refuses_another_organizations_data(pool: PgPool) {
     run(&tenants, &all_cases(&alpha, &bravo), &mut findings)
         .await
         .unwrap();
-    // Every read once more, now that Alpha has written with Bravo's IDs.
+    // Every read once more, now that Alpha has written with Bravo's ids.
     let reads: Vec<Case> = all_cases(&alpha, &bravo)
         .into_iter()
         .map(|mut case| {
             case.asks
                 .retain(|ask| ask.method == Method::GET && ask.cred != Cred::Nobody);
-            for ask in &mut case.asks {
-                if let Some(after) = ask.after.take() {
-                    ask.checks = after;
-                }
-            }
             case
         })
         .collect();
     run(&tenants, &reads, &mut findings).await.unwrap();
-    assert!(findings.calls > 200, "only {} calls", findings.calls);
+    assert!(findings.calls > 150, "only {} calls", findings.calls);
     assert!(
         findings.problems.is_empty(),
         "{} problems:\n{}",
@@ -2449,7 +2195,7 @@ async fn every_route_refuses_another_organizations_data(pool: PgPool) {
 
     // Bravo's usage grows; Alpha's totals stay.
     let with_bravo = alpha_totals(&app, &alpha).await.unwrap();
-    let bravos_cost = "/api/v1/reports/cost?period=2026-10&by=project";
+    let bravos_cost = "/api/v1/reports/cost?from=2026-10-01&to=2026-10-31&by=project";
     let before = call(&app, Method::GET, bravos_cost, &bravo.boss, &Payload::Empty)
         .await
         .unwrap();
@@ -2457,7 +2203,12 @@ async fn every_route_refuses_another_organizations_data(pool: PgPool) {
     let after = call(&app, Method::GET, bravos_cost, &bravo.boss, &Payload::Empty)
         .await
         .unwrap();
-    assert_ne!(before.json(), after.json(), "Bravo's own cost did not grow");
+
+    assert_ne!(
+        before.json()["total"],
+        after.json()["total"],
+        "Bravo's own cost did not grow"
+    );
     let changed = differences(&with_bravo, &alpha_totals(&app, &alpha).await.unwrap());
     assert!(
         changed.is_empty(),
@@ -2466,7 +2217,7 @@ async fn every_route_refuses_another_organizations_data(pool: PgPool) {
     );
 }
 
-/// One more approved token entry for Bravo, in October like Alpha's.
+/// One more message for Bravo, in October like Alpha's.
 async fn bravo_grows(app: &Router, bravo: &Bravo) -> TestResult<()> {
     let service = must(
         app,
@@ -2476,7 +2227,7 @@ async fn bravo_grows(app: &Router, bravo: &Bravo) -> TestResult<()> {
         Payload::Json(json!({"kind": "service", "name": "Bravo second bot"})),
     )
     .await?;
-    let entry = must(
+    must(
         app,
         Method::POST,
         "/api/v1/token-entries",
@@ -2490,23 +2241,17 @@ async fn bravo_grows(app: &Router, bravo: &Bravo) -> TestResult<()> {
         )),
     )
     .await?;
-    must(
-        app,
-        Method::POST,
-        "/api/v1/token-entries/approve",
-        &bravo.boss,
-        Payload::Json(json!({"token_entry_ids": [id_at(&entry, "/id")?]})),
-    )
-    .await?;
     Ok(())
 }
 
-/// The model calls stored from telemetry with Bravo's session ID, and for
+/// The model calls stored from telemetry with Bravo's session id, and for
 /// which organization.
 async fn telemetry_with_bravos_session_id(pool: &PgPool) -> TestResult<Vec<(Uuid, String)>> {
     Ok(sqlx::query_as(
-        "SELECT organization_id, model FROM messages
-         WHERE session_id = 'bravo-session-2' AND from_telemetry ORDER BY model",
+        "SELECT organization_id, payload->'message'->'model'->>'model' FROM events
+         WHERE kind = 'message' AND payload->'message'->>'session_id' = 'bravo-session-2'
+           AND payload->'message'->>'agent_harness' <> 'claude-code'
+         ORDER BY 2",
     )
     .fetch_all(pool)
     .await?)
@@ -2519,11 +2264,13 @@ async fn the_leak_check_sees_bravos_data(pool: PgPool) {
     let app = router(AppState::new(pool.clone(), config(), Arc::new(NoExtension)));
     let bravo = bravo(&app, &pool).await.unwrap();
     for path in [
-        "/api/v1/tickets".to_owned(),
-        format!("/api/v1/tickets/{}", bravo.ticket),
-        "/api/v1/reports/token-entries?status=submitted,approved,rejected,locked".to_owned(),
-        "/api/v1/exports/raw".to_owned(),
+        "/api/v1/tags".to_owned(),
         "/api/v1/members".to_owned(),
+        format!("/api/v1/estimates/{}", bravo.estimate),
+        "/api/v1/messages?from=2026-09-01&to=2026-10-31".to_owned(),
+        "/api/v1/reports/cost?from=2026-10-01&to=2026-10-31&by=feature".to_owned(),
+        "/api/v1/exports/raw".to_owned(),
+        "/api/v1/events".to_owned(),
     ] {
         let answer = call(&app, Method::GET, &path, &bravo.boss, &Payload::Empty)
             .await
@@ -2559,7 +2306,7 @@ async fn every_route_is_called_across_tenants(pool: PgPool) {
         "cases for routes the API does not have: {unknown:?}"
     );
     // The committed OpenAPI file is the same document (api.rs checks it).
-    assert_eq!(documented.len(), 111, "{documented:?}");
+    assert_eq!(documented.len(), 90, "{documented:?}");
 }
 
 #[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
@@ -2592,54 +2339,36 @@ async fn a_filter_on_another_organizations_names_counts_nothing(pool: PgPool) {
     let alpha = alpha(&app, &pool).await.unwrap();
     let bravo = bravo(&app, &pool).await.unwrap();
     let session = alpha.session.as_str();
-    // Alpha names Bravo's project in a token budget and a saved report.
-    let budget = must(
-        &app,
-        Method::POST,
-        "/api/v1/token-budgets",
-        session,
-        Payload::Json(
-            json!({"filter": {"project": "bravo-ledger"}, "every_month": true, "period": "2026-09", "amount": "5.00"}),
-        ),
-    )
-    .await
-    .unwrap();
+    // Alpha names Bravo's project in a saved report and in reports.
     let saved = must(
         &app,
         Method::POST,
         "/api/v1/reports/saved",
         session,
         Payload::Json(
-            json!({"name": "Alpha copy", "filter": "project:bravo-ledger", "by": "ticket"}),
+            json!({"name": "Alpha copy", "filter": {"project": "bravo-ledger"}, "by": "feature"}),
         ),
     )
     .await
     .unwrap();
-    for period in ["2026-09", "2026-10"] {
-        let detail = format!(
-            "/api/v1/reports/token-budgets/{}?period={period}",
-            budget["id"].as_str().unwrap()
+    assert_eq!(saved["filter"]["project"], "bravo-ledger");
+    for report in ["cost", "deviation", "forecast"] {
+        let path = format!(
+            "/api/v1/reports/{report}?from=2026-10-01&to=2026-10-31&by=feature&filter=project:bravo-ledger"
         );
-        let answer = call(&app, Method::GET, &detail, session, &Payload::Empty)
+        let answer = call(&app, Method::GET, &path, session, &Payload::Empty)
             .await
             .unwrap();
         assert_eq!(answer.status, StatusCode::OK, "{}", answer.text());
-        assert_eq!(
-            answer.json()["token_entries"],
-            json!([]),
+        let rows = answer.json()["rows"].clone();
+        assert!(
+            rows.as_array()
+                .is_some_and(|rows| rows.iter().all(|row| row["key"].is_null())),
             "{}",
             answer.text()
         );
-        let run = format!(
-            "/api/v1/reports/saved/{}?period={period}",
-            saved["id"].as_str().unwrap()
-        );
-        let answer = call(&app, Method::GET, &run, session, &Payload::Empty)
-            .await
-            .unwrap();
-        assert_eq!(answer.status, StatusCode::OK, "{}", answer.text());
-        for marker in ["BRAVO-7", "777.77", &bravo.ticket.to_string()] {
-            assert!(!answer.text().contains(marker), "{marker} in {run}");
+        for marker in ["BRAVO-7", "777.77", &bravo.estimate] {
+            assert!(!answer.text().contains(marker), "{marker} in {path}");
         }
     }
 }

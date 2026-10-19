@@ -1,6 +1,7 @@
-//! The doors over HTTP, against a real Postgres database: the token entries
+//! Ingest over HTTP, against a real Postgres database: the token entries
 //! endpoint with each kind of token, CSV import and the OpenTelemetry
-//! receiver with a recorded Claude Code export.
+//! receiver with a recorded Claude Code export. Every message lands in the
+//! event log and the answer carries the cost the fold gives it.
 
 use std::io::Write as _;
 use std::sync::Arc;
@@ -45,8 +46,9 @@ fn config() -> Config {
         secret_key: KEY.to_owned(),
         smtp_url: None,
         smtp_from: None,
-        prices_refresh: false,
-        embeddings: None,
+        price_table: None,
+        rates_refresh: false,
+        classifier: None,
     }
 }
 
@@ -161,16 +163,20 @@ fn support_entry() -> Value {
         "model": "claude-sonnet-5",
         "started_at": "2026-09-18T09:12:00Z",
         "ended_at": "2026-09-18T09:14:10Z",
-        "tokens": { "input": 4120, "output": 610, "cache_read": 18200 },
+        "provider": "anthropic",
+        "tokens": { "input": 4120, "output": 610, "cache_read": 18200, "cache_write": 0 },
         "reported_cost": 0.031,
         "summary": "Answered refund question for order 1182",
+        "facts": { "turns": 3, "tool_calls": 1, "result": "done" },
         "project": "support",
+        "feature": "refunds",
+        "signals": { "branch": "main", "repository": "acme/support" },
         "local_id": "support-desk:1182"
     })
 }
 
 #[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
-async fn a_service_token_reports_automatic_token_entries(pool: PgPool) {
+async fn a_service_token_reports_token_entries_and_a_local_id_counts_once(pool: PgPool) {
     let kestrel = kestrel(&pool).await.unwrap();
     let body = serde_json::to_vec(&support_entry()).unwrap();
     let answer = send(
@@ -184,9 +190,16 @@ async fn a_service_token_reports_automatic_token_entries(pool: PgPool) {
     .await
     .unwrap();
     assert_eq!(answer.status, StatusCode::CREATED, "{}", answer.json);
-    assert_eq!(answer.json["status"], "submitted");
-    assert_eq!(answer.json["list_value"], "0.03");
-    assert_eq!(answer.json["local_id"], "support-desk:1182");
+    assert_eq!(answer.json["session_id"], "support-desk:1182");
+    assert_eq!(answer.json["messages"], 1);
+    assert_eq!(answer.json["currency"], "USD");
+    assert_eq!(answer.json["label"], "direct");
+    assert!(answer.json["cost"].is_string(), "{}", answer.json);
+    // No values on record yet, so both tags come back as unknown.
+    assert_eq!(
+        answer.json["unknown_tags"],
+        json!(["feature: refunds", "project: support"])
+    );
 
     // A list gets a list back.
     let body = serde_json::to_vec(&json!([support_entry()])).unwrap();
@@ -201,11 +214,78 @@ async fn a_service_token_reports_automatic_token_entries(pool: PgPool) {
     .await
     .unwrap();
     assert_eq!(again.status, StatusCode::CREATED);
-    assert_eq!(again.json[0]["id"], answer.json["id"]);
+    assert_eq!(again.json[0]["session_id"], answer.json["session_id"]);
+    let messages: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM events WHERE organization_id = $1 AND kind = 'message'",
+    )
+    .bind(kestrel.organization_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(messages, 1, "the same local id adds nothing");
 }
 
 #[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
-async fn a_signed_in_person_adds_drafts_and_the_organization_token_cannot(pool: PgPool) {
+async fn a_session_record_with_a_split_answers_the_largest_part(pool: PgPool) {
+    let kestrel = kestrel(&pool).await.unwrap();
+    let entry = json!({
+        "agent_harness": "claude-code",
+        "model": "claude-sonnet-5",
+        "started_at": "2026-09-18T09:12:00Z",
+        "ended_at": "2026-09-18T09:40:00Z",
+        "tokens": { "input": 40000, "output": 6000, "cache_read": 0, "cache_write": 0 },
+        "session_id": "sess-1",
+        "messages": [
+            { "message_id": "m1", "at": "2026-09-18T09:13:00Z",
+              "tokens": { "input": 30000, "output": 4000, "cache_read": 0, "cache_write": 0 } },
+            { "message_id": "m2", "at": "2026-09-18T09:30:00Z",
+              "tokens": { "input": 10000, "output": 2000, "cache_read": 0, "cache_write": 0 } }
+        ],
+        "splits": [
+            { "fraction": "0.6", "tags": { "feature": "KD-1" } },
+            { "fraction": 0.4, "tags": { "feature": "KD-2" } }
+        ]
+    });
+    let answer = send(
+        &kestrel.app,
+        "/api/v1/token-entries",
+        &kestrel.service,
+        "application/json",
+        serde_json::to_vec(&entry).unwrap(),
+        false,
+    )
+    .await
+    .unwrap();
+    assert_eq!(answer.status, StatusCode::CREATED, "{}", answer.json);
+    assert_eq!(answer.json["session_id"], "sess-1");
+    assert_eq!(answer.json["messages"], 2);
+    let kinds: Vec<String> = sqlx::query_scalar(
+        "SELECT kind FROM events WHERE organization_id = $1 AND kind <> 'grant' ORDER BY recorded_at, id",
+    )
+    .bind(kestrel.organization_id)
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(kinds, ["message", "message", "split"]);
+
+    // Fractions that do not sum to one are refused.
+    let mut broken = entry.clone();
+    broken["splits"][1]["fraction"] = json!(0.5);
+    let refused = send(
+        &kestrel.app,
+        "/api/v1/token-entries",
+        &kestrel.service,
+        "application/json",
+        serde_json::to_vec(&broken).unwrap(),
+        false,
+    )
+    .await
+    .unwrap();
+    assert_eq!(refused.status, StatusCode::BAD_REQUEST, "{}", refused.json);
+}
+
+#[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
+async fn a_signed_in_person_reports_their_own_and_the_organization_token_cannot(pool: PgPool) {
     let kestrel = kestrel(&pool).await.unwrap();
     let body = serde_json::to_vec(&support_entry()).unwrap();
     let manual = send(
@@ -219,7 +299,14 @@ async fn a_signed_in_person_adds_drafts_and_the_organization_token_cannot(pool: 
     .await
     .unwrap();
     assert_eq!(manual.status, StatusCode::CREATED, "{}", manual.json);
-    assert_eq!(manual.json["status"], "draft");
+    let person: Option<String> = sqlx::query_scalar(
+        "SELECT payload->'message'->>'person' FROM events WHERE organization_id = $1 AND kind = 'message'",
+    )
+    .bind(kestrel.organization_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(person.as_deref(), Some("ana.silva@acme.example"));
 
     let refused = send(
         &kestrel.app,
@@ -255,7 +342,29 @@ async fn a_broken_token_entry_is_refused_with_its_problem(pool: PgPool) {
         answer.json["message"]
             .as_str()
             .unwrap()
-            .contains("token entry 0")
+            .contains("ended_at"),
+        "{}",
+        answer.json
+    );
+
+    // In a list, the problem names the entry.
+    let body = serde_json::to_vec(&json!([support_entry(), entry])).unwrap();
+    let answer = send(
+        &kestrel.app,
+        "/api/v1/token-entries",
+        &kestrel.service,
+        "application/json",
+        body,
+        false,
+    )
+    .await
+    .unwrap();
+    assert_eq!(answer.status, StatusCode::BAD_REQUEST);
+    assert!(
+        answer.json["message"]
+            .as_str()
+            .unwrap()
+            .contains("token entry 1")
     );
 }
 
@@ -283,18 +392,28 @@ async fn claude_code_telemetry_builds_a_token_entry_once(pool: PgPool) {
     }
     assert_eq!(kestrel.forwarder.batches.load(Ordering::SeqCst), 2);
 
-    let rows: Vec<(String, i64, Option<Uuid>)> = sqlx::query_as(
-        "SELECT door, (SELECT COUNT(*) FROM messages m WHERE m.token_entry_id = e.id), agent_manager_id
-         FROM token_entries e WHERE organization_id = $1",
+    let rows: Vec<(String, String, String)> = sqlx::query_as(
+        "SELECT payload->'message'->>'session_id', payload->'message'->>'message_id', payload->'message'->>'agent_harness'
+         FROM events WHERE organization_id = $1 AND kind = 'message' ORDER BY id",
     )
     .bind(kestrel.organization_id)
     .fetch_all(&pool)
     .await
     .unwrap();
-    assert_eq!(rows.len(), 1, "{rows:?}");
-    assert_eq!(rows[0].0, "telemetry");
-    assert_eq!(rows[0].1, 2);
-    assert!(rows[0].2.is_some(), "the email names the member");
+    assert_eq!(
+        rows.len(),
+        2,
+        "two model calls, counted once each: {rows:?}"
+    );
+    assert!(rows.iter().all(|row| row.0 == rows[0].0), "one session");
+    assert!(rows.iter().all(|row| row.2 == "claude-code"), "{rows:?}");
+    let known: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM message_events WHERE organization_id = $1")
+            .bind(kestrel.organization_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(known, 2);
 }
 
 #[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
@@ -340,18 +459,18 @@ async fn gemini_cli_with_default_settings_is_counted_without_its_text(pool: PgPo
             .contains("1 model calls carried prompt text")
     );
 
-    let rows: Vec<(i64, i64, String)> = sqlx::query_as(
-        "SELECT m.input_tokens, m.output_tokens, e.telemetry_attributes::text
-         FROM messages m JOIN token_entries e ON e.id = m.token_entry_id
-         WHERE m.organization_id = $1",
+    let rows: Vec<(String, String)> = sqlx::query_as(
+        "SELECT payload->'message'->'tokens'->>'input', payload::text
+         FROM events WHERE organization_id = $1 AND kind = 'message'",
     )
     .bind(kestrel.organization_id)
     .fetch_all(&pool)
     .await
     .unwrap();
     assert_eq!(rows.len(), 1, "{rows:?}");
-    assert_eq!((rows[0].0, rows[0].1), (9000, 420));
-    assert!(!rows[0].2.contains("Fixed the build"), "{rows:?}");
+    assert_eq!(rows[0].0, "9000");
+    assert!(rows[0].1.contains("\"output\": 420"), "{rows:?}");
+    assert!(!rows[0].1.contains("Fixed the build"), "{rows:?}");
 }
 
 #[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
@@ -391,7 +510,7 @@ async fn the_receiver_takes_only_the_organization_token_and_known_formats(pool: 
     .await
     .unwrap();
     assert_eq!(metrics.status, StatusCode::OK);
-    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM messages")
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM events WHERE kind = 'message'")
         .fetch_one(&pool)
         .await
         .unwrap();
@@ -399,12 +518,12 @@ async fn the_receiver_takes_only_the_organization_token_and_known_formats(pool: 
 }
 
 #[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
-async fn a_csv_file_is_previewed_then_imported_as_drafts(pool: PgPool) {
+async fn a_csv_file_is_previewed_then_imported_as_messages(pool: PgPool) {
     let kestrel = kestrel(&pool).await.unwrap();
-    let good = "agent_harness,model,started_at,ended_at,tokens.input,tokens.output,reported_cost,summary,ticket\n\
-                claude-code,claude-sonnet-5,2026-09-18T09:12:00Z,2026-09-18T09:40:00Z,41200,6100,0.42,Fixed the cart total,KD-214\n";
+    let good = "agent_harness,model,started_at,ended_at,tokens.input,tokens.output,tokens.cache_read,tokens.cache_write,reported_cost,summary,feature,signals.branch\n\
+                claude-code,claude-sonnet-5,2026-09-18T09:12:00Z,2026-09-18T09:40:00Z,41200,6100,0,0,0.42,Fixed the cart total,KD-214,main\n";
     let bad = format!(
-        "{good}claude-code,claude-sonnet-5,2026-09-18T10:00:00Z,2026-09-18T09:00:00Z,1,1,,,\n"
+        "{good}claude-code,claude-sonnet-5,2026-09-18T10:00:00Z,2026-09-18T09:00:00Z,1,1,0,0,,,,\n"
     );
 
     let preview = send(
@@ -444,5 +563,9 @@ async fn a_csv_file_is_previewed_then_imported_as_drafts(pool: PgPool) {
     .await
     .unwrap();
     assert_eq!(imported.status, StatusCode::CREATED, "{}", imported.json);
-    assert_eq!(imported.json["token_entries"][0]["status"], "draft");
+    assert_eq!(imported.json["token_entries"][0]["messages"], 1);
+    assert_eq!(
+        imported.json["token_entries"][0]["unknown_tags"],
+        json!(["feature: KD-214"])
+    );
 }

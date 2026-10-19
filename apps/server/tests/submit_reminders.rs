@@ -1,12 +1,13 @@
-//! Late token sheet reminders against a real Postgres database, with the
-//! mail server faked by a local SMTP server.
+//! Submit reminders against a real Postgres database, with the mail server
+//! faked by a local SMTP server: an org manager asks everyone to submit by
+//! a day, and each member who has not is mailed once.
 
 use std::sync::{Arc, Mutex};
 
 use sqlx::PgPool;
-use time::macros::date;
-use tokencontroller_core::NoExtension;
-use tokencontroller_server::integrations::reminders;
+use time::macros::{date, datetime};
+use tokencontroller_core::{DateRange, Event, NoExtension, Record, Submit, TagValue};
+use tokencontroller_server::submissions;
 use tokencontroller_server::{AppState, Config};
 use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader};
 use uuid::Uuid;
@@ -20,8 +21,9 @@ fn config(smtp_url: Option<String>) -> Config {
         secret_key: "0123456789abcdef0123456789abcdef".to_owned(),
         smtp_url,
         smtp_from: None,
-        prices_refresh: false,
-        embeddings: None,
+        price_table: None,
+        rates_refresh: false,
+        classifier: None,
     }
 }
 
@@ -84,9 +86,8 @@ async fn serve_smtp(
     Ok(())
 }
 
-/// Kestrel Digital with a weekly cadence from Monday 28 September 2026.
-/// Mia submitted her first week and nothing since; she has two drafts in
-/// the week of 5 October. Jonas never submits token sheets.
+/// Kestrel Digital: Ana (the org manager), Mara and Jonas. Ana asks
+/// everyone to submit by the end of 2099, so the request stays open.
 async fn kestrel(pool: &PgPool) -> TestResult<Uuid> {
     let mut conn = pool.acquire().await?;
     let created = tokencontroller_server::organizations::create(
@@ -97,49 +98,27 @@ async fn kestrel(pool: &PgPool) -> TestResult<Uuid> {
     .await
     .map_err(|error| error.to_string())?;
     let organization_id = created.organization_id;
-    let mia: Uuid = sqlx::query_scalar(
-        "INSERT INTO people (organization_id, email, name, joined_at)
-         VALUES ($1, 'm.ortner@kestrel.example', 'Mara Ortner', now()) RETURNING id",
-    )
-    .bind(organization_id)
-    .fetch_one(pool)
-    .await?;
+    for (email, name) in [
+        ("m.ortner@kestrel.example", "Mara Ortner"),
+        ("jonas@kestrel.example", "Jonas Weber"),
+    ] {
+        sqlx::query(
+            "INSERT INTO people (organization_id, email, name, joined_at) VALUES ($1, $2, $3, now())",
+        )
+        .bind(organization_id)
+        .bind(email)
+        .bind(name)
+        .execute(pool)
+        .await?;
+    }
     sqlx::query(
-        "INSERT INTO people (organization_id, email, name, joined_at)
-         VALUES ($1, 'jonas@kestrel.example', 'Jonas Weber', now())",
-    )
-    .bind(organization_id)
-    .execute(pool)
-    .await?;
-    sqlx::query(
-        "INSERT INTO cadences (organization_id, kind, starts_on, set_by)
-         VALUES ($1, 'weekly', '2026-09-28', $2)",
+        "INSERT INTO submit_requests (organization_id, requested_by, until_day, message)
+         VALUES ($1, $2, '2099-12-31', 'We close the year.')",
     )
     .bind(organization_id)
     .bind(created.person_id)
     .execute(pool)
     .await?;
-    sqlx::query(
-        "INSERT INTO token_sheets (organization_id, person_id, starts_on, ends_on)
-         VALUES ($1, $2, '2026-09-28', '2026-10-04')",
-    )
-    .bind(organization_id)
-    .bind(mia)
-    .execute(pool)
-    .await?;
-    for started in ["2026-10-06T09:00:00Z", "2026-10-08T14:00:00Z"] {
-        sqlx::query(
-            "INSERT INTO token_entries (organization_id, agent_manager_id, agent_harness, model,
-                 provider, started_at, ended_at, status, on_token_sheet, door)
-             VALUES ($1, $2, 'claude_code', 'claude-sonnet-4-5', 'anthropic',
-                 $3::timestamptz, $3::timestamptz + interval '1 hour', 'draft', true, 'manual')",
-        )
-        .bind(organization_id)
-        .bind(mia)
-        .bind(started)
-        .execute(pool)
-        .await?;
-    }
     Ok(organization_id)
 }
 
@@ -147,108 +126,121 @@ fn state(pool: &PgPool, smtp_url: Option<String>) -> AppState {
     AppState::new(pool.clone(), config(smtp_url), Arc::new(NoExtension))
 }
 
-async fn reminded(pool: &PgPool) -> TestResult<Vec<time::Date>> {
-    Ok(
-        sqlx::query_scalar("SELECT starts_on FROM late_sheet_reminders ORDER BY starts_on")
-            .fetch_all(pool)
-            .await?,
+/// Who was mailed, by email.
+async fn reminded(pool: &PgPool) -> TestResult<Vec<String>> {
+    Ok(sqlx::query_scalar(
+        "SELECT p.email FROM submit_reminders r JOIN people p ON p.id = r.person_id ORDER BY p.email",
     )
+    .fetch_all(pool)
+    .await?)
+}
+
+/// Mara submits everything through the request's day.
+async fn mara_submits(pool: &PgPool, organization_id: Uuid) -> TestResult<()> {
+    let event = Event::new(
+        "sub_test_mara",
+        datetime!(2026-10-01 09:00 UTC),
+        Record::Submit(Submit {
+            person: TagValue::new("m.ortner@kestrel.example")?,
+            window: DateRange::new(date!(2026 - 01 - 01), date!(2099 - 12 - 31))?,
+        }),
+    )?;
+    sqlx::query(
+        "INSERT INTO events (organization_id, id, recorded_at, kind, payload) VALUES ($1, $2, $3, $4, $5)",
+    )
+    .bind(organization_id)
+    .bind(event.id.to_string())
+    .bind(event.recorded_at)
+    .bind(event.record.kind())
+    .bind(serde_json::to_value(&event.record)?)
+    .execute(pool)
+    .await?;
+    Ok(())
 }
 
 #[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
-async fn a_late_token_sheet_gets_one_reminder(pool: PgPool) {
-    kestrel(&pool).await.unwrap();
+async fn everyone_who_has_not_submitted_gets_one_reminder(pool: PgPool) {
+    let organization_id = kestrel(&pool).await.unwrap();
+    mara_submits(&pool, organization_id).await.unwrap();
     let (smtp, sent) = fake_smtp().await.unwrap();
     let state = state(&pool, Some(smtp));
 
-    let note = reminders::send_due(&state, date!(2026 - 10 - 13))
-        .await
-        .unwrap();
-    assert_eq!(note, "1 of 1 late token sheet reminders sent");
+    let count = submissions::send_reminders(&state).await.unwrap();
+    assert_eq!(count, 2, "Ana and Jonas; Mara has submitted");
     let mails = sent.lock().unwrap().clone();
-    assert_eq!(mails.len(), 1);
-    let mail = mails.first().cloned().unwrap_or_default();
-    assert!(mail.contains("To: m.ortner@kestrel.example"), "{mail}");
-    assert!(mail.contains("Subject: Your token sheet is late"), "{mail}");
-    assert!(mail.contains("5 to 11 October 2026"), "{mail}");
+    assert_eq!(mails.len(), 2);
+    let jonas = mails
+        .iter()
+        .find(|mail| mail.contains("To: jonas@kestrel.example"))
+        .cloned()
+        .unwrap_or_default();
     assert!(
-        mail.contains("It holds 2 token entries waiting for your review."),
-        "{mail}"
+        jonas.contains("Subject: Please submit your sessions by 2099-12-31"),
+        "{jonas}"
     );
-    assert!(mail.contains("https://app.example/review"), "{mail}");
-    assert_eq!(reminded(&pool).await.unwrap(), vec![date!(2026 - 10 - 05)]);
-
-    // The same token sheet never gets a second mail.
-    let again = reminders::send_due(&state, date!(2026 - 10 - 14))
-        .await
-        .unwrap();
-    assert_eq!(again, "0 of 0 late token sheet reminders sent");
-    assert_eq!(sent.lock().unwrap().len(), 1);
-}
-
-#[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
-async fn only_the_newest_recent_late_token_sheet_is_mailed(pool: PgPool) {
-    kestrel(&pool).await.unwrap();
-    let (smtp, sent) = fake_smtp().await.unwrap();
-    let state = state(&pool, Some(smtp));
-
-    // Three weeks are late by now; only the last one gets a mail, and it
-    // holds no drafts.
-    let note = reminders::send_due(&state, date!(2026 - 10 - 30))
-        .await
-        .unwrap();
-    assert_eq!(note, "1 of 1 late token sheet reminders sent");
-    assert_eq!(reminded(&pool).await.unwrap(), vec![date!(2026 - 10 - 19)]);
-    let mail = sent.lock().unwrap().first().cloned().unwrap_or_default();
-    assert!(mail.contains("19 to 25 October 2026"), "{mail}");
+    assert!(jonas.contains("Hello Jonas Weber"), "{jonas}");
     assert!(
-        mail.contains("If there was nothing to report, submit it empty."),
-        "{mail}"
+        jonas.contains("asks everyone at Kestrel Digital"),
+        "{jonas}"
     );
-
-    // Months later only the week just over gets a mail; the weeks between
-    // show in the web app and the Claude Code mod.
-    let late = reminders::send_due(&state, date!(2027 - 03 - 01))
-        .await
-        .unwrap();
-    assert_eq!(late, "1 of 1 late token sheet reminders sent");
+    assert!(jonas.contains("We close the year."), "{jonas}");
+    assert!(jonas.contains("app.example"), "{jonas}");
+    assert!(!jonas.contains("controller"), "{jonas}");
     assert_eq!(
         reminded(&pool).await.unwrap(),
-        vec![date!(2026 - 10 - 19), date!(2027 - 02 - 22)]
+        vec![
+            "ana.silva@acme.example".to_owned(),
+            "jonas@kestrel.example".to_owned(),
+            "m.ortner@kestrel.example".to_owned(),
+        ],
+        "a member who has submitted is marked done without a mail"
     );
-    let quiet = reminders::send_due(&state, date!(2027 - 03 - 02))
+
+    // Nobody gets a second mail for the same request.
+    let again = submissions::send_reminders(&state).await.unwrap();
+    assert_eq!(again, 0);
+    assert_eq!(sent.lock().unwrap().len(), 2);
+
+    // The job reports what it did.
+    let note = submissions::run_job(state.clone()).await.unwrap();
+    assert_eq!(note, "0 reminders sent");
+}
+
+#[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
+async fn a_request_whose_day_has_passed_mails_nobody(pool: PgPool) {
+    let organization_id = kestrel(&pool).await.unwrap();
+    sqlx::query("UPDATE submit_requests SET until_day = '2020-01-31' WHERE organization_id = $1")
+        .bind(organization_id)
+        .execute(&pool)
         .await
         .unwrap();
-    assert_eq!(quiet, "0 of 0 late token sheet reminders sent");
+    let (smtp, sent) = fake_smtp().await.unwrap();
+    let state = state(&pool, Some(smtp));
+
+    let count = submissions::send_reminders(&state).await.unwrap();
+    assert_eq!(count, 0);
+    assert!(sent.lock().unwrap().is_empty());
+    assert!(reminded(&pool).await.unwrap().is_empty());
 }
 
 #[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
 async fn without_a_mail_server_nothing_is_sent_or_kept(pool: PgPool) {
     kestrel(&pool).await.unwrap();
 
-    let note = reminders::send_due(&state(&pool, None), date!(2026 - 10 - 13))
+    let count = submissions::send_reminders(&state(&pool, None))
         .await
         .unwrap();
-    assert_eq!(
-        note,
-        "no mail server is set (TC_SMTP_URL), so no reminders were sent"
-    );
-    assert!(reminded(&pool).await.unwrap().is_empty());
-
-    // A mail server that cannot be reached is an outage, and the reminder
-    // waits for the next run.
-    let down = reminders::send_due(
-        &state(&pool, Some("smtp://127.0.0.1:9".to_owned())),
-        date!(2026 - 10 - 13),
-    )
-    .await;
-    let message = down
-        .err()
-        .map(|error| error.to_string())
-        .unwrap_or_default();
+    assert_eq!(count, 0);
     assert!(
-        message.starts_with("the mail server took none of 1 late token sheet reminders"),
-        "{message}"
+        reminded(&pool).await.unwrap().is_empty(),
+        "the reminders wait for a mail server"
     );
+
+    // A mail server that cannot be reached: the reminders wait for the
+    // next run, and nothing is kept.
+    let count = submissions::send_reminders(&state(&pool, Some("smtp://127.0.0.1:9".to_owned())))
+        .await
+        .unwrap();
+    assert_eq!(count, 0);
     assert!(reminded(&pool).await.unwrap().is_empty());
 }
