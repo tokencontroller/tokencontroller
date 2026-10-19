@@ -10,9 +10,10 @@ const ENTRY: TokenEntry = {
   model: 'claude-sonnet-5',
   started_at: '2026-09-18T09:12:00Z',
   ended_at: '2026-09-18T09:14:10Z',
-  tokens: { input: 4120, output: 610, cache_read: 18200 },
+  tokens: { input: 4120, output: 610, cache_read: 18200, cache_write: 0 },
   reported_cost: 0.031,
   summary: 'Answered refund question for order 1182',
+  facts: { turns: 3, tool_calls: 2, duration_seconds: 130 },
   project: 'support',
   tags: { client: 'acme', purpose: 'support' },
 }
@@ -31,7 +32,8 @@ function fakeFetch(...answers: Array<Response | Error>) {
   return { calls, fetch: fetch as typeof globalThis.fetch }
 }
 
-const created = () => Response.json({ id: 'te_1', status: 'submitted' }, { status: 201 })
+const created = () =>
+  Response.json({ id: 'te_1', cost: '0.03', label: 'project overhead' }, { status: 201 })
 
 describe('tokenEntries.create', () => {
   test('posts the entry with the service token to the hosted service', async () => {
@@ -70,7 +72,7 @@ describe('tokenEntries.create', () => {
     const tc = new TokenController({ token: 'tc_svc_abc', fetch })
 
     await assert.rejects(
-      tc.tokenEntries.create({ ...ENTRY, model: '', tokens: { input: -1 } }),
+      tc.tokenEntries.create({ ...ENTRY, model: '', tokens: { ...ENTRY.tokens, input: -1 } }),
       /model is required; tokens.input must be a whole number/,
     )
     assert.equal(calls.length, 0)

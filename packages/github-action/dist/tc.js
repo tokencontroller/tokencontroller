@@ -32,9 +32,9 @@ export function checksumOf(listing, file) {
 export const SUBMIT_ARGS = ['submit', '--json'];
 /**
  * The environment tc runs with. The token and address, then the project,
- * ticket and tags that win over every rule (docs: Collect, GitHub Action),
- * and the job's signals, so a review lands on its pull request's ticket. The
- * pull request title only goes to tc, which keeps the ticket keys in it.
+ * feature and tags that win over every rule (docs: Collect, GitHub Action),
+ * and the job's signals, so a review lands on its pull request's feature. The
+ * pull request title only goes to tc, which keeps the feature keys in it.
  */
 export function tcEnv(inputs, signals, base) {
     const env = {
@@ -45,8 +45,8 @@ export function tcEnv(inputs, signals, base) {
     };
     if (inputs.project !== undefined)
         env.TC_PROJECT = inputs.project;
-    if (inputs.ticket !== undefined)
-        env.TC_TICKET = inputs.ticket;
+    if (inputs.feature !== undefined)
+        env.TC_FEATURE = inputs.feature;
     const tags = Object.entries(inputs.tags);
     if (tags.length > 0)
         env.TC_TAGS = tags.map(([name, value]) => `${name}=${value}`).join(',');
@@ -66,7 +66,7 @@ export function readSubmitted(stdout) {
     const top = (typeof parsed === 'object' && parsed !== null ? parsed : {});
     return {
         count: typeof top.submitted === 'number' ? top.submitted : 0,
-        listValue: typeof top.list_value === 'string' ? top.list_value : undefined,
+        cost: typeof top.cost === 'string' ? top.cost : undefined,
         currency: typeof top.currency === 'string' ? top.currency : undefined,
     };
 }

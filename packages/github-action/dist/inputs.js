@@ -1,4 +1,4 @@
-/** GitHub turns `with: { ticket: … }` into INPUT_TICKET. */
+/** GitHub turns `with: { feature: … }` into INPUT_FEATURE. */
 function input(env, name) {
     const value = env[`INPUT_${name.replace(/ /g, '_').toUpperCase()}`]?.trim();
     return value === undefined || value === '' ? undefined : value;
@@ -16,9 +16,9 @@ export function readInputs(env) {
         token,
         url: (input(env, 'url') ?? 'https://app.tokencontroller.com').replace(/\/+$/, ''),
         project: input(env, 'project') ?? tags.project,
-        // The docs promise that TC_TICKET set by an earlier step works too.
-        ticket: input(env, 'ticket') ?? (env.TC_TICKET?.trim() || undefined) ?? tags.ticket,
-        tags: Object.fromEntries(Object.entries(tags).filter(([name]) => name !== 'project' && name !== 'ticket')),
+        // The docs promise that TC_FEATURE set by an earlier step works too.
+        feature: input(env, 'feature') ?? (env.TC_FEATURE?.trim() || undefined) ?? tags.feature,
+        tags: Object.fromEntries(Object.entries(tags).filter(([name]) => name !== 'project' && name !== 'feature')),
     };
 }
 /**

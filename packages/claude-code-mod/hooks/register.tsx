@@ -3,28 +3,28 @@ import { atom, read, update } from 'claude-code'
 
 import type { Tab } from '../types'
 import {
+  assignedLine,
   bar,
   headline,
   money,
   percent,
-  placedByLine,
-  placeLine,
   reportTable,
   reportText,
   rowLabel,
-  sessionTicket,
-  sheetNote,
+  sessionFeature,
+  splitLine,
+  statusNote,
   submittedText,
   when,
 } from './lib/format.ts'
-import { HELP, parseCommand, sessionRecord } from './lib/records.ts'
+import { countTurn, HELP, NO_FACTS, parseCommand, sessionRecord } from './lib/records.ts'
 import { cleanSummary, SUMMARY_MODEL, SUMMARY_SYSTEM, summaryPrompt } from './lib/summary.ts'
 import {
   parseJson,
   readReport,
   readReview,
   readRules,
-  readSheet,
+  readStatus,
   readSubmitted,
   reason,
 } from './lib/tc.ts'
@@ -34,20 +34,21 @@ type $ = EngineInterface
 const PANE = 'token-controller'
 const TOOL = 'mcp__token-controller__report'
 const INSTALL =
-  'Install tc to keep your token entries: brew tap tokencontroller/tap https://github.com/tokencontroller/tokencontroller && brew install tc'
+  'Install tc to keep your messages: brew tap tokencontroller/tap https://github.com/tokencontroller/tokencontroller && brew install tc'
 
-const sheet = atom({ plugin: 'token-controller', key: 'sheet' } as const, null)
+const status = atom({ plugin: 'token-controller', key: 'status' } as const, null)
 const review = atom({ plugin: 'token-controller', key: 'review' } as const, [])
 const report = atom({ plugin: 'token-controller', key: 'report' } as const, null)
-const reportBy = atom({ plugin: 'token-controller', key: 'reportBy' } as const, 'ticket')
+const reportBy = atom({ plugin: 'token-controller', key: 'reportBy' } as const, 'feature')
 const rules = atom({ plugin: 'token-controller', key: 'rules' } as const, [])
 const tab = atom({ plugin: 'token-controller', key: 'tab' } as const, 'review')
 const editing = atom({ plugin: 'token-controller', key: 'editing' } as const, null)
 const notice = atom({ plugin: 'token-controller', key: 'notice' } as const, null)
 const problem = atom({ plugin: 'token-controller', key: 'problem' } as const, null)
-const ticket = atom({ plugin: 'token-controller', key: 'ticket' } as const, null)
+const feature = atom({ plugin: 'token-controller', key: 'feature' } as const, null)
 const handTags = atom({ plugin: 'token-controller', key: 'handTags' } as const, {})
 const summary = atom({ plugin: 'token-controller', key: 'summary' } as const, null)
+const facts = atom({ plugin: 'token-controller', key: 'facts' } as const, NO_FACTS)
 
 /** Where tc may be when the session's PATH does not have it (the desktop app). */
 const FALLBACK_PATHS = [
@@ -107,12 +108,13 @@ async function setProblem($: $, run: TcRun | null): Promise<void> {
  */
 function remember($: $): Promise<void> {
   return serial(async () => {
-    const [sessionId, line, tags] = await Promise.all([
+    const [sessionId, line, counted, tags] = await Promise.all([
       $.session.id(),
       read($, summary),
+      read($, facts),
       read($, handTags),
     ])
-    await $.store.set(`record/${sessionId}`, sessionRecord(sessionId, line, tags))
+    await $.store.set(`record/${sessionId}`, sessionRecord(sessionId, line, counted, tags))
   })
 }
 
@@ -135,20 +137,20 @@ function flush($: $): Promise<void> {
   })
 }
 
-/** Reads the token sheet and the review list from tc for the band and the pane. */
+/** Reads today's figures and the check list from tc for the band and the pane. */
 async function refresh($: $): Promise<void> {
-  const status = await tc($, ['status', '--json'])
-  if (!status.ok) {
-    await setProblem($, status)
+  const run = await tc($, ['status', '--json'])
+  if (!run.ok) {
+    await setProblem($, run)
     return
   }
-  await update($, sheet, () => readSheet(parseJson(status.stdout)))
+  await update($, status, () => readStatus(parseJson(run.stdout)))
   const listed = await tc($, ['review', '--json'])
   if (listed.ok) {
     const rows = readReview(parseJson(listed.stdout))
     await update($, review, () => rows)
-    const placed = sessionTicket(rows, await $.session.id())
-    await update($, ticket, () => placed)
+    const split = sessionFeature(rows, await $.session.id())
+    await update($, feature, () => split)
   }
 }
 
@@ -165,12 +167,14 @@ async function refreshRules($: $): Promise<void> {
 }
 
 /**
- * After a turn: tc reads the session's usage from Claude Code's own session
+ * After a turn: the mod counts the turn into the session facts and writes the
+ * summary; tc reads the session's messages from Claude Code's own session
  * files whenever it runs, so asking it for the band's figures is what brings
- * the turn into the draft token entry.
+ * the turn into the session record.
  */
 async function afterTurn($: $, isMain: boolean): Promise<void> {
   if (isMain) await summarize($)
+  else await remember($)
   await flush($)
   if (isInteractive) await refresh($)
 }
@@ -230,22 +234,22 @@ export const register: Register = on => {
     await $.command.register({
       name: 'tc',
       description:
-        'Token Controller: set this session’s ticket, see reports, submit your token sheet',
-      argumentHint: '[ticket KEY | tag NAME=VALUE | report [BY] | submit]',
+        'Token Controller: put this session on a feature, see reports, submit your sessions',
+      argumentHint: '[feature KEY | tag NAME=VALUE | report [BY] | submit]',
     })
     await $.tool.register({
       name: 'report',
       description:
-        'Token Controller report: what agent work cost, grouped by ticket, project, team, any other tag name, or day. ' +
+        'Token Controller report: what agent work cost, grouped by feature, project, team, any other tag or attribute name, or day. ' +
         'Use it when the person asks what something cost, such as "what did KD-214 cost this week?" ' +
-        '(by day, filter ticket=KD-214, then add up the days of this week), and answer with the table it returns.',
+        '(by day, filter feature=KD-214, then add up the days of this week), and answer with the table it returns.',
       inputSchema: {
         type: 'object',
         properties: {
-          by: { type: 'string', description: 'ticket, project, team, any tag name, or day' },
+          by: { type: 'string', description: 'feature, project, team, any tag name, or day' },
           filter: {
             type: 'string',
-            description: 'Limit to one tag value, as name=value, such as ticket=KD-214',
+            description: 'Limit to one tag value, as name=value, such as feature=KD-214',
           },
         },
         required: ['by'],
@@ -264,6 +268,7 @@ export const register: Register = on => {
   on('turn.complete', async ($, e, next) => {
     const result = await next(e)
     const isMain = e.agentId === undefined && e.reason === 'answer'
+    await update($, facts, counted => countTurn(counted, e.durationMs, e.agentId !== undefined))
     if (isInteractive) {
       // Outside the turn's dispatch, so tc and the summary never hold up the prompt.
       $.clock.after(0, () => void afterTurn($, isMain))
@@ -309,7 +314,7 @@ export const register: Register = on => {
 
   on('tool.call', { tool: TOOL }, async ($, e) => {
     const input = e.input as { by?: unknown; filter?: unknown }
-    const by = typeof input.by === 'string' && input.by !== '' ? input.by : 'ticket'
+    const by = typeof input.by === 'string' && input.by !== '' ? input.by : 'feature'
     const args = ['report', '--by', by, '--json']
     if (typeof input.filter === 'string' && input.filter !== '') args.push('--filter', input.filter)
     const run = await tc($, args)
@@ -320,19 +325,19 @@ export const register: Register = on => {
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (e.props.hasSurvey) return next(e)
-    const [current, trouble, sessionTicketNow] = await Promise.all([
-      read($, sheet),
+    const [current, trouble, featureNow] = await Promise.all([
+      read($, status),
       read($, problem),
-      read($, ticket),
+      read($, feature),
     ])
     if (current === null && trouble === null) return next(e)
     const { Box, Text, Button } = $.ui.resolve(e)
-    const note = current === null ? null : sheetNote(current)
+    const note = current === null ? null : statusNote(current)
     // A note gets its own row when the band may take two, so the headline never wraps.
     const isNoteBelow = note !== null && e.props.maxRows >= 2
     const top = (
       <Box flexDirection="row" gap={1}>
-        {current !== null && <Text wrap="truncate-end">{headline(current, sessionTicketNow)}</Text>}
+        {current !== null && <Text wrap="truncate-end">{headline(current, featureNow)}</Text>}
         {note !== null && !isNoteBelow && (
           <Text color="warning" wrap="truncate-end">
             · {note}
@@ -362,20 +367,20 @@ export const register: Register = on => {
     const { Box, Text, Button } = elements
     // The mobile app draws no text field yet: there the pane shows and submits, and fixes wait for a computer.
     const Input = 'Input' in elements ? elements.Input : undefined
-    const [current, trouble, shown, rows, chosen, said, sessionTicketNow, now] = await Promise.all([
-      read($, sheet),
+    const [current, trouble, shown, rows, chosen, said, featureNow, now] = await Promise.all([
+      read($, status),
       read($, problem),
       read($, tab),
       read($, review),
       read($, editing),
       read($, notice),
-      read($, ticket),
+      read($, feature),
       $.clock.now(),
     ])
     const width = Math.max(30, e.props.bodyColumns)
-    const note = current === null ? null : sheetNote(current)
-    const drafts = rows.filter(row => !row.isRejected)
-    const rejected = rows.length - drafts.length
+    const note = current === null ? null : statusNote(current)
+    const toCheck = rows.filter(row => !row.isRejected)
+    const rejected = rows.length - toCheck.length
     const show = (next: Tab) => async () => {
       await update($, tab, () => next)
       await update($, notice, () => null)
@@ -387,12 +392,12 @@ export const register: Register = on => {
 
     const header = (
       <Box flexDirection="column">
-        {current !== null && <Text bold>{headline(current, sessionTicketNow)}</Text>}
+        {current !== null && <Text bold>{headline(current, featureNow)}</Text>}
         {current !== null && (
           <Text dimColor wrap="truncate-end">
             {[
               current.organization ?? 'Local only: tc connect to report to your organization',
-              `${drafts.length} draft token ${drafts.length === 1 ? 'entry' : 'entries'}`,
+              `${toCheck.length} ${toCheck.length === 1 ? 'session' : 'sessions'} to check`,
               ...(rejected > 0 ? [`${rejected} rejected`] : []),
             ].join(' · ')}
           </Text>
@@ -402,7 +407,7 @@ export const register: Register = on => {
         <Box flexDirection="row" gap={1} marginTop={1}>
           <Button
             key="tab-review"
-            label="Review"
+            label="Check"
             hotkey="r"
             variant={shown === 'review' ? 'primary' : 'secondary'}
             onPress={show('review')}
@@ -428,7 +433,7 @@ export const register: Register = on => {
 
     if (shown === 'report') {
       const [shownReport, by] = await Promise.all([read($, report), read($, reportBy)])
-      const choices = ['ticket', 'project', 'team', 'day']
+      const choices = ['feature', 'project', 'team', 'day']
       const options = choices.includes(by) ? choices : [...choices, by]
       const labels = shownReport === null ? [] : shownReport.rows.map(r => rowLabel(r, by))
       const label = Math.min(20, Math.max(5, ...labels.map(l => l.length)))
@@ -525,7 +530,7 @@ export const register: Register = on => {
       )
     }
 
-    const total = drafts.reduce((sum, row) => sum + (row.cost ?? 0), 0)
+    const total = toCheck.reduce((sum, row) => sum + (row.cost ?? 0), 0)
     const currency = current?.currency ?? 'USD'
     const costText = (row: (typeof rows)[number]) =>
       row.cost === null ? 'no price' : money(row.cost, currency, true)
@@ -535,7 +540,7 @@ export const register: Register = on => {
       <Box flexDirection="column" gap={1}>
         {header}
         {rows.length === 0 && (
-          <Text dimColor>No draft token entries. Each Claude Code session becomes one.</Text>
+          <Text dimColor>No sessions to check. Each Claude Code session shows here.</Text>
         )}
         <Box flexDirection="column">
           {rows.map(row => (
@@ -548,7 +553,7 @@ export const register: Register = on => {
                 }
               >
                 {String(row.number).padStart(2)} {when(row.startedAt, now).padEnd(whenWidth)}{' '}
-                {costText(row).padStart(costWidth)} {placeLine(row)}
+                {costText(row).padStart(costWidth)} {splitLine(row)}
               </Button>
               {row.summary !== '' && (
                 <Text wrap="truncate-end">
@@ -562,7 +567,7 @@ export const register: Register = on => {
                 wrap="truncate-end"
               >
                 {'   '}
-                {placedByLine(row)}
+                {assignedLine(row)}
               </Text>
               {Input !== undefined && chosen === row.number && (
                 <Input
@@ -575,7 +580,7 @@ export const register: Register = on => {
                     const pairs = text
                       .split(/\s+/)
                       .filter(Boolean)
-                      .map((pair: string) => (pair.includes('=') ? pair : `ticket=${pair}`))
+                      .map((pair: string) => (pair.includes('=') ? pair : `feature=${pair}`))
                     if (pairs.length === 0) return
                     const run = await tc($, ['tag', String(row.number), ...pairs, '--json'])
                     await say(
@@ -591,13 +596,13 @@ export const register: Register = on => {
             </Box>
           ))}
         </Box>
-        {drafts.length > 0 && (
+        {toCheck.length > 0 && (
           <Box flexDirection="row" gap={1}>
             <Button
               key="submit"
               variant="primary"
               hotkey="s"
-              label={`Submit ${drafts.length} ${drafts.length === 1 ? 'entry' : 'entries'} · ${money(total, currency, true)}`}
+              label={`Submit ${toCheck.length} ${toCheck.length === 1 ? 'session' : 'sessions'} · ${money(total, currency, true)}`}
               onPress={async () => {
                 await say(await submit($))
               }}

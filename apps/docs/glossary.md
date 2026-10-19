@@ -1,323 +1,280 @@
 # Token Controller
 
-Cost accounting and management control for AI agents: token entries from agents are matched to provider bills, tagged with the work and the people that caused them, and compared with token budgets.
+Cost accounting and management control for AI agents: every model call an agent makes is a message with its token counts, the price table turns counts into cost, tags and attributes say what and who the cost was for, and plans say what it was meant to be.
 
 ## Language
 
-### The two sides
+### Records
+
+**Source record**:
+A record anyone or any door adds and nobody ever changes: a message, a bill, an estimate, a tag value, an attribute value, a share or a price table row. A wrong one is reversed, never edited.
+
+**Assignment**:
+A record that needs a capability and supersedes the earlier assignment on the same target: a split, an accept or a grant. The earlier one stays in the log.
+
+**Event**:
+Every record and every action in an organization is an event in one append-only log: source records, assignments, the cutoff, submits, approvals, rules and reversals. Nothing is edited or deleted. Every figure is computed from the log when you look at it.
+_Avoid_: Row, transaction
+
+**Reversal**:
+An event that cancels an earlier event. The earlier one stays visible and stops counting. It is the only way to correct anything.
+_Avoid_: Edit, delete, adjustment, Storno
+
+**Message**:
+One model call inside an agent session: person, provider, model, token counts by kind (input, output, cache read, cache write), time, session id, message id, agent harness and an optional agent name. Never prompts. It is the only thing that is ever summed.
+_Avoid_: Model call, request, telemetry row, entry
+
+**Session**:
+One continuous run of an agent, from start to end, and the messages in it. A session carries session facts: turns, tool calls, retries and reruns, duration, subagents, files touched, a result pointer such as a pull request URL, and a summary.
+_Avoid_: Conversation, chat
 
 **Token entry**:
-One agent session's account of what it spent and on what work: tokens, cost, model, start and end time, and a summary. It is to a token sheet what a time entry is to a timesheet.
-_Avoid_: Receipt, report item, line item, usage record, voucher
+The API noun for one message or one session record, as the token entries endpoint and the CLI send them. A token entry is one message, or one session with its messages.
 
 **Bill**:
-A provider's figure for one period's metered usage: gross, discount, credit and net, in the currency the provider charges. Metered usage is everything priced per use: tokens, and per-call fees such as web search. It is the total the token entries must add up to. Seats, subscriptions and other flat fees are not usage and stay off it. A bill exists only for metered cost sources; on a seat plan there is none.
+A provider's figure for metered usage over a date range: provider, first and last day, amount and currency. Metered usage is everything priced per use: tokens and per-call fees. Seats, subscriptions and other flat fees are not on it.
 _Avoid_: Statement, invoice
 
-**Token sheet**:
-One agent manager's reviewed token entries for one cadence period. It is how a person confirms which ticket each of their sessions was for and what it did. Telemetry can carry the money of the same sessions on its own, but never the ticket or the summary; the two are joined by session ID and counted once. Automatic token entries are never on a token sheet.
-_Avoid_: Report, batch
+**Estimate**:
+What a described piece of work will cost: a probability distribution in dollars, bands with a median, with an optional markup inside the amount. Made by any estimator for a tag set. Many estimates may exist for one tag set; the accepted one is the plan.
+_Avoid_: Token estimate, quote, prediction, forecast
 
-**Automatic**:
-Said of a token entry that arrives with no person involved: from cloud agents, CI agents, support agents, or built from telemetry events when no token sheet claims the session. Automatic token entries start at submitted and are never on a token sheet.
-_Avoid_: Live
+**Tag value**:
+A record behind a tag: tag name, key, optional title and description, a source id when a ticket system owns it, and its default tags. Tag values are records, never bare strings.
 
-**Cost sheet**:
-The locked account of one closed period for the whole organization: cost per project and ticket, adding up to the bill. With approval on, it holds approved cost only.
-_Avoid_: Statement, close sheet, monthly report
+**Share**:
+A person's fraction of a project's plan between two dates. Shares over the people of a project may add up to more than 1; that is shown, never corrected. A handover is a new share for the new person.
+_Avoid_: Allocation, assignment
 
-**Pass-through**:
-An organization charging a client for the cost on its cost sheet. Token Controller ends at the cost sheet; what the client is invoiced is outside it.
-_Avoid_: Chargeback, rebilling, invoicing
+**Price table**:
+Rows of provider, model, token kind, price per million tokens and the day the price is valid from. It is the only thing that turns token counts into cost. Required: without a price for a model, a message has no cost.
+_Avoid_: Pricing, rate card
+
+**Attribute value**:
+Like a tag value, for people: team, department, location, each with default attributes, such as team web bringing department engineering. Attributes are a different word from tags on purpose: tags say what work was for, attributes say who the person is.
+
+**Split**:
+An assignment on a session or one message: a list of fractions and tag sets that add up to 1. Without one, a session is one split of 100 percent on the tags its rules found, or equal fractions when it names several features and nobody decides.
+_Avoid_: Posting, allocation, segment
+
+**Accept**:
+The assignment that makes one estimate the plan for its tag set. Accepting another estimate supersedes it; the earlier one stays a record.
+
+**Grant**:
+(person, capability, filter): what a person may do, and on which part of the organization. See Access.
+_Avoid_: Permission, right, scope
+
+**Rule**:
+A pattern over signals that gives a tag value, with a scope (the organization or one person) and an order. A rule writes split assignments when a message arrives and runs back over unassigned messages since the cutoff. "Remember" on a hand assignment creates one.
+_Avoid_: Mapping, filter
+
+**Signal**:
+A fact about a session that is not a tag: branch, repository, pull request title, keys found in prompts, values in a repository's config file, telemetry resource attributes. Rules turn signals into tag values. A signal that matches no tag value leaves the message with no project.
+
+### Tags and attributes
+
+**Tag**:
+A tag name with a tag value on a split, such as `project: shop` or `feature: KD-214`. A split has at most one value per tag name, so cost grouped by one tag name adds up to the total.
+_Avoid_: Label, dimension, cost object, cost center
+
+**Tag name**:
+The left half of a tag. Built in: `project`, `feature` and `client`. An organization adds its own, such as `purpose`.
+_Avoid_: Key
+
+**Project**:
+A built-in tag name for a body of work. Its default tags usually name a client.
+
+**Feature**:
+A built-in tag name for any unit of work: a ticket, story, epic, task or bug are all features. A feature's default tags name its project. Synced from Jira or created by hand.
+_Avoid_: Ticket, issue, story, task, work item
+
+**Client**:
+A built-in tag name for who the work is for. A project's default tags name its client, so cost per client is a filter.
+_Avoid_: Customer, account
+
+**Default tags**:
+The tags a tag value brings with it: a feature brings its project, a project brings its client. The same for attributes: a team brings its department. Defaults are applied when a figure is computed, so a filter on `client: acme` finds every message on a feature of one of Acme's projects.
+_Avoid_: Inherited tags, tag map, ladder, hierarchy, rollup
+
+**Attribute**:
+An attribute name with an attribute value on a person, such as `team: web` or `department: engineering`. A message carries its person's attributes as of its time.
+_Avoid_: Person tag, org chart
+
+**Filter**:
+Any set of tags and attributes, such as `client: acme` or `team: web` and `project: shop`. The empty filter is the whole organization. Every report, every grant and every plan is a filter.
+_Avoid_: Scope, segment
+
+**Label**:
+What a split's tags say about how specific it is: direct with a feature, project overhead with a project and no feature, organization overhead with neither. It still has its person. Nobody sets it.
+_Avoid_: Cost kind, category, cost type
+
+**Direct**:
+Cost on a feature.
+
+**Project overhead**:
+Cost on a project but on no feature, such as research or setup.
+
+**Organization overhead**:
+Cost on no project. It still has its person.
+_Avoid_: Unattributed, unassigned, other
+
+### Money
+
+**Cost**:
+Of a message: its token counts by kind times the price table for its provider and model as of its time. Of a filter over a date range: the sum of fraction times message cost over every split the filter matches. The one formula every report uses.
+_Avoid_: List value, billed value, actual as a record
+
+**Count error**:
+A message with no token counts. It has no cost and is shown as a count error, never as zero.
+
+**Unknown model**:
+A model that is missing from the price table on the message's day. Its cost is labelled, never shown as zero.
+
+**Reported cost**:
+A cost figure an agent sends with its own message. It is kept as a fact about the message and is never the figure Token Controller shows.
+
+**Reconciliation**:
+The check on a bill's own date range: the bill equals the cost of every message of that provider in the range plus what the bill has that no message explains. The second part is a line on the bill and is never negative. Negative means a message is wrong.
+_Avoid_: Residual, matching, cost sheet, close
 
 **Provider**:
 A company that charges for model usage, such as Anthropic, OpenAI or a cloud marketplace.
 _Avoid_: Vendor
 
-**Cost source**:
-One way a provider charges an organization: subscription, seat, usage at API rates, API key, cloud marketplace or reseller.
+**Reporting currency**:
+The one currency an organization shows figures in. The price table is in US dollars per million tokens; a bill keeps its own currency and the exchange rate of its last day.
+_Avoid_: Base currency
 
-**Reconciliation**:
-Checking, per period and per bill, that token entries plus residual equal the bill. The cost sheet shows one line per bill and the organization total. In the loop, the step "Reconcile" is wider: it covers rules placing token entries, review, this check and the close.
-Token Controller accepts everything it receives, in any order: token entries for sessions it already has, tags not yet on the list, entries for closed periods. Fitting these loose pieces together is reconciliation's job, never a reason to refuse them.
-_Avoid_: Matching
+**Pass-through**:
+An organization charging a client for the cost on a filter. What the client is invoiced is outside Token Controller.
+_Avoid_: Chargeback, rebilling
 
-**Duplicate**:
-A token entry sent again for a session Token Controller already has. It is accepted and the session counts once. The copy stays visible, greyed out behind a toggle.
-_Avoid_: Rejected entry
+### Plans
 
-**Residual**:
-The part of a bill that no token entry explains, and so the only cost that is not attributed: usage in the provider's own chat app, per-call fees the agent harness does not report, a restated bill. Always shown as its own line.
-_Avoid_: Leftover, difference
+**Plan**:
+The amount of the accepted estimate for a filter, spread over a date range by days. For a person, the sum of their shares times the plans of those projects. A plan never stops spending.
+_Avoid_: Token budget, budget, limit, cap, allowance
 
-### Tags
+**Estimator**:
+Any function that turns a description and history into an estimate. Today it is the System 1 classifier; a person typing a figure is one too.
 
-**Tag**:
-A name and a value on a token entry, such as `team: growth` or `client: acme`. A token entry has at most one value per tag name, so totals by one tag name always add up. Reports, token budgets and people managers' access are all tag filters. Every tag is optional: a token entry without any still has its person.
-_Avoid_: Label, dimension, attribute
+**System 1 classifier**:
+A model that reads text in one pass and answers only with probabilities. It never writes text, so nothing it was trained on can come back out. It makes estimates from descriptions and the history of every tag value, and labels each deviation.
+_Avoid_: LLM, AI model, embeddings, classifier program
 
-**Tag name**:
-The left half of a tag, such as `team`. The org manager keeps the list of tag names; anyone may add new values.
-_Avoid_: Key
+**Markup**:
+An overhead percentage inside an estimate's amount. There is no separate markup line.
 
-**Built-in tag**:
-A tag name Token Controller knows and keeps records behind: `person`, `ticket` and `project`. Ticket and project values are real tickets and projects, synced from a ticket system or created by hand. Every other tag name is the organization's own.
+**Deviation**:
+Plan minus cost for any filter and date range, written Δ. Positive is favourable. The System 1 classifier labels why: scope, trouble, or the estimate itself.
+_Avoid_: Delta, variance, overrun, underrun
 
-**Inherited tag**:
-A tag copied onto a token entry from the person, project or ticket it belongs to when it arrives. A person tagged `team: growth` makes their new token entries `team: growth`; a project tagged `client: acme` does the same for its token entries. Later changes reach only new token entries.
+**Forecast**:
+Where cost is heading: the cost of a filter in the next date range, computed from past ranges. A forecast is a report, never a record.
+_Avoid_: Token forecast, projection
 
-**Filter**:
-A set of tags a view is limited to, such as `client: acme` or `team: web` and `project: acme-shop`. A token entry matches when it has every tag in the filter.
+**Benchmark**:
+A fixed set of described tasks that real agents run every month. Token Controller publishes how close its estimates landed, next to a plain LLM's guess.
 
-**Tag map**:
-The organization's setting that says which tags fill the cost center and the cost object. By default the cost center is `person` and the cost object ladder is ticket, project, organization.
-_Avoid_: Mapping, schema
+### Access
 
-**Ladder**:
-The ordered list of tag names that fill the cost object, most specific first. A token entry's cost object is the first rung with a value; with none, it is the organization. An organization can rename, add or remove rungs, such as ticket, epic, project, client.
-_Avoid_: Hierarchy, tree
+**Capability**:
+One of seven things a grant allows: view, record, assign, approve, plan, grant, adjust.
 
-### Where cost sits
+**View**:
+Read cost and plan for a filter and every filter inside it.
 
-**Split**:
-A share of a token entry with its own tags. Most token entries are one split. A session that worked on two tickets can be split, for example 60 percent and 40 percent; the shares are a person's or a rule's judgment.
-_Avoid_: Posting, allocation, assignment
+**Record**:
+Send messages and tag them with keys you were told. Everyone has it, with no filter.
 
-**Cost center**:
-Who answers for a cost: the value of the tag the tag map names, by default the person. Every split has exactly one. An organization that answers for money by team maps the cost center to `team`; each token entry still has one agent manager.
-_Avoid_: Who, person side, team tree
+**Assign**:
+Tag, split and correct other people's messages inside a filter.
 
-**Cost object**:
-What a cost paid for: the first rung of the ladder with a value, such as a ticket or a project, or else the organization. Ticket cost rolls up to its parent ticket and its project.
-_Avoid_: What, work side
+**Approve**:
+Approve or reject submissions inside a filter.
 
-**Cost kind**:
-What a split's cost object says about it: direct, project overhead or organization overhead. It is never set by hand; it follows from the ticket and project tags.
-_Avoid_: Category, cost type
+**Plan capability**:
+Create estimates, accept plans and set shares inside a filter.
 
-**Direct**:
-Cost on a ticket.
+**Adjust**:
+Add events dated before the cutoff. Org managers only.
 
-**Project overhead**:
-Cost on a project but on no ticket, such as research or setup.
-
-**Organization overhead**:
-Cost on no project, such as internal tooling, learning, or a session nobody tagged. It still has a person.
-_Avoid_: Unattributed, unassigned, other
-
-**Attribution**:
-The share of a bill that token entries explain. Every token entry has a person, so every token entry is attributed; the rest of the bill is residual. How specific the attribution is, on a ticket, a project or only a person, is the cost kind.
-_Avoid_: Coverage, allocation rate
-
-### Work
-
-**Organization**:
-One customer of Token Controller: its people, projects, tags and periods. It has one reporting currency.
-_Avoid_: Account, tenant, workspace, company, client
-
-**Project**:
-A body of work made of tickets.
-
-**Client**:
-A common tag on projects that names who the work is for, such as `client: acme`. Its projects' token entries inherit it, so cost per client is a filter. An organization can make it a rung of the ladder.
-_Avoid_: Customer, account
-
-**Ticket**:
-Any unit of work: a feature, a story, an epic or a bug. It has a key, and optionally a title, a description, a parent ticket and an assignee. Tickets can sit inside other tickets.
-_Avoid_: Issue, task, story, work item
-
-### People
-
-**Person**:
-A human in the organization. The default cost center. A person can carry tags, such as `team: web` or `department: design`, which their token entries inherit. Token Controller does not model an org chart.
-_Avoid_: User, developer, group, team tree
-
-**Member**:
-Anyone in the organization, whatever their role.
-_Avoid_: User, seat
+**Role**:
+A named bundle of grants: agent manager, people manager, org manager. A role is never a tag or an attribute.
 
 **Agent manager**:
-The role that manages agents: submits token sheets and sees its own cost. Every token entry has exactly one agent manager, who answers for its cost.
-_Avoid_: Member, supervisor, owner, orchestrator, prompter, developer
+The default role: record, and view on `person: self`. Everyone who runs an agent.
+_Avoid_: Member, developer, user
 
 **People manager**:
-The role that manages people and projects: reads reports, sets token budgets and cadence, and approves or rejects token entries, for the filters it is assigned, such as `team: web` or `client: acme`. A people manager is also an agent manager.
+Agent manager plus view, assign, approve, plan and grant on the filters they were granted, such as `team: web` or `client: acme`.
 _Avoid_: Manager
 
 **Org manager**:
-The role that sees everything, sets up the organization, runs the close and posts adjustments. With agent managers and people managers, one of three kinds of manager.
-_Avoid_: Controller, organization manager, owner, admin
+Every capability on the empty filter, plus adjust and moving the cutoff.
+_Avoid_: Controller, admin, owner
 
-**Assignee**:
-The person a ticket is assigned to.
-_Avoid_: Ticket owner
+**Person**:
+A human in the organization. Every message has one. A person carries attributes.
+_Avoid_: User, seat
+
+**Organization**:
+One customer of Token Controller: one event log, one cutoff, one reporting currency.
+_Avoid_: Account, tenant, workspace
 
 ### Agents
 
 **Agent**:
-Software that calls a model on a person's behalf and so costs money. Token Controller keeps no record of agents, only of the cost they cause: every token entry comes from exactly one agent session. A person typing in a provider's own chat app is not an agent; that usage is residual.
+Software that calls a model on a person's behalf. Token Controller keeps no record of agents, only their messages. A person typing in a provider's own chat app is not an agent; that usage is what the bill has that no message explains.
 _Avoid_: Bot, tool
 
 **Agent harness**:
-The product an agent ran on, such as Claude Code or Codex, carried on every token entry.
+The product an agent ran on, such as Claude Code or Codex, carried on every message.
 
 **Agent name**:
-An optional label on a token entry that says which agent produced it, such as "review bot". Token entries with the same agent name can be totalled.
+An optional label on a message, such as "review bot", so one automation can be totalled across projects.
 
 **Model**:
-The model that did the work in a token entry. Together with the provider it decides the price.
+The model that answered a message. With the provider and the token kind it picks the price table row.
 
 **Subagent**:
-An agent started by another agent inside the same session.
+An agent started by another agent inside the same session. One of the session facts.
 
-**Session**:
-One continuous run of an agent, from start to end.
-_Avoid_: Conversation, chat
-
-**Segment**:
-A stretch of a session on one branch and one working directory.
+**Summary**:
+Free text an agent writes about what a session did. With tag values and estimate descriptions, the only text Token Controller stores.
 
 **Transcript**:
 The full text of a session. It never leaves the machine.
 
-**Summary**:
-Free text an agent writes about what a session did, like a pull request description. It has no fixed parts; the System 1 classifier reads it as it is and matches it with estimates and tags. With the tag values, it is the only text in a token entry. On a token sheet, the agent manager sees it before submitting.
-
 **Telemetry event**:
-One model call as reported live by the agent: tokens, cost and IDs, no text.
+One message as the agent reports it live over OpenTelemetry: counts, model and ids, no text.
 
 **Door**:
-A way token entries or telemetry reach Token Controller: session files, telemetry push, the GitHub Action or the token entries endpoint.
+A way messages reach Token Controller: session files through the CLI, the Claude Code mod, telemetry push, the GitHub Action, the token entries endpoint, manual entry.
 _Avoid_: Integration, connector
 
-### Placing token entries
-
-**Signal**:
-A fact about a session that hints at its tags: branch, working directory, repository, pull request, or a ticket key in a prompt or a title.
-
-**Rule**:
-An instruction that turns signals into tags. Organization rules run before personal ones.
-_Avoid_: Filter, mapping
-
-**System 1 classifier**:
-A model that reads text in one pass and answers only with probabilities: which of the given choices fits, a score on a scale, or yes or no. It never writes text, so nothing it was trained on can come back out. Token Controller's classifier is trained on the text of all organizations: summaries, estimate descriptions and the tags they got. It makes token estimates, finds similar past work, places token entries on tickets and estimates, and explains each delta.
-_Avoid_: LLM, AI model, embeddings
-
-**Classifier**:
-An optional program on a person's machine that picks among candidate tickets when rules cannot.
-_Avoid_: System 1 classifier
-
-**Summary match**:
-Token Controller's System 1 classifier placing a token entry on the estimate and tags its summary fits, when no rule set them. Always marked as such.
-_Avoid_: Auto-match, AI match
-
-**Report**:
-A saved filter with a grouping that people managers read, such as cost by team for `client: acme`, or token budget versus actual per project.
-_Avoid_: Dashboard
-
-**Review**:
-An agent manager checking their own draft token entries before submitting the token sheet.
-
-**Submit**:
-Handing in a token sheet for its cadence period.
-_Avoid_: Push, sync, upload
-
-**Late**:
-Said of a token sheet whose cadence period is over and that has not been submitted.
-
-**Approval**:
-A people manager accepting submitted token entries, one by one or in bulk. An organization can switch approval off. With approval on, a period cannot be closed while a token entry in it is unapproved.
-_Avoid_: Sign-off, posted
-
-**Status**:
-Where a token entry stands: draft (still on the machine), submitted (counts in reports), approved, rejected (does not count until fixed) or locked (its period is closed). Automatic token entries start at submitted.
-
-**Reject**:
-A people manager sending a token entry back to its agent manager with a reason.
-_Avoid_: Decline, return
-
-**Cadence**:
-The rhythm in which token sheets are due, set by a people manager: weekly, every two weeks, monthly or custom.
-_Avoid_: Reporting cadence, schedule
-
-### Money
-
-**Reported cost**:
-The cost figure an agent supplies with its own token entry. It is optional.
-
-**List value**:
-A token entry's cost at the provider's published prices: the reported cost where there is one, otherwise token counts times the price table for the model.
-_Avoid_: Estimated cost
-
-**Billed value**:
-A token entry's cost as the provider actually charged it, where a bill or billed telemetry says so.
-_Avoid_: Actual cost
-
-**Price table**:
-The published prices per model used to compute list value, in USD. Each period keeps the table it was closed with.
-
-**Unknown model**:
-A model missing from the price table. Its cost is labelled, never shown as zero.
-
-**Reporting currency**:
-The one currency an organization computes in. A bill in another currency keeps its original amount and the exchange rate of its date. Any report can be shown in another currency at the rate of the period's last day.
-_Avoid_: Base currency, master currency
-
-**Share view**:
-A report shown as each line's share of the period instead of money. It is the view for organizations on a seat plan, where usage is not charged in money.
-_Avoid_: Percentage mode
+**Duplicate**:
+The same message seen through two doors. It is one record and counts once.
 
 ### Time
 
-**Period**:
-One calendar month, open or closed.
-_Avoid_: Billing cycle, month
+**As of**:
+The date up to which the event log is read. As of today gives the current figures; as of the cutoff gives the frozen ones. Every report shows its as-of date.
+_Avoid_: Snapshot, version
 
-**Cadence period**:
-One stretch of the cadence, such as one week. Each has one token sheet per agent manager.
+**Cutoff**:
+One date per organization. Figures as of the cutoff are frozen; only an org manager moves it or adds events dated before it. It replaces closing months.
+_Avoid_: Period, close, month-end, lock, closed period
 
-**Close**:
-Locking a period so its token entries, splits and tags can no longer change. It produces the cost sheet. Each closed period keeps the tag map and the price table it closed with. A token sheet submitted after its period closed is posted as an adjustment to that period, marked late.
-_Avoid_: Month-end, lock
+**Submit**:
+A person confirming all their own messages inside a date window. Approval of a submission is optional per organization: approve, or reject with a reason.
+_Avoid_: Token sheet, timesheet, cadence
 
-**Adjustment**:
-A signed correction an org manager posts to a closed period.
+**Date range**:
+Any first and last day a report, a bill or a plan covers.
+_Avoid_: Period, billing cycle
 
-### Management control
-
-**Token budget**:
-Money a human has planned for a filter (a person, a ticket, a project, a team, any set of tags) and a period. It is compared with actual cost and never stops spending. Token budgets can overlap: one for `team: web` and one for `project: acme-shop` may count the same money.
-_Avoid_: Budget, limit, cap, allowance
-
-**Token estimate**:
-What a described piece of work, such as a ticket or a client project, will cost, given before the work starts: a probability distribution in dollars, the chance of each cost band, with its median. The System 1 classifier makes it from the description, and from optional context such as the summaries and cost of earlier work. A token estimate is its own object: it can stand alone, or be tagged later with any tag, such as a project, an epic or a ticket. No tag name ranks above another. Anyone can ask for one through the Estimates API, without recording anything. It becomes a token budget only when a person accepts it.
-_Avoid_: Forecast, quote, prediction
-
-**Token forecast**:
-Where running cost is heading: the cost of a filter, such as the organization, a team or a person, in the coming periods, extrapolated from the trend of past periods. For example, 30,000 USD last month and 35,000 USD expected next month. A token forecast looks at periods; a token estimate looks at one piece of work.
-_Avoid_: Estimate, projection, prediction
-
-**Delta**:
-The difference between a token estimate's median and the actual cost of the token entries matched to it. The classifier labels why: scope (more or less was built than described), trouble (loops, failures, rework), or the estimate itself.
-_Avoid_: Variance, error
-
-**Benchmark**:
-A fixed set of described tasks that real agents run every month. Token Controller publishes how close its token estimates landed, next to a plain LLM's guess.
-
-**Actual**:
-What was spent against a token budget.
-
-**Overrun**:
-Actual above token budget.
-
-**Underrun**:
-Actual below token budget.
-
-**Outlier**:
-A cost far from the organization's own baseline for similar work.
-_Avoid_: Anomaly
-
-### Plans
+### Plans we sell
 
 **Team plan**, **Enterprise plan**:
 Always written with the word "plan", because both are also plan names at providers and "team" alone reads as a group of people.

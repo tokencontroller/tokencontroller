@@ -1,7 +1,7 @@
 /**
  * Reads the signals from the variables every job has and from the event that
- * started it. A review of a pull request is placed on that pull request's
- * ticket, so the number and the title (where ticket keys are found) matter.
+ * started it. A review of a pull request lands on that pull request's
+ * feature, so the number and the title (where feature keys are found) matter.
  */
 export function readJobSignals(env, readEvent) {
     let event = {};

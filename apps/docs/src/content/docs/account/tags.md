@@ -1,88 +1,86 @@
 ---
-title: "Tags and the tag map"
-description: "Tags on token entries, teams, the tag map for cost center and cost object, cost kinds, splits and filters."
+title: "Tags"
+description: "Tag values as records with defaults, the built-in tag names project, feature and client, your own tag names, and syncing features from Jira."
 ---
 
-Every token entry carries tags, such as `team: web` or `client: acme`. Reports, token budgets and what people managers see are all [filters](#filters) on them.
+A tag is a tag name with a tag value on a split, such as `project: shop` or `feature: KD-214`. Reports, plans and grants are all [filters](#filters) on tags and [attributes](/account/attributes).
 
-![Tags and the tag map: tag names with their values, and the ladders that fill cost center and cost object](/screens/13-tags-and-tag-map.png)
+## Tag values are records {#values}
 
-## Tags {#tags}
+Every tag value is a record, never a bare string: `shop` under `project` exists once, with its key, an optional title and description, a source id when a ticket system owns it, and its default tags. `acme`, `Acme` and `acme-corp` are three values until someone reverses two of them. Anyone with [record](/account/roles#capabilities) can tag a message with a key they were told; autocomplete offers only values they have view on.
 
-A token entry has at most one value per tag name, so cost grouped by one tag name always adds up to the total. An entry cannot be `team: web` and `team: data` at once; work for two clients in one session is [split](#splits).
-
-The org manager keeps the list of tag names; values are free, so a new client needs no setting. Three tag names are built in and have records behind them:
-
-| Built-in tag | Value |
+| Field | Meaning |
 | --- | --- |
-| `person` | The token entry's agent manager. Always set. |
-| `ticket` | A [ticket](/account/projects#tickets), synced from your ticket system or created by hand, with its title, description and parent. |
-| `project` | A [project](/account/projects), with its ticket key pattern and repositories. |
+| Tag name | `project`, `feature`, `client` or one of your own. |
+| Key | The short name used in tags and on the command line, such as `KD-214` or `shop`. |
+| Title, description | Optional. A feature's description is what the [estimator](/account/estimates) reads. |
+| Source id | The id in the ticket system that owns it, such as a Jira issue id. Set by sync. |
+| Default tags | The tags this value brings with it; see [Defaults](#defaults). |
 
-Every other tag name is yours: `team`, `department`, `client`, `feature`, `purpose`.
+## The built-in tag names {#built-in}
 
-## Where tags come from {#sources}
-
-| Source | Example |
-| --- | --- |
-| The person | A person tagged `team: web` passes it to their new token entries. |
-| The project or ticket | A project tagged `client: acme` passes it to its token entries. |
-| [Rules](/attribute/rules) | A branch named `KD-214-fix` sets `ticket: KD-214`. |
-| A repository's config file | `.tokencontroller.toml` sets `project` or `purpose` for every session in the repository. See [Repositories](/account/projects#repositories). |
-| [Telemetry](/collect/telemetry) | Resource attributes in the agent's managed settings tag a whole team at once, with no install. |
-| Mod, CLI, GitHub Action, endpoint | Tags sent with the token entry. |
-| The person on their token sheet | Picks or corrects the ticket and any other tag before submitting. |
-
-Inherited tags are copied when a token entry arrives. When someone changes team, their earlier token entries keep the old team, so last month's reports do not change.
-
-## Teams and departments {#teams}
-
-Teams and departments are tags on people, such as `team: web`; there is no org chart. With one value per tag name, someone in two teams picks a main one, or the organization adds a second tag name such as `guild`. Teams are separate from projects, so anyone can work on any project.
-
-## The tag map {#map}
-
-Every share of cost has exactly one cost center and one cost object.
-
-| Setting | Default | Example of a change |
+| Tag name | Value | Default tags |
 | --- | --- | --- |
-| Cost center | `person` | `team`, when teams answer for money. Each token entry still has one agent manager who submits it and is asked about it. |
-| Ladder (cost object) | ticket, project, organization | ticket, epic, project, client, organization |
+| `project` | A body of work. | Usually a `client`. |
+| `feature` | Any unit of work: a ticket, a story, an epic, a task, a bug are all features. Synced from a ticket system or created by hand. | Its `project`. |
+| `client` | Who the work is for. | None. |
 
-The ladder is read from the top: the cost object is the first rung with a value. Rungs can be renamed, added and removed. A rung you add fills only if a project or ticket carries it, a rule sets it, or your ticket system sends it.
+Every other tag name is yours: `purpose`, `environment`, anything a rule or a person can set. An org manager keeps the list of tag names; anyone with assign on a filter adds values inside it.
 
-Each closed period keeps the tag map it was closed with. A change affects reports from then on, so compare periods across a change with care.
+## Defaults {#defaults}
 
-## Cost kinds {#kinds}
+A tag value brings its default tags when a figure is computed: a feature brings its project, a project brings its client. There is no setting that says which tag is above which; the defaults do it. A filter on `client: acme` finds every split on a feature of one of Acme's projects, and cost per project is the sum of its features plus the project's own overhead.
 
-Every token entry has a person, so all of it is attributed; only [residual](/account/bills#reconciliation) is not. The cost kind says how specific a split is, and follows from its tags:
+Defaults are applied as of the report's date, so changing a project's client changes figures as of a later date and never figures as of the cutoff.
 
-| Cost kind | When |
+## Projects {#projects}
+
+Create a project under _Tags_, give it a client as its default tag, and add a [rule](/attribute/rules) for its repositories, such as "repository `kestrel/shop` is project Shop". Sessions in that repository without a feature are project overhead on Shop. This is the only placing that works with [telemetry](/collect/telemetry) alone, because telemetry sees the repository but not the branch.
+
+## Features {#features}
+
+A feature has a key and, where known, a title, a description and its project as default. Only the key is required.
+
+- **Synced** from Jira; see below.
+- **By hand.** For work no ticket system knows, create a feature under its project. It works the same as a synced one.
+
+An epic, a story and its tasks are all features. A story's default tags name its project, not the epic: cost per epic is a filter on the epic's own feature value, and a session on the story counts on the story. Tag the session with both to count it on both.
+
+Keys are found in the branch name, the pull request title and the prompts by [rules](/attribute/rules); only the keys leave the machine. A key that matches a rule but names no feature yet leaves the message with no project, visible to whoever holds view there; assigning it once can become a rule.
+
+## Jira {#jira}
+
+Connecting Jira is optional. With it, every feature is a full copy of its Jira issue: key, title, description, type, status, parent and assignee, kept in step every 15 minutes or on demand. An org manager connects it under _Settings_, _Ticket systems_.
+
+| | Jira Cloud |
 | --- | --- |
-| Direct | It has a ticket. |
-| Project overhead | It has a project but no ticket. With extra rungs such as epic, everything between ticket and project counts here. |
-| Organization overhead | It has no project. Its person and other tags still apply. |
+| Address | Your site, such as `https://acme.atlassian.net`, with an API token and the email of its Atlassian account. |
+| Sync map | Map each Jira project to a Token Controller project. Its issues become features with that project as default. |
+| Fields | The sync map lists the fields that are copied; uncheck any you do not want, such as the description. |
+| Status | The list shows when each connection last synced and why the last sync failed. |
+| Disconnect | Its features stay and stop syncing. |
+| Responsibility | Whoever connects Jira answers for that data flow. |
 
-Reports, the Claude Code mod's band and the cost sheet show the share of each. [Rules](/attribute/rules) and people fixing exceptions move cost towards projects and tickets; how far is the organization's choice.
+A rule such as "key `^KD-\d+` in the branch is that feature" finds the feature by key; the synced copy fills in its title and project.
 
-## Splits {#splits}
+## Labels {#labels}
 
-A token entry with two sets of tags is split, and each split has its own tags:
+Nobody sets a label; it follows from the tags of a split:
 
-- **By segment.** A session that changes branch or working directory is split where it changed, measured message by message. See [Sessions and subagents](/attribute/rules#sessions).
-- **By hand.** A person splits a token entry on their token sheet, for example 60 percent to ACME-50 and 40 percent to GLOBEX-7. These shares are a judgment, not a measurement.
+| Label | When |
+| --- | --- |
+| Direct | It has a feature. |
+| Project overhead | It has a project but no feature. |
+| Organization overhead | It has no project. Its person and attributes still apply. |
+
+Reports and the Claude Code mod's band show the share of each. [Rules](/attribute/rules) and people fixing exceptions move cost towards features; how far is your choice.
 
 ## Filters {#filters}
 
-A token entry matches a filter when it has every tag in it, such as `team: web` and `project: acme-shop`. Filters define:
+A filter is any set of tags and attributes, such as `client: acme`, or `team: web` and `project: shop`. A split matches when its full tag set, with defaults and the person's attributes, contains every tag in the filter. Filters define:
 
-- [reports](/report/reports): a saved filter with a grouping, such as cost by team for `client: acme`
-- [token budgets](/account/token-budgets): money planned for a filter and a period
-- what [people managers](/account/roles) read and approve
+- [reports](/report/reports): cost of a filter, grouped by any tag name or attribute name
+- [plans](/account/estimates): the accepted estimate for a filter
+- [grants](/account/roles): what a person may view, assign, approve or plan
 
-Filters overlap: `team: web` and `client: acme` can count the same money, so never add two reports or two token budgets together. Only grouping by one tag name, and the [cost sheet](/account/close#cost-sheet), add up to the total. Grouping by a tag that not every entry has shows a line for entries without it.
-
-Residual has no tags, so a report filtered to one client never reaches the bill total.
-
-## Keeping values clean {#values}
-
-`acme`, `Acme` and `acme-corp` are three values. Ticket sync, rules and config files give clean values; hand-typed ones drift. An org manager can merge values in an open period. After the close, only an [adjustment](/account/close#adjustments) changes anything.
+For one tag name, the values partition the total. Filters on different names overlap: `team: web` and `client: acme` can count the same money, so never add two filters together. See [Checking a number](/report/checking-a-number).

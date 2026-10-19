@@ -14,8 +14,9 @@ The service reads its settings from environment variables. It refuses to start w
 | `TC_SECRET_KEY` | A random string of at least 32 characters for signing sessions and tokens, such as from `openssl rand -hex 32`. Required. |
 | `TC_SMTP_URL` | The mail server for sign-in links, invites and reminders, such as `smtps://user:password@smtp.example.com:465`. Required for magic links. |
 | `TC_SMTP_FROM` | The sender of that mail, such as `Token Controller <tc@example.com>`. Without it, mail comes from `noreply@` and the host of `TC_PUBLIC_URL`. |
-| `TC_PRICES_REFRESH` | `on` (the default) or `off`. `off` stops the daily [price table](/reference/pricing-tables) and exchange rate refresh, for instances without internet access. Bills in another currency then need their exchange rate. |
-| `TC_CLASSIFIER_URL` | A [System 1 classifier](/glossary#system-1-classifier) API for [token estimates](/account/token-budgets#estimates), the summary match and deltas, such as OpenAI's Decisions API at `https://api.openai.com/v1` or a model server of your own. Without it, the instance has no estimates and no summary match. Needs `TC_CLASSIFIER_MODEL`. A self-hosted classifier learns from that instance's data only. |
+| `TC_PRICE_TABLE` | The path of your [price table](/reference/pricing-tables#file) file, a CSV with provider, model, kind, price per million and valid from. The open edition ships without prices, so without this file every message is an unknown model. The file is read at start and when it changes; each new row is an event. See [Price table](#price-table). |
+| `TC_RATES_REFRESH` | `on` (the default) or `off`. `off` stops the daily exchange rate refresh, for instances without internet access. Bills in another currency then need their exchange rate. |
+| `TC_CLASSIFIER_URL` | A [System 1 classifier](/glossary#system-1-classifier) API as the [estimator](/account/estimates) and for deviation labels, such as OpenAI's Decisions API at `https://api.openai.com/v1` or a model server of your own. Without it, the instance has no estimates from a classifier and no labels; people still type estimates. Needs `TC_CLASSIFIER_MODEL`. A self-hosted classifier learns from that instance's data only. |
 | `TC_CLASSIFIER_MODEL` | The classifier model, such as `gpt-6-luna`. Needs `TC_CLASSIFIER_URL`. |
 | `TC_CLASSIFIER_KEY` | The API key for `TC_CLASSIFIER_URL`, if it needs one. |
 
@@ -25,19 +26,23 @@ Without a mail server, someone with access to the container can still sign a mem
 docker compose exec tokencontroller tokencontroller sign-in-link ana@example.com
 ```
 
+## Price table {#price-table}
+
+The open edition ships without prices. Write the rows you pay in a CSV file (the format is under [Price tables](/reference/pricing-tables#file)) and point `TC_PRICE_TABLE` at it; mount it into the container. An org manager can still add rows and overrides in the web app, and those win over the file. With an Enterprise key the managed table comes with the key, and the file is only for rows of your own.
+
 ## Enterprise plan settings {#enterprise}
 
 These switch on the [Enterprise plan](/self-hosting/enterprise) features in the Enterprise image. The open-source image ignores them.
 
 | Variable | Meaning |
 | --- | --- |
-| `TC_LICENSE_KEY` | The license key that comes with the contract. Without a valid key, the image works like the open-source one. From 30 days before the key's last day of support, org managers see a renewal notice. The features keep working for 30 days after that day. |
+| `TC_LICENSE_KEY` | The license key that comes with the contract. It includes the managed price table. Without a valid key, the image works like the open-source one. From 30 days before the key's last day of support, org managers see a renewal notice. The features keep working for 30 days after that day. |
 | `TC_TELEMETRY_FORWARD_URL` | Your collector's OTLP HTTP endpoint, such as `https://otel.example.com:4318`. Every telemetry batch the service accepts goes there unchanged, before the service drops prompt text. |
 | `TC_TELEMETRY_FORWARD_HEADERS` | Headers for your collector, as `name=value,name2=value2`, the same as `OTEL_EXPORTER_OTLP_HEADERS`. |
 
 ### Cloud bill connectors {#cloud-bills}
 
-Each cloud bill connector is on when its settings are set. Once a day it fetches last month's bill and this month's so far; changed figures make a new revision of that bill. Clouds still restate the first days after a month ends, so last month's bill is [final](/reference/bill) from the 6th, and the [close](/account/close) of that month waits until then.
+Each cloud bill connector is on when its settings are set. Once a day it fetches last month's bill and this month's so far; changed figures make a new bill for the range and reverse the old one. Clouds still restate the first days after a month ends, so last month's bill is [final](/reference/bill) from the 6th; move the [cutoff](/account/cutoff) after that.
 
 | Variable | Meaning |
 | --- | --- |

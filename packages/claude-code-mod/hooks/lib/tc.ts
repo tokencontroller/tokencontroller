@@ -5,44 +5,45 @@
  * reads as unknown, never as a crash.
  */
 
-/** A controller's request to submit before the monthly close. */
+/** An org manager's request to submit before the cutoff moves. */
 export interface AskedToSubmit {
-  /** The month, such as `2026-09`. */
-  period: string
+  /** The date the cutoff moves to, such as `2026-09-30`. */
+  cutoff: string
   askedBy: string | null
 }
 
-/** `tc status --json`: today's cost and the token sheet. */
-export interface Sheet {
+/** `tc status --json`: today's cost and the share on features. */
+export interface Status {
   isConnected: boolean
   organization: string | null
   currency: string
-  /** Today's list value. */
+  /** Today's cost from the price table. */
   today: number
   /** 0 to 1, or null while there is nothing to share. */
-  shareOnTickets: number | null
-  isLate: boolean
+  shareOnFeatures: number | null
   askedToSubmit: AskedToSubmit | null
 }
 
 export interface Split {
   /** 0 to 1, or null when tc does not say. */
-  share: number | null
+  fraction: number | null
   tags: Record<string, string>
 }
 
-/** One token entry of `tc review --json`. */
+/** One session of `tc review --json`. */
 export interface ReviewRow {
   number: number
   sessionId: string | null
   startedAt: string | null
-  /** The list value, or null while the model has no price. */
+  /** The cost from the price table, or null while the model has no price. */
   cost: number | null
   summary: string
   isRejected: boolean
   rejectedReason: string | null
-  placedBy: string | null
-  candidates: string[]
+  /** What wrote the split: `rule: key in branch`, `hand`, or `no rule matched`. */
+  assignedBy: string | null
+  /** `direct`, `project overhead` or `organization overhead`. */
+  label: string | null
   splits: Split[]
 }
 
@@ -72,7 +73,7 @@ export interface Submitted {
   count: number
   cost: number | null
   currency: string
-  shareOnTickets: number | null
+  shareOnFeatures: number | null
 }
 
 type Json = Record<string, unknown>
@@ -81,7 +82,7 @@ function object(value: unknown): Json {
   return typeof value === 'object' && value !== null && !Array.isArray(value) ? (value as Json) : {}
 }
 
-/** A number, or a decimal string as tc sends money. */
+/** A number, or a decimal string as tc sends money and fractions. */
 function num(value: unknown): number | null {
   if (typeof value === 'number' && Number.isFinite(value)) return value
   if (typeof value === 'string' && value.trim() !== '' && Number.isFinite(Number(value))) {
@@ -94,7 +95,7 @@ function str(value: unknown): string | null {
   return typeof value === 'string' && value !== '' ? value : null
 }
 
-function fraction(percent: unknown): number | null {
+function fromPercent(percent: unknown): number | null {
   const n = num(percent)
   return n === null ? null : n / 100
 }
@@ -124,23 +125,22 @@ export function parseJson(text: string): unknown {
   }
 }
 
-export function readSheet(value: unknown): Sheet {
+export function readStatus(value: unknown): Status {
   const top = object(value)
   const today = object(top.today)
   const asked = object(top.asked_to_submit)
-  const period = str(asked.period)
+  const cutoff = str(asked.cutoff)
   return {
     isConnected: top.connected === true,
     organization: str(top.organization),
     currency: str(today.currency) ?? 'USD',
-    today: num(today.list_value) ?? 0,
-    shareOnTickets: fraction(today.share_on_tickets_percent),
-    isLate: object(top.token_sheet).late === true,
-    askedToSubmit: period === null ? null : { period, askedBy: str(asked.asked_by) },
+    today: num(today.cost) ?? 0,
+    shareOnFeatures: fromPercent(today.share_on_features_percent),
+    askedToSubmit: cutoff === null ? null : { cutoff, askedBy: str(asked.asked_by) },
   }
 }
 
-export function readEntry(value: unknown): ReviewRow | null {
+export function readSession(value: unknown): ReviewRow | null {
   const row = object(value)
   const number = num(row.number)
   if (number === null) return null
@@ -148,22 +148,22 @@ export function readEntry(value: unknown): ReviewRow | null {
     number,
     sessionId: str(row.session_id),
     startedAt: str(row.started_at),
-    cost: num(row.list_value),
+    cost: num(row.cost),
     summary: str(row.summary) ?? '',
     isRejected: row.status === 'rejected',
     rejectedReason: str(row.rejected_reason),
-    placedBy: str(row.placed_by),
-    candidates: array(row.candidates).flatMap(key => (typeof key === 'string' ? [key] : [])),
+    assignedBy: str(row.assigned_by),
+    label: str(row.label),
     splits: array(row.splits).map(item => {
       const split = object(item)
-      return { share: fraction(split.share_percent), tags: tags(split.tags) }
+      return { fraction: num(split.fraction), tags: tags(split.tags) }
     }),
   }
 }
 
 export function readReview(value: unknown): ReviewRow[] {
-  return list(value, 'token_entries').flatMap(item => {
-    const row = readEntry(item)
+  return list(value, 'sessions').flatMap(item => {
+    const row = readSession(item)
     return row === null ? [] : [row]
   })
 }
@@ -172,7 +172,7 @@ export function readReport(value: unknown, by: string): Report {
   const top = object(value)
   const rows = list(value, 'rows').flatMap(item => {
     const row = object(item)
-    const cost = num(row.list_value)
+    const cost = num(row.cost)
     return cost === null ? [] : [{ value: str(row.value), cost }]
   })
   const total = num(top.total) ?? rows.reduce((sum, row) => sum + row.cost, 0)
@@ -196,9 +196,9 @@ export function readSubmitted(value: unknown): Submitted {
   const top = object(value)
   return {
     count: num(top.submitted) ?? 0,
-    cost: num(top.list_value),
+    cost: num(top.cost),
     currency: str(top.currency) ?? 'USD',
-    shareOnTickets: fraction(top.share_on_tickets_percent),
+    shareOnFeatures: fromPercent(top.share_on_features_percent),
   }
 }
 

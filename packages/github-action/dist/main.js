@@ -21,13 +21,13 @@ async function main() {
     if (stderr.trim() !== '')
         console.error(stderr.trim());
     const done = readSubmitted(stdout);
-    const entries = `${done.count} token ${done.count === 1 ? 'entry' : 'entries'}`;
-    const where = [inputs.ticket, inputs.project].filter(Boolean).join(' · ');
-    const value = done.listValue === undefined ? '' : `, ${done.listValue} ${done.currency ?? ''}`;
-    const line = `Reported ${entries}${where ? ` on ${where}` : ''}${value.trimEnd()}.`;
+    const messages = `${done.count} ${done.count === 1 ? 'message' : 'messages'}`;
+    const where = [inputs.feature, inputs.project].filter(Boolean).join(' · ');
+    const cost = done.cost === undefined ? '' : `, ${done.cost} ${done.currency ?? ''}`;
+    const line = `Reported ${messages}${where ? ` on ${where}` : ''}${cost.trimEnd()}.`;
     console.log(line);
     if (env.GITHUB_OUTPUT)
-        appendFileSync(env.GITHUB_OUTPUT, `token-entries=${done.count}\n`);
+        appendFileSync(env.GITHUB_OUTPUT, `messages=${done.count}\n`);
     if (env.GITHUB_STEP_SUMMARY) {
         appendFileSync(env.GITHUB_STEP_SUMMARY, `### Token Controller\n\n${line}\n`);
     }

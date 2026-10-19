@@ -8,7 +8,7 @@ const ENTRY: TokenEntry = {
   model: 'claude-opus-5',
   started_at: '2026-09-18T09:00:00Z',
   ended_at: '2026-09-18T10:00:00Z',
-  tokens: { input: 10, output: 2 },
+  tokens: { input: 10, output: 2, cache_read: 0, cache_write: 0 },
 }
 
 test('a complete entry has no problems', () => {
@@ -16,7 +16,7 @@ test('a complete entry has no problems', () => {
 })
 
 test('names every missing required field', () => {
-  const entry = { tokens: { input: 1 } } as unknown as TokenEntry
+  const entry = { tokens: ENTRY.tokens } as unknown as TokenEntry
   assert.deepEqual(problems(entry), [
     'agent_harness is required',
     'model is required',
@@ -34,14 +34,40 @@ test('times must be timestamps in order', () => {
   ])
 })
 
-test('token counts are whole, known and not empty', () => {
-  assert.deepEqual(problems({ ...ENTRY, tokens: {} }), ['tokens needs at least one kind'])
-  assert.deepEqual(problems({ ...ENTRY, tokens: { input: 1.5 } }), [
+test('token counts are whole, known, and all four kinds are there', () => {
+  const missing = { ...ENTRY, tokens: { input: 1, output: 2 } as TokenEntry['tokens'] }
+  assert.deepEqual(problems(missing), [
+    'tokens.cache_read is required: all four kinds are sent',
+    'tokens.cache_write is required: all four kinds are sent',
+  ])
+  assert.deepEqual(problems({ ...ENTRY, tokens: { ...ENTRY.tokens, input: 1.5 } }), [
     'tokens.input must be a whole number, 0 or more',
   ])
-  const unknownKind = { ...ENTRY, tokens: { input: 1, reasoning: 3 } as TokenEntry['tokens'] }
+  const unknownKind = {
+    ...ENTRY,
+    tokens: { ...ENTRY.tokens, reasoning: 3 } as TokenEntry['tokens'],
+  }
   assert.deepEqual(problems(unknownKind), [
-    'tokens.reasoning is not a token kind (input, output, cache_write, cache_read)',
+    'tokens.reasoning is not a token kind (input, output, cache_read, cache_write)',
+  ])
+})
+
+test('facts are counts, a duration and a result pointer', () => {
+  assert.deepEqual(
+    problems({
+      ...ENTRY,
+      facts: {
+        turns: 4,
+        tool_calls: 12,
+        duration_seconds: 310.5,
+        result: 'https://github.com/kestrel/shop/pull/88',
+      },
+    }),
+    [],
+  )
+  assert.deepEqual(problems({ ...ENTRY, facts: { turns: -1, result: '' } }), [
+    'facts.turns must be a number, 0 or more',
+    'facts.result must be a URL or another pointer, as text',
   ])
 })
 
@@ -57,8 +83,8 @@ test('cost, tags and pull request are checked', () => {
     'tags.Team: a tag name is lowercase letters, digits, _ or -',
     'tags.person is set from the token that sends the entry',
   ])
-  assert.deepEqual(problems({ ...ENTRY, ticket: 'KD-1', tags: { ticket: 'KD-2' } }), [
-    'ticket and tags.ticket differ: send one',
+  assert.deepEqual(problems({ ...ENTRY, feature: 'KD-1', tags: { feature: 'KD-2' } }), [
+    'feature and tags.feature differ: send one',
   ])
   const tags = { team: ['web', 'api'] } as unknown as Record<string, string>
   assert.deepEqual(problems({ ...ENTRY, tags }), ['tags.team must be one text value'])
@@ -70,13 +96,17 @@ test('cost, tags and pull request are checked', () => {
 const MESSAGES: TokenEntry = {
   ...ENTRY,
   session_id: 's-1',
-  tokens: { input: 10, output: 2 },
+  tokens: { input: 10, output: 2, cache_read: 0, cache_write: 0 },
   messages: [
-    { message_id: 'm1', at: '2026-09-18T09:10:00Z', tokens: { input: 6, output: 1 } },
+    {
+      message_id: 'm1',
+      at: '2026-09-18T09:10:00Z',
+      tokens: { input: 6, output: 1, cache_read: 0, cache_write: 0 },
+    },
     {
       message_id: 'm2',
       at: '2026-09-18T09:40:00Z',
-      tokens: { input: 4, output: 1 },
+      tokens: { input: 4, output: 1, cache_read: 0, cache_write: 0 },
       reported_cost: '0.01',
     },
   ],
@@ -86,28 +116,43 @@ test('messages belong to a session and add up to the entry', () => {
   assert.deepEqual(problems(MESSAGES), [])
   const { session_id: _, ...withoutSession } = MESSAGES
   assert.deepEqual(problems(withoutSession), ['messages need the session_id they belong to'])
-  assert.deepEqual(problems({ ...MESSAGES, tokens: { input: 11, output: 2 } }), [
+  assert.deepEqual(problems({ ...MESSAGES, tokens: { ...MESSAGES.tokens, input: 11 } }), [
     "tokens must equal the sum of the messages' tokens",
   ])
+  const [first] = MESSAGES.messages ?? []
+  const short = { ...first, tokens: { input: 6, output: 1 } } as NonNullable<
+    TokenEntry['messages']
+  >[number]
+  assert.deepEqual(
+    problems({ ...MESSAGES, messages: [short, ...(MESSAGES.messages ?? []).slice(1)] }),
+    [
+      'message m1: tokens.cache_read is required: all four kinds are sent',
+      'message m1: tokens.cache_write is required: all four kinds are sent',
+    ],
+  )
 })
 
-test('splits are segments by message or shares by hand', () => {
-  const segments = [
-    { message_ids: ['m1'], tags: { ticket: 'KD-1' } },
-    { message_ids: ['m2'], tags: { ticket: 'KD-2' } },
+test('splits are by message or by fraction', () => {
+  const byMessage = [
+    { message_ids: ['m1'], tags: { feature: 'KD-1' } },
+    { message_ids: ['m2'], tags: { feature: 'KD-2' } },
   ]
-  assert.deepEqual(problems({ ...MESSAGES, splits: segments }), [])
-  assert.deepEqual(problems({ ...MESSAGES, splits: segments.slice(0, 1) }), [
+  assert.deepEqual(problems({ ...MESSAGES, splits: byMessage }), [])
+  assert.deepEqual(problems({ ...MESSAGES, splits: byMessage.slice(0, 1) }), [
     'splits by message must hold every message of the entry exactly once',
   ])
-  assert.deepEqual(
-    problems({ ...ENTRY, splits: [{ share_percent: 60 }, { share_percent: 40 }] }),
-    [],
-  )
-  assert.deepEqual(problems({ ...ENTRY, splits: [{ share_percent: 60 }, { share_percent: 30 }] }), [
-    'split shares must add up to 100 percent',
+  const byFraction = [
+    { fraction: 0.6, tags: { feature: 'KD-1' } },
+    { fraction: '0.4', tags: { feature: 'KD-2' } },
+  ]
+  assert.deepEqual(problems({ ...ENTRY, splits: byFraction }), [])
+  assert.deepEqual(problems({ ...ENTRY, splits: [{ fraction: 0.6 }, { fraction: 0.3 }] }), [
+    'split fractions must add up to 1',
   ])
-  assert.deepEqual(problems({ ...MESSAGES, splits: [{ share_percent: 100 }, segments[0] ?? {}] }), [
-    'splits are either all by message_ids or all by share_percent',
+  assert.deepEqual(problems({ ...ENTRY, splits: [{ fraction: 60 }, { fraction: 40 }] }), [
+    'a split fraction is a number above 0 and up to 1, such as 0.6 or "0.6"',
+  ])
+  assert.deepEqual(problems({ ...MESSAGES, splits: [{ fraction: 1 }, byMessage[0] ?? {}] }), [
+    'splits are either all by message_ids or all by fraction',
   ])
 })
