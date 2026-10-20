@@ -3,3 +3,4 @@ node_modules/
 /target
 .env
 mutants.out*/
+__pycache__/
