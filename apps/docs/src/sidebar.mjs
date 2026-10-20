@@ -10,6 +10,20 @@ export const sidebar = [
     ],
   },
   {
+    label: 'API',
+    items: [
+      { slug: 'reference/api', label: 'HTTP API' },
+      'reference/api/messages',
+      'reference/api/bills',
+      'reference/api/estimates',
+      'reference/api/tags',
+      'reference/api/reports',
+      'reference/api/organization',
+      'reference/api/sign-in',
+      'reference/api/mcp',
+    ],
+  },
+  {
     label: 'Set up',
     items: [
       'account/organizations',
@@ -63,7 +77,6 @@ export const sidebar = [
     label: 'Reference',
     items: [
       'reference/cli',
-      'reference/api',
       'reference/token-entry',
       'reference/bill',
       'reference/data-model',

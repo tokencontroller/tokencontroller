@@ -22,7 +22,7 @@ GET https://app.tokencontroller.com/api/v1/reports/cost?by=team&filter=client:ac
 Authorization: Bearer tc_read_…
 ```
 
-Create a read token in the web app under _Settings_. It sees what its creator's grants cover. Every report and its parameters are in the [HTTP API](/reference/api#reports) reference.
+Create a read token in the web app under _Settings_. It sees what its creator's grants cover. Every report and its parameters are in the [HTTP API](/reference/api/reports) reference.
 
 ## Raw export {#raw-export}
 

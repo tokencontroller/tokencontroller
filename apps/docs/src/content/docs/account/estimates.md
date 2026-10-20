@@ -19,7 +19,7 @@ POST /api/v1/estimates
 }
 ```
 
-`work` is the description. `context` is optional. The answer is the distribution with its median, in dollars; see the [API](/reference/api#estimates). An estimate needs no tag: ask for one, keep it, and tag it later.
+`work` is the description. `context` is optional. The answer is the distribution with its median, in dollars; see the [API](/reference/api/estimates). An estimate needs no tag: ask for one, keep it, and tag it later.
 
 The hosted service runs the classifier, trained on the text of all organizations: summaries, estimate descriptions and the tags they got. It answers with probabilities only, so no description or client of another organization can come back out. A self-hosted instance points to an estimator of its own; see [Configuration](/self-hosting/configuration).
 
