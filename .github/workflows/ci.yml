@@ -1,4 +1,5 @@
-# CI (ADR 0011): runs on every push and pull request, without secrets.
+# CI (ADR 0011): runs on every push and pull request. Only the review job
+# reads a secret, and it passes without one.
 # A pull request merges itself once every job is green, unless it carries the
 # `hold` label. A push to main publishes the image to
 # ghcr.io/tokencontroller/tokencontroller; a version tag adds version tags.
@@ -249,6 +250,69 @@ jobs:
             echo '${{ steps.meta.outputs.tags }}' | sed 's/^/- /'
           } >> "$GITHUB_STEP_SUMMARY"
 
+  review:
+    # Claude reviews the pull request (safety backlog, Jan 2026-10-20): inline
+    # comments and one summary, and the job fails only for a bug it confirmed
+    # in the changed code, so the merge waits for a bug and for nothing else.
+    # Without the ANTHROPIC_API_KEY secret the job passes and says so. The
+    # label `review-waived` passes a wrong finding (a label starts CI again).
+    name: Claude review
+    if: >-
+      github.event_name == 'pull_request'
+      && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PR: ${{ github.event.pull_request.number }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: No key, no review
+        if: env.ANTHROPIC_API_KEY == ''
+        run: echo "No ANTHROPIC_API_KEY secret in this repository; no review ran, the merge is not blocked."
+      - name: Decide whether a review runs
+        id: before
+        if: env.ANTHROPIC_API_KEY != ''
+        run: python3 .github/scripts/claude_review.py before
+      - name: Review
+        id: review
+        if: steps.before.outputs.run == 'true'
+        uses: anthropics/claude-code-action@v1
+        # A review that cannot run (no credit, an outage) is reported and
+        # never blocks: the verdict step turns a missing result into
+        # "unfinished".
+        continue-on-error: true
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          prompt: |
+            You review pull request #${{ github.event.pull_request.number }} in ${{ github.repository }}. The diff to review is in .claude-review/diff.patch, and the repository is checked out at the pull request's head commit, so read the surrounding code with Read, Grep and Glob wherever the diff alone does not tell you whether a change is right. CLAUDE.md at the root says how this repository works.
+
+            You look for bugs in the changed code: wrong output, a crash, lost or corrupted data, a security hole, a check that no longer checks anything. Before you call something a bug, confirm it in the code: find the caller, the type, the test or the migration that proves it, and give up the finding when the code proves you wrong. A real bug is rare; most pull requests are clean.
+
+            For every confirmed bug, post one inline comment on the line with mcp__github_inline_comment__create_inline_comment: what goes wrong, in which situation, and what would fix it, in three sentences at most. Up to three suggestions that are not bugs (a simpler way, a missing test, an edge case worth a thought) may also go in as inline comments that start with "Suggestion:". Nothing about style, naming, formatting or comments; linters cover that, and nobody reads such comments here.
+
+            Finish with the structured output: verdict "bug" when at least one confirmed bug exists, "clean" otherwise; a summary of one or two plain sentences for a reader who will not open the diff; and the list of bugs with file, line and a short title. The verdict "bug" blocks the merge, so give it only for a defect you confirmed.
+          claude_args: |
+            --model claude-opus-5-5
+            --max-turns 60
+            --allowedTools "Read,Grep,Glob,Bash(git log:*),Bash(git show:*),Bash(git blame:*),mcp__github_inline_comment__create_inline_comment"
+            --json-schema '{"type":"object","properties":{"verdict":{"type":"string","enum":["bug","clean"]},"summary":{"type":"string"},"bugs":{"type":"array","items":{"type":"object","properties":{"file":{"type":"string"},"line":{"type":"integer"},"title":{"type":"string"}},"required":["file","title"]}}},"required":["verdict","summary","bugs"]}'
+      - name: Verdict
+        if: steps.before.outputs.run == 'true'
+        env:
+          REVIEW_OUTPUT: ${{ steps.review.outputs.structured_output }}
+          EXECUTION_FILE: ${{ steps.review.outputs.execution_file }}
+        run: python3 .github/scripts/claude_review.py after
+
   automerge:
     name: Merge when green
     if: >-
@@ -256,7 +320,7 @@ jobs:
       && github.event.pull_request.head.repo.full_name == github.repository
       && !github.event.pull_request.draft
       && !contains(github.event.pull_request.labels.*.name, 'hold')
-    needs: [harness, rust, mutants, deny, typescript, image]
+    needs: [harness, rust, mutants, deny, typescript, image, review]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
