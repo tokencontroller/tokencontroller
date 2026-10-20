@@ -1,7 +1,7 @@
 export {
   type ClientOptions,
-  type Created,
   HOSTED_URL,
+  type StoredEntry,
   TokenController,
   TokenControllerError,
 } from './client.ts'

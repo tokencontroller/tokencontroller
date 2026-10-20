@@ -709,6 +709,74 @@ async fn a_local_tool_collects_its_session_once(pool: PgPool) {
     .await
     .unwrap();
     assert_eq!(token.status, StatusCode::FORBIDDEN);
+    // What `tc` does when connected: record, split and submit its person's
+    // own messages, and keep their rules (docs: API > Tokens).
+    let rules = send(
+        &app,
+        Method::PUT,
+        "/api/v1/me/rules",
+        Auth::Bearer(&session),
+        Some(json!([{"name": "mine", "signal": "branch", "pattern": "(?P<key>KD-\\d+)", "tag_name": "feature"}])),
+    )
+    .await
+    .unwrap();
+    assert_eq!(rules.status, StatusCode::OK, "{}", rules.text);
+    assert_eq!(rules.json[0]["name"], "mine");
+    let recorded = send(
+        &app,
+        Method::POST,
+        "/api/v1/token-entries",
+        Auth::Bearer(&session),
+        Some(json!({
+            "agent_harness": "claude-code",
+            "model": "claude-opus-5",
+            "provider": "anthropic",
+            "started_at": "2026-10-06T09:00:00Z",
+            "ended_at": "2026-10-06T09:30:00Z",
+            "tokens": {"input": 12000, "output": 3000, "cache_read": 0, "cache_write": 0},
+            "session_id": "laptop-session-1",
+            "local_id": "laptop-local-1"
+        })),
+    )
+    .await
+    .unwrap();
+    assert_eq!(recorded.status, StatusCode::CREATED, "{}", recorded.text);
+    assert_eq!(recorded.json["session_id"], "laptop-session-1");
+    let split = send(
+        &app,
+        Method::POST,
+        "/api/v1/splits",
+        Auth::Bearer(&session),
+        Some(json!({"session_id": "laptop-session-1", "parts": [{"tags": {"feature": "KD-1"}}]})),
+    )
+    .await
+    .unwrap();
+    assert_eq!(split.status, StatusCode::CREATED, "{}", split.text);
+    let submitted = send(
+        &app,
+        Method::POST,
+        "/api/v1/submissions",
+        Auth::Bearer(&session),
+        Some(json!({})),
+    )
+    .await
+    .unwrap();
+    assert_eq!(submitted.status, StatusCode::CREATED, "{}", submitted.text);
+    assert_eq!(submitted.json["status"], "submitted");
+    // Deciding on a submission stays with the browser.
+    let decided = send(
+        &app,
+        Method::POST,
+        &format!(
+            "/api/v1/submissions/{}/approve",
+            submitted.json["id"].as_str().unwrap()
+        ),
+        Auth::Bearer(&session),
+        None,
+    )
+    .await
+    .unwrap();
+    assert_eq!(decided.status, StatusCode::FORBIDDEN);
 
     let again = send(
         &app,

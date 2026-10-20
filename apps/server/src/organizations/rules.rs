@@ -353,7 +353,7 @@ pub(super) async fn set_my_rules(
     member: Member,
     Json(request): Json<Vec<NewRule>>,
 ) -> Result<Json<Vec<RuleView>>, ApiError> {
-    member.require_session()?;
+    member.require_person()?;
     let log = Log::load(&state, member.organization_id).await?;
     let fold = log.fold(OffsetDateTime::now_utc())?;
     let person = member.person()?;

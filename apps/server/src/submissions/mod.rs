@@ -244,7 +244,7 @@ async fn submit(
     member: Member,
     body: Option<Json<NewSubmit>>,
 ) -> Result<(StatusCode, Json<SubmissionView>), ApiError> {
-    member.require_session()?;
+    member.require_person()?;
     let request = body.map(|Json(request)| request).unwrap_or_default();
     let today = date_of(OffsetDateTime::now_utc());
     let to = crate::dates::parse_optional(request.to.as_deref())?.unwrap_or(today);
