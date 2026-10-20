@@ -18,7 +18,7 @@ The docs at [docs.tokencontroller.com](https://docs.tokencontroller.com) say exa
 | `Formula/` | The Homebrew formula for `tc`, so `brew tap tokencontroller/tap https://github.com/tokencontroller/tokencontroller` works. The release workflow writes it | MIT |
 | `.claude-plugin/` | The plugin marketplace Claude Code reads with `/plugin marketplace add tokencontroller/tokencontroller`. It lists the mod in `packages/claude-code-mod` | |
 | `tests/golden/` | Acceptance cases as CSV, one folder per scenario in the docs | |
-| `scripts/` | The harness check and the end-to-end smoke test CI runs | |
+| `scripts/` | The harness check and the end-to-end smoke test CI runs, and `agent-harness/`: the real agent CLIs against the ingest decoder (ADR 0025) | |
 
 Rust code is one Cargo workspace (`Cargo.toml` at the root). TypeScript code is one pnpm workspace (`pnpm-workspace.yaml` at the root). The `Dockerfile` for the service image and `compose.yaml`, the self-hosting compose file from the docs, sit at the root too.
 

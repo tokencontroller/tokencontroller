@@ -7,7 +7,10 @@
 //! one of the `decode_*` functions and, for logs and traces, `extract_from_*`;
 //! [`encode_response`] writes the answer. Metrics are decoded and
 //! acknowledged only: the per-call events already count every model call.
+//! [`describe`] runs the same steps on a saved request and reports what
+//! came out, for `tokencontroller otlp-decode`.
 
+mod describe;
 mod extract;
 mod fields;
 mod harness;
@@ -17,6 +20,7 @@ mod wire;
 #[cfg(test)]
 mod tests;
 
+pub use describe::describe;
 pub use extract::{Extracted, extract_from_logs, extract_from_traces};
 pub use privacy::{PROMPT_TEXT_ATTRIBUTES, PROMPT_TEXT_EVENTS};
 pub use wire::{
