@@ -125,6 +125,21 @@ def post(verdict: str, summary: str, bugs: list[dict]) -> None:
     gh("api", f"repos/{REPO}/issues/{PR}/comments", "-f", "body=" + "\n".join(lines))
 
 
+def failure_reason() -> str:
+    """The API's or the action's own words for why no review came back."""
+    path = os.environ.get("EXECUTION_FILE") or ""
+    try:
+        entries = json.load(open(path, encoding="utf-8"))
+    except (OSError, ValueError):
+        return "no result from the review step"
+    for entry in entries if isinstance(entries, list) else []:
+        if isinstance(entry, dict) and entry.get("type") == "result":
+            if entry.get("is_error"):
+                return str(entry.get("result") or "error")[:200]
+            return "no structured verdict"
+    return "no result from the review step"
+
+
 def after() -> int:
     raw = os.environ.get("REVIEW_OUTPUT", "").strip()
     try:
@@ -132,9 +147,10 @@ def after() -> int:
     except json.JSONDecodeError:
         result = {}
     if not isinstance(result, dict) or result.get("verdict") not in {"bug", "clean"}:
-        print("The review returned no verdict; see the run log. Not blocking the merge.")
+        reason = failure_reason()
+        print(f"The review returned no verdict ({reason}); see the run log. Not blocking the merge.")
         print(raw[:2000])
-        post("unfinished", "The review did not finish; see the workflow run. The merge is not blocked.", [])
+        post("unfinished", f"The review did not finish ({reason}), see the workflow run. The merge is not blocked.", [])
         return 0
     verdict = result["verdict"]
     bugs = [b for b in result.get("bugs") or [] if isinstance(b, dict)]

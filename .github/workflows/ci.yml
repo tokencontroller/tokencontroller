@@ -286,6 +286,10 @@ jobs:
         id: review
         if: steps.before.outputs.run == 'true'
         uses: anthropics/claude-code-action@v1
+        # A review that cannot run (no credit, an outage) is reported and
+        # never blocks: the verdict step turns a missing result into
+        # "unfinished".
+        continue-on-error: true
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
@@ -306,6 +310,7 @@ jobs:
         if: steps.before.outputs.run == 'true'
         env:
           REVIEW_OUTPUT: ${{ steps.review.outputs.structured_output }}
+          EXECUTION_FILE: ${{ steps.review.outputs.execution_file }}
         run: python3 .github/scripts/claude_review.py after
 
   automerge:
