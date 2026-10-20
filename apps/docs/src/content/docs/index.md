@@ -9,6 +9,7 @@ Token Controller is cost accounting and management control for AI agents. Agents
   <a class="card" href="#managers"><i></i><b>I manage people</b><span>Create the organization, load the price table, connect the bill, invite people.</span></a>
   <a class="card b" href="#engineers"><i></i><b>I manage agents</b><span>Install the Claude Code mod or the CLI, submit once, forget it exists.</span></a>
   <a class="card s" href="#self-hosting"><i></i><b>I host it myself</b><span>One Docker image, one Postgres. The same features as the hosted Team plan.</span></a>
+  <a class="card" href="#api"><i></i><b>I build on the API</b><span>Report usage from any agent, read every report, ask what work will cost.</span></a>
 </div>
 
 ## How the pieces fit {#pieces}
@@ -82,6 +83,26 @@ See [Check and submit](/attribute/review).
 ### Telemetry instead of an install {#telemetry}
 
 If your administrator pushes [telemetry](/collect/telemetry), your messages are counted without any install, and they land on projects by repository. The mod or the CLI add the branch, the pull request and the summary, so cost lands on features.
+
+## Quick start for the API {#api}
+
+Everything the web app does is a call to the [HTTP API](/reference/api). Create a service token under _Settings_ and report a session from any agent:
+
+```http
+POST https://app.tokencontroller.com/api/v1/token-entries
+Authorization: Bearer tc_svc_…
+
+{
+  "agent_harness": "support-desk",
+  "model": "claude-sonnet-5",
+  "started_at": "2026-03-04T09:12:00Z",
+  "ended_at": "2026-03-04T09:14:10Z",
+  "tokens": { "input": 4120, "output": 610, "cache_read": 18200, "cache_write": 0 },
+  "feature": "KD-1"
+}
+```
+
+The answer carries its cost from the price table. A read token reads every [report](/reference/api/reports) and feeds the [MCP server](/reference/api/mcp); `POST /estimates` says what described work will [cost](/reference/api/estimates) before it starts.
 
 ## Quick start for self-hosters {#self-hosting}
 

@@ -13,7 +13,7 @@ A bill is a provider's figure for metered usage over a date range: provider, fir
 | [Anthropic Console](#anthropic-console) or API keys | Console Admin API key | The Usage and Cost report, per workspace and day | When the month ends |
 | [OpenAI](#openai) API | OpenAI Admin key | The Costs API, per day, project and API key | When the month ends |
 | Bedrock, Vertex, Foundry | The cloud's export as [CSV](#csv), or a connector on an Enterprise plan contract | The cloud's export | On upload |
-| Anything else | [CSV](#csv), typed in by hand, or the bills endpoint of the [HTTP API](/reference/api) | That bill | On upload |
+| Anything else | [CSV](#csv), typed in by hand, or the [bills endpoint](/reference/api/bills#send) | That bill | On upload |
 | Seat plans (Claude Team, Max, Pro) | Nothing to connect | No bill: the seat is a flat fee. Cost is still computed from the price table. | |
 
 ## Connecting a provider {#connect}

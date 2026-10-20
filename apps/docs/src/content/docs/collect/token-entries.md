@@ -26,7 +26,7 @@ Authorization: Bearer tc_svc_…
 }
 ```
 
-The person who created the service token is the person of the message. `tokens` with all four kinds is required; a token entry without counts is saved as a count error with no cost. `reported_cost` is optional and is kept as a fact, never shown as the cost: the cost comes from the [price table](/account/price-table). Every field is in the [token entry schema](/reference/token-entry).
+The person who created the service token is the person of the message. `tokens` with all four kinds is required; a token entry without counts is saved as a count error with no cost. `reported_cost` is optional and is kept as a fact, never shown as the cost: the cost comes from the [price table](/account/price-table). Every field is in the [token entry schema](/reference/token-entry); the endpoint itself is on the [API page](/reference/api/messages#token-entries).
 
 To send several token entries in one call, send a list of up to 1,000. Either all of them are saved or none.
 
@@ -36,7 +36,8 @@ To send several token entries in one call, send a list of up to 1,000. Either al
 
 ```json
 {
-  "id": "0b6f6c1e-5d1c-4c62-9d0a-3f3a3c9f1a52",
+  "session_id": "support-desk:1182",
+  "messages": 1,
   "cost": "0.03",
   "currency": "USD",
   "label": "project_overhead",
