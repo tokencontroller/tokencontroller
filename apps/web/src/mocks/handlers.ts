@@ -42,7 +42,8 @@ import {
   type Line,
   type Window,
 } from "./fold";
-import { createDb, TODAY, type Db, type MockEstimate, type MockSession, type MockValue } from "./seed";
+import { describeProblem, readBillCsv } from "./bill-csv";
+import { createDb, TODAY, type Db, type MockBill, type MockEstimate, type MockSession, type MockValue } from "./seed";
 
 const KEY = "tc-mock-db-2";
 let memory: Db | null = null;
@@ -755,6 +756,32 @@ export const handlers = [
     db.bills = db.bills.filter((b) => !(b.provider === bill.provider && b.from === bill.from && b.to === bill.to));
     db.bills.push(bill);
     return HttpResponse.json(billView(db, bill), { status: 201 });
+  }, "org_manager")),
+  // A CSV bill file: what it holds, then the upload (mirrors integrations/bill_uploads.rs)
+  http.post(`${API}/bills/csv/preview`, member(async ({ url, request }) => {
+    const read = readBillCsv(await request.text(), url.searchParams.get("cloud"), url.searchParams.get("month"));
+    if (read.problem) return HttpResponse.json({ bills: [], problem: read.problem });
+    return HttpResponse.json({ bills: read.bills.map((b) => ({ ...b, amount: dec(b.amount) })), problem: null });
+  }, "org_manager")),
+  http.post(`${API}/bills/csv`, member(async ({ db, me, url, request }) => {
+    const read = readBillCsv(await request.text(), url.searchParams.get("cloud"), url.searchParams.get("month"));
+    if (read.problem) return error(400, "bad_request", `${describeProblem(read.problem)} Nothing was saved.`);
+    const stored = [];
+    let changed = 0;
+    for (const b of read.bills) {
+      const same = (x: MockBill) => x.provider === b.provider && x.from === b.from && x.to === b.to;
+      const current = db.bills.find(same);
+      if (current && current.amount === b.amount && current.currency === b.currency) {
+        stored.push(billView(db, current));
+        continue;
+      }
+      const bill: MockBill = { id: nextId(db, "bil"), provider: b.provider, from: b.from, to: b.to, amount: b.amount, currency: b.currency, source: "csv", final: true, recorded_at: now(), recorded_by: me.email };
+      db.bills = db.bills.filter((x) => !same(x));
+      db.bills.push(bill);
+      changed += 1;
+      stored.push(billView(db, bill));
+    }
+    return HttpResponse.json({ bills: stored, changed }, { status: 201 });
   }, "org_manager")),
   http.get(`${API}/bill-connections`, member(({ db }) => HttpResponse.json(db.connections), "org_manager")),
   http.post(`${API}/bill-connections`, member(async ({ db, request }) => {

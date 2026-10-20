@@ -79,6 +79,12 @@ export type BillApi = Schemas["BillApi"];
 export type BillConnection = Schemas["BillConnectionView"];
 export type NewBillConnection = Schemas["NewBillConnection"];
 export type Reconciliation = Schemas["ReconciliationRow"];
+export type BillCsvBill = Schemas["BillCsvBill"];
+export type BillCsvProblem = Schemas["BillCsvProblem"];
+export type BillCsvPreview = Schemas["BillCsvPreview"];
+export type BillCsvUploaded = Schemas["BillCsvUploaded"];
+/** A cloud whose own cost export can be uploaded as a bill (docs: Bills > CSV). */
+export type BillCloud = "bedrock" | "vertex" | "foundry";
 
 export type CostReport = Schemas["CostReport"];
 export type CostRow = Schemas["CostRow"];

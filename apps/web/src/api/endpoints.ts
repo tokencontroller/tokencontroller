@@ -2,6 +2,7 @@ import { download, ok, typed } from "./client";
 import type { components } from "./generated";
 import type {
   ApiTokenKind,
+  BillCloud,
   BillInput,
   Filter,
   MemberChange,
@@ -47,6 +48,23 @@ async function json<T>(request: Promise<{ data?: T; error?: unknown; response: R
 function filterQuery(filter: Filter | undefined) {
   const text = filterToText(filter ?? {});
   return text ? { filter: text } : {};
+}
+
+/** What kind of CSV bill file is sent: the bill schema's columns, or a cloud's own export for one month. */
+export interface BillCsvFile {
+  cloud?: BillCloud | undefined;
+  /** The month a cloud's export is the bill for, `YYYY-MM`. */
+  month?: string | undefined;
+}
+
+/** A CSV file as the bills endpoints take it: the text as-is, with its content type. */
+function csvBody(file: BillCsvFile, text: string) {
+  return {
+    params: { query: { ...(file.cloud ? { cloud: file.cloud } : {}), ...(file.month ? { month: file.month } : {}) } },
+    body: text,
+    bodySerializer: (body: string) => body,
+    headers: { "content-type": "text/csv" },
+  };
 }
 
 /** What every report and list of messages takes (docs: Reading reports). */
@@ -178,6 +196,9 @@ export const api = {
   disconnectBill: (id: string) => ok(typed.DELETE("/api/v1/bill-connections/{id}", path(id))),
   pullBills: (id: string) => ok(typed.POST("/api/v1/bill-connections/{id}/pull", path(id))),
   reconciliation: () => json(typed.GET("/api/v1/reconciliation")),
+  // A CSV bill file: what it holds before anything is saved, then the upload
+  previewBillCsv: (file: BillCsvFile, text: string) => ok(typed.POST("/api/v1/bills/csv/preview", { ...csvBody(file, text) })),
+  uploadBillCsv: (file: BillCsvFile, text: string) => ok(typed.POST("/api/v1/bills/csv", { ...csvBody(file, text) })),
 
   // Reports: the cost of a filter over a range, as of a date
   cost: (query: ReportQuery) => json(typed.GET("/api/v1/reports/cost", { params: { query: reportQuery(query) } })),

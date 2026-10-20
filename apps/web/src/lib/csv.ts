@@ -20,8 +20,8 @@ export function downloadFile(name: string, content: BlobPart, type = "text/csv;c
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-/** Parses CSV text into rows of cells. Handles quoted cells with commas, quotes and line breaks. */
-export function parseCsv(text: string): string[][] {
+/** Parses CSV text into rows of cells. Handles quoted cells with separators, quotes and line breaks. */
+export function parseCsv(text: string, separator = ","): string[][] {
   const rows: string[][] = [];
   let row: string[] = [];
   let cell = "";
@@ -35,7 +35,7 @@ export function parseCsv(text: string): string[][] {
       } else if (char === '"') quoted = false;
       else cell += char;
     } else if (char === '"') quoted = true;
-    else if (char === ",") {
+    else if (char === separator) {
       row.push(cell);
       cell = "";
     } else if (char === "\n" || char === "\r") {
