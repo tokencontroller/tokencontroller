@@ -19,7 +19,7 @@ For each agent and each task in the tasks file, `run.py`:
 | `telemetry-matches-agent-report` | The counts the agent printed itself equal the telemetry totals, kind by kind. |
 | `session-files-read` | `tc` reads the agent's session files (Claude Code and Codex). |
 | `session-files-match-telemetry` | Every message in the files has a telemetry twin with the same counts. Telemetry may hold more: Claude Code's side calls are only there. |
-| `doors-join-by-message-id` | A warning today: Claude Code telemetry names the request (`req_…`), the session file the message (`msg_…`), and Codex gives no id at all, so the join of ADR 0018 does not happen yet. Becomes a failure once fixed. |
+| `doors-join-by-message-id` | Every file message carries an id telemetry also sent, so the service joins the two doors (ADR 0018). For Claude Code that id is the API request id (`req_…`), which `tc` submits as the message id. Codex gives no id in telemetry, so there the check only warns. |
 
 ## Running it
 

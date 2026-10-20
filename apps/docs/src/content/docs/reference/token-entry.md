@@ -46,7 +46,7 @@ Each message is one model call. A session record's `tokens` are the sum of its m
 
 | Field | Meaning |
 | --- | --- |
-| `message_id` | The agent harness's id for the call, unique within the session. Required. |
+| `message_id` | The agent harness's id for the call, unique within the session. Required. For Claude Code it is the API request id (`req_…`), the id its telemetry sends for the same call. |
 | `at` | When the call was made. Required. |
 | `tokens` | Counts by kind, as above. Required. |
 | `model` | The model of this call, when it differs from the session's. Optional. |

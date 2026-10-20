@@ -5,7 +5,7 @@ This fills in ADR 0010 where the CLI needed details.
 ## Reading session files
 
 - **Readers of our own, following ccusage's rules.** ccusage's adapters are not published as crates on crates.io, and `deny.toml` refuses git sources. They also drop what splitting needs: the branch, the message IDs and the prompts. So `tc` has its own readers for Claude Code and Codex in `apps/cli/src/sources/`, which follow ccusage's counting rules (named in each reader) and credit it in `apps/cli/THIRD_PARTY_NOTICES.md`.
-- **Claude Code**: every `*.jsonl` under `CLAUDE_CONFIG_DIR` (comma-separated, each with `projects/`), otherwise `~/.config/claude/projects` and `~/.claude/projects`. A response is written as one line per content block with the same usage, so model calls count once by message ID; a subagent's replay of its parent counts once too, as the parent's.
+- **Claude Code**: every `*.jsonl` under `CLAUDE_CONFIG_DIR` (comma-separated, each with `projects/`), otherwise `~/.config/claude/projects` and `~/.claude/projects`. A response is written as one line per content block with the same usage, so model calls count once by message ID, and each takes its API request ID as its id, the id telemetry sends (ADR 0018); a subagent's replay of its parent counts once too, as the parent's.
 - **Codex**: every rollout under `CODEX_HOME` (default `~/.codex`) in `sessions/` and `archived_sessions/`. Turns come from `token_count` events; a repeated running total counts nothing; cached input is part of input and is counted as cache read.
 - Prompts and titles are read on the machine for feature keys and never stored or sent; only the keys are.
 
