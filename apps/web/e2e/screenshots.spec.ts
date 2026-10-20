@@ -45,3 +45,27 @@ test("16-sign-in", async ({ page }) => {
   await page.goto("/sign-in");
   await page.screenshot({ path: `${dir}/16-sign-in.png`, fullPage: true });
 });
+
+test("17-upload-csv-bill", async ({ page }) => {
+  await signIn(page, "nadia");
+  await page.goto("/bills");
+  await page.getByRole("button", { name: "Upload CSV" }).click();
+  const dialog = page.getByRole("dialog", { name: "Upload a CSV bill" });
+  const text = "provider,from,to,amount,currency\nbedrock,2026-03-01,2026-03-31,500.00,USD\nanthropic,2026-03-01,2026-03-31,1000.00,USD\n";
+  await dialog.getByLabel("CSV file").setInputFiles({ name: "bills-2026-03.csv", mimeType: "text/csv", buffer: Buffer.from(text) });
+  await dialog.getByRole("table", { name: "What the file holds" }).waitFor();
+  await page.waitForLoadState("networkidle");
+  await page.screenshot({ path: `${dir}/17-upload-csv-bill.png`, fullPage: true });
+});
+
+test("18-upload-csv-bill-problem", async ({ page }) => {
+  await signIn(page, "nadia");
+  await page.goto("/bills");
+  await page.getByRole("button", { name: "Upload CSV" }).click();
+  const dialog = page.getByRole("dialog", { name: "Upload a CSV bill" });
+  const text = "provider,from,to,amount,currency\nbedrock,2026-03-01,2026-03-31,500.00,USD\nanthropic,2026-03-01,2026-03-31,1000.00 USD,USD\n";
+  await dialog.getByLabel("CSV file").setInputFiles({ name: "bills-2026-03.csv", mimeType: "text/csv", buffer: Buffer.from(text) });
+  await dialog.getByRole("alert").waitFor();
+  await page.waitForLoadState("networkidle");
+  await page.screenshot({ path: `${dir}/18-upload-csv-bill-problem.png`, fullPage: true });
+});

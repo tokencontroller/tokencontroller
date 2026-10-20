@@ -11,6 +11,7 @@ import { DataTable } from "@/components/ui/table";
 import { notify } from "@/components/ui/toast";
 import { formatDateTime, formatRange } from "@/lib/format";
 import { refreshAll } from "@/lib/queries";
+import { UploadCsvDialog } from "./bills-upload";
 
 const providerName: Record<BillApi, string> = {
   anthropic_enterprise: "Anthropic Enterprise",
@@ -25,9 +26,15 @@ export function BillsPage(): ReactNode {
   const reconciliation = useQuery({ queryKey: ["reconciliation"], queryFn: api.reconciliation });
   const rows = reconciliation.data?.toSorted((a, b) => b.to.localeCompare(a.to)) ?? [];
   const wrong = rows.filter((r) => r.a_message_is_wrong);
+  const [uploading, setUploading] = useState(false);
   return (
     <>
-      <PageHeader title="Bills and reconciliation" lead="Each bill is checked on its own range, per provider. Tags play no part in the check." />
+      <PageHeader
+        title="Bills and reconciliation"
+        lead="Each bill is checked on its own range, per provider. Tags play no part in the check."
+        actions={<Button variant="primary" onClick={() => setUploading(true)}>Upload CSV</Button>}
+      />
+      <UploadCsvDialog open={uploading} onOpenChange={setUploading} />
       {wrong.length ? <Note tone="exception">{wrong.length} bill{wrong.length > 1 ? "s have" : " has"} less than the cost of its messages: a message is wrong.</Note> : null}
       <Section title="Reconciliation">
         {reconciliation.error ? <ErrorBox error={reconciliation.error} /> : null}
@@ -40,7 +47,7 @@ export function BillsPage(): ReactNode {
             csvName="reconciliation.csv"
             rows={rows}
             rowKey={(r) => r.bill_id}
-            empty="No bills yet. Connect a provider or add a bill below."
+            empty="No bills yet. Upload a CSV, connect a provider or add a bill below."
             rowClassName={(r) => (r.a_message_is_wrong ? "bg-exception-tint" : "")}
             columns={[
               { key: "provider", header: "Provider", cell: (r) => <span className="flex items-center gap-1.5">{r.provider}{r.final ? null : <Badge>not final</Badge>}</span>, csv: (r) => r.provider },

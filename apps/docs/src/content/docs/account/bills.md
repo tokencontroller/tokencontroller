@@ -34,7 +34,9 @@ For organizations that pay OpenAI for API usage. An organization owner creates a
 
 ### CSV {#csv}
 
-Any bill can be uploaded as CSV, and this is the way for Bedrock, Vertex and Foundry. Under _Bills_, choose _Upload CSV_ and give the provider, first and last day, amount and currency (see the [bill fields](/reference/bill)), or upload the cloud's own cost export. The upload shows what it read before anything is saved.
+Any bill can be uploaded as CSV, and this is the way for Bedrock, Vertex and Foundry. Under _Bills_, choose _Upload CSV_ and give the provider, first and last day, amount and currency (see the [bill fields](/reference/bill)), or upload the cloud's own cost export. The upload shows what it read before anything is saved: each bill in the file, and whether it is new, restates the bill in force, or has the same figures. A file with a problem names the row and column and saves nothing.
+
+![The CSV upload: what the file holds, each bill against the bill in force, before anything is saved](/screens/17-upload-csv-bill.png)
 
 ## Restated bills and currency {#sources}
 
