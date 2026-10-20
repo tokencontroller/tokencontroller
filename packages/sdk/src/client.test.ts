@@ -32,8 +32,16 @@ function fakeFetch(...answers: Array<Response | Error>) {
   return { calls, fetch: fetch as typeof globalThis.fetch }
 }
 
-const created = () =>
-  Response.json({ id: 'te_1', cost: '0.03', label: 'project overhead' }, { status: 201 })
+const STORED = {
+  session_id: 'support-desk-1182',
+  messages: 1,
+  cost: '0.03',
+  currency: 'USD',
+  label: 'project_overhead',
+  unknown_tags: [],
+}
+
+const created = () => Response.json(STORED, { status: 201 })
 
 describe('tokenEntries.create', () => {
   test('posts the entry with the service token to the hosted service', async () => {
@@ -42,7 +50,7 @@ describe('tokenEntries.create', () => {
 
     const answer = await tc.tokenEntries.create(ENTRY)
 
-    assert.equal(answer.id, 'te_1')
+    assert.deepEqual(answer, STORED)
     assert.equal(calls.length, 1)
     assert.equal(calls[0]?.url, 'https://app.tokencontroller.com/api/v1/token-entries')
     assert.equal(calls[0]?.init.method, 'POST')
@@ -98,7 +106,7 @@ describe('tokenEntries.create', () => {
 
     const answer = await tc.tokenEntries.create({ ...ENTRY, session_id: 's-1' })
 
-    assert.equal(answer.id, 'te_1')
+    assert.deepEqual(answer, STORED)
     assert.equal(calls.length, 2)
   })
 
@@ -116,6 +124,13 @@ describe('tokenEntries.create', () => {
 
     await assert.rejects(tc.tokenEntries.create({ ...ENTRY, session_id: 's-1' }), /401/)
     assert.equal(calls.length, 1)
+  })
+
+  test('refuses an answer that is not a stored token entry', async () => {
+    const { fetch } = fakeFetch(Response.json({ ok: true }, { status: 201 }))
+    const tc = new TokenController({ token: 'tc_svc_abc', fetch })
+
+    await assert.rejects(tc.tokenEntries.create(ENTRY), /answered without a stored token entry/)
   })
 
   test('says when the service cannot be reached', async () => {

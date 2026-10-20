@@ -16,15 +16,20 @@ export interface ClientOptions {
   fetch?: typeof globalThis.fetch
 }
 
-/** What the service answers for a token entry it took: its id, and its `cost`, `label` and `unknown_tags` when it says them. */
-export interface Created {
-  id: string
-  /** The cost from the price table, as a decimal string in US dollars, or null while the model has no price. */
-  cost?: string | null
-  /** `direct`, `project overhead` or `organization overhead`. */
-  label?: string
-  /** Tag values the organization does not know yet. */
-  unknown_tags?: string[]
+/** What the service answers for a token entry it stored (docs: Token entries endpoint > The answer). */
+export interface StoredEntry {
+  /** The session the messages were counted under: the entry's `session_id`, else its `local_id`, else one the service made. */
+  session_id: string
+  /** How many messages the entry stands for. */
+  messages: number
+  /** The cost from the price table as of now, as a decimal string, or null while the model has no price or counts are missing. */
+  cost: string | null
+  /** The currency of `cost`, such as `USD`. */
+  currency: string
+  /** The label of the entry's largest part: `direct`, `project_overhead` or `organization_overhead`. */
+  label: string
+  /** Tags the entry named that are no value on record yet, as `name: key`. They count as sent; someone with assign creates the value. */
+  unknown_tags: string[]
   [field: string]: unknown
 }
 
@@ -51,7 +56,7 @@ export class TokenControllerError extends Error {
  * await tc.tokenEntries.create({ agent_harness: 'support-desk', model: 'claude-sonnet-5', ... })
  */
 export class TokenController {
-  readonly tokenEntries: { create: (entry: TokenEntry) => Promise<Created> }
+  readonly tokenEntries: { create: (entry: TokenEntry) => Promise<StoredEntry> }
   readonly #token: string
   readonly #url: string
   readonly #retries: number
@@ -72,7 +77,7 @@ export class TokenController {
     this.tokenEntries = { create: entry => this.#createTokenEntry(entry) }
   }
 
-  async #createTokenEntry(entry: TokenEntry): Promise<Created> {
+  async #createTokenEntry(entry: TokenEntry): Promise<StoredEntry> {
     const found = problems(entry)
     if (found.length > 0) {
       throw new TokenControllerError(`The token entry cannot be sent: ${found.join('; ')}.`)
@@ -94,7 +99,7 @@ export class TokenController {
     throw last ?? new TokenControllerError('The request failed.')
   }
 
-  async #post(path: string, body: unknown): Promise<Created> {
+  async #post(path: string, body: unknown): Promise<StoredEntry> {
     let response: Response
     try {
       response = await this.#fetch(`${this.#url}${path}`, {
@@ -123,15 +128,15 @@ export class TokenController {
     if (
       typeof answer !== 'object' ||
       answer === null ||
-      typeof (answer as Created).id !== 'string'
+      typeof (answer as StoredEntry).session_id !== 'string'
     ) {
       throw new TokenControllerError(
-        `${this.#url} answered without a token entry ID`,
+        `${this.#url} answered without a stored token entry`,
         response.status,
         answer,
       )
     }
-    return answer as Created
+    return answer as StoredEntry
   }
 }
 

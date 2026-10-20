@@ -57,7 +57,9 @@ pub struct Named {
 #[derive(Debug, Clone, Default, serde::Deserialize, PartialEq, Eq)]
 pub struct SavedEntry {
     #[serde(default)]
-    pub id: Option<String>,
+    pub session_id: Option<String>,
+    #[serde(default)]
+    pub messages: Option<u64>,
     #[serde(default)]
     pub cost: Option<String>,
     #[serde(default)]
@@ -358,10 +360,10 @@ mod tests {
     #[test]
     fn one_saved_entry_or_a_list_reads() {
         let one: OneOrMany =
-            serde_json::from_str(r#"{"id":"te_1","cost":"0.03","unknown_tags":["x"]}"#).unwrap();
+            serde_json::from_str(r#"{"session_id":"s-1","messages":1,"cost":"0.03","currency":"USD","label":"direct","unknown_tags":["x"]}"#).unwrap();
         assert!(matches!(one, OneOrMany::One(ref saved) if saved.unknown_tags == ["x"]));
         let many: OneOrMany =
-            serde_json::from_str(r#"[{"id":"a"},{"id":"b","cost":null}]"#).unwrap();
+            serde_json::from_str(r#"[{"session_id":"a"},{"session_id":"b","cost":null}]"#).unwrap();
         assert!(matches!(many, OneOrMany::Many(ref saved) if saved.len() == 2));
     }
 }

@@ -125,8 +125,8 @@ impl Caller {
 
     /// Refuses everything but a person signed in to the web app: changes to
     /// the organization are made by people in the browser, not by tokens,
-    /// and not by a CLI token either, which may only record, split and
-    /// submit its person's own messages and edit their rules.
+    /// and not by a CLI token either. What a CLI token may do on its own
+    /// person's behalf takes [`Caller::require_person`].
     ///
     /// # Errors
     ///
@@ -137,6 +137,18 @@ impl Caller {
         } else {
             Err(ApiError::Forbidden)
         }
+    }
+
+    /// Refuses API tokens: only a signed-in person, in the browser or
+    /// through the `tc_cli_` token of `tc connect`, may record, split and
+    /// submit their own messages and edit their own rules (docs: API >
+    /// Tokens).
+    ///
+    /// # Errors
+    ///
+    /// [`ApiError::Forbidden`] for service, read and organization tokens.
+    pub fn require_person(&self) -> Result<(), ApiError> {
+        self.require_credential(&[CredentialKind::Session])
     }
 }
 
@@ -421,10 +433,39 @@ mod tests {
         assert!(caller.require_role(Role::OrgManager).is_err());
         assert_eq!(caller.person().unwrap().as_str(), "p@kestrel.example");
         assert!(caller.require_session().is_ok());
+        assert!(caller.require_person().is_ok());
         assert!(
             caller
                 .require_credential(&[CredentialKind::Service])
                 .is_err()
         );
+    }
+
+    #[test]
+    fn a_cli_token_acts_for_its_person_but_never_for_the_organization() {
+        let caller = |credential| Caller {
+            organization_id: Uuid::nil(),
+            person_id: Uuid::nil(),
+            email: "p@kestrel.example".to_owned(),
+            role: Role::AgentManager,
+            person_removed: false,
+            credential,
+        };
+        let cli = caller(Credential::LocalToolSession);
+        assert!(cli.require_person().is_ok());
+        assert!(cli.require_session().is_err());
+        for token in [
+            Credential::Service {
+                token_id: Uuid::nil(),
+            },
+            Credential::Read {
+                token_id: Uuid::nil(),
+            },
+            Credential::Organization {
+                token_id: Uuid::nil(),
+            },
+        ] {
+            assert!(caller(token).require_person().is_err());
+        }
     }
 }

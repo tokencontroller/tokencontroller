@@ -293,7 +293,7 @@ async fn add_split(
     member: Member,
     Json(request): Json<NewSplit>,
 ) -> Result<(StatusCode, Json<SplitView>), ApiError> {
-    member.require_session()?;
+    member.require_person()?;
     let session_id = SessionId::new(request.session_id.trim())
         .map_err(|error| ApiError::BadRequest(error.to_string()))?;
     let target = match request.message_id.as_deref().map(str::trim) {

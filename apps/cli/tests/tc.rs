@@ -690,7 +690,7 @@ fn messages_are_submitted_with_keys_but_never_prompts() {
                 .map(|entries| {
                     entries
                         .iter()
-                        .map(|_| json!({"id": "te_1", "cost": "4.80", "currency": "EUR", "label": "direct", "unknown_tags": []}))
+                        .map(|_| json!({"session_id": "s-1", "messages": 1, "cost": "4.80", "currency": "EUR", "label": "direct", "unknown_tags": []}))
                         .collect()
                 })
                 .unwrap_or_default();
@@ -836,7 +836,7 @@ fn the_github_action_reports_with_its_tags_and_signals() {
         "/api/v1/me/context" => (200, context()),
         "/api/v1/token-entries" => (
             201,
-            json!([{"id": "te_9", "unknown_tags": ["purpose"]}, {"id": "te_10"}]),
+            json!([{"session_id": "s-9", "unknown_tags": ["purpose"]}, {"session_id": "s-10"}]),
         ),
         _ => (404, json!({"error": "no such route"})),
     }))
