@@ -116,7 +116,19 @@ CREATE TABLE events (
 );
 ";
 
-const SCHEMA_VERSION: i64 = 2;
+/// A Claude Code call takes its API request id, the id telemetry sends for
+/// the same call, so the service counts the two doors once (ADR 0018).
+/// Advisor calls keep their `:advisor:n` suffix.
+const SCHEMA_V3: &str = "
+UPDATE messages SET message_id = request_id
+ WHERE harness = 'claude-code' AND request_id IS NOT NULL
+   AND instr(message_id, ':advisor:') = 0;
+UPDATE messages SET message_id = request_id || substr(message_id, instr(message_id, ':advisor:'))
+ WHERE harness = 'claude-code' AND request_id IS NOT NULL
+   AND instr(message_id, ':advisor:') > 0;
+";
+
+const SCHEMA_VERSION: i64 = 3;
 
 /// Sessions `tc record` was told about are kept in `meta` under this prefix.
 const RECORDED: &str = "recorded:";
@@ -235,6 +247,9 @@ impl Store {
             transaction.execute_batch(SCHEMA_V2)?;
             // Every file is read again under the new model.
             transaction.execute_batch("DELETE FROM files; DELETE FROM session_keys;")?;
+        }
+        if version < 3 {
+            transaction.execute_batch(SCHEMA_V3)?;
         }
         transaction.pragma_update(None, "user_version", SCHEMA_VERSION)?;
         transaction.commit()?;
@@ -925,6 +940,51 @@ mod tests {
         assert!(!store.file_unchanged("/f", 1, 2).unwrap());
         assert!(store.sessions().unwrap().is_empty());
         assert!(store.events().unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_version_two_database_gives_claude_code_calls_their_request_id() {
+        let connection = Connection::open_in_memory().unwrap();
+        connection.execute_batch(SCHEMA_V1).unwrap();
+        connection.execute_batch(SCHEMA_V2).unwrap();
+        connection.pragma_update(None, "user_version", 2).unwrap();
+        let row = |key: &str, id: &str, request: Option<&str>, harness: &str| {
+            connection
+                .execute(
+                    "INSERT INTO messages (harness, message_key, session_id, message_id, request_id, at_ms,
+                        model, input, output, cache_write_5m, cache_write_1h, cache_read, sidechain)
+                     VALUES (?1, ?2, 's1', ?3, ?4, 1, 'm', 1, 1, 0, 0, 0, 0)",
+                    params![harness, key, id, request],
+                )
+                .unwrap();
+        };
+        row("msg_1", "msg_1", Some("req_1"), "claude-code");
+        row(
+            "msg_1:advisor:0",
+            "msg_1:advisor:0",
+            Some("req_1"),
+            "claude-code",
+        );
+        row("msg_2", "msg_2", None, "claude-code");
+        row("cx:0", "turn-0", None, "codex");
+        let store = Store::with(connection).unwrap();
+        let ids: Vec<(String, String)> = store
+            .connection
+            .prepare("SELECT message_key, message_id FROM messages ORDER BY message_key")
+            .unwrap()
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+            .unwrap()
+            .collect::<std::result::Result<_, _>>()
+            .unwrap();
+        assert_eq!(
+            ids,
+            [
+                ("cx:0".to_owned(), "turn-0".to_owned()),
+                ("msg_1".to_owned(), "req_1".to_owned()),
+                ("msg_1:advisor:0".to_owned(), "req_1:advisor:0".to_owned()),
+                ("msg_2".to_owned(), "msg_2".to_owned()),
+            ]
+        );
     }
 
     #[test]

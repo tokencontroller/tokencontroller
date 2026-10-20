@@ -643,16 +643,18 @@ def run_task(agent: Agent, task: dict, tools: dict, timeout: int, record_dir: Pa
                         )
                     )
                     # The join the service makes (ADR 0018) is by message id.
-                    # Claude Code's telemetry names the request (req_...), its
-                    # session file the message (msg_...), so today the doors
-                    # count a call twice when both run. A warning until the
-                    # join is fixed; then this becomes a failure.
+                    # Claude Code's telemetry and session file share the API
+                    # request id (req_...), so every file message must carry
+                    # an id telemetry also sent, or both doors on count a
+                    # call twice. Codex sends no id in telemetry, so there
+                    # the join cannot happen and the check only warns.
                     ids = {t["message_id"] for t in messages}
                     joined = [m for m in file_messages if m["message_id"] in ids]
+                    all_joined = len(joined) == len(file_messages)
                     result.checks.append(
                         Check(
                             "doors-join-by-message-id",
-                            "pass" if len(joined) == len(file_messages) else "warn",
+                            "pass" if all_joined else ("fail" if agent.name == "claude-code" else "warn"),
                             f"{len(joined)} of {len(file_messages)} file messages carry an id telemetry also sent",
                         )
                     )

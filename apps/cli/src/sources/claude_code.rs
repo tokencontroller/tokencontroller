@@ -5,6 +5,9 @@
 //!
 //! - Claude Code writes one line per content block of a response, each with
 //!   the full usage. A response is counted once, by its message ID.
+//! - A call's id in Token Controller is its API request ID (`req_…`), the
+//!   id Claude Code's telemetry sends for the same call, so the two doors
+//!   join (ADR 0018). A line without one keeps the message ID.
 //! - A side conversation can replay a parent response under a new request ID;
 //!   the main copy wins over the `isSidechain` copy.
 //! - Advisor calls inside a response (`usage.iterations` of type
@@ -213,6 +216,13 @@ fn read_assistant(line: &Line, session_id: &str, messages: &mut Vec<Message>) {
         return;
     }
     let key = message_key(session_id, message_id, line.request_id.as_deref(), at_ms);
+    // The id both doors share. Claude Code's telemetry names a call by its
+    // API request id, so the call takes that id here too; the response id
+    // stays the key that makes copies count once.
+    let id = line
+        .request_id
+        .clone()
+        .unwrap_or_else(|| message_id.clone());
     let branch = line
         .git_branch
         .clone()
@@ -220,7 +230,7 @@ fn read_assistant(line: &Line, session_id: &str, messages: &mut Vec<Message>) {
     let base = Message {
         session_id: session_id.to_owned(),
         key: key.clone(),
-        id: message_id.clone(),
+        id: id.clone(),
         request_id: line.request_id.clone(),
         at_ms,
         model,
@@ -241,7 +251,7 @@ fn read_assistant(line: &Line, session_id: &str, messages: &mut Vec<Message>) {
             let tokens = iteration.usage.tokens();
             (!tokens.is_zero()).then(|| Message {
                 key: format!("{key}:advisor:{index}"),
-                id: format!("{message_id}:advisor:{index}"),
+                id: format!("{id}:advisor:{index}"),
                 model: iteration
                     .model
                     .clone()
@@ -362,6 +372,19 @@ mod tests {
         assert_eq!(first.tokens.cache_write_5m, 30);
         assert_eq!(first.tokens.cache_read, 40);
         assert_eq!(first.request_id.as_deref(), Some("req_1"));
+        // Telemetry names the same call req_1 (ADR 0018), so that is its id.
+        assert_eq!(first.id, "req_1");
+        assert_eq!(contents.messages.get(2).unwrap().id, "req_2");
+    }
+
+    #[test]
+    fn a_call_without_a_request_id_keeps_the_response_id() {
+        let text = r#"{"type":"assistant","sessionId":"s1","timestamp":"2026-10-11T09:12:00Z","cwd":"/work/storefront","message":{"id":"msg_7","model":"claude-sonnet-4-5","usage":{"input_tokens":10,"output_tokens":20}}}"#;
+        let contents = parse(text);
+        let only = contents.messages.first().unwrap();
+        assert_eq!(only.id, "msg_7");
+        assert_eq!(only.key, "msg_7");
+        assert_eq!(only.request_id, None);
     }
 
     #[test]
@@ -413,6 +436,7 @@ mod tests {
         let advisor = contents.messages.get(1).unwrap();
         assert_eq!(advisor.model, "claude-opus-5");
         assert_eq!(advisor.key, "msg_1:advisor:0");
+        assert_eq!(advisor.id, "r:advisor:0");
         assert_eq!(advisor.tokens.input, 100);
     }
 

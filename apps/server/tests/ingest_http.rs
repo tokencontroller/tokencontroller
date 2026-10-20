@@ -28,6 +28,10 @@ fn key() -> &'static str {
     KEY.get_or_init(|| uuid::Uuid::new_v4().simple().to_string())
 }
 const CLAUDE_CODE_LOGS: &str = include_str!("fixtures/otlp/claude_code_logs.json");
+/// A body Claude Code 2.1.305 really sent, recorded by the agent harness
+/// (`scripts/agent-harness`), scrubbed of names and ids.
+const CLAUDE_CODE_RECORDED_LOGS: &str =
+    include_str!("fixtures/otlp/recorded/claude-code-2.1.305-logs-4.json");
 
 /// Counts the telemetry batches handed to the extension.
 #[derive(Debug, Default)]
@@ -418,6 +422,116 @@ async fn claude_code_telemetry_builds_a_token_entry_once(pool: PgPool) {
             .await
             .unwrap();
     assert_eq!(known, 2);
+}
+
+/// Both doors for one Claude Code call: telemetry names it by its API
+/// request id, and so does `tc` when it submits the session file (ADR
+/// 0018). The call is one record, counted once; the submit's copy
+/// supersedes telemetry's and adds what telemetry cannot see.
+#[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
+async fn a_claude_code_call_seen_by_telemetry_and_a_submit_counts_once(pool: PgPool) {
+    let kestrel = kestrel(&pool).await.unwrap();
+    let answer = send(
+        &kestrel.app,
+        "/api/v1/ingest/otlp/v1/logs",
+        &kestrel.organization_token,
+        "application/json",
+        CLAUDE_CODE_RECORDED_LOGS.as_bytes().to_vec(),
+        false,
+    )
+    .await
+    .unwrap();
+    assert_eq!(answer.status, StatusCode::OK, "{}", answer.json);
+
+    // The same call as tc reads it from the session file: the line's
+    // `requestId` is the message id, its `message.id` (msg_…) is not sent.
+    let entry = json!({
+        "agent_harness": "claude-code",
+        "model": "claude-sonnet-5-5",
+        "started_at": "2026-10-20T23:03:19Z",
+        "ended_at": "2026-10-20T23:03:21Z",
+        "tokens": { "input": 2, "output": 4, "cache_read": 33951, "cache_write": 8704 },
+        "session_id": "11111111-1111-4111-8111-111111111111",
+        "summary": "Answer one word",
+        "signals": { "branch": "main" },
+        "messages": [
+            { "message_id": "req_011CgEKjfPEArBszP2QK2fqu", "at": "2026-10-20T23:03:19.610Z",
+              "tokens": { "input": 2, "output": 4, "cache_read": 33951, "cache_write": 8704 },
+              "reported_cost": "0.0382551" }
+        ],
+        "local_id": "claude-code:11111111-1111-4111-8111-111111111111"
+    });
+    let answer = send(
+        &kestrel.app,
+        "/api/v1/token-entries",
+        &kestrel.service,
+        "application/json",
+        serde_json::to_vec(&entry).unwrap(),
+        false,
+    )
+    .await
+    .unwrap();
+    assert_eq!(answer.status, StatusCode::CREATED, "{}", answer.json);
+    assert_eq!(answer.json["messages"], 1);
+
+    // Two events in the log, append-only; the later one supersedes the
+    // earlier, so one counts.
+    let rows: Vec<(String, Option<String>, String, Option<String>)> = sqlx::query_as(
+        "SELECT id, supersedes, payload->'message'->>'message_id',
+                payload->'message'->'session'->>'summary'
+         FROM events WHERE organization_id = $1 AND kind = 'message' ORDER BY recorded_at",
+    )
+    .bind(kestrel.organization_id)
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(rows.len(), 2, "{rows:?}");
+    assert!(
+        rows.iter()
+            .all(|row| row.2 == "req_011CgEKjfPEArBszP2QK2fqu"),
+        "{rows:?}"
+    );
+    assert_eq!(rows[0].1, None, "telemetry came first");
+    assert_eq!(
+        rows[1].1.as_deref(),
+        Some(rows[0].0.as_str()),
+        "the submit supersedes it"
+    );
+    assert_eq!(
+        rows[1].3.as_deref(),
+        Some("Answer one word"),
+        "and adds the summary"
+    );
+    let live: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM events e WHERE organization_id = $1 AND kind = 'message'
+           AND NOT EXISTS (SELECT 1 FROM events s WHERE s.organization_id = e.organization_id AND s.supersedes = e.id)",
+    )
+    .bind(kestrel.organization_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(live, 1, "one call, counted once");
+
+    // Telemetry again, as a retried export: the call is known, nothing new.
+    let again = send(
+        &kestrel.app,
+        "/api/v1/ingest/otlp/v1/logs",
+        &kestrel.organization_token,
+        "application/json",
+        CLAUDE_CODE_RECORDED_LOGS.as_bytes().to_vec(),
+        false,
+    )
+    .await
+    .unwrap();
+    assert_eq!(again.status, StatusCode::OK);
+    let all: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM events WHERE organization_id = $1 AND kind = 'message'",
+    )
+    .bind(kestrel.organization_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(all, 2);
 }
 
 #[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
