@@ -7,8 +7,9 @@
 //!   `total_token_usage` is a running total; `last_token_usage` is the turn.
 //!   A record whose running total did not move is a repeat and counts nothing.
 //!   Without `last_token_usage`, the turn is the difference of the totals.
-//! - `input_tokens` includes the cached input, so the uncached input is the
-//!   difference; reasoning tokens are part of `output_tokens` already.
+//! - `input_tokens` includes the cached input and, since Codex 0.163, the
+//!   cache writes (`cache_write_input_tokens`), so the uncached input is what
+//!   is left after both; reasoning tokens are part of `output_tokens` already.
 //! - A subagent's rollout first replays its parent's history. When the file
 //!   has an `inter_agent_communication` record with `trigger_turn: true`,
 //!   usage before it belongs to the parent and is skipped.
@@ -48,6 +49,8 @@ struct RawUsage {
     input: u64,
     #[serde(default, rename = "cached_input_tokens")]
     cached_input: u64,
+    #[serde(default, rename = "cache_write_input_tokens")]
+    cache_write: u64,
     #[serde(default, rename = "output_tokens")]
     output: u64,
 }
@@ -58,15 +61,19 @@ impl RawUsage {
         Self {
             input: self.input.saturating_sub(earlier.input),
             cached_input: self.cached_input.saturating_sub(earlier.cached_input),
+            cache_write: self.cache_write.saturating_sub(earlier.cache_write),
             output: self.output.saturating_sub(earlier.output),
         }
     }
 
     fn tokens(self) -> Tokens {
         Tokens {
-            input: self.input.saturating_sub(self.cached_input),
+            input: self
+                .input
+                .saturating_sub(self.cached_input)
+                .saturating_sub(self.cache_write),
             output: self.output,
-            cache_write_5m: 0,
+            cache_write_5m: self.cache_write,
             cache_write_1h: 0,
             cache_read: self.cached_input,
         }
@@ -286,6 +293,22 @@ mod tests {
         let second = contents.messages.get(1).unwrap();
         assert_eq!(second.key, "c1:1");
         assert_eq!(second.tokens.input, 2000);
+    }
+
+    #[test]
+    fn cache_writes_leave_the_input_and_count_as_cache_writes() {
+        // As Codex 0.163 writes it: input_tokens holds the cache writes too.
+        let text = [
+            META.to_owned(),
+            r#"{"timestamp":"2026-10-11T09:01:00Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":13290,"cached_input_tokens":0,"cache_write_input_tokens":13287,"output_tokens":5,"reasoning_output_tokens":0,"total_tokens":13295},"last_token_usage":{"input_tokens":13290,"cached_input_tokens":0,"cache_write_input_tokens":13287,"output_tokens":5,"reasoning_output_tokens":0,"total_tokens":13295}}}}"#.to_owned(),
+        ]
+        .join("\n");
+        let contents = parse(&text);
+        let first = contents.messages.first().unwrap();
+        assert_eq!(first.tokens.input, 3);
+        assert_eq!(first.tokens.cache_write_5m, 13287);
+        assert_eq!(first.tokens.cache_read, 0);
+        assert_eq!(first.tokens.output, 5);
     }
 
     #[test]

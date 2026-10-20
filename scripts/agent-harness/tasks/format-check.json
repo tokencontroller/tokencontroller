@@ -1,0 +1,10 @@
+{
+  "about": "The format check: one tiny task per agent, enough for one model call. The estimates benchmark uses the same shape with real tasks, `files` for the working folder and its own `estimate` fields.",
+  "tasks": [
+    {
+      "id": "pong",
+      "prompt": "Reply with the single word pong.",
+      "expect_output_contains": "pong"
+    }
+  ]
+}

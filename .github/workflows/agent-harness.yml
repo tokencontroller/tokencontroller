@@ -1,0 +1,46 @@
+# The agent harness check (ADR 0025): every supported agent CLI runs a tiny
+# task for real and reports to a stand-in for our ingest; the run fails when
+# what arrived no longer reads as the docs say. Started by hand or by the
+# Azure clock in the private repo (GitHub starts no schedule: runs here).
+# Agents whose key is not set as a repository secret are skipped and named.
+name: Agent harness
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  harness:
+    name: Real agents against the ingest decoder
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      ANTHROPIC_API_KEY: ${{ secrets.HARNESS_ANTHROPIC_API_KEY }}
+      OPENAI_API_KEY: ${{ secrets.HARNESS_OPENAI_API_KEY }}
+      GEMINI_API_KEY: ${{ secrets.HARNESS_GEMINI_API_KEY }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install the pinned toolchain
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - name: Build the decoder and tc
+        run: cargo build --locked -p tokencontroller-server -p tokencontroller-cli
+        env:
+          SQLX_OFFLINE: "true"
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - name: Install the agent CLIs
+        run: npm install -g @anthropic-ai/claude-code @openai/codex @google/gemini-cli
+      - name: Decode the recorded bodies
+        run: python3 scripts/agent-harness/run.py --replay --out target/agent-harness/replay
+      - name: Run the agents
+        run: python3 scripts/agent-harness/run.py --out target/agent-harness/live
+      - name: Keep the results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: agent-harness
+          path: target/agent-harness

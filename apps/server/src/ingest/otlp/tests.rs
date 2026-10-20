@@ -1565,3 +1565,67 @@ fn a_body_with_text_drops_the_event() {
     assert_eq!(dropped(Value::IntValue(4), "x"), 0);
     assert!(PROMPT_TEXT_EVENTS.contains(&"cursor.conversation.user_message"));
 }
+
+/// The bodies real agent CLIs sent to the agent harness
+/// (`scripts/agent-harness/run.py --record`), scrubbed of names and hosts:
+/// each `*-logs-*.json` fixture holds at least one model call of the agent
+/// harness its file name starts with, and each metrics fixture decodes.
+#[test]
+fn recorded_agent_bodies_read_as_their_agent_harness() -> Result<(), Box<dyn Error>> {
+    let folder =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/otlp/recorded");
+    let mut agents_seen = std::collections::BTreeSet::new();
+    for entry in std::fs::read_dir(&folder)? {
+        let path = entry?.path();
+        let name = path
+            .file_stem()
+            .and_then(|stem| stem.to_str())
+            .ok_or("fixture without a name")?
+            .to_owned();
+        let body = std::fs::read(&path)?;
+        // `<agent>-<version>-<signal>-<index>`, split from the right because
+        // agent names carry dashes.
+        let mut parts = name.rsplitn(4, '-');
+        let _index = parts.next();
+        let signal = parts.next().ok_or("fixture name without a signal")?;
+        let _version = parts.next();
+        let agent = parts.next().ok_or("fixture name without an agent")?;
+        match signal {
+            "metrics" => {
+                decode_metrics(&body, Encoding::Json)?;
+            }
+            "logs" => {
+                let extracted = extract_from_logs(&decode_logs(&body, Encoding::Json)?);
+                assert!(!extracted.messages.is_empty(), "{name} holds no model call");
+                for message in &extracted.messages {
+                    assert_eq!(message.harness.name(), agent, "{name}");
+                    assert!(!message.model.is_empty(), "{name}: a call without a model");
+                    assert!(
+                        !message.session_id.is_empty(),
+                        "{name}: a call without a session"
+                    );
+                    assert!(
+                        message.tokens.output > 0,
+                        "{name}: a call without output tokens"
+                    );
+                }
+                agents_seen.insert(agent.to_owned());
+            }
+            "traces" => {
+                let extracted = extract_from_traces(&decode_traces(&body, Encoding::Json)?);
+                assert!(!extracted.messages.is_empty(), "{name} holds no model call");
+                agents_seen.insert(agent.to_owned());
+            }
+            other => return Err(format!("{name}: unknown signal {other}").into()),
+        }
+    }
+    assert!(
+        agents_seen.contains("claude-code"),
+        "no recorded Claude Code body"
+    );
+    assert!(
+        agents_seen.contains("codex-cli"),
+        "no recorded Codex CLI body"
+    );
+    Ok(())
+}
