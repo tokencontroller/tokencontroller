@@ -11,7 +11,7 @@ We run the instance in the region you choose. Nothing is shared with other organ
 
 ## Self-hosted with support {#self}
 
-A self-hosted instance with a support contract is an Enterprise plan instance. You keep your own Postgres and your own region. We send you the Enterprise image and a license key, with which the instance fetches the managed price table from us; the key and the other Enterprise settings are listed under [Configuration](/self-hosting/configuration#enterprise). [Talk to us](https://www.linkedin.com/in/jancbeck/).
+A self-hosted instance with a support contract is an Enterprise plan instance. You keep your own Postgres and your own region. We send you the Enterprise image and a license key, which puts the managed price table in force and lets the instance fetch newer prices from us; the key and the other Enterprise settings are listed under [Configuration](/self-hosting/configuration#enterprise). [Talk to us](https://www.linkedin.com/in/jancbeck/).
 
 ## OIDC and SCIM {#oidc-scim}
 

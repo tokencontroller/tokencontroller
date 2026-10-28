@@ -28,7 +28,7 @@ docker compose exec tokencontroller tokencontroller sign-in-link ana@example.com
 
 ## Price table {#price-table}
 
-The open edition ships without prices. Write the rows you pay in a CSV file (the format is under [Price tables](/reference/pricing-tables#file)) and point `TC_PRICE_TABLE` at it; mount it into the container. An org manager can still add rows and overrides in the web app, and those win over the file. With an Enterprise key the instance fetches the managed table from us, and the file is only for rows of your own, or for the managed table on an instance without internet access.
+The open edition ships without prices. Write the rows you pay in a CSV file (the format is under [Price tables](/reference/pricing-tables#file)) and point `TC_PRICE_TABLE` at it; mount it into the container. An org manager can still add rows and overrides in the web app, and those win over the file. With an Enterprise key the managed table comes with the image and is refreshed from us, and the file is only for rows of your own, or for newer managed prices on an instance without internet access.
 
 ## Enterprise plan settings {#enterprise}
 
@@ -36,7 +36,7 @@ These switch on the [Enterprise plan](/self-hosting/enterprise) features in the 
 
 | Variable | Meaning |
 | --- | --- |
-| `TC_LICENSE_KEY` | The license key that comes with the contract. With it the instance fetches the managed price table from `app.tokencontroller.com` at start and every six hours; allow outbound HTTPS there, or ask us for the table as a file for `TC_PRICE_TABLE`. Without a valid key, the image works like the open-source one. From 30 days before the key's last day of support, org managers see a renewal notice. The features keep working for 30 days after that day. |
+| `TC_LICENSE_KEY` | The license key that comes with the contract. With it the managed price table is in force: the table as of the image's build, plus newer prices the instance fetches from `app.tokencontroller.com` every six hours when its network allows outbound HTTPS there. Without that access, newer prices come with the next image, or as a file from us for `TC_PRICE_TABLE`. Without a valid key, the image works like the open-source one. From 30 days before the key's last day of support, org managers see a renewal notice. The features keep working for 30 days after that day. |
 | `TC_TELEMETRY_FORWARD_URL` | Your collector's OTLP HTTP endpoint, such as `https://otel.example.com:4318`. Every telemetry batch the service accepts goes there unchanged, before the service drops prompt text. |
 | `TC_TELEMETRY_FORWARD_HEADERS` | Headers for your collector, as `name=value,name2=value2`, the same as `OTEL_EXPORTER_OTLP_HEADERS`. |
 

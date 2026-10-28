@@ -2,7 +2,7 @@
 
 The cost of a message is its token counts by kind (input, output, cache read, cache write) times the price table row for its provider, model and kind valid on its day. Nothing else produces a cost: an agent's own cost figure is stored on the message as a fact for comparison and is never shown or summed as the cost. A message without counts is a count error with no cost; a model without a row is labelled unknown with no cost; neither is ever zero, and both show in the reconciliation as cost the bill has that no message explains.
 
-Price table rows are events (ADR 0022). On the hosted service a managed table is pulled in as events from our list; an organization adds rows and overrides, and the override wins. The open edition ships without prices and reads a CSV file the self-hoster brings. An Enterprise instance fetches the managed table from the hosted service with its key, hosted by us or on the customer's servers. The managed table's source and its build live in the private repo; the open code only reads rows.
+Price table rows are events (ADR 0022). On the hosted service a managed table is pulled in as events from our list; an organization adds rows and overrides, and the override wins. The open edition ships without prices and reads a CSV file the self-hoster brings. An Enterprise key puts the managed table in force, as built into the Enterprise image and refreshed from the hosted service, hosted by us or on the customer's servers. The managed table's source and its build live in the private repo; the open code only reads rows.
 
 ## Why
 
