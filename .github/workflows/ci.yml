@@ -1,4 +1,5 @@
-# CI (ADR 0011): runs on every push and pull request, without secrets.
+# CI (ADR 0011): runs on every push and pull request. Only the review job
+# reads a secret, and it passes without one.
 # A pull request merges itself once every job is green, unless it carries the
 # `hold` label. With the merge queue on main, "merging" puts it in the queue:
 # CI runs once more on the pull request together with those ahead of it
@@ -253,33 +254,62 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   review:
-    # The "Claude review" check. The review runs as a scheduled task on
-    # claude.ai, started by the pull request event, and ends with a summary
-    # comment that carries a verdict marker. This job waits for that marker
-    # on the head commit and fails only for the verdict `bug`, so the merge
-    # waits for a confirmed bug and for nothing else. A review that never
-    # arrives passes after 40 minutes. The label `review-waived` passes a
-    # wrong finding (a label starts CI again).
+    # Claude reviews the pull request (safety backlog, Jan 2026-10-20): inline
+    # comments and one summary, and the job fails only for a bug it confirmed
+    # in the changed code, so the merge waits for a bug and for nothing else.
+    # Without the CLAUDE_CODE_OAUTH_TOKEN secret (Jan's subscription token,
+    # an organization secret) the job passes and says so. The label
+    # `review-waived` passes a wrong finding (a label starts CI again).
     name: Claude review
     if: >-
       github.event_name == 'pull_request'
       && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-24.04
-    timeout-minutes: 50
+    timeout-minutes: 45
     permissions:
       contents: read
-      pull-requests: read
-      issues: read
+      pull-requests: write
+      issues: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PR: ${{ github.event.pull_request.number }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
     steps:
       - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.pull_request.head.sha }}
-      - name: Wait for the verdict
+      - name: No token, no review
+        if: env.CLAUDE_CODE_OAUTH_TOKEN == ''
+        run: echo "No CLAUDE_CODE_OAUTH_TOKEN secret in this repository; no review ran, the merge is not blocked."
+      - name: Decide whether a review runs
+        id: before
+        if: env.CLAUDE_CODE_OAUTH_TOKEN != ''
+        run: python3 .github/scripts/claude_review.py before
+      - name: Review
+        id: review
+        if: steps.before.outputs.run == 'true'
+        uses: anthropics/claude-code-action@v1
+        # A review that cannot run (no credit, an outage) is reported and
+        # never blocks: the verdict step turns a missing result into
+        # "unfinished".
+        continue-on-error: true
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          prompt: |
+            You review pull request #${{ github.event.pull_request.number }} in ${{ github.repository }}. First read .claude/skills/reviewing-pull-requests/SKILL.md and follow it exactly: it says what to read, what to look for, how to confirm a finding, what to post and how to end. The diff to review is in .claude-review/diff.patch. The repository is checked out at the pull request's head commit, so read the surrounding code, the docs and the decisions with Read, Grep and Glob wherever the diff alone does not tell you whether a change is right.
+          claude_args: |
+            --model claude-opus-5-5
+            --max-turns 60
+            --allowedTools "Read,Grep,Glob,Bash(git log:*),Bash(git show:*),Bash(git blame:*),mcp__github_inline_comment__create_inline_comment"
+            --json-schema '{"type":"object","properties":{"verdict":{"type":"string","enum":["bug","clean"]},"summary":{"type":"string"},"bugs":{"type":"array","items":{"type":"object","properties":{"file":{"type":"string"},"line":{"type":"integer"},"title":{"type":"string"}},"required":["file","title"]}}},"required":["verdict","summary","bugs"]}'
+      - name: Verdict
+        if: steps.before.outputs.run == 'true'
         env:
-          GH_TOKEN: ${{ github.token }}
-          PR: ${{ github.event.pull_request.number }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: python3 .github/scripts/claude_review.py
+          REVIEW_OUTPUT: ${{ steps.review.outputs.structured_output }}
+          EXECUTION_FILE: ${{ steps.review.outputs.execution_file }}
+        run: python3 .github/scripts/claude_review.py after
 
   automerge:
     name: Merge when green
