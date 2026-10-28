@@ -1,0 +1,20 @@
+# Weekly upgrades, one pull request per ecosystem. A pull request that fails
+# its checks is fixed by .github/workflows/dependabot-fix.yml; a green one
+# merges itself like every other pull request.
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: /
+    schedule: { interval: weekly, day: monday, time: "05:00", timezone: Europe/Vienna }
+    groups: { cargo: { patterns: ["*"] } }
+    open-pull-requests-limit: 2
+  - package-ecosystem: npm
+    directory: /
+    schedule: { interval: weekly, day: monday, time: "05:00", timezone: Europe/Vienna }
+    groups: { npm: { patterns: ["*"] } }
+    open-pull-requests-limit: 2
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: weekly, day: monday, time: "05:00", timezone: Europe/Vienna }
+    groups: { actions: { patterns: ["*"] } }
+    open-pull-requests-limit: 2
