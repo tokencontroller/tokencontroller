@@ -254,7 +254,7 @@ jobs:
     # Claude reviews the pull request (safety backlog, Jan 2026-10-20): inline
     # comments and one summary, and the job fails only for a bug it confirmed
     # in the changed code, so the merge waits for a bug and for nothing else.
-    # Without the ANTHROPIC_API_KEY secret the job passes and says so. The
+    # Without the CLAUDE_CODE_OAUTH_TOKEN secret the job passes and says so. The
     # label `review-waived` passes a wrong finding (a label starts CI again).
     name: Claude review
     if: >-
@@ -270,17 +270,17 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       PR: ${{ github.event.pull_request.number }}
       HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
     steps:
       - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.pull_request.head.sha }}
       - name: No key, no review
-        if: env.ANTHROPIC_API_KEY == ''
-        run: echo "No ANTHROPIC_API_KEY secret in this repository; no review ran, the merge is not blocked."
+        if: env.CLAUDE_CODE_OAUTH_TOKEN == ''
+        run: echo "No CLAUDE_CODE_OAUTH_TOKEN secret in this repository; no review ran, the merge is not blocked."
       - name: Decide whether a review runs
         id: before
-        if: env.ANTHROPIC_API_KEY != ''
+        if: env.CLAUDE_CODE_OAUTH_TOKEN != ''
         run: python3 .github/scripts/claude_review.py before
       - name: Review
         id: review
@@ -291,7 +291,7 @@ jobs:
         # "unfinished".
         continue-on-error: true
         with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
           prompt: |
             You review pull request #${{ github.event.pull_request.number }} in ${{ github.repository }}. The diff to review is in .claude-review/diff.patch, and the repository is checked out at the pull request's head commit, so read the surrounding code with Read, Grep and Glob wherever the diff alone does not tell you whether a change is right. CLAUDE.md at the root says how this repository works.
