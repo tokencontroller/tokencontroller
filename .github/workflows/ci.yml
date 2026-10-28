@@ -258,7 +258,7 @@ jobs:
     # comments and one summary, and the job fails only for a bug it confirmed
     # in the changed code, so the merge waits for a bug and for nothing else.
     # Without the CLAUDE_CODE_OAUTH_TOKEN secret (Jan's subscription token,
-    # an organization secret) the job passes and says so. The label
+    # a repository secret) the job passes and says so. The label
     # `review-waived` passes a wrong finding (a label starts CI again).
     name: Claude review
     if: >-
