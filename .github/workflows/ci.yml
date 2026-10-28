@@ -1,7 +1,9 @@
 # CI (ADR 0011): runs on every push and pull request. Only the review job
 # reads a secret, and it passes without one.
 # A pull request merges itself once every job is green, unless it carries the
-# `hold` label. A push to main publishes the image to
+# `hold` label. With the merge queue on main, "merging" puts it in the queue:
+# CI runs once more on the pull request together with those ahead of it
+# (merge_group), and GitHub merges it when that run is green. A push to main publishes the image to
 # ghcr.io/tokencontroller/tokencontroller; a version tag adds version tags.
 name: CI
 
@@ -11,6 +13,7 @@ on:
   push:
     branches: [main]
     tags: ["v*"]
+  merge_group:
   workflow_dispatch:
 
 permissions:
@@ -332,14 +335,23 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PR: ${{ github.event.pull_request.number }}
         run: gh pr checks "$PR" --repo "$GITHUB_REPOSITORY" --required --watch --interval 20
-      - name: Merge the pull request
+      - name: Merge the pull request, or put it in the merge queue
+        # With the merge queue required on main, gh adds the pull request to
+        # the queue instead of merging it.
         env:
           GH_TOKEN: ${{ github.token }}
           PR: ${{ github.event.pull_request.number }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: gh pr merge "$PR" --repo "$GITHUB_REPOSITORY" --squash --delete-branch --match-head-commit "$HEAD_SHA"
+        run: gh pr merge "$PR" --repo "$GITHUB_REPOSITORY" --squash --match-head-commit "$HEAD_SHA"
       - name: Start CI on main to publish the image
         # A merge made with the workflow token starts no push run of its own.
+        # A merge by the queue does, so a queued pull request needs nothing.
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh workflow run ci.yml --repo "$GITHUB_REPOSITORY" --ref main
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          if [ "$(gh pr view "$PR" --repo "$GITHUB_REPOSITORY" --json state --jq .state)" = MERGED ]; then
+            gh workflow run ci.yml --repo "$GITHUB_REPOSITORY" --ref main
+          else
+            echo "Queued; the queue's merge starts CI on main itself."
+          fi
