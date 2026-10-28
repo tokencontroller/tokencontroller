@@ -260,7 +260,11 @@ jobs:
     # Without the CLAUDE_CODE_OAUTH_TOKEN secret (Jan's subscription token,
     # a repository secret) the job passes and says so. The label
     # `review-waived` passes a wrong finding (a label starts CI again).
+    # The review waits for Harness: a harness change needs its label, and
+    # the label starts a second run, so only the run with the label (where
+    # Harness passes) reviews, instead of both runs reviewing at once.
     name: Claude review
+    needs: [harness]
     if: >-
       github.event_name == 'pull_request'
       && github.event.pull_request.head.repo.full_name == github.repository
