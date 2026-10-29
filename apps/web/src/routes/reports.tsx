@@ -112,7 +112,7 @@ function CostTab({ query }: { query: ReportQuery }) {
         rows={data.rows}
         rowKey={(r) => r.key ?? "none"}
         empty="No cost in this filter and range."
-        totals={{ label: "Total", values: { amount: <Amount value={data.total} /> }, csv: { amount: data.total } }}
+        totals={{ label: "Total", values: { amount: <Amount value={data.total} currency={data.currency} /> }, csv: { amount: data.total } }}
         columns={[
           { key: "key", header: query.by ? (groupings.find((g) => g.value === query.by)?.label ?? query.by) : "Filter", cell: (r) => keyText(r.key), csv: (r) => r.key ?? "" },
           { key: "bar", header: "", wide: true, cell: (r) => <RowBar share={Number(r.share) * 10_000} /> },

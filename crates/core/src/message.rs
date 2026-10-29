@@ -80,16 +80,38 @@ text_id!(
 );
 
 /// A model and the provider that charges for it, such as `anthropic` and
-/// `claude-sonnet-4-5`. Together they decide the price.
+/// `claude-sonnet-4-5`. Together they decide the price. A model written with
+/// its provider in front, such as `anthropic/claude-sonnet-4-5`, is the same
+/// model.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(from = "StoredModelRef")]
 pub struct ModelRef {
     pub provider: String,
     pub model: String,
 }
 
+/// A model as the log keeps it, read through [`ModelRef::new`] so entries
+/// taken in before the provider was dropped from the name price too.
+#[derive(Deserialize)]
+struct StoredModelRef {
+    provider: String,
+    model: String,
+}
+
+impl From<StoredModelRef> for ModelRef {
+    fn from(stored: StoredModelRef) -> Self {
+        Self::new(&stored.provider, &stored.model)
+    }
+}
+
 impl ModelRef {
     #[must_use]
     pub fn new(provider: &str, model: &str) -> Self {
+        let model = model
+            .strip_prefix(provider)
+            .and_then(|rest| rest.strip_prefix('/'))
+            .filter(|rest| !rest.is_empty())
+            .unwrap_or(model);
         Self {
             provider: provider.to_owned(),
             model: model.to_owned(),
@@ -228,6 +250,26 @@ mod tests {
             ModelRef::new("anthropic", "claude-opus-4-1").to_string(),
             "anthropic/claude-opus-4-1"
         );
+    }
+
+    #[test]
+    fn a_model_written_with_its_provider_is_the_same_model() {
+        let plain = ModelRef::new("anthropic", "claude-sonnet-4-5");
+        assert_eq!(
+            ModelRef::new("anthropic", "anthropic/claude-sonnet-4-5"),
+            plain
+        );
+        // Another provider in front is part of the model's name, as routers write it.
+        assert_eq!(
+            ModelRef::new("openrouter", "anthropic/claude-sonnet-4-5").model,
+            "anthropic/claude-sonnet-4-5"
+        );
+        assert_eq!(ModelRef::new("anthropic", "anthropic/").model, "anthropic/");
+        let stored: ModelRef = serde_json::from_str(
+            r#"{"provider":"anthropic","model":"anthropic/claude-sonnet-4-5"}"#,
+        )
+        .unwrap();
+        assert_eq!(stored, plain);
     }
 
     #[test]
