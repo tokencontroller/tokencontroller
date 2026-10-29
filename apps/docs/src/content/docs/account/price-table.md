@@ -22,7 +22,7 @@ A message's cost uses the row valid on the message's day. A row is a record: a n
 | Edition | Price table |
 | --- | --- |
 | Hosted (Solo, Team plan) | The managed table, pulled in as events from our list, which follows the providers' published prices. Your organization adds rows and overrides rows; the override wins. |
-| Enterprise plan | The key includes the managed table, hosted by us or on your own servers. |
+| Enterprise plan | The managed table, hosted by us or on your own servers. The image carries the table as of its build, and with outbound HTTPS to `app.tokencontroller.com` the instance fetches newer prices with its license key every six hours. An instance without internet access gets newer prices with the next image, or as a file from us. |
 | Open edition, self-hosted | Ships without prices. Bring your own file; see [Configuration](/self-hosting/configuration#price-table). |
 
 ## Your own rows {#overrides}
