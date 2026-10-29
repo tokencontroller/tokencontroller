@@ -1,9 +1,10 @@
 # CI (ADR 0011): runs on every push and pull request. Only the review job
 # reads a secret, and it passes without one.
-# A pull request merges itself once every job is green, unless it carries the
-# `hold` label. With the merge queue on main, "merging" puts it in the queue:
-# CI runs once more on the pull request together with those ahead of it
-# (merge_group), and GitHub merges it when that run is green. A push to main publishes the image to
+# The review job switches GitHub's auto merge on when the change is clean
+# (ADR 0013). GitHub then waits for every required check, puts the pull
+# request in the merge queue, where CI runs once more together with those
+# ahead of it (merge_group), and merges it when that run is green. The label
+# `hold` switches auto merge off. A push to main publishes the image to
 # ghcr.io/tokencontroller/tokencontroller; a version tag adds version tags.
 name: CI
 
@@ -254,12 +255,18 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   review:
-    # Claude reviews the pull request (safety backlog, Jan 2026-10-20): inline
-    # comments and one summary, and the job fails only for a bug it confirmed
-    # in the changed code, so the merge waits for a bug and for nothing else.
-    # Without the CLAUDE_CODE_OAUTH_TOKEN secret (Jan's subscription token,
-    # a repository secret) the job passes and says so. The label
-    # `review-waived` passes a wrong finding (a label starts CI again).
+    # Claude reviews the pull request (safety backlog, Jan 2026-10-20) and,
+    # when the change is clean, switches GitHub's auto merge on (Jan,
+    # 2026-10-29): inline comments and one summary, the job fails only for a
+    # bug it confirmed in the changed code, and the pull request merges only
+    # after the review switched auto merge on. The action signs in as the
+    # Claude GitHub App (no github_token input, id-token: write), because
+    # GitHub runs the merge queue's CI for what an app does and not for the
+    # workflow's own token. Without the CLAUDE_CODE_OAUTH_TOKEN secret (Jan's
+    # subscription token, a repository secret) the job passes and says so,
+    # and nothing switches auto merge on. The label `review-waived` passes a
+    # wrong finding; the label `hold` switches auto merge off (a label starts
+    # CI again).
     # The review waits for Harness: a harness change needs its label, and
     # the label starts a second run, so only the run with the label (where
     # Harness passes) reviews, instead of both runs reviewing at once.
@@ -274,6 +281,7 @@ jobs:
       contents: read
       pull-requests: write
       issues: write
+      id-token: write
     env:
       GH_TOKEN: ${{ github.token }}
       PR: ${{ github.event.pull_request.number }}
@@ -285,14 +293,14 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha }}
       - name: No token, no review
         if: env.CLAUDE_CODE_OAUTH_TOKEN == ''
-        run: echo "No CLAUDE_CODE_OAUTH_TOKEN secret in this repository; no review ran, the merge is not blocked."
-      - name: Decide whether a review runs
+        run: echo "No CLAUDE_CODE_OAUTH_TOKEN secret in this repository; no review ran, the merge is not blocked, and nothing switches auto merge on."
+      - name: Decide what runs
         id: before
         if: env.CLAUDE_CODE_OAUTH_TOKEN != ''
         run: python3 .github/scripts/claude_review.py before
       - name: Review
         id: review
-        if: steps.before.outputs.run == 'true'
+        if: steps.before.outputs.mode == 'review'
         uses: anthropics/claude-code-action@v1
         # A review that cannot run (no credit, an outage) is reported and
         # never blocks: the verdict step turns a missing result into
@@ -300,62 +308,34 @@ jobs:
         continue-on-error: true
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          github_token: ${{ secrets.GITHUB_TOKEN }}
           prompt: |
-            You review pull request #${{ github.event.pull_request.number }} in ${{ github.repository }}. First read .claude/skills/reviewing-pull-requests/SKILL.md and follow it exactly: it says what to read, what to look for, how to confirm a finding, what to post and how to end. The diff to review is in .claude-review/diff.patch. The repository is checked out at the pull request's head commit, so read the surrounding code, the docs and the decisions with Read, Grep and Glob wherever the diff alone does not tell you whether a change is right.
+            You review pull request #${{ github.event.pull_request.number }} in ${{ github.repository }}. First read .claude/skills/reviewing-pull-requests/SKILL.md and follow it exactly: it says what to read, what to look for, how to confirm a finding, what to post and how to end. The diff to review is in .claude-review/diff.patch. The repository is checked out at the pull request's head commit, so read the surrounding code, the docs and the decisions with Read, Grep and Glob wherever the diff alone does not tell you whether a change is right. When your verdict is clean, run exactly `gh pr merge ${{ github.event.pull_request.number }} --repo ${{ github.repository }} --auto --squash` before you end; for the verdicts bug and needs-jan run nothing.
           claude_args: |
             --model claude-opus-5-5
             --max-turns 60
-            --allowedTools "Read,Grep,Glob,Bash(git log:*),Bash(git show:*),Bash(git blame:*),mcp__github_inline_comment__create_inline_comment"
-            --json-schema '{"type":"object","properties":{"verdict":{"type":"string","enum":["bug","clean"]},"summary":{"type":"string"},"bugs":{"type":"array","items":{"type":"object","properties":{"file":{"type":"string"},"line":{"type":"integer"},"title":{"type":"string"}},"required":["file","title"]}}},"required":["verdict","summary","bugs"]}'
+            --allowedTools "Read,Grep,Glob,Bash(git log:*),Bash(git show:*),Bash(git blame:*),Bash(gh pr merge:*),mcp__github_inline_comment__create_inline_comment"
+            --json-schema '{"type":"object","properties":{"verdict":{"type":"string","enum":["bug","clean","needs-jan"]},"summary":{"type":"string"},"bugs":{"type":"array","items":{"type":"object","properties":{"file":{"type":"string"},"line":{"type":"integer"},"title":{"type":"string"}},"required":["file","title"]}}},"required":["verdict","summary","bugs"]}'
       - name: Verdict
-        if: steps.before.outputs.run == 'true'
+        if: steps.before.outputs.mode == 'review'
         env:
           REVIEW_OUTPUT: ${{ steps.review.outputs.structured_output }}
           EXECUTION_FILE: ${{ steps.review.outputs.execution_file }}
         run: python3 .github/scripts/claude_review.py after
-
-  automerge:
-    name: Merge when green
-    if: >-
-      github.event_name == 'pull_request'
-      && github.event.pull_request.head.repo.full_name == github.repository
-      && !github.event.pull_request.draft
-      && !contains(github.event.pull_request.labels.*.name, 'hold')
-    needs: [harness, rust, mutants, deny, typescript, image, review]
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: write
-      pull-requests: write
-      actions: write
-      checks: read
-      statuses: read
-    steps:
-      - name: Wait for the other required checks
-        # The ruleset on main also requires the CodeQL analyses, which run in
-        # their own workflow and often finish after this job starts. Merging
-        # before they report is refused.
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR: ${{ github.event.pull_request.number }}
-        run: gh pr checks "$PR" --repo "$GITHUB_REPOSITORY" --required --watch --interval 20
-      - name: Merge the pull request, or put it in the merge queue
-        # With the merge queue required on main, gh adds the pull request to
-        # the queue instead of merging it.
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR: ${{ github.event.pull_request.number }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: gh pr merge "$PR" --repo "$GITHUB_REPOSITORY" --squash --match-head-commit "$HEAD_SHA"
-      - name: Start CI on main to publish the image
-        # A merge made with the workflow token starts no push run of its own.
-        # A merge by the queue does, so a queued pull request needs nothing.
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR: ${{ github.event.pull_request.number }}
-        run: |
-          if [ "$(gh pr view "$PR" --repo "$GITHUB_REPOSITORY" --json state --jq .state)" = MERGED ]; then
-            gh workflow run ci.yml --repo "$GITHUB_REPOSITORY" --ref main
-          else
-            echo "Queued; the queue's merge starts CI on main itself."
-          fi
+      - name: Switch auto merge on
+        # For a commit that was reviewed already, a waived finding or a diff
+        # with nothing to review: the app's sign-in exists only inside the
+        # action, so the action runs this one command.
+        if: steps.before.outputs.mode == 'arm'
+        uses: anthropics/claude-code-action@v1
+        continue-on-error: true
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: |
+            Run exactly this one command, then end: `gh pr merge ${{ github.event.pull_request.number }} --repo ${{ github.repository }} --auto --squash`. If it says auto merge is enabled already, that is fine. Read nothing, post nothing.
+          claude_args: |
+            --model claude-haiku-5-5
+            --max-turns 3
+            --allowedTools "Bash(gh pr merge:*)"
+      - name: Auto merge is on
+        if: steps.before.outputs.mode == 'arm'
+        run: python3 .github/scripts/claude_review.py armed

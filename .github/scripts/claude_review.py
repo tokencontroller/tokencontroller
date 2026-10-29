@@ -1,21 +1,29 @@
-"""Claude reviews every pull request, and blocks the merge only for a bug.
+"""Claude reviews every pull request and, when it is clean, switches GitHub's
+auto merge on, so the pull request merges once every required check passes.
 
 Run by the review job (.github/workflows/review.yml here, the "Claude review"
-job in ci.yml in the public repo) in two steps around the
-anthropics/claude-code-action step:
+job in ci.yml in the public repo) around the anthropics/claude-code-action
+step. The action signs in as the Claude GitHub App, and what the app does
+counts like what a person does: GitHub starts workflows for it and runs the
+merge queue's CI for it, which it never does for the workflow's own token. So
+the review, not a workflow, switches auto merge on (Jan, 2026-10-29).
 
-  before  Decides whether a review runs. It writes `run=true` and the diff
-          to review, or `run=false` with `verdict=` set, to GITHUB_OUTPUT.
-          No review for a draft, for the label `review-waived`, when the
-          head commit already carries a verdict (a rerun on the same
-          commit costs nothing), or when the diff is too large to read.
+  before  Decides what runs and writes `mode=review|arm|none` and `verdict=`
+          to GITHUB_OUTPUT. `review` reads the diff; `arm` only switches auto
+          merge on, for a commit that was reviewed already, the label
+          `review-waived`, a diff of only generated files or one too large
+          to read; `none` for a draft, the label `hold` (auto merge is
+          switched off again), a bug, or a review that said needs-jan.
   after   Reads the review's structured output, posts one summary comment
           on the pull request with a marker that carries the verdict, and
           exits 1 when the verdict is `bug`.
+  armed   Says whether auto merge is on, after the `arm` step.
 
 The verdict is `bug` only for a defect Claude confirmed in the changed code:
-wrong output, a crash, data loss or a security hole. Everything else is
-`clean`, with suggestions as inline comments that block nothing.
+wrong output, a crash, data loss or a security hole. `needs-jan` is a change
+the owner has to say yes to; it blocks nothing, but auto merge stays off
+until a thread with Jan's words switches it on. Everything else is `clean`,
+with suggestions as inline comments that block nothing.
 """
 
 import json
@@ -28,6 +36,7 @@ PR = os.environ["PR"]
 SHA = os.environ["HEAD_SHA"]
 MARKER = "<!-- claude-review sha={sha} verdict={verdict} -->"
 MAX_DIFF = 250_000  # characters; roughly the limit of a careful read
+VERDICTS = {"bug", "clean", "needs-jan"}
 # Generated and vendored files are not reviewed.
 EXCLUDED = (
     ":!**/pnpm-lock.yaml",
@@ -64,23 +73,53 @@ def earlier_verdict() -> str | None:
     return None
 
 
+def auto_merge_on() -> bool:
+    view = json.loads(gh("pr", "view", PR, "--repo", REPO, "--json", "autoMergeRequest"))
+    return bool(view.get("autoMergeRequest"))
+
+
+def arm(verdict: str) -> int:
+    """Switch auto merge on, unless it is on already."""
+    if auto_merge_on():
+        print(f"Auto merge is on already ({verdict})")
+        output(mode="none", verdict=verdict)
+    else:
+        print(f"Switching auto merge on ({verdict})")
+        output(mode="arm", verdict=verdict)
+    return 0
+
+
 def before() -> int:
     event = json.load(open(os.environ["GITHUB_EVENT_PATH"], encoding="utf-8"))
     pr = event["pull_request"]
     labels = {label["name"] for label in pr.get("labels", [])}
     if pr.get("draft"):
         print("Draft pull request: no review until it is ready")
-        output(run="false", verdict="")
+        output(mode="none", verdict="")
+        return 0
+    if "hold" in labels:
+        if auto_merge_on():
+            gh("pr", "merge", PR, "--repo", REPO, "--disable-auto")
+            print("Label hold: auto merge switched off")
+        else:
+            print("Label hold: auto merge stays off")
+        output(mode="none", verdict="")
         return 0
     if "review-waived" in labels:
         print("Label review-waived: the review does not block this pull request")
-        output(run="false", verdict="waived")
-        return 0
+        return arm("waived")
     verdict = earlier_verdict()
-    if verdict in {"bug", "clean", "skipped"}:
+    if verdict == "bug":
+        print("This commit was reviewed already: bug")
+        output(mode="none", verdict=verdict)
+        return 1
+    if verdict == "needs-jan":
+        print("This commit was reviewed already: needs Jan; auto merge stays off")
+        output(mode="none", verdict=verdict)
+        return 0
+    if verdict in {"clean", "skipped", "unfinished"}:
         print(f"This commit was reviewed already: {verdict}")
-        output(run="false", verdict=verdict)
-        return 0 if verdict != "bug" else 1
+        return arm(verdict)
     base = pr["base"]["sha"]
     subprocess.run(["git", "fetch", "--no-tags", "--depth=1", "origin", base], check=True)
     merge_base = subprocess.run(
@@ -92,18 +131,16 @@ def before() -> int:
     ).stdout
     if not diff.strip():
         print("Nothing to review after leaving out generated files")
-        output(run="false", verdict="clean")
-        return 0
+        return arm("clean")
     if len(diff) > MAX_DIFF:
         print(f"Diff of {len(diff)} characters is too large for one review; not reviewed")
         post("skipped", f"The change is too large for one review ({len(diff):,} characters of diff). Not reviewed.", [])
-        output(run="false", verdict="skipped")
-        return 0
+        return arm("skipped")
     os.makedirs(".claude-review", exist_ok=True)
     with open(".claude-review/diff.patch", "w", encoding="utf-8") as f:
         f.write(diff)
     print(f"Reviewing {len(diff)} characters of diff since {merge_base[:7]}")
-    output(run="true", verdict="", merge_base=merge_base)
+    output(mode="review", verdict="", merge_base=merge_base)
     return 0
 
 
@@ -120,6 +157,14 @@ def post(verdict: str, summary: str, bugs: list[dict]) -> None:
                      " and start the failed run again.")
     elif verdict == "clean":
         lines.append(f"**Claude review of {short}: no bug found.** {summary}".rstrip())
+        if not auto_merge_on():
+            lines.append("")
+            lines.append("Auto merge did not switch on; the thread that owns this pull request switches it on.")
+    elif verdict == "needs-jan":
+        lines.append(f"**Claude review of {short}: this needs Jan.** {summary}".rstrip())
+        lines.append("")
+        lines.append("Auto merge stays off. The thread that owns this pull request switches it on when"
+                     " Jan's words already cover this, and otherwise asks him in one sentence.")
     else:
         lines.append(f"**Claude review of {short}: {verdict}.** {summary}".rstrip())
     gh("api", f"repos/{REPO}/issues/{PR}/comments", "-f", "body=" + "\n".join(lines))
@@ -146,11 +191,12 @@ def after() -> int:
         result = json.loads(raw) if raw else {}
     except json.JSONDecodeError:
         result = {}
-    if not isinstance(result, dict) or result.get("verdict") not in {"bug", "clean"}:
+    if not isinstance(result, dict) or result.get("verdict") not in VERDICTS:
         reason = failure_reason()
         print(f"The review returned no verdict ({reason}); see the run log. Not blocking the merge.")
         print(raw[:2000])
-        post("unfinished", f"The review did not finish ({reason}), see the workflow run. The merge is not blocked.", [])
+        post("unfinished", f"The review did not finish ({reason}), see the workflow run."
+             " The merge is not blocked; a new run of this check switches auto merge on.", [])
         return 0
     verdict = result["verdict"]
     bugs = [b for b in result.get("bugs") or [] if isinstance(b, dict)]
@@ -161,5 +207,13 @@ def after() -> int:
     return 1 if verdict == "bug" else 0
 
 
+def armed() -> int:
+    if auto_merge_on():
+        print("Auto merge is on; GitHub merges once every required check passes")
+    else:
+        print("::warning::Auto merge is not on; see the arm step. A thread switches it on by hand.")
+    return 0
+
+
 if __name__ == "__main__":
-    sys.exit({"before": before, "after": after}[sys.argv[1]]())
+    sys.exit({"before": before, "after": after, "armed": armed}[sys.argv[1]]())
