@@ -267,7 +267,11 @@ jobs:
     # and nothing switches auto merge on. The label `review-waived` passes a
     # wrong finding; the label `hold` switches auto merge off (a label starts
     # CI again).
+    # The review waits for Harness: a harness change needs its label, and
+    # the label starts a second run, so only the run with the label (where
+    # Harness passes) reviews, instead of both runs reviewing at once.
     name: Claude review
+    needs: [harness]
     if: >-
       github.event_name == 'pull_request'
       && github.event.pull_request.head.repo.full_name == github.repository
