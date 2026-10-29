@@ -3,17 +3,12 @@
 # and a phone screen. Until the service's API lands they run against the mock
 # build, which holds the docs' example organization; then they move to the
 # compose image with seed data. The screenshots of the main screens are kept
-# as an artifact for people who read the product rather than run it.
+# as an artifact for people who read the product rather than run it. Pull
+# requests only: main gets the same code after the queue (ADR 0011).
 name: Web
 
 on:
   pull_request:
-    paths:
-      - "apps/web/**"
-      - "pnpm-lock.yaml"
-      - ".github/workflows/web.yml"
-  push:
-    branches: [main]
     paths:
       - "apps/web/**"
       - "pnpm-lock.yaml"

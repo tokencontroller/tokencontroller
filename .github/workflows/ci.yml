@@ -1,5 +1,11 @@
-# CI (ADR 0011): runs on every push and pull request. Only the review job
-# reads a secret, and it passes without one.
+# CI (ADR 0011), in tiers so no check runs twice for the same code:
+# - a pull request runs the fast checks: Harness, Rust, Dependencies,
+#   TypeScript, mutation testing of changed core code, and the Claude review;
+# - the merge queue (merge_group) runs Harness, Rust, TypeScript and the image
+#   with its end-to-end smoke test, on the code exactly as it will land;
+# - a push to main or a version tag only builds and publishes the image, since
+#   the queue tested that same code. A run by hand runs everything.
+# Only the review job reads a secret, and it passes without one.
 # The review job switches GitHub's auto merge on when the change is clean
 # (ADR 0013). GitHub then waits for every required check, puts the pull
 # request in the merge queue, where CI runs once more together with those
@@ -32,6 +38,7 @@ env:
 jobs:
   harness:
     name: Harness
+    if: github.event_name != 'push'
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -60,6 +67,7 @@ jobs:
 
   rust:
     name: Rust
+    if: github.event_name != 'push'
     runs-on: ubuntu-24.04
     services:
       postgres:
@@ -173,6 +181,8 @@ jobs:
 
   deny:
     name: Dependencies
+    # The queue adds no dependency the pull request did not have.
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
@@ -182,6 +192,7 @@ jobs:
 
   typescript:
     name: TypeScript
+    if: github.event_name != 'push'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
@@ -198,6 +209,10 @@ jobs:
 
   image:
     name: Image and end-to-end smoke test
+    # In the queue, not on every push to a pull request: the slowest job runs
+    # once, on the code that lands. On a pull request it reports skipped,
+    # which a required check accepts.
+    if: github.event_name == 'merge_group' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
@@ -215,7 +230,11 @@ jobs:
 
   publish:
     name: Publish the image
-    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
+    # On a push the checks above are skipped (the queue ran them); by hand,
+    # they must pass first.
+    if: >-
+      !cancelled() && !contains(needs.*.result, 'failure')
+      && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'))
     needs: [harness, rust, deny, typescript, image]
     runs-on: ubuntu-24.04
     permissions:
@@ -245,6 +264,8 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
+          # Main's cache is the one the queue's image builds can read.
+          cache-to: type=gha,mode=max
       - name: Summary
         run: |
           {
