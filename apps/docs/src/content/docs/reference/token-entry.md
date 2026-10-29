@@ -12,7 +12,7 @@ A token entry is one message, or one session with its messages, as the [token en
 | `agent_harness` | The product the agent ran on, such as `claude-code` or `support-desk`. Required. |
 | `agent_name` | A label for the agent, such as "review bot". Optional. |
 | `provider` | Who charges for the model calls: `anthropic`, `openai`, `google`, `aws_bedrock`, `gcp_vertex`, `azure_foundry`, `github`, `cursor` or `other`. Optional; without it, it follows from the model's name. Picks the price table rows and the bill. |
-| `model` | The model that did the work. Required. |
+| `model` | The model that did the work, such as `claude-sonnet-4-5`. `anthropic/claude-sonnet-4-5`, with the provider in front, is the same model. Required. |
 | `started_at`, `ended_at` | When the session started and ended. Required. |
 | `tokens` | Counts by kind: `input`, `output`, `cache_read`, `cache_write`. All four required; a missing kind is a count error. |
 | `reported_cost` | The agent's own cost figure in US dollars, as a number or a decimal string such as `"0.031"`. Optional. Stored as a fact about the message; the cost shown is counts × the [price table](/account/price-table). |

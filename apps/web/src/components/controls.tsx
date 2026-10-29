@@ -7,7 +7,7 @@ import { fromDecimal } from "@/lib/money";
 import { today } from "@/lib/today";
 
 /** An amount the service sent as a decimal string, in its currency. `null` shows why there is none. */
-export function Amount({ value, currency = "USD", signed = false, missing }: { value: string | null | undefined; currency?: string; signed?: boolean; missing?: string }) {
+export function Amount({ value, currency = "USD", signed = false, missing }: { value: string | null | undefined; currency?: string | undefined; signed?: boolean; missing?: string }) {
   return <MoneyText value={value === null || value === undefined ? null : fromDecimal(value, currency)} signed={signed} {...(missing ? { missing } : {})} />;
 }
 
