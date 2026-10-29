@@ -2488,3 +2488,74 @@ async fn migrations_that_left_the_repo_do_not_stop_the_service(pool: PgPool) {
         "{refused}"
     );
 }
+
+/// People from before cost model 2 had a role but no grant events, so an
+/// org manager saw an empty organization. The migration writes the grants
+/// their role gives, once.
+#[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
+async fn people_from_before_the_event_log_get_their_role_grants(pool: PgPool) {
+    const BACKFILL: &str =
+        include_str!("../migrations/20261029080000_events_role_grants_for_earlier_people.sql");
+    let app = app(&pool);
+    let (organization_id, org_manager) =
+        organization(&pool, "Kestrel Digital", "n.berger@kestrel.example")
+            .await
+            .unwrap();
+    sqlx::query("INSERT INTO people (organization_id, email, role, joined_at) VALUES ($1, 'j.wolf@kestrel.example', 'agent_manager', now())")
+        .bind(organization_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    // As the earlier model left them: no grant events at all.
+    sqlx::query("DELETE FROM events WHERE kind = 'grant'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let auth = Auth::Cookie(&org_manager);
+    let recorded = send(
+        &app,
+        Method::POST,
+        "/api/v1/token-entries",
+        auth,
+        Some(json!({
+            "agent_harness": "claude-code",
+            "model": "claude-opus-5",
+            "provider": "anthropic",
+            "started_at": "2026-10-06T09:00:00Z",
+            "ended_at": "2026-10-06T09:30:00Z",
+            "tokens": {"input": 12000, "output": 3000, "cache_read": 0, "cache_write": 0},
+            "session_id": "cloud-session-1",
+            "local_id": "cloud-local-1"
+        })),
+    )
+    .await
+    .unwrap();
+    assert_eq!(recorded.status, StatusCode::CREATED, "{}", recorded.text);
+    let sessions = "/api/v1/sessions?from=2026-10-01&to=2026-10-31";
+    let before = send(&app, Method::GET, sessions, auth, None).await.unwrap();
+    assert_eq!(before.json["sessions"], json!([]), "{}", before.text);
+
+    sqlx::raw_sql(BACKFILL).execute(&pool).await.unwrap();
+    sqlx::raw_sql(BACKFILL).execute(&pool).await.unwrap();
+
+    let after = send(&app, Method::GET, sessions, auth, None).await.unwrap();
+    assert_eq!(after.status, StatusCode::OK, "{}", after.text);
+    assert_eq!(after.json["sessions"][0]["session_id"], "cloud-session-1");
+    let grants: Vec<(String, String)> = sqlx::query_as(
+        "SELECT payload->'grant'->>'person', payload->'grant'->>'capability' FROM events WHERE kind = 'grant' ORDER BY 1, 2",
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    let org_manager_grants = [
+        "adjust", "approve", "assign", "cutoff", "grant", "plan", "view",
+    ]
+    .map(|capability| ("n.berger@kestrel.example".to_owned(), capability.to_owned()));
+    let mut expected = vec![("j.wolf@kestrel.example".to_owned(), "view".to_owned())];
+    expected.extend(org_manager_grants);
+    assert_eq!(grants, expected);
+    let listed = send(&app, Method::GET, "/api/v1/grants", auth, None)
+        .await
+        .unwrap();
+    assert_eq!(listed.status, StatusCode::OK, "{}", listed.text);
+}
