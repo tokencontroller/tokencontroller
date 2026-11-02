@@ -357,7 +357,6 @@ mod tests {
         assert_eq!(event.recorded_by, None);
         assert_eq!(event.record.kind(), "cutoff");
         let later = event
-            .clone()
             .superseding(EventId::new("c0").unwrap())
             .by(TagValue::new("mara").unwrap());
         assert_eq!(later.supersedes.as_ref().unwrap().as_str(), "c0");

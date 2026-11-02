@@ -497,7 +497,7 @@ mod tests {
         let message = Message {
             session_id: session.clone(),
             message_id: MessageId::new("m1").unwrap(),
-            person: mara.clone(),
+            person: mara,
             model: ModelRef::new("anthropic", "claude-sonnet-5"),
             tokens: Some(tokencontroller_core::TokenCounts {
                 input: 1_000_000,

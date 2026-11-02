@@ -82,7 +82,7 @@ impl MessageCost {
     /// message has no figure. The label says which.
     #[must_use]
     pub fn amount_or_zero(self, currency: Currency) -> Money {
-        self.amount.unwrap_or(Money::zero(currency))
+        self.amount.unwrap_or_else(|| Money::zero(currency))
     }
 }
 

@@ -51,15 +51,16 @@ impl Run {
                 .map(|value| value.trim().to_owned())
                 .filter(|value| !value.is_empty())
         };
-        let mut tags = Tags::new();
-        if let Some(text) = var("TC_TAGS") {
-            tags = Tags::parse(
-                text.split(',')
-                    .map(str::trim)
-                    .filter(|pair| !pair.is_empty()),
-            )
+        let mut tags = var("TC_TAGS")
+            .map(|text| {
+                Tags::parse(
+                    text.split(',')
+                        .map(str::trim)
+                        .filter(|pair| !pair.is_empty()),
+                )
+                .unwrap_or_default()
+            })
             .unwrap_or_default();
-        }
         for (name, variable) in [
             (TagName::feature(), "TC_FEATURE"),
             (TagName::project(), "TC_PROJECT"),
