@@ -240,7 +240,7 @@ mod tests {
             .collect();
         let read = tags(&pairs).unwrap();
         assert_eq!(tags_map(&read), pairs);
-        let mut bad = pairs.clone();
+        let mut bad = pairs;
         bad.insert("Team".to_owned(), "web".to_owned());
         assert!(tags(&bad).is_err());
         let filter = filter(Some(" client:acme , team=web")).unwrap();

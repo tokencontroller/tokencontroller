@@ -88,7 +88,7 @@ async fn kestrel(pool: &PgPool) -> TestResult<Kestrel> {
         .await?;
     let token = |prefix: &str, kind: &str| -> TestResult<(String, Vec<u8>, String)> {
         let secret = secret::generate(prefix, key())?;
-        Ok((secret.token.clone(), secret.hash.clone(), kind.to_owned()))
+        Ok((secret.token.clone(), secret.hash, kind.to_owned()))
     };
     let mut tokens = Vec::new();
     for (prefix, kind) in [

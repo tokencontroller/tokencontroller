@@ -192,7 +192,7 @@ mod tests {
         )
         .unwrap();
         let found = Sources {
-            files: vec![(Harness::ClaudeCode, file.clone())],
+            files: vec![(Harness::ClaudeCode, file)],
         };
         let mut store = Store::open(&dir.path().join("tc.sqlite")).unwrap();
         let first = pattern();
