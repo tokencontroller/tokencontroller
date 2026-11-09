@@ -578,6 +578,28 @@ async fn a_daily_message_limit_refuses_the_batch_that_would_pass_it(pool: PgPool
     let again = telemetry(vec![call("s1", "m1", at, 10)]).await.unwrap();
     assert_eq!(again.known_messages, 1);
 
+    // A session record for the same two calls supersedes their telemetry
+    // events: the same messages, so they do not count again.
+    let record = entry(&serde_json::json!({
+        "session_id": "s1",
+        "tokens": { "input": 20, "output": 0, "cache_read": 0, "cache_write": 0 },
+        "messages": [
+            { "message_id": "m1", "at": "2026-10-05T09:00:00Z", "tokens": { "input": 10, "output": 0, "cache_read": 0, "cache_write": 0 } },
+            { "message_id": "m2", "at": "2026-10-05T09:00:00Z", "tokens": { "input": 10, "output": 0, "cache_read": 0, "cache_write": 0 } },
+        ],
+    }))
+    .unwrap()
+    .check()
+    .unwrap();
+    store::store_entries(
+        &kestrel.state,
+        kestrel.organization_id,
+        &kestrel.mara,
+        vec![record],
+    )
+    .await
+    .unwrap();
+
     // One more fills the day; after that even a token entry is refused.
     telemetry(vec![call("s1", "m3", at, 10)]).await.unwrap();
     let full = telemetry(vec![call("s1", "m4", at, 10)]).await.unwrap_err();

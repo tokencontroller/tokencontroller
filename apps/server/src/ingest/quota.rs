@@ -25,11 +25,13 @@ pub(super) async fn limit(
         .await
 }
 
-/// How many message events the organization recorded since 00:00 UTC.
+/// How many messages the organization added since 00:00 UTC. A message
+/// event that supersedes the earlier record of the same call is not a new
+/// message, so it does not count.
 async fn messages_today(db: &sqlx::PgPool, organization_id: Uuid) -> Result<i64, ApiError> {
     Ok(sqlx::query_scalar!(
         r#"SELECT count(*) AS "count!" FROM events
-           WHERE organization_id = $1 AND kind = 'message'
+           WHERE organization_id = $1 AND kind = 'message' AND supersedes IS NULL
              AND recorded_at >= date_trunc('day', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'"#,
         organization_id
     )

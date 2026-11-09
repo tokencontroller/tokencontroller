@@ -215,6 +215,16 @@ fn answer(fold: &Fold, session: &SessionId, messages: usize, tags: &Tags) -> Sto
     }
 }
 
+/// How many of `events` are messages new to the log: a message that
+/// supersedes the earlier record of the same call is the same message, so
+/// it does not count against the daily limit.
+fn new_messages(events: &[Event]) -> usize {
+    events
+        .iter()
+        .filter(|event| matches!(event.record, Record::Message(_)) && event.supersedes.is_none())
+        .count()
+}
+
 /// Records the local ids of entries, so sending one again adds nothing.
 async fn claim_local_ids(
     db: &sqlx::PgPool,
@@ -310,7 +320,13 @@ pub async fn store_entries(
         events: log.events.clone(),
     }
     .fold(now.saturating_add(time::Duration::days(1)))?;
-    quota::check(state, organization_id, limit.as_ref(), rows.len()).await?;
+    quota::check(
+        state,
+        organization_id,
+        limit.as_ref(),
+        new_messages(&new_events),
+    )
+    .await?;
     let mut tx = state.db.begin().await?;
     for event in &new_events {
         events::append(&mut tx, organization_id, event).await?;
@@ -472,7 +488,13 @@ pub async fn store_telemetry(
         return Ok(outcome);
     }
     log.check_with(&new_events)?;
-    quota::check(state, organization_id, limit.as_ref(), rows.len()).await?;
+    quota::check(
+        state,
+        organization_id,
+        limit.as_ref(),
+        new_messages(&new_events),
+    )
+    .await?;
     let mut tx = state.db.begin().await?;
     for event in &new_events {
         events::append(&mut tx, organization_id, event).await?;
