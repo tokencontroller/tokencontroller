@@ -1,6 +1,6 @@
 # Golden cases
 
-Acceptance cases for the accounting core (cost model 2), one folder per scenario. Each folder is an event log written as CSV files, one file per kind of event, plus the queries to ask of it, and holds the answers the fold must give. `crates/core/tests/golden.rs` runs every folder and compares `answers.csv` exactly. Existing cases only change with the maintainer's `harness-change` label (ADR 0013); new cases need none.
+Acceptance cases for the accounting core (cost model 2), one folder per scenario. Each folder is an event log written as CSV files, one file per kind of event, plus the queries to ask of it, and holds the answers the fold must give. `crates/core/tests/golden.rs` runs every folder and compares `answers.csv` exactly. Existing cases only change with the `harness-change` label (ADR 0013); new cases need none.
 
 Each case's `README.md` tells its story with its numbers. `worked-month` is the worked month of the spec.
 

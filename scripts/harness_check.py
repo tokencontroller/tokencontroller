@@ -16,8 +16,10 @@
 5. The number of tests never drops compared with the base branch, except
    once for a pull request listed in `TEST_DROP_ALLOWANCES`.
 6. Harness files that already exist on the base branch only change with the
-   `harness-change` label set by the maintainer. Adding new ones (a new golden
-   case, a new workflow) needs no label.
+   `harness-change` label, set by the maintainer or by Claude (a session acts
+   on GitHub as the maintainer; the Claude GitHub App has its own login). The
+   label marks the change so the maintainer can review it afterwards. Adding
+   new ones (a new golden case, a new workflow) needs no label.
 
 With --tests-ran it checks one more thing after the test run: every test in
 the code ran, so a test file left out of the build cannot count as a test.
@@ -43,6 +45,9 @@ from pathlib import Path, PurePosixPath
 
 MAINTAINER = "jancbeck"
 LABEL = "harness-change"
+# Who may set the label: the maintainer (Claude sessions act as him) and the
+# Claude GitHub App. Anyone else, such as an outside contributor, may not.
+LABEL_SETTERS = (MAINTAINER, "claude[bot]")
 
 # Files and folders owned by the maintainer (ADR 0003).
 HARNESS_PATHS = (
@@ -63,7 +68,7 @@ CARGO_HARNESS_KEYS = (("workspace", "lints"), ("profile",))
 # One-time allowances for check 5. Each is for one pull request that moves
 # code out of this repo together with its tests: it names a file that pull
 # request deletes and how many tests may leave with the code. It applies only
-# with the harness-change label from the maintainer and only while the base
+# with the harness-change label (see LABEL_SETTERS) and only while the base
 # branch still holds that file, so it ends when the pull request merges.
 TEST_DROP_ALLOWANCES = (
     # Billing and customer relations leave for the hosted service (ADR 0020).
@@ -476,12 +481,12 @@ def main() -> int:
         golden_before = golden_cases_at(merge_base)
         approved_by = os.environ.get("HARNESS_LABEL_BY", "")
         if tests_now < tests_before:
-            allowed = test_drop_allowed(merge_base) if approved_by == MAINTAINER else 0
+            allowed = test_drop_allowed(merge_base) if approved_by in LABEL_SETTERS else 0
             if tests_before - tests_now <= allowed:
                 summary.append(
                     f"The number of tests dropped from {tests_before} to {tests_now}, "
                     f"within this pull request's one-time allowance of {allowed}, "
-                    f"approved by {MAINTAINER}."
+                    f"labeled by {approved_by}."
                 )
             else:
                 failures.append(
@@ -493,13 +498,14 @@ def main() -> int:
             )
 
         changed = changed_harness_files(merge_base)
-        if changed and approved_by != MAINTAINER:
+        if changed and approved_by not in LABEL_SETTERS:
             failures.append(
-                f"Harness files changed; this needs the {LABEL!r} label from {MAINTAINER}:\n  "
+                f"Harness files changed; this needs the {LABEL!r} label from "
+                f"{' or '.join(LABEL_SETTERS)}:\n  "
                 + "\n  ".join(changed)
             )
         elif changed:
-            summary.append(f"Harness change approved by {MAINTAINER}: {', '.join(changed)}.")
+            summary.append(f"Harness change labeled by {approved_by}: {', '.join(changed)}.")
         else:
             summary.append("No harness file was loosened.")
 
