@@ -120,11 +120,14 @@ def before() -> int:
     if verdict in {"clean", "skipped", "unfinished"}:
         print(f"This commit was reviewed already: {verdict}")
         return arm(verdict)
+    # The checkout is shallow, so `git merge-base` finds nothing once main has
+    # moved on, and a diff against main's tip makes main's newer commits look
+    # like the pull request takes them out. GitHub knows the real merge base.
     base = pr["base"]["sha"]
-    subprocess.run(["git", "fetch", "--no-tags", "--depth=1", "origin", base], check=True)
-    merge_base = subprocess.run(
-        ["git", "merge-base", base, SHA], capture_output=True, text=True
-    ).stdout.strip() or base
+    merge_base = gh(
+        "api", f"repos/{REPO}/compare/{base}...{SHA}", "--jq", ".merge_base_commit.sha"
+    ).strip()
+    subprocess.run(["git", "fetch", "--no-tags", "--depth=1", "origin", merge_base], check=True)
     diff = subprocess.run(
         ["git", "diff", "--no-color", merge_base, SHA, "--", ".", *EXCLUDED],
         check=True, capture_output=True, text=True,
