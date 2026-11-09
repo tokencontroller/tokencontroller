@@ -282,6 +282,51 @@ async fn the_same_local_id_adds_nothing(pool: PgPool) {
 }
 
 #[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
+async fn a_refused_batch_leaves_its_local_ids_free_for_the_next_try(pool: PgPool) {
+    let kestrel = kestrel(&pool).await.unwrap();
+    // The batch is refused as a whole: the second entry names a tag the
+    // organization has not. The first entry carries a local id.
+    let good = entry(&serde_json::json!({ "local_id": "desk:42" })).unwrap();
+    let bad =
+        entry(&serde_json::json!({ "local_id": "desk:43", "tags": { "guild": "rust" } })).unwrap();
+    assert!(submit(&kestrel, vec![good, bad]).await.is_err());
+    let messages: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM events WHERE kind = 'message'")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(messages, 0, "nothing of a refused batch is stored");
+
+    // Sent again without the mistake, both entries are stored: the refused
+    // batch did not use up their local ids.
+    let good = entry(&serde_json::json!({ "local_id": "desk:42" })).unwrap();
+    let fixed = entry(&serde_json::json!({ "local_id": "desk:43" })).unwrap();
+    let stored = submit(&kestrel, vec![good, fixed]).await.unwrap();
+    assert_eq!(stored.len(), 2);
+    let messages: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM events WHERE kind = 'message'")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(messages, 2);
+
+    // And a third time, the same two add nothing, nor does a batch that
+    // carries one new id twice: its first copy is stored, the second adds
+    // nothing.
+    let good = entry(&serde_json::json!({ "local_id": "desk:42" })).unwrap();
+    let fixed = entry(&serde_json::json!({ "local_id": "desk:43" })).unwrap();
+    submit(&kestrel, vec![good, fixed]).await.unwrap();
+    let twice = entry(&serde_json::json!({ "local_id": "desk:44" })).unwrap();
+    let again = entry(&serde_json::json!({ "local_id": "desk:44" })).unwrap();
+    let stored = submit(&kestrel, vec![twice, again]).await.unwrap();
+    assert_eq!(stored.len(), 2);
+    assert_eq!(stored[0].session_id, stored[1].session_id);
+    let messages: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM events WHERE kind = 'message'")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(messages, 3);
+}
+
+#[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
 async fn a_split_divides_the_session_by_fraction(pool: PgPool) {
     let kestrel = kestrel(&pool).await.unwrap();
     let sent = entry(&serde_json::json!({
@@ -515,4 +560,127 @@ async fn the_seed_is_the_worked_month_and_loads_twice(pool: PgPool) {
         fold.cost(&Filter(shop), march).unwrap().amount,
         usd("800.00")
     );
+}
+
+/// Hooks a shared service could add: three messages a day.
+struct ThreeADay;
+
+impl tokencontroller_server::hooks::ServiceHooks for ThreeADay {
+    fn daily_message_limit<'a>(
+        &'a self,
+        _state: &'a AppState,
+        _organization_id: Uuid,
+    ) -> tokencontroller_server::hooks::HookFuture<
+        'a,
+        Option<tokencontroller_server::hooks::DailyMessageLimit>,
+    > {
+        Box::pin(async {
+            Ok(Some(tokencontroller_server::hooks::DailyMessageLimit {
+                max: 3,
+                message: "This plan takes in 3 messages a day.".to_owned(),
+            }))
+        })
+    }
+}
+
+fn too_many(error: &tokencontroller_server::error::ApiError) -> bool {
+    error.status() == axum::http::StatusCode::TOO_MANY_REQUESTS
+}
+
+#[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
+async fn a_daily_message_limit_refuses_the_batch_that_would_pass_it(pool: PgPool) {
+    let mut kestrel = kestrel(&pool).await.unwrap();
+    kestrel.state = kestrel.state.clone().with_hooks(Arc::new(ThreeADay));
+    let at = datetime!(2026-10-05 09:00 UTC);
+    let telemetry = |calls: Vec<TelemetryMessage>| {
+        store::store_telemetry(
+            &kestrel.state,
+            kestrel.organization_id,
+            &kestrel.mara,
+            calls,
+        )
+    };
+
+    // Two of three: stored.
+    let first = telemetry(vec![call("s1", "m1", at, 10), call("s1", "m2", at, 10)])
+        .await
+        .unwrap();
+    assert_eq!(first.new_messages, 2);
+
+    // Two more would make four: the whole batch is refused, nothing stored.
+    let refused = telemetry(vec![call("s1", "m3", at, 10), call("s1", "m4", at, 10)])
+        .await
+        .unwrap_err();
+    assert!(too_many(&refused), "{refused}");
+    assert!(
+        refused.to_string().contains("3 messages a day"),
+        "{refused}"
+    );
+    assert!(refused.to_string().contains("00:00 UTC"), "{refused}");
+    assert_eq!(message_events(&pool, "s1").await.unwrap(), 2);
+
+    // Calls already on record add nothing, so they pass below the limit.
+    let again = telemetry(vec![call("s1", "m1", at, 10)]).await.unwrap();
+    assert_eq!(again.known_messages, 1);
+
+    // A session record for the same two calls supersedes their telemetry
+    // events: the same messages, so they do not count again.
+    let record = entry(&serde_json::json!({
+        "session_id": "s1",
+        "tokens": { "input": 20, "output": 0, "cache_read": 0, "cache_write": 0 },
+        "messages": [
+            { "message_id": "m1", "at": "2026-10-05T09:00:00Z", "tokens": { "input": 10, "output": 0, "cache_read": 0, "cache_write": 0 } },
+            { "message_id": "m2", "at": "2026-10-05T09:00:00Z", "tokens": { "input": 10, "output": 0, "cache_read": 0, "cache_write": 0 } },
+        ],
+    }))
+    .unwrap()
+    .check()
+    .unwrap();
+    store::store_entries(
+        &kestrel.state,
+        kestrel.organization_id,
+        &kestrel.mara,
+        vec![record],
+    )
+    .await
+    .unwrap();
+
+    // One more fills the day; after that even a token entry is refused.
+    telemetry(vec![call("s1", "m3", at, 10)]).await.unwrap();
+    let full = telemetry(vec![call("s1", "m4", at, 10)]).await.unwrap_err();
+    assert!(too_many(&full), "{full}");
+    let entry = entry(&serde_json::json!({ "local_id": "desk:1" }))
+        .unwrap()
+        .check()
+        .unwrap();
+    let refused_entry = store::store_entries(
+        &kestrel.state,
+        kestrel.organization_id,
+        &kestrel.mara,
+        vec![entry],
+    )
+    .await
+    .unwrap_err();
+    assert!(too_many(&refused_entry), "{refused_entry}");
+
+    // Messages recorded on an earlier day do not count against today.
+    sqlx::query(
+        "UPDATE events SET recorded_at = recorded_at - interval '1 day' WHERE kind = 'message'",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    let next_day = telemetry(vec![call("s1", "m4", at, 10)]).await.unwrap();
+    assert_eq!(next_day.new_messages, 1);
+    assert_eq!(message_events(&pool, "s1").await.unwrap(), 4);
+
+    // The open build has no limit.
+    let open = AppState::new(pool.clone(), config(), Arc::new(NoExtension));
+    let calls = (5..10)
+        .map(|n| call("s1", &format!("m{n}"), at, 10))
+        .collect();
+    let stored = store::store_telemetry(&open, kestrel.organization_id, &kestrel.mara, calls)
+        .await
+        .unwrap();
+    assert_eq!(stored.new_messages, 5);
 }

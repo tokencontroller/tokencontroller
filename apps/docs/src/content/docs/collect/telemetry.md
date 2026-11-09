@@ -103,3 +103,5 @@ A resource attribute is a [signal](/attribute/rules#signals), not a tag: a rule 
 Each telemetry event is one message: token counts by kind, model, person, repository and the ids of the session and message. It does not see the branch, the pull request or a summary. Organizations that only push telemetry get cost on projects, by repository, and nobody submits anything. Adding the [mod](/collect/claude-code) or the [CLI](/collect/cli) puts cost on features, with the person's own check.
 
 When telemetry and a session file describe the same message, by session id and message id, they are one record, counted once. For Claude Code that message id is the API request id (`req_…`): telemetry sends it with every call, and the CLI submits it from the session file.
+
+On the hosted service, an organization takes in a limited number of [messages per day](/plans#messages). Above it, the endpoint answers `429` and the batch is not stored.

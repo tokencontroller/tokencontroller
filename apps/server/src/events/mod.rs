@@ -72,6 +72,20 @@ impl Log {
         })
     }
 
+    /// Reads only an organization's grants and their reversals: enough
+    /// for [`crate::grants::role_of`], without the whole log. Fold the full
+    /// log for anything else.
+    ///
+    /// # Errors
+    ///
+    /// Fails if a query fails or a stored event cannot be read back.
+    pub async fn load_grants(db: &sqlx::PgPool, organization_id: Uuid) -> Result<Self, ApiError> {
+        Ok(Self {
+            organization_id,
+            events: read_grants(db, organization_id).await?,
+        })
+    }
+
     /// The log without the managed price table rows, as the raw export
     /// writes it: the organization's own events alone.
     pub fn own(&self) -> impl Iterator<Item = &Event> {
@@ -186,39 +200,79 @@ pub async fn write(state: &AppState, log: &Log, new: &[Event]) -> Result<(), Api
 }
 
 async fn read_all(db: &sqlx::PgPool, organization_id: Uuid) -> Result<Vec<Event>, ApiError> {
-    let rows = sqlx::query!(
+    sqlx::query!(
         "SELECT id, recorded_at, recorded_by, supersedes, payload
          FROM events WHERE organization_id = $1 ORDER BY recorded_at, id",
         organization_id
     )
     .fetch_all(db)
-    .await?;
-    rows.into_iter()
-        .map(|row| {
-            let broken = |what: &str| {
-                ApiError::Internal(anyhow::anyhow!("event {} cannot be read: {what}", row.id))
-            };
-            let record: Record =
-                serde_json::from_value(row.payload).map_err(|error| broken(&error.to_string()))?;
-            Ok(Event {
-                id: EventId::new(&row.id).map_err(|error| broken(&error.to_string()))?,
-                recorded_at: row.recorded_at,
-                supersedes: row
-                    .supersedes
-                    .as_deref()
-                    .map(EventId::new)
-                    .transpose()
-                    .map_err(|error| broken(&error.to_string()))?,
-                recorded_by: row
-                    .recorded_by
-                    .as_deref()
-                    .map(TagValue::new)
-                    .transpose()
-                    .map_err(|error| broken(&error.to_string()))?,
-                record,
-            })
-        })
-        .collect()
+    .await?
+    .into_iter()
+    .map(|row| {
+        stored_event(
+            &row.id,
+            row.recorded_at,
+            row.recorded_by.as_deref(),
+            row.supersedes.as_deref(),
+            row.payload,
+        )
+    })
+    .collect()
+}
+
+/// An organization's grants and the reversals of grants, in the order
+/// recorded: all a person's role is read from.
+async fn read_grants(db: &sqlx::PgPool, organization_id: Uuid) -> Result<Vec<Event>, ApiError> {
+    sqlx::query!(
+        "SELECT id, recorded_at, recorded_by, supersedes, payload
+         FROM events
+         WHERE organization_id = $1
+           AND (kind = 'grant'
+                OR (kind = 'reversal' AND starts_with(payload->>'reversal', $2)))
+         ORDER BY recorded_at, id",
+        organization_id,
+        prefix::GRANT
+    )
+    .fetch_all(db)
+    .await?
+    .into_iter()
+    .map(|row| {
+        stored_event(
+            &row.id,
+            row.recorded_at,
+            row.recorded_by.as_deref(),
+            row.supersedes.as_deref(),
+            row.payload,
+        )
+    })
+    .collect()
+}
+
+/// An event as a row of `events` holds it.
+fn stored_event(
+    id: &str,
+    recorded_at: OffsetDateTime,
+    recorded_by: Option<&str>,
+    supersedes: Option<&str>,
+    payload: serde_json::Value,
+) -> Result<Event, ApiError> {
+    let broken =
+        |what: &str| ApiError::Internal(anyhow::anyhow!("event {id} cannot be read: {what}"));
+    let record: Record =
+        serde_json::from_value(payload).map_err(|error| broken(&error.to_string()))?;
+    Ok(Event {
+        id: EventId::new(id).map_err(|error| broken(&error.to_string()))?,
+        recorded_at,
+        supersedes: supersedes
+            .map(EventId::new)
+            .transpose()
+            .map_err(|error| broken(&error.to_string()))?,
+        recorded_by: recorded_by
+            .map(TagValue::new)
+            .transpose()
+            .map_err(|error| broken(&error.to_string()))?,
+        record,
+    })
 }
 
 /// The managed price table rows as events: the rows of the file

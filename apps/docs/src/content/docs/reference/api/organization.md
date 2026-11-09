@@ -51,7 +51,7 @@ POST /api/v1/members
 { "name": "Mara Lind", "email": "mara@kestrel.example", "role": "agent_manager", "attributes": { "team": "web" } }
 ```
 
-`role` is `agent_manager` (the default), `people_manager` or `org_manager`; a people manager also takes `filters`, the filters their role is granted on, such as `[{"team": "web"}]`. `201`:
+`role` is `agent_manager` (the default), `people_manager` or `org_manager`; a people manager also takes `filters`, at least one, the filters their role is granted on, such as `[{"team": "web"}]`. `201`:
 
 ```json
 {

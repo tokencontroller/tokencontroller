@@ -76,7 +76,8 @@ pub struct NewMember {
     #[serde(default)]
     #[schema(value_type = Option<TagsSchema>)]
     pub attributes: Option<BTreeMap<String, String>>,
-    /// For a people manager: the filters to grant the role on.
+    /// For a people manager: the filters to grant the role on, at least
+    /// one.
     #[serde(default)]
     #[schema(value_type = Vec<TagsSchema>)]
     pub filters: Vec<BTreeMap<String, String>>,
@@ -102,8 +103,8 @@ pub struct MemberChange {
     pub email: Option<String>,
     /// A new role replaces the grants of the old one.
     pub role: Option<Role>,
-    /// For a people manager: the filters to grant the role on. Replaces
-    /// the earlier filters.
+    /// For a people manager: the filters to grant the role on, at least
+    /// one. Replaces the earlier filters.
     #[serde(default)]
     #[schema(value_type = Option<Vec<TagsSchema>>)]
     pub filters: Option<Vec<BTreeMap<String, String>>>,
@@ -124,7 +125,7 @@ pub(super) async fn list(
     include_removed: bool,
 ) -> Result<Vec<MemberView>, ApiError> {
     let rows = sqlx::query!(
-        r#"SELECT id, email, name, role, invited_at, joined_at, removed_at
+        r#"SELECT id, email, name, invited_at, joined_at, removed_at
            FROM people
            WHERE organization_id = $1
              AND ($2::uuid IS NULL OR id = $2)
@@ -154,12 +155,9 @@ pub(super) async fn list(
                     .iter()
                     .map(json::tags_map)
                     .collect(),
+                role: grants::role_of(&log, row.id),
                 email: row.email,
                 name: row.name,
-                role: row
-                    .role
-                    .parse()
-                    .map_err(|error: super::UnknownRole| ApiError::Internal(error.into()))?,
                 status,
                 invited_at: row.invited_at,
                 joined_at: row.joined_at,
@@ -233,6 +231,14 @@ async fn check_filters(
     if role != Role::PeopleManager && !filters.is_empty() {
         return Err(ApiError::BadRequest(
             "Only a people manager is granted filters. An org manager holds everything; an agent manager their own messages.".to_owned(),
+        ));
+    }
+    // The role is read back from the grants it writes, and a people
+    // manager's grants are on their filters.
+    if role == Role::PeopleManager && filters.is_empty() {
+        return Err(ApiError::BadRequest(
+            "A people manager needs at least one filter, such as team: web or client: acme."
+                .to_owned(),
         ));
     }
     let mut checked: Vec<Filter> = Vec::with_capacity(filters.len());
@@ -487,7 +493,7 @@ async fn send_invite(
     invite_url: &str,
 ) -> Result<(), ApiError> {
     let row = sqlx::query!(
-        r#"SELECT p.email, p.role, o.name AS organization,
+        r#"SELECT p.email, p.organization_id, o.name AS organization,
                   (SELECT coalesce(nullif(i.name, ''), i.email) FROM people i WHERE i.id = $2) AS "inviter!"
            FROM people p JOIN organizations o ON o.id = p.organization_id
            WHERE p.id = $1"#,
@@ -496,11 +502,8 @@ async fn send_invite(
     )
     .fetch_one(&state.db)
     .await?;
-    let role = row
-        .role
-        .parse::<Role>()
-        .map_err(|error| ApiError::Internal(error.into()))?
-        .to_string();
+    let log = Log::load_grants(&state.db, row.organization_id).await?;
+    let role = grants::role_of(&log, person_id).to_string();
     let logo = mail::logo_url(&state.config.public_url);
     let values = [
         ("logo_url", logo.as_str()),
@@ -571,7 +574,8 @@ pub(super) async fn update_member(
         Some(filters) => {
             Some(check_filters(&state, &fold, member.organization_id, role, filters).await?)
         }
-        None if regrant => Some(
+        // A people manager keeps their filters; any other role has none.
+        None if regrant && role == Role::PeopleManager => Some(
             check_filters(
                 &state,
                 &fold,
@@ -579,9 +583,9 @@ pub(super) async fn update_member(
                 role,
                 &current.filters,
             )
-            .await
-            .unwrap_or_default(),
+            .await?,
         ),
+        None if regrant => Some(Vec::new()),
         None => None,
     };
     let mut tx = state.db.begin().await?;
@@ -694,15 +698,32 @@ pub(super) async fn keep_an_org_manager(
     organization_id: Uuid,
     leaving: Uuid,
 ) -> Result<(), ApiError> {
-    let others = sqlx::query_scalar!(
-        r#"SELECT count(*) AS "count!" FROM people
-           WHERE organization_id = $1 AND role = 'org_manager' AND removed_at IS NULL AND id <> $2"#,
-        organization_id,
-        leaving
+    let log = Log::load_grants(db, organization_id).await?;
+    require_an_org_manager(db, &log, Some(leaving)).await
+}
+
+/// Refuses a log in which no member who stays is an org manager: the
+/// check before a role grant is reversed, or someone leaves.
+///
+/// # Errors
+///
+/// [`ApiError::Conflict`] when nobody but `leaving` would be an org manager.
+pub(crate) async fn require_an_org_manager(
+    db: &PgPool,
+    log: &Log,
+    leaving: Option<Uuid>,
+) -> Result<(), ApiError> {
+    let staying = sqlx::query_scalar!(
+        "SELECT id FROM people WHERE organization_id = $1 AND removed_at IS NULL",
+        log.organization_id
     )
-    .fetch_one(db)
+    .fetch_all(db)
     .await?;
-    if others == 0 {
+    if !staying
+        .iter()
+        .filter(|id| Some(**id) != leaving)
+        .any(|id| grants::role_of(log, *id) == Role::OrgManager)
+    {
         return Err(ApiError::Conflict(
             "The organization needs at least one org manager. Make someone else org manager first."
                 .to_owned(),

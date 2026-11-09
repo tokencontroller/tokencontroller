@@ -7,6 +7,13 @@ all-features = true
 [advisories]
 version = 2
 yanked = "deny"
+ignore = [
+    # The CLI reads SQLite files it wrote itself, in the person's home; the
+    # flaw needs a crafted -wal file next to one a less trusted party put
+    # there. The fixed libsqlite3-sys 0.39 cannot be taken until sqlx allows
+    # it (sqlx-sqlite 0.9.0 wants < 0.38, and Cargo links one sqlite3 only).
+    { id = "RUSTSEC-2026-0459", reason = "rusqlite's bundled SQLite in the CLI only opens files the CLI wrote; waiting for sqlx to allow libsqlite3-sys 0.39" },
+]
 
 [licenses]
 version = 2

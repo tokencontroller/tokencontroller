@@ -56,6 +56,7 @@ pub enum StoredEntries {
     responses(
         (status = CREATED, body = StoredEntries),
         (status = BAD_REQUEST, description = "A token entry breaks the schema; nothing was stored", body = ErrorBody),
+        (status = TOO_MANY_REQUESTS, description = "The organization reached its daily message limit; nothing was stored", body = ErrorBody),
     ),
 )]
 pub(super) async fn create_token_entries(
@@ -164,6 +165,7 @@ pub(super) async fn preview_csv(
     responses(
         (status = CREATED, body = CsvImported),
         (status = BAD_REQUEST, description = "A row cannot be read; nothing was saved", body = ErrorBody),
+        (status = TOO_MANY_REQUESTS, description = "The organization reached its daily message limit; nothing was stored", body = ErrorBody),
     ),
 )]
 pub(super) async fn import_csv(
@@ -296,6 +298,7 @@ async fn receive(
         (status = BAD_REQUEST, body = ErrorBody),
         (status = PAYLOAD_TOO_LARGE, body = ErrorBody),
         (status = UNSUPPORTED_MEDIA_TYPE, body = ErrorBody),
+        (status = TOO_MANY_REQUESTS, description = "The organization reached its daily message limit; nothing was stored", body = ErrorBody),
     ),
 )]
 pub(super) async fn otlp_logs(
@@ -319,6 +322,7 @@ pub(super) async fn otlp_logs(
         (status = BAD_REQUEST, body = ErrorBody),
         (status = PAYLOAD_TOO_LARGE, body = ErrorBody),
         (status = UNSUPPORTED_MEDIA_TYPE, body = ErrorBody),
+        (status = TOO_MANY_REQUESTS, description = "The organization reached its daily message limit; nothing was stored", body = ErrorBody),
     ),
 )]
 pub(super) async fn otlp_traces(

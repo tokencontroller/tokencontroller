@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT p.email, p.role, o.name AS organization,\n                  (SELECT coalesce(nullif(i.name, ''), i.email) FROM people i WHERE i.id = $2) AS \"inviter!\"\n           FROM people p JOIN organizations o ON o.id = p.organization_id\n           WHERE p.id = $1",
+  "query": "SELECT p.email, p.organization_id, o.name AS organization,\n                  (SELECT coalesce(nullif(i.name, ''), i.email) FROM people i WHERE i.id = $2) AS \"inviter!\"\n           FROM people p JOIN organizations o ON o.id = p.organization_id\n           WHERE p.id = $1",
   "describe": {
     "columns": [
       {
@@ -16,12 +16,12 @@
       },
       {
         "ordinal": 1,
-        "name": "role",
-        "type_info": "Text",
+        "name": "organization_id",
+        "type_info": "Uuid",
         "origin": {
           "Table": {
             "table": "people",
-            "name": "role"
+            "name": "organization_id"
           }
         }
       },
@@ -56,5 +56,5 @@
       null
     ]
   },
-  "hash": "56c51d71e06a8305494481ac59e9b986ae3f53a155c750cd237f82fc0a4bbeb9"
+  "hash": "696ef56689bc110eb5edfb5223cc96ca1327301da91410d822b1b6fe08198de4"
 }
