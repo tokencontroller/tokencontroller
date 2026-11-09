@@ -30,6 +30,10 @@ use crate::{AppState, Config};
 pub const LINK_MINUTES: i64 = 15;
 /// How many links one address may ask for within [`LINK_MINUTES`].
 const LINKS_PER_WINDOW: i64 = 5;
+/// How many mails the service sends per hour to addresses that belong to no
+/// member. Anyone can ask for a link for any address, so without a cap the
+/// service would mail whoever a stranger names, as often as they like.
+pub const NEW_ADDRESS_MAILS_PER_HOUR: i64 = 30;
 /// How long a browser stays signed in.
 const BROWSER_SESSION_DAYS: i64 = 30;
 /// How long a local tool such as the CLI stays signed in.
@@ -116,6 +120,17 @@ pub(super) async fn request_link(
     let allowed = member
         .as_ref()
         .is_some_and(|member| domain_allowed(email, &member.sign_in_domains));
+    // Above the hourly cap, an address that belongs to nobody gets the same
+    // 202 and no mail, so the cap tells nobody whether an address is a
+    // member.
+    if member.is_none()
+        && new_address_mails_this_hour(&state.db).await? >= NEW_ADDRESS_MAILS_PER_HOUR
+    {
+        tracing::warn!(
+            "sign-in mail to a new address not sent: {NEW_ADDRESS_MAILS_PER_HOUR} an hour were sent already"
+        );
+        return Ok(LinkSent { poll_token: None });
+    }
     // A sign-up from an address that is already a member is a sign-in.
     let sign_up = if member.is_some() { None } else { sign_up };
 
@@ -152,6 +167,20 @@ pub(super) async fn request_link(
         send_quietly(&state.db, &state.config, mail).await;
     }
     Ok(LinkSent { poll_token })
+}
+
+/// How many links were asked for in the last hour for addresses that
+/// belong to no member: each of them got a mail, or counts against the cap.
+async fn new_address_mails_this_hour(db: &PgPool) -> Result<i64, ApiError> {
+    Ok(sqlx::query_scalar!(
+        r#"SELECT count(*) AS "count!" FROM sign_in_links l
+           WHERE l.created_at > now() - interval '1 hour'
+             AND NOT EXISTS (
+                 SELECT 1 FROM people p WHERE p.email = l.email AND p.removed_at IS NULL
+             )"#
+    )
+    .fetch_one(db)
+    .await?)
 }
 
 /// A link that was stored, with the secrets to hand out.

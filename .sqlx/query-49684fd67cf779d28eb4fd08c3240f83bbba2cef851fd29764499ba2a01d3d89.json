@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT count(*) AS \"count!\" FROM sign_in_links l\n           WHERE l.created_at > now() - interval '1 hour'\n             AND NOT EXISTS (\n                 SELECT 1 FROM people p WHERE p.email = l.email AND p.removed_at IS NULL\n             )",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "49684fd67cf779d28eb4fd08c3240f83bbba2cef851fd29764499ba2a01d3d89"
+}
