@@ -78,7 +78,8 @@ pub struct Caller {
     pub person_id: Uuid,
     /// That person's email: how the log names them, the tag value `person`.
     pub email: String,
-    /// That person's role. A read token sees what this role sees.
+    /// That person's role, read from the grants their role gave them in
+    /// the log. A read token sees what this role sees.
     pub role: Role,
     /// Whether that person has left the organization. Only service and
     /// organization tokens of people who left still work.
@@ -298,7 +299,7 @@ async fn session(state: &AppState, token: &str, from_cookie: bool) -> Result<Cal
           AND s.expires_at > now()
           AND p.id = s.person_id
           AND p.removed_at IS NULL
-        RETURNING p.id, p.organization_id, p.email, p.role, s.client
+        RETURNING p.id, p.organization_id, p.email, s.client
         "#,
         hash
     )
@@ -316,7 +317,7 @@ async fn session(state: &AppState, token: &str, from_cookie: bool) -> Result<Cal
         organization_id: row.organization_id,
         person_id: row.id,
         email: row.email,
-        role: parse_role(&row.role)?,
+        role: role_of(state, row.organization_id, row.id).await?,
         person_removed: false,
         credential,
     })
@@ -333,7 +334,7 @@ async fn api_token(state: &AppState, token: &str, kind: &str) -> Result<Caller, 
           AND t.kind = $2
           AND t.revoked_at IS NULL
           AND p.id = t.person_id
-        RETURNING t.id, t.organization_id, p.id AS person_id, p.email, p.role,
+        RETURNING t.id, t.organization_id, p.id AS person_id, p.email,
                   p.removed_at IS NOT NULL AS "person_removed!"
         "#,
         hash,
@@ -355,15 +356,20 @@ async fn api_token(state: &AppState, token: &str, kind: &str) -> Result<Caller, 
         organization_id: row.organization_id,
         person_id: row.person_id,
         email: row.email,
-        role: parse_role(&row.role)?,
+        role: role_of(state, row.organization_id, row.person_id).await?,
         person_removed: row.person_removed,
         credential,
     })
 }
 
-fn parse_role(role: &str) -> Result<Role, ApiError> {
-    role.parse()
-        .map_err(|error: crate::organizations::UnknownRole| ApiError::Internal(error.into()))
+/// A person's role, from the grants their role gave them in the log.
+async fn role_of(
+    state: &AppState,
+    organization_id: Uuid,
+    person_id: Uuid,
+) -> Result<Role, ApiError> {
+    let log = crate::events::Log::load_grants(&state.db, organization_id).await?;
+    Ok(crate::grants::role_of(&log, person_id))
 }
 
 #[cfg(test)]

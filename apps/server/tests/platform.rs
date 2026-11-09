@@ -1089,14 +1089,57 @@ async fn the_last_org_manager_stays(pool: PgPool) {
     .unwrap();
     assert_eq!(remove.status, StatusCode::CONFLICT);
 
-    // With a second org manager, the first can leave, and their session ends.
-    let second: Uuid = sqlx::query_scalar(
-        "INSERT INTO people (organization_id, email, role, joined_at) VALUES ($1, 'p.shah@kestrel.example', 'org_manager', now()) RETURNING id",
+    // A row that only says org manager makes nobody one: the role is read
+    // from the grants in the log.
+    let bare: Uuid = sqlx::query_scalar(
+        "INSERT INTO people (organization_id, email, role, joined_at) VALUES ($1, 'k.novak@kestrel.example', 'org_manager', now()) RETURNING id",
     )
     .bind(organization_id)
     .fetch_one(&pool)
     .await
     .unwrap();
+    let kai = session_for(&pool, bare, "browser").await.unwrap();
+    let kai_me = send(&app, Method::GET, "/api/v1/me", Auth::Cookie(&kai), None)
+        .await
+        .unwrap();
+    assert_eq!(kai_me.json["person"]["role"], "agent_manager");
+    let remove = send(
+        &app,
+        Method::DELETE,
+        &format!("/api/v1/members/{id}"),
+        Auth::Cookie(&kai),
+        None,
+    )
+    .await
+    .unwrap();
+    assert_eq!(remove.status, StatusCode::FORBIDDEN);
+    let remove = send(
+        &app,
+        Method::DELETE,
+        &format!("/api/v1/members/{id}"),
+        Auth::Cookie(&org_manager),
+        None,
+    )
+    .await
+    .unwrap();
+    assert_eq!(remove.status, StatusCode::CONFLICT);
+
+    // With a second org manager, the first can leave, and their session ends.
+    let invited = send(
+        &app,
+        Method::POST,
+        "/api/v1/members",
+        Auth::Cookie(&org_manager),
+        Some(json!({"email": "p.shah@kestrel.example", "role": "org_manager"})),
+    )
+    .await
+    .unwrap();
+    assert_eq!(invited.status, StatusCode::CREATED, "{}", invited.text);
+    let second: Uuid = invited.json["member"]["id"]
+        .as_str()
+        .unwrap()
+        .parse()
+        .unwrap();
     let priya = session_for(&pool, second, "browser").await.unwrap();
     let remove = send(
         &app,
@@ -2170,7 +2213,7 @@ async fn every_change_reaches_the_audit_log(pool: PgPool) {
     call(
         Method::PATCH,
         &format!("/api/v1/members/{mara}"),
-        json!({"role": "people_manager"}),
+        json!({"role": "people_manager", "filters": [{"team": "web"}]}),
     )
     .await;
     call(
@@ -2558,4 +2601,174 @@ async fn people_from_before_the_event_log_get_their_role_grants(pool: PgPool) {
         .await
         .unwrap();
     assert_eq!(listed.status, StatusCode::OK, "{}", listed.text);
+}
+
+#[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
+async fn a_role_is_what_its_grants_say(pool: PgPool) {
+    let app = app(&pool);
+    let (_, org_manager) = organization(&pool, "Kestrel Digital", "n.berger@kestrel.example")
+        .await
+        .unwrap();
+    let nadia = Auth::Cookie(&org_manager);
+    let web = send(
+        &app,
+        Method::POST,
+        "/api/v1/attributes/team/values",
+        nadia,
+        Some(json!({"key": "web", "title": "Web team"})),
+    )
+    .await
+    .unwrap();
+    assert_eq!(web.status, StatusCode::CREATED, "{}", web.text);
+
+    // A people manager is granted on filters, so one without any is refused.
+    let no_filter = send(
+        &app,
+        Method::POST,
+        "/api/v1/members",
+        nadia,
+        Some(json!({"email": "p.shah@kestrel.example", "role": "people_manager"})),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        no_filter.status,
+        StatusCode::BAD_REQUEST,
+        "{}",
+        no_filter.text
+    );
+    let invited = send(
+        &app,
+        Method::POST,
+        "/api/v1/members",
+        nadia,
+        Some(json!({"email": "p.shah@kestrel.example", "role": "org_manager"})),
+    )
+    .await
+    .unwrap();
+    assert_eq!(invited.status, StatusCode::CREATED, "{}", invited.text);
+    let id = invited.json["member"]["id"].as_str().unwrap().to_owned();
+    let priya_id: Uuid = id.parse().unwrap();
+    let priya = session_for(&pool, priya_id, "browser").await.unwrap();
+    let role_of = async |auth: Auth<'_>| {
+        send(&app, Method::GET, "/api/v1/me", auth, None)
+            .await
+            .unwrap()
+            .json["person"]["role"]
+            .clone()
+    };
+    assert_eq!(role_of(Auth::Cookie(&priya)).await, "org_manager");
+
+    // Demoted to people manager without a filter: refused, nothing changes.
+    let demote = send(
+        &app,
+        Method::PATCH,
+        &format!("/api/v1/members/{id}"),
+        nadia,
+        Some(json!({"role": "people_manager"})),
+    )
+    .await
+    .unwrap();
+    assert_eq!(demote.status, StatusCode::BAD_REQUEST, "{}", demote.text);
+    assert_eq!(role_of(Auth::Cookie(&priya)).await, "org_manager");
+
+    // Reversing the adjust her role gave takes the org manager away,
+    // everywhere at once: no column is left behind saying otherwise.
+    let grants = send(
+        &app,
+        Method::GET,
+        "/api/v1/grants?person=p.shah@kestrel.example",
+        nadia,
+        None,
+    )
+    .await
+    .unwrap();
+    assert_eq!(grants.status, StatusCode::OK, "{}", grants.text);
+    let adjust = grants
+        .json
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|grant| grant["capability"] == "adjust")
+        .unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let reversed = send(
+        &app,
+        Method::POST,
+        "/api/v1/reversals",
+        nadia,
+        Some(json!({"event_id": adjust})),
+    )
+    .await
+    .unwrap();
+    assert!(reversed.status.is_success(), "{}", reversed.text);
+    assert_eq!(role_of(Auth::Cookie(&priya)).await, "people_manager");
+    let members = send(&app, Method::GET, "/api/v1/members", nadia, None)
+        .await
+        .unwrap();
+    let listed = members
+        .json
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|member| member["id"] == id.as_str())
+        .unwrap();
+    assert_eq!(listed["role"], "people_manager");
+    let nadia_id = send(&app, Method::GET, "/api/v1/me", nadia, None)
+        .await
+        .unwrap()
+        .json["person"]["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let remove = send(
+        &app,
+        Method::DELETE,
+        &format!("/api/v1/members/{nadia_id}"),
+        Auth::Cookie(&priya),
+        None,
+    )
+    .await
+    .unwrap();
+    assert_eq!(remove.status, StatusCode::FORBIDDEN);
+    // And Nadia is the last org manager again.
+    let leave = send(
+        &app,
+        Method::DELETE,
+        &format!("/api/v1/members/{nadia_id}"),
+        nadia,
+        None,
+    )
+    .await
+    .unwrap();
+    assert_eq!(leave.status, StatusCode::CONFLICT);
+
+    // A role change writes the new grants, and the role follows them.
+    let to_people = send(
+        &app,
+        Method::PATCH,
+        &format!("/api/v1/members/{id}"),
+        nadia,
+        Some(json!({"role": "people_manager", "filters": [{"team": "web"}]})),
+    )
+    .await
+    .unwrap();
+    assert_eq!(to_people.status, StatusCode::OK, "{}", to_people.text);
+    assert_eq!(to_people.json["role"], "people_manager");
+    assert_eq!(to_people.json["filters"], json!([{"team": "web"}]));
+    let to_agent = send(
+        &app,
+        Method::PATCH,
+        &format!("/api/v1/members/{id}"),
+        nadia,
+        Some(json!({"role": "agent_manager"})),
+    )
+    .await
+    .unwrap();
+    assert_eq!(to_agent.status, StatusCode::OK, "{}", to_agent.text);
+    assert_eq!(to_agent.json["role"], "agent_manager");
+    assert_eq!(to_agent.json["filters"], json!([]));
+    assert_eq!(role_of(Auth::Cookie(&priya)).await, "agent_manager");
 }
