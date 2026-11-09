@@ -7,6 +7,15 @@ all-features = true
 [advisories]
 version = 2
 yanked = "deny"
+ignore = [
+    # SQLite before 3.54 can read stale memory when it opens a database with a
+    # crafted -wal file of another page size. Only the tc CLI links SQLite
+    # (rusqlite, bundled), and it opens its own database in the user's own
+    # folder, which only that user writes. The fixed libsqlite3-sys 0.39 cannot
+    # be taken yet: sqlx 0.9 pins libsqlite3-sys below 0.38, and both link
+    # sqlite3. Drop this once sqlx allows 0.39.
+    { id = "RUSTSEC-2026-0459", reason = "tc opens only its own database; sqlx 0.9 blocks the fixed libsqlite3-sys" },
+]
 
 [licenses]
 version = 2
