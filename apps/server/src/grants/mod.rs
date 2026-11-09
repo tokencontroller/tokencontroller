@@ -87,13 +87,32 @@ pub async fn set_role_grants(
     Ok(())
 }
 
+/// A person's role, read from the live grants their role gave them: the
+/// one place it is kept. Adjust on everything is an org manager's, grant
+/// on a filter a people manager's; anyone else is an agent manager.
+#[must_use]
+pub fn role_of(log: &Log, person_id: Uuid) -> Role {
+    let mut role = Role::AgentManager;
+    for event in log.live_with_prefix(&role_prefix(person_id)) {
+        if let Record::Grant(grant) = &event.record {
+            match grant.capability {
+                Capability::Adjust if grant.filter.is_everything() => return Role::OrgManager,
+                Capability::Grant => role = Role::PeopleManager,
+                _ => {}
+            }
+        }
+    }
+    role
+}
+
 /// The filters a people manager's role grants were written for: the
-/// distinct filters of their live role grants.
+/// distinct filters their role gave grant on. Empty for anyone else.
 #[must_use]
 pub fn role_filters(log: &Log, person_id: Uuid) -> Vec<Tags> {
     let mut filters: Vec<Tags> = Vec::new();
     for event in log.live_with_prefix(&role_prefix(person_id)) {
         if let Record::Grant(grant) = &event.record
+            && grant.capability == Capability::Grant
             && !grant.filter.is_everything()
             && !filters.contains(&grant.filter.0)
         {
@@ -315,6 +334,62 @@ mod tests {
             role_prefix(id),
             "grt_role_00000000000000000000000000000000_"
         );
+    }
+
+    fn role_log(person_id: Uuid, role: Role, filters: &[Filter]) -> Vec<Event> {
+        let person = TagValue::new("priya@kestrel.example").unwrap();
+        role.core()
+            .grants(&person, filters)
+            .into_iter()
+            .enumerate()
+            .map(|(index, grant)| {
+                Event::new(
+                    &format!("{}{index}", role_prefix(person_id)),
+                    OffsetDateTime::UNIX_EPOCH,
+                    Record::Grant(grant),
+                )
+                .unwrap()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_role_is_read_from_the_grants_it_gave() {
+        let id = Uuid::from_u128(7);
+        let web = Filter(Tags::parse(["team=web"]).unwrap());
+        let log = |events| Log {
+            organization_id: Uuid::nil(),
+            events,
+        };
+        for role in [Role::AgentManager, Role::PeopleManager, Role::OrgManager] {
+            let events = role_log(id, role, std::slice::from_ref(&web));
+            assert_eq!(role_of(&log(events), id), role);
+        }
+        // Someone else's grants say nothing about this person.
+        let events = role_log(Uuid::from_u128(8), Role::OrgManager, &[]);
+        assert_eq!(role_of(&log(events), id), Role::AgentManager);
+        // An agent manager's own view is no filter of a people manager.
+        let events = role_log(id, Role::AgentManager, &[]);
+        assert_eq!(role_filters(&log(events), id), Vec::<Tags>::new());
+        // With the adjust reversed, grant on everything is left.
+        let mut events = role_log(id, Role::OrgManager, &[]);
+        let adjust = events
+            .iter()
+            .find(|event| {
+                matches!(&event.record, Record::Grant(grant) if grant.capability == Capability::Adjust)
+            })
+            .unwrap()
+            .id
+            .clone();
+        events.push(
+            Event::new(
+                "rev_1",
+                OffsetDateTime::UNIX_EPOCH,
+                Record::Reversal(adjust),
+            )
+            .unwrap(),
+        );
+        assert_eq!(role_of(&log(events), id), Role::PeopleManager);
     }
 
     #[test]

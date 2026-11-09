@@ -18,3 +18,16 @@ test("an org manager hands on view on a client", async ({ page }) => {
   await row.getByRole("button", { name: "Take away" }).click();
   await expect(page.getByText("Grant taken away")).toBeVisible();
 });
+
+// A people manager is granted on filters: picking the role asks for one.
+test("an org manager makes someone a people manager on a team", async ({ page }) => {
+  await signIn(page, "nadia");
+  await openFromMenu(page, "Grants and roles");
+  await page.getByLabel("Role of Tom Lindqvist").filter({ visible: true }).selectOption("people_manager");
+  const dialog = page.getByRole("dialog", { name: "Make a people manager" });
+  await dialog.getByLabel("On filters").fill("team:web");
+  await dialog.getByRole("button", { name: "Make people manager" }).click();
+  await expect(page.getByText("Role changed")).toBeVisible();
+  const row = page.getByRole("table", { name: "People and roles" }).locator("tr").filter({ hasText: "Tom Lindqvist" });
+  await expect(row.getByText("team: web").filter({ visible: true })).toBeVisible();
+});

@@ -422,6 +422,7 @@ export const handlers = [
       const change = (await request.json()) as { name?: string | null; role?: Role | null; filters?: Tags[] | null };
       const managers = db.people.filter((p) => p.role === "org_manager" && p.status !== "removed");
       if (change.role && change.role !== "org_manager" && person.role === "org_manager" && managers.length === 1) return error(409, "conflict", "The last org manager cannot change role. Make someone else an org manager first.");
+      if (change.role === "people_manager" && !(change.filters ?? person.filters).length) return error(400, "bad_request", "A people manager needs at least one filter, such as team: web or client: acme.");
       if (change.name) person.name = change.name;
       if (change.role) person.role = change.role;
       if (change.filters) person.filters = change.filters;
