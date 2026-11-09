@@ -26,7 +26,7 @@ fn rows_of(
             for line in state.select(filter, window) {
                 let day = by_day
                     .entry(date_of(line.at).to_string())
-                    .or_insert(Money::zero(currency));
+                    .or_insert_with(|| Money::zero(currency));
                 *day = day.checked_add(line.amount)?;
             }
             by_day

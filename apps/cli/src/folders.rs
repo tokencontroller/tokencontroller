@@ -113,7 +113,7 @@ pub fn untrack(config: &mut Config, dir: &str) -> bool {
     let typed = if typed.is_absolute() {
         typed
     } else {
-        std::env::current_dir().map_or(typed.clone(), |here| here.join(&typed))
+        std::env::current_dir().map_or_else(|_| typed.clone(), |here| here.join(&typed))
     };
     let real = resolve(dir).ok();
     let before = config.folders.len();

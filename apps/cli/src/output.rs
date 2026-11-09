@@ -93,7 +93,7 @@ pub fn decimal(amount: Money) -> String {
     let text = amount.to_string();
     // `Money` shows `41.87 USD`; keep the number.
     text.split_once(' ')
-        .map_or(text.clone(), |(number, _)| number.to_owned())
+        .map_or_else(|| text.clone(), |(number, _)| number.to_owned())
 }
 
 /// An amount for people to read, such as `$41.87` or `€41.87`. Other

@@ -238,7 +238,7 @@ pub fn money_cell(amount: Money) -> String {
     let shown = amount.to_string();
     shown
         .rsplit_once(' ')
-        .map_or(shown.clone(), |(number, _code)| number.to_owned())
+        .map_or_else(|| shown.clone(), |(number, _code)| number.to_owned())
 }
 
 #[cfg(test)]

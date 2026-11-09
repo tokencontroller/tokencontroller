@@ -709,7 +709,7 @@ async fn sync_system(
         let fetched = match fetched {
             Ok(fetched) => fetched,
             Err(error) => {
-                first_failure.get_or_insert(SyncFailure::from(error));
+                first_failure.get_or_insert_with(|| SyncFailure::from(error));
                 continue;
             }
         };
@@ -848,9 +848,10 @@ pub async fn store_features(
             continue;
         }
         let offset = time::Duration::microseconds(i64::try_from(index).unwrap_or(i64::MAX));
-        let at = older.map_or(now.saturating_add(offset), |older| {
-            Log::after(older, now.saturating_add(offset))
-        });
+        let at = older.map_or_else(
+            || now.saturating_add(offset),
+            |older| Log::after(older, now.saturating_add(offset)),
+        );
         let mut event = Event::new(
             &events::new_id(prefix::TAG_VALUE),
             at,

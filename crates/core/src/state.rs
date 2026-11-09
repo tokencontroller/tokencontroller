@@ -598,7 +598,7 @@ impl State {
         for line in self.select(filter, window) {
             let group = groups
                 .entry(line.tags.get(by).cloned())
-                .or_insert(Money::zero(self.currency()));
+                .or_insert_with(|| Money::zero(self.currency()));
             *group = group.checked_add(line.amount)?;
         }
         Ok(groups.into_iter().collect())

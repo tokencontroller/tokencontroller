@@ -389,7 +389,7 @@ fn sessions_come_from_both_agents_with_no_service_connected() {
 
     // Reading again changes nothing but the moment it was read.
     let mut again = machine.json(&["review", "--json"]).unwrap();
-    let mut first = review.clone();
+    let mut first = review;
     again["as_of"] = json!(null);
     first["as_of"] = json!(null);
     assert_eq!(again, first);
