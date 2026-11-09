@@ -5907,7 +5907,7 @@
             "items": {
               "$ref": "#/components/schemas/Tags"
             },
-            "description": "For a people manager: the filters to grant the role on. Replaces\nthe earlier filters."
+            "description": "For a people manager: the filters to grant the role on, at least\none. Replaces the earlier filters."
           },
           "name": {
             "type": [
@@ -6342,7 +6342,7 @@
             "items": {
               "$ref": "#/components/schemas/Tags"
             },
-            "description": "For a people manager: the filters to grant the role on."
+            "description": "For a people manager: the filters to grant the role on, at least\none."
           },
           "name": {
             "type": "string"

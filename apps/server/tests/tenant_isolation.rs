@@ -417,7 +417,7 @@ async fn bravo(app: &Router, pool: &PgPool) -> TestResult<Bravo> {
         Method::POST,
         "/api/v1/members",
         boss,
-        Payload::Json(json!({"email": "petra@bravo.example", "name": "Petra Bravo", "role": "people_manager"})),
+        Payload::Json(json!({"email": "petra@bravo.example", "name": "Petra Bravo"})),
     )
     .await?;
     b.petra = id_at(&petra, "/member/id")?;
@@ -525,12 +525,13 @@ async fn bravo_names(app: &Router, boss: &str, b: &mut Bravo) -> TestResult<()> 
         Payload::Json(json!({"name": "team", "key": "bravo-team", "from": "2026-01-01"})),
     )
     .await?;
+    // Petra becomes a people manager once the team she manages is on record.
     must(
         app,
-        Method::PUT,
-        &format!("/api/v1/members/{}/filters", b.petra),
+        Method::PATCH,
+        &format!("/api/v1/members/{}", b.petra),
         boss,
-        Payload::Json(json!([{"team": "bravo-team"}])),
+        Payload::Json(json!({"role": "people_manager", "filters": [{"team": "bravo-team"}]})),
     )
     .await?;
     must(

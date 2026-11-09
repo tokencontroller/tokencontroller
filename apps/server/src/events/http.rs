@@ -308,6 +308,16 @@ async fn reverse(
     )
     .map_err(|error| ApiError::Internal(error.into()))?
     .by(person);
+    // A role's adjust is what makes an org manager; the last one stays.
+    if let Record::Grant(grant) = &event.record
+        && grant.capability == Capability::Adjust
+        && grant.filter.is_everything()
+        && target.starts_with(&format!("{}role_", prefix::GRANT))
+    {
+        let mut after = log.clone();
+        after.events.push(reversal.clone());
+        crate::organizations::require_an_org_manager(&state.db, &after, None).await?;
+    }
     super::append_all(
         &state.db,
         caller.organization_id,

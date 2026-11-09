@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        UPDATE api_tokens t\n        SET last_used_at = now()\n        FROM people p\n        WHERE t.token_hash = $1\n          AND t.kind = $2\n          AND t.revoked_at IS NULL\n          AND p.id = t.person_id\n        RETURNING t.id, t.organization_id, p.id AS person_id, p.email, p.role,\n                  p.removed_at IS NOT NULL AS \"person_removed!\"\n        ",
+  "query": "\n        UPDATE api_tokens t\n        SET last_used_at = now()\n        FROM people p\n        WHERE t.token_hash = $1\n          AND t.kind = $2\n          AND t.revoked_at IS NULL\n          AND p.id = t.person_id\n        RETURNING t.id, t.organization_id, p.id AS person_id, p.email,\n                  p.removed_at IS NOT NULL AS \"person_removed!\"\n        ",
   "describe": {
     "columns": [
       {
@@ -49,17 +49,6 @@
       },
       {
         "ordinal": 4,
-        "name": "role",
-        "type_info": "Text",
-        "origin": {
-          "Table": {
-            "table": "people",
-            "name": "role"
-          }
-        }
-      },
-      {
-        "ordinal": 5,
         "name": "person_removed!",
         "type_info": "Bool",
         "origin": "Expression"
@@ -76,9 +65,8 @@
       false,
       false,
       false,
-      false,
       null
     ]
   },
-  "hash": "a642eaed4cc7989652ee96ea5a6049129c593a3e34e8972d815ea75e44af38d0"
+  "hash": "dfb8eb1dc4939a8b10744034a547b5c3c1f1fb2c89ecfc87b060c1dc435614aa"
 }

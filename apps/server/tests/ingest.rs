@@ -282,6 +282,51 @@ async fn the_same_local_id_adds_nothing(pool: PgPool) {
 }
 
 #[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
+async fn a_refused_batch_leaves_its_local_ids_free_for_the_next_try(pool: PgPool) {
+    let kestrel = kestrel(&pool).await.unwrap();
+    // The batch is refused as a whole: the second entry names a tag the
+    // organization has not. The first entry carries a local id.
+    let good = entry(&serde_json::json!({ "local_id": "desk:42" })).unwrap();
+    let bad =
+        entry(&serde_json::json!({ "local_id": "desk:43", "tags": { "guild": "rust" } })).unwrap();
+    assert!(submit(&kestrel, vec![good, bad]).await.is_err());
+    let messages: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM events WHERE kind = 'message'")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(messages, 0, "nothing of a refused batch is stored");
+
+    // Sent again without the mistake, both entries are stored: the refused
+    // batch did not use up their local ids.
+    let good = entry(&serde_json::json!({ "local_id": "desk:42" })).unwrap();
+    let fixed = entry(&serde_json::json!({ "local_id": "desk:43" })).unwrap();
+    let stored = submit(&kestrel, vec![good, fixed]).await.unwrap();
+    assert_eq!(stored.len(), 2);
+    let messages: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM events WHERE kind = 'message'")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(messages, 2);
+
+    // And a third time, the same two add nothing, nor does a batch that
+    // carries one new id twice: its first copy is stored, the second adds
+    // nothing.
+    let good = entry(&serde_json::json!({ "local_id": "desk:42" })).unwrap();
+    let fixed = entry(&serde_json::json!({ "local_id": "desk:43" })).unwrap();
+    submit(&kestrel, vec![good, fixed]).await.unwrap();
+    let twice = entry(&serde_json::json!({ "local_id": "desk:44" })).unwrap();
+    let again = entry(&serde_json::json!({ "local_id": "desk:44" })).unwrap();
+    let stored = submit(&kestrel, vec![twice, again]).await.unwrap();
+    assert_eq!(stored.len(), 2);
+    assert_eq!(stored[0].session_id, stored[1].session_id);
+    let messages: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM events WHERE kind = 'message'")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(messages, 3);
+}
+
+#[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
 async fn a_split_divides_the_session_by_fraction(pool: PgPool) {
     let kestrel = kestrel(&pool).await.unwrap();
     let sent = entry(&serde_json::json!({
