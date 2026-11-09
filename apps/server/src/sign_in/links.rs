@@ -120,16 +120,20 @@ pub(super) async fn request_link(
     let allowed = member
         .as_ref()
         .is_some_and(|member| domain_allowed(email, &member.sign_in_domains));
-    // Above the hourly cap, an address that belongs to nobody gets the same
-    // 202 and no mail, so the cap tells nobody whether an address is a
-    // member.
-    if member.is_none()
-        && new_address_mails_this_hour(&state.db).await? >= NEW_ADDRESS_MAILS_PER_HOUR
-    {
+    // Above the hourly cap, an address that belongs to nobody gets no mail
+    // and the same answer as everyone else, so the cap tells nobody whether
+    // an address is a member: a browser gets its 202 and no link; a local
+    // tool gets a link it can poll, which waits like a member's unclicked
+    // link does, and no mail either.
+    let capped = member.is_none()
+        && new_address_mails_this_hour(&state.db).await? >= NEW_ADDRESS_MAILS_PER_HOUR;
+    if capped {
         tracing::warn!(
             "sign-in mail to a new address not sent: {NEW_ADDRESS_MAILS_PER_HOUR} an hour were sent already"
         );
-        return Ok(LinkSent { poll_token: None });
+        if !local_tool {
+            return Ok(LinkSent { poll_token: None });
+        }
     }
     // A sign-up from an address that is already a member is a sign-in.
     let sign_up = if member.is_some() { None } else { sign_up };
@@ -163,7 +167,7 @@ pub(super) async fn request_link(
     } else {
         None
     };
-    if let Some(mail) = mail {
+    if let Some(mail) = mail.filter(|_| !capped) {
         send_quietly(&state.db, &state.config, mail).await;
     }
     Ok(LinkSent { poll_token })

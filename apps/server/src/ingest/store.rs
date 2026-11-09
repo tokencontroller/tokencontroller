@@ -283,7 +283,10 @@ pub async fn store_entries(
         .iter()
         .filter_map(|entry| entry.entry.local_id.clone())
         .collect();
-    let seen = seen_local_ids(&state.db, organization_id, &local_ids).await?;
+    // The ids stored before, and then each id as its first copy in this
+    // batch is used: a second copy in the same batch adds nothing either.
+    let mut seen = seen_local_ids(&state.db, organization_id, &local_ids).await?;
+    let mut claimed: Vec<String> = Vec::new();
     let now = OffsetDateTime::now_utc();
     let mut new_events: Vec<Event> = Vec::new();
     let mut sessions: Vec<(SessionId, usize, Tags)> = Vec::with_capacity(entries.len());
@@ -326,6 +329,10 @@ pub async fn store_entries(
             log.events.extend(splits.iter().cloned());
             new_events.extend(messages);
             new_events.extend(splits);
+            if let Some(local_id) = &checked.entry.local_id {
+                seen.insert(local_id.clone());
+                claimed.push(local_id.clone());
+            }
         }
         sessions.push((session, checked.messages.len(), tags));
     }
@@ -334,12 +341,8 @@ pub async fn store_entries(
         events: log.events.clone(),
     }
     .fold(now.saturating_add(time::Duration::days(1)))?;
-    let new_local_ids: Vec<String> = local_ids
-        .into_iter()
-        .filter(|local_id| !seen.contains(local_id))
-        .collect();
     let mut tx = state.db.begin().await?;
-    claim_local_ids(&mut tx, organization_id, &new_local_ids).await?;
+    claim_local_ids(&mut tx, organization_id, &claimed).await?;
     for event in &new_events {
         events::append(&mut tx, organization_id, event).await?;
     }

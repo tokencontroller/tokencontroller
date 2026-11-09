@@ -308,15 +308,22 @@ async fn a_refused_batch_leaves_its_local_ids_free_for_the_next_try(pool: PgPool
         .unwrap();
     assert_eq!(messages, 2);
 
-    // And a third time, the same two add nothing.
+    // And a third time, the same two add nothing, nor does a batch that
+    // carries one new id twice: its first copy is stored, the second adds
+    // nothing.
     let good = entry(&serde_json::json!({ "local_id": "desk:42" })).unwrap();
     let fixed = entry(&serde_json::json!({ "local_id": "desk:43" })).unwrap();
     submit(&kestrel, vec![good, fixed]).await.unwrap();
+    let twice = entry(&serde_json::json!({ "local_id": "desk:44" })).unwrap();
+    let again = entry(&serde_json::json!({ "local_id": "desk:44" })).unwrap();
+    let stored = submit(&kestrel, vec![twice, again]).await.unwrap();
+    assert_eq!(stored.len(), 2);
+    assert_eq!(stored[0].session_id, stored[1].session_id);
     let messages: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM events WHERE kind = 'message'")
         .fetch_one(&pool)
         .await
         .unwrap();
-    assert_eq!(messages, 2);
+    assert_eq!(messages, 3);
 }
 
 #[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
