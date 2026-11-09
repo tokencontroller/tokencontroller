@@ -698,17 +698,31 @@ pub(super) async fn keep_an_org_manager(
     organization_id: Uuid,
     leaving: Uuid,
 ) -> Result<(), ApiError> {
-    let others = sqlx::query_scalar!(
-        "SELECT id FROM people WHERE organization_id = $1 AND removed_at IS NULL AND id <> $2",
-        organization_id,
-        leaving
+    let log = Log::load_grants(db, organization_id).await?;
+    require_an_org_manager(db, &log, Some(leaving)).await
+}
+
+/// Refuses a log in which no member who stays is an org manager: the
+/// check before a role grant is reversed, or someone leaves.
+///
+/// # Errors
+///
+/// [`ApiError::Conflict`] when nobody but `leaving` would be an org manager.
+pub(crate) async fn require_an_org_manager(
+    db: &PgPool,
+    log: &Log,
+    leaving: Option<Uuid>,
+) -> Result<(), ApiError> {
+    let staying = sqlx::query_scalar!(
+        "SELECT id FROM people WHERE organization_id = $1 AND removed_at IS NULL",
+        log.organization_id
     )
     .fetch_all(db)
     .await?;
-    let log = Log::load_grants(db, organization_id).await?;
-    if !others
+    if !staying
         .iter()
-        .any(|id| grants::role_of(&log, *id) == Role::OrgManager)
+        .filter(|id| Some(**id) != leaving)
+        .any(|id| grants::role_of(log, *id) == Role::OrgManager)
     {
         return Err(ApiError::Conflict(
             "The organization needs at least one org manager. Make someone else org manager first."
