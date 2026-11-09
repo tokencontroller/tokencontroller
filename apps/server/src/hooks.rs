@@ -25,6 +25,14 @@ pub struct MemberLimit {
     pub message: String,
 }
 
+/// How many messages an organization may add in one day (UTC), and what
+/// to say when it is reached.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DailyMessageLimit {
+    pub max: i64,
+    pub message: String,
+}
+
 /// The plug-in points. Each has a default that keeps the open behavior.
 pub trait ServiceHooks: Send + Sync + 'static {
     /// The member limit of one organization, or `None` for no limit, as in
@@ -34,6 +42,19 @@ pub trait ServiceHooks: Send + Sync + 'static {
         state: &'a AppState,
         organization_id: Uuid,
     ) -> HookFuture<'a, Option<MemberLimit>> {
+        let _ = (state, organization_id);
+        Box::pin(async { Ok(None) })
+    }
+
+    /// How many messages one organization may add per day, or `None` for
+    /// no limit, as in the open build. The doors take everything else
+    /// (ADR 0022); this limit only stops one organization from filling a
+    /// shared service.
+    fn daily_message_limit<'a>(
+        &'a self,
+        state: &'a AppState,
+        organization_id: Uuid,
+    ) -> HookFuture<'a, Option<DailyMessageLimit>> {
         let _ = (state, organization_id);
         Box::pin(async { Ok(None) })
     }

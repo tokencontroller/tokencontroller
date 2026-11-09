@@ -387,8 +387,12 @@ fn sessions_come_from_both_agents_with_no_service_connected() {
     assert_eq!(codex["splits"][0]["tags"]["feature"], "OPS-7");
     assert_eq!(codex["assigned_by"], "rule: key in prompts");
 
-    // Reading again changes nothing.
-    assert_eq!(machine.json(&["review", "--json"]).unwrap(), review);
+    // Reading again changes nothing but the moment it was read.
+    let mut again = machine.json(&["review", "--json"]).unwrap();
+    let mut first = review.clone();
+    again["as_of"] = json!(null);
+    first["as_of"] = json!(null);
+    assert_eq!(again, first);
 
     let table = machine.tc(&["review"]).unwrap();
     assert!(table.contains("$4.80"), "{table}");

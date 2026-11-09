@@ -1,6 +1,6 @@
 ---
 title: "Plans and limits"
-description: "Solo, Team plan, Enterprise plan and self-hosted: prices, limits, payment and region."
+description: "Solo, Team plan, Enterprise plan and self-hosted: prices, member and message limits, payment and region."
 ---
 
 Prices are per organization. Nothing is priced per seat.
@@ -21,6 +21,14 @@ One account belongs to one organization. An agency whose clients each have their
 ## The 150-member limit {#members}
 
 The Team plan stops at 150 members; an organization that needs more moves to the Enterprise plan. Every member counts the same, whatever their role. The Enterprise plan and self-hosted have no member limit.
+
+## Messages per day {#messages}
+
+The hosted service takes in up to 50,000 messages a day for a Solo organization and up to 1,000,000 a day on the Team plan, counted from 00:00 UTC. A message is one model call. One person working with agents all day sends a few thousand, so the limit only stops a runaway script from filling a database other organizations share.
+
+A batch that would pass the limit is refused whole with `429 too_many_requests`, and nothing of it is stored. `tc` keeps the sessions it could not send and sends them with the next `tc submit`. Telemetry exporters try again for a short while and then drop the batch, so those calls are missing from that day's figures; the bill still shows the cost when you [reconcile](/account/bills). A message already on record, such as a call telemetry counted that `tc` later sends with its session, does not count again. Once the day is full, every batch is refused until 00:00 UTC.
+
+The Enterprise plan and self-hosted have no limit.
 
 ## Payment and currency {#payment}
 

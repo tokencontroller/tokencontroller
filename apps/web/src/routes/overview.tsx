@@ -26,6 +26,8 @@ export function OverviewPage(): ReactNode {
   const mine = useQuery({ queryKey: ["overview-deviation", "person", range], queryFn: () => api.deviation({ ...range, filter: { person: me.person.email } }) });
   const open = useQuery({ queryKey: ["sessions", "open"], queryFn: () => api.sessions({ filter: { person: me.person.email } }) });
   const deviations = [...(byProject.data?.rows ?? []), ...(byFeature.data?.rows ?? []), ...(mine.data?.rows ?? [])].filter((r) => r.deviation !== null && r.deviation !== undefined && !r.favourable);
+  // Deviation reports come in the organization's reporting currency, all three the same.
+  const deviationCurrency = (mine.data ?? byProject.data ?? byFeature.data)?.currency;
   const toCheck = open.data?.sessions.filter((s) => s.submitted === "open" || s.submitted === "rejected") ?? [];
   const name = me.person.name.split(" ")[0] ?? "";
   const lineOf = (label: string) => cost.data?.rows.find((r) => r.key === label)?.amount ?? "0.00";
@@ -38,10 +40,10 @@ export function OverviewPage(): ReactNode {
       ) : (
         <>
           <KpiRow>
-            <Kpi label="Cost" value={<Amount value={cost.data.total} />} note={<AsOf at={cost.data.as_of} />} />
-            <Kpi label="Direct" value={<Amount value={lineOf("direct")} />} note="On a feature" />
-            <Kpi label="Project overhead" value={<Amount value={lineOf("project_overhead")} />} note="On a project, no feature" />
-            <Kpi label="Organization overhead" value={<Amount value={lineOf("organization_overhead")} />} note="On no project" tone={Number(lineOf("organization_overhead")) > 0 ? "exception" : undefined} />
+            <Kpi label="Cost" value={<Amount value={cost.data.total} currency={cost.data.currency} />} note={<AsOf at={cost.data.as_of} />} />
+            <Kpi label="Direct" value={<Amount value={lineOf("direct")} currency={cost.data.currency} />} note="On a feature" />
+            <Kpi label="Project overhead" value={<Amount value={lineOf("project_overhead")} currency={cost.data.currency} />} note="On a project, no feature" />
+            <Kpi label="Organization overhead" value={<Amount value={lineOf("organization_overhead")} currency={cost.data.currency} />} note="On no project" tone={Number(lineOf("organization_overhead")) > 0 ? "exception" : undefined} />
           </KpiRow>
           {cost.data.count_errors || cost.data.unknown_models.length ? (
             <Note tone="exception">
@@ -56,11 +58,11 @@ export function OverviewPage(): ReactNode {
         <Section title="Reconciliation" lead={`The ${latest.provider} bill for ${formatRange(latest.from, latest.to)}: cost of its messages plus what no message explains.`} actions={<Link to="/bills" className="text-sm text-accent">Bills</Link>}>
           <dl className="grid max-w-xl grid-cols-[1fr_auto] gap-x-6 gap-y-1 text-sm">
             <dt className="text-muted">Bill</dt>
-            <dd><Amount value={latest.bill} /></dd>
+            <dd><Amount value={latest.bill} currency={latest.currency} /></dd>
             <dt className="text-muted">Cost of messages</dt>
-            <dd><Amount value={latest.messages} /></dd>
+            <dd><Amount value={latest.messages} currency={latest.currency} /></dd>
             <dt className="text-muted">What the bill has that no message explains</dt>
-            <dd className={latest.a_message_is_wrong ? "text-exception" : ""}><Amount value={latest.unexplained} /></dd>
+            <dd className={latest.a_message_is_wrong ? "text-exception" : ""}><Amount value={latest.unexplained} currency={latest.currency} /></dd>
           </dl>
           {latest.a_message_is_wrong ? <p className="mt-2 text-sm text-exception">Negative: a message is wrong.</p> : null}
         </Section>
@@ -74,9 +76,9 @@ export function OverviewPage(): ReactNode {
           empty="No unfavourable deviations in this range."
           columns={[
             { key: "filter", header: "Filter", cell: (r) => describeFilter(r.filter) },
-            { key: "plan", header: "Plan", align: "right", cell: (r) => <Amount value={r.plan} /> },
-            { key: "cost", header: "Cost", align: "right", cell: (r) => <Amount value={r.cost} /> },
-            { key: "deviation", header: "Deviation", align: "right", cell: (r) => <span className="text-exception"><Amount value={r.deviation} signed /></span> },
+            { key: "plan", header: "Plan", align: "right", cell: (r) => <Amount value={r.plan} currency={deviationCurrency} /> },
+            { key: "cost", header: "Cost", align: "right", cell: (r) => <Amount value={r.cost} currency={deviationCurrency} /> },
+            { key: "deviation", header: "Deviation", align: "right", cell: (r) => <span className="text-exception"><Amount value={r.deviation} currency={deviationCurrency} signed /></span> },
             { key: "label", header: "Label", wide: true, cell: (r) => r.label ?? "" },
           ]}
         />

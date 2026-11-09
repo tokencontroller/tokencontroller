@@ -1,6 +1,6 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useState, type ReactNode } from "react";
-import type { Grant, Role } from "@/api/contract";
+import type { Grant, Member, Role } from "@/api/contract";
 import { api } from "@/api/endpoints";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -26,6 +26,8 @@ export function GrantsPage(): ReactNode {
   const orgManager = hasRole(me.person, "org_manager");
   const [granting, setGranting] = useState(false);
   const [inviting, setInviting] = useState(false);
+  // A people manager is granted on filters, so picking that role asks for one.
+  const [promoting, setPromoting] = useState<Member | null>(null);
   const changeRole = useMutation({ mutationFn: ({ id, role }: { id: string; role: Role }) => api.updateMember(id, { role }), onSuccess: async () => { await refreshAll(); notify("Role changed"); } });
   const revoke = useMutation({ mutationFn: (g: Grant) => api.reverse(g.id), onSuccess: async () => { await refreshAll(); notify("Grant taken away"); } });
   return (
@@ -57,7 +59,7 @@ export function GrantsPage(): ReactNode {
                 header: "Role",
                 cell: (p) =>
                   orgManager ? (
-                    <Select aria-label={`Role of ${displayName(p)}`} className="w-44" value={p.role} onChange={(e) => changeRole.mutate({ id: p.id, role: e.target.value as Role })}>
+                    <Select aria-label={`Role of ${displayName(p)}`} className="w-44" value={p.role} onChange={(e) => { const role = e.target.value as Role; if (role === "people_manager") setPromoting(p); else changeRole.mutate({ id: p.id, role }); }}>
                       {(Object.keys(roleLabel) as Role[]).map((r) => <option key={r} value={r}>{roleLabel[r]}</option>)}
                     </Select>
                   ) : (
@@ -94,6 +96,7 @@ export function GrantsPage(): ReactNode {
       <Note>Finance needs no login: hand them a report as of the cutoff.</Note>
       {granting ? <GrantDialog onClose={() => setGranting(false)} /> : null}
       {inviting ? <InviteDialog onClose={() => setInviting(false)} /> : null}
+      {promoting ? <PeopleManagerDialog person={promoting} onClose={() => setPromoting(null)} /> : null}
     </>
   );
 }
@@ -130,6 +133,30 @@ function GrantDialog({ onClose }: { onClose: () => void }) {
         <div className="flex justify-end gap-2">
           <Button onClick={onClose}>Cancel</Button>
           <Button type="submit" variant="primary" disabled={!person || save.isPending}>Grant</Button>
+        </div>
+      </form>
+    </Dialog>
+  );
+}
+
+function PeopleManagerDialog({ person, onClose }: { person: Member; onClose: () => void }) {
+  const [filter, setFilter] = useState(person.filters.map((f) => Object.entries(f).map(([name, value]) => `${name}:${value}`).join(",")).join("; "));
+  const save = useMutation({
+    mutationFn: () => api.updateMember(person.id, { role: "people_manager", filters: filter.split(";").map((part) => filterFromText(part.replace(/\s+/g, ""))).filter((f) => Object.keys(f).length > 0) }),
+    onSuccess: async () => {
+      await refreshAll();
+      notify("Role changed");
+      onClose();
+    },
+  });
+  return (
+    <Dialog open onOpenChange={(o) => { if (!o) onClose(); }} title="Make a people manager" description={`${displayName(person)} gets view, assign, approve, plan and grant on these filters.`}>
+      <form className="flex flex-col gap-4" onSubmit={(e) => { e.preventDefault(); save.mutate(); }}>
+        <Field label="On filters" hint="Such as team:web or client:acme. Separate several with a semicolon."><Input value={filter} onChange={(e) => setFilter(e.target.value)} /></Field>
+        <FormError error={save.error} />
+        <div className="flex justify-end gap-2">
+          <Button onClick={onClose}>Cancel</Button>
+          <Button type="submit" variant="primary" disabled={!filter.trim() || save.isPending}>Make people manager</Button>
         </div>
       </form>
     </Dialog>

@@ -29,6 +29,8 @@ A filter is any set of tags and attributes; the empty filter is the whole organi
 
 A new person gets record and view on `person: self`. A people manager hands out grants inside their own filter; an org manager anywhere. Granting is an assignment: a new grant for the same person and capability supersedes the old one, and a reversal takes it away.
 
+A role is kept only as the grants it gave. Change the role and its grants are replaced; reverse one of them and the role reads accordingly: an org manager whose adjust is reversed is a people manager on the whole organization. A people manager needs at least one filter.
+
 <div class="note"><b>Examples.</b> A director of delivery is a people manager on the empty filter without adjust. A head of engineering is a people manager on <code>department: engineering</code>. An account manager is a people manager on <code>client: acme</code>. When two filters cover the same split, either may approve or assign it.</div>
 
 ## Who sees whom {#scope}

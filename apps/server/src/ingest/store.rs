@@ -17,6 +17,7 @@ use uuid::Uuid;
 
 use super::entry::CheckedTokenEntry;
 use super::model::TelemetryMessage;
+use super::quota;
 use crate::AppState;
 use crate::error::ApiError;
 use crate::events::json;
@@ -214,26 +215,62 @@ fn answer(fold: &Fold, session: &SessionId, messages: usize, tags: &Tags) -> Sto
     }
 }
 
-/// Records the local ids of entries, so sending one again adds nothing.
-async fn claim_local_ids(
+/// How many of `events` are messages new to the log: a message that
+/// supersedes the earlier record of the same call is the same message, so
+/// it does not count against the daily limit.
+fn new_messages(events: &[Event]) -> usize {
+    events
+        .iter()
+        .filter(|event| matches!(event.record, Record::Message(_)) && event.supersedes.is_none())
+        .count()
+}
+
+/// The local ids among `local_ids` that were stored before, so sending an
+/// entry again adds nothing.
+async fn seen_local_ids(
     db: &sqlx::PgPool,
     organization_id: Uuid,
     local_ids: &[String],
 ) -> Result<BTreeSet<String>, ApiError> {
-    let mut seen = BTreeSet::new();
+    let seen = sqlx::query_scalar!(
+        "SELECT local_id FROM entry_ids WHERE organization_id = $1 AND local_id = ANY($2)",
+        organization_id,
+        local_ids
+    )
+    .fetch_all(db)
+    .await?;
+    Ok(seen.into_iter().collect())
+}
+
+/// Records the local ids of the entries a transaction stores, in that
+/// transaction: an entry whose batch is refused or fails stays unknown, so
+/// sending it again stores it. Two batches that carry the same new local id
+/// at the same moment would count it twice, so the second is refused and
+/// its sender sends again.
+///
+/// # Errors
+///
+/// [`ApiError::Conflict`] when another batch claimed one of the ids first.
+async fn claim_local_ids(
+    tx: &mut sqlx::PgConnection,
+    organization_id: Uuid,
+    local_ids: &[String],
+) -> Result<(), ApiError> {
     for local_id in local_ids {
         let inserted = sqlx::query!(
             "INSERT INTO entry_ids (organization_id, local_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
             organization_id,
             local_id
         )
-        .execute(db)
+        .execute(&mut *tx)
         .await?;
         if inserted.rows_affected() == 0 {
-            seen.insert(local_id.clone());
+            return Err(ApiError::Conflict(format!(
+                "the token entry {local_id} arrived twice at once; send it again"
+            )));
         }
     }
-    Ok(seen)
+    Ok(())
 }
 
 /// Stores checked token entries as events for `person`, and answers each
@@ -243,19 +280,27 @@ async fn claim_local_ids(
 /// # Errors
 ///
 /// [`ApiError::BadRequest`] for an id the core refuses or a tag name the
-/// organization has not, or a database error.
+/// organization has not, [`ApiError::TooManyRequests`] when the batch would
+/// pass the organization's daily message limit, [`ApiError::Conflict`] when
+/// the same new local id arrives twice at once, or a database error. Nothing
+/// is stored then, and the local ids of the batch stay unknown.
 pub async fn store_entries(
     state: &AppState,
     organization_id: Uuid,
     person: &TagValue,
     entries: Vec<CheckedTokenEntry>,
 ) -> Result<Vec<StoredEntry>, ApiError> {
+    let limit = quota::limit(state, organization_id).await?;
+    quota::check(state, organization_id, limit.as_ref(), 0).await?;
     let mut log = Log::load(state, organization_id).await?;
     let local_ids: Vec<String> = entries
         .iter()
         .filter_map(|entry| entry.entry.local_id.clone())
         .collect();
-    let seen = claim_local_ids(&state.db, organization_id, &local_ids).await?;
+    // The ids stored before, and then each id as its first copy in this
+    // batch is used: a second copy in the same batch adds nothing either.
+    let mut seen = seen_local_ids(&state.db, organization_id, &local_ids).await?;
+    let mut claimed: Vec<String> = Vec::new();
     let now = OffsetDateTime::now_utc();
     let mut new_events: Vec<Event> = Vec::new();
     let mut sessions: Vec<(SessionId, usize, Tags)> = Vec::with_capacity(entries.len());
@@ -298,6 +343,10 @@ pub async fn store_entries(
             log.events.extend(splits.iter().cloned());
             new_events.extend(messages);
             new_events.extend(splits);
+            if let Some(local_id) = &checked.entry.local_id {
+                seen.insert(local_id.clone());
+                claimed.push(local_id.clone());
+            }
         }
         sessions.push((session, checked.messages.len(), tags));
     }
@@ -306,7 +355,15 @@ pub async fn store_entries(
         events: log.events.clone(),
     }
     .fold(now.saturating_add(time::Duration::days(1)))?;
+    quota::check(
+        state,
+        organization_id,
+        limit.as_ref(),
+        new_messages(&new_events),
+    )
+    .await?;
     let mut tx = state.db.begin().await?;
+    claim_local_ids(&mut tx, organization_id, &claimed).await?;
     for event in &new_events {
         events::append(&mut tx, organization_id, event).await?;
     }
@@ -396,13 +453,17 @@ pub struct TelemetryOutcome {
 ///
 /// # Errors
 ///
-/// A database error, or an id the core refuses.
+/// A database error, an id the core refuses, or
+/// [`ApiError::TooManyRequests`] when the batch would pass the
+/// organization's daily message limit.
 pub async fn store_telemetry(
     state: &AppState,
     organization_id: Uuid,
     fallback: &TagValue,
     messages: Vec<TelemetryMessage>,
 ) -> Result<TelemetryOutcome, ApiError> {
+    let limit = quota::limit(state, organization_id).await?;
+    quota::check(state, organization_id, limit.as_ref(), 0).await?;
     let log = Log::load(state, organization_id).await?;
     let members: BTreeSet<String> = sqlx::query_scalar!(
         "SELECT email FROM people WHERE organization_id = $1",
@@ -463,6 +524,13 @@ pub async fn store_telemetry(
         return Ok(outcome);
     }
     log.check_with(&new_events)?;
+    quota::check(
+        state,
+        organization_id,
+        limit.as_ref(),
+        new_messages(&new_events),
+    )
+    .await?;
     let mut tx = state.db.begin().await?;
     for event in &new_events {
         events::append(&mut tx, organization_id, event).await?;

@@ -21,6 +21,10 @@ test("an org manager adds a feature with its project and maps Jira", async ({ pa
   await page.getByLabel("API token").fill("atl-token-1234");
   await page.getByRole("button", { name: "Connect Jira" }).click();
   await page.getByLabel("Project for KD").selectOption("shop");
+  // On a phone the notices sit over the save button, and a pointer resting on
+  // them keeps them open. Move it away and let them close first.
+  await page.mouse.move(0, 0);
+  await expect(page.getByRole("region", { name: "Notifications" }).getByRole("dialog")).toHaveCount(0, { timeout: 10_000 });
   await page.getByRole("button", { name: "Save the sync map" }).click();
   await expect(page.getByText("Sync map saved")).toBeVisible();
 });
