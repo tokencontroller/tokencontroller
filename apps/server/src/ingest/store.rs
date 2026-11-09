@@ -17,6 +17,7 @@ use uuid::Uuid;
 
 use super::entry::CheckedTokenEntry;
 use super::model::TelemetryMessage;
+use super::quota;
 use crate::AppState;
 use crate::error::ApiError;
 use crate::events::json;
@@ -214,6 +215,16 @@ fn answer(fold: &Fold, session: &SessionId, messages: usize, tags: &Tags) -> Sto
     }
 }
 
+/// How many of `events` are messages new to the log: a message that
+/// supersedes the earlier record of the same call is the same message, so
+/// it does not count against the daily limit.
+fn new_messages(events: &[Event]) -> usize {
+    events
+        .iter()
+        .filter(|event| matches!(event.record, Record::Message(_)) && event.supersedes.is_none())
+        .count()
+}
+
 /// The local ids among `local_ids` that were stored before, so sending an
 /// entry again adds nothing.
 async fn seen_local_ids(
@@ -269,15 +280,18 @@ async fn claim_local_ids(
 /// # Errors
 ///
 /// [`ApiError::BadRequest`] for an id the core refuses or a tag name the
-/// organization has not, [`ApiError::Conflict`] when the same new local id
-/// arrives twice at once, or a database error. Nothing is stored then, and
-/// the local ids of the batch stay unknown.
+/// organization has not, [`ApiError::TooManyRequests`] when the batch would
+/// pass the organization's daily message limit, [`ApiError::Conflict`] when
+/// the same new local id arrives twice at once, or a database error. Nothing
+/// is stored then, and the local ids of the batch stay unknown.
 pub async fn store_entries(
     state: &AppState,
     organization_id: Uuid,
     person: &TagValue,
     entries: Vec<CheckedTokenEntry>,
 ) -> Result<Vec<StoredEntry>, ApiError> {
+    let limit = quota::limit(state, organization_id).await?;
+    quota::check(state, organization_id, limit.as_ref(), 0).await?;
     let mut log = Log::load(state, organization_id).await?;
     let local_ids: Vec<String> = entries
         .iter()
@@ -341,6 +355,13 @@ pub async fn store_entries(
         events: log.events.clone(),
     }
     .fold(now.saturating_add(time::Duration::days(1)))?;
+    quota::check(
+        state,
+        organization_id,
+        limit.as_ref(),
+        new_messages(&new_events),
+    )
+    .await?;
     let mut tx = state.db.begin().await?;
     claim_local_ids(&mut tx, organization_id, &claimed).await?;
     for event in &new_events {
@@ -432,13 +453,17 @@ pub struct TelemetryOutcome {
 ///
 /// # Errors
 ///
-/// A database error, or an id the core refuses.
+/// A database error, an id the core refuses, or
+/// [`ApiError::TooManyRequests`] when the batch would pass the
+/// organization's daily message limit.
 pub async fn store_telemetry(
     state: &AppState,
     organization_id: Uuid,
     fallback: &TagValue,
     messages: Vec<TelemetryMessage>,
 ) -> Result<TelemetryOutcome, ApiError> {
+    let limit = quota::limit(state, organization_id).await?;
+    quota::check(state, organization_id, limit.as_ref(), 0).await?;
     let log = Log::load(state, organization_id).await?;
     let members: BTreeSet<String> = sqlx::query_scalar!(
         "SELECT email FROM people WHERE organization_id = $1",
@@ -499,6 +524,13 @@ pub async fn store_telemetry(
         return Ok(outcome);
     }
     log.check_with(&new_events)?;
+    quota::check(
+        state,
+        organization_id,
+        limit.as_ref(),
+        new_messages(&new_events),
+    )
+    .await?;
     let mut tx = state.db.begin().await?;
     for event in &new_events {
         events::append(&mut tx, organization_id, event).await?;

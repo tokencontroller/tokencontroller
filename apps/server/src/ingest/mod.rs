@@ -13,6 +13,7 @@ pub mod http;
 pub mod model;
 pub mod otlp;
 pub mod provider;
+mod quota;
 pub mod store;
 
 use axum::extract::DefaultBodyLimit;

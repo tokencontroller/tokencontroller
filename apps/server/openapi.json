@@ -1313,6 +1313,16 @@
                 }
               }
             }
+          },
+          "429": {
+            "description": "The organization reached its daily message limit; nothing was stored",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
           }
         }
       }
@@ -1420,6 +1430,16 @@
             }
           },
           "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The organization reached its daily message limit; nothing was stored",
             "content": {
               "application/json": {
                 "schema": {
@@ -4280,6 +4300,16 @@
                 }
               }
             }
+          },
+          "429": {
+            "description": "The organization reached its daily message limit; nothing was stored",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
           }
         }
       }
@@ -4313,6 +4343,16 @@
           },
           "400": {
             "description": "A row cannot be read; nothing was saved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The organization reached its daily message limit; nothing was stored",
             "content": {
               "application/json": {
                 "schema": {
