@@ -29,6 +29,7 @@ use crate::tags;
 
 pub use audit::record_audit_event;
 pub use context::Context;
+pub(crate) use members::require_an_org_manager;
 pub use members::{MemberLimitView, MemberStatus, MemberView, clean_name, person_of};
 pub use provisioning::{add_member, member_by_email, only_organization, remove_member};
 pub use role::{Role, UnknownRole};

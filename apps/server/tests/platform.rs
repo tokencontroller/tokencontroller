@@ -2744,6 +2744,37 @@ async fn a_role_is_what_its_grants_say(pool: PgPool) {
     .await
     .unwrap();
     assert_eq!(leave.status, StatusCode::CONFLICT);
+    // Nor can her own adjust be reversed: nobody could grant it back.
+    let mine = send(
+        &app,
+        Method::GET,
+        "/api/v1/grants?person=n.berger@kestrel.example",
+        nadia,
+        None,
+    )
+    .await
+    .unwrap();
+    let my_adjust = mine
+        .json
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|grant| grant["capability"] == "adjust")
+        .unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let last = send(
+        &app,
+        Method::POST,
+        "/api/v1/reversals",
+        nadia,
+        Some(json!({"event_id": my_adjust})),
+    )
+    .await
+    .unwrap();
+    assert_eq!(last.status, StatusCode::CONFLICT, "{}", last.text);
+    assert_eq!(role_of(nadia).await, "org_manager");
 
     // A role change writes the new grants, and the role follows them.
     let to_people = send(
