@@ -550,6 +550,71 @@ async fn sign_in_never_tells_whether_an_address_is_a_member(pool: PgPool) {
 }
 
 #[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
+async fn mails_to_addresses_without_an_account_are_capped_per_hour(pool: PgPool) {
+    let app = app(&pool);
+    let (_, mara) = organization(&pool, "Kestrel", "mara@kestrel.example")
+        .await
+        .unwrap();
+    assert!(!mara.is_empty());
+    let ask = |email: String| {
+        let app = app.clone();
+        async move {
+            send(
+                &app,
+                Method::POST,
+                "/api/v1/sign-in",
+                Auth::None,
+                Some(json!({"email": email})),
+            )
+            .await
+            .unwrap()
+        }
+    };
+    for n in 0..tokencontroller_server::sign_in::links::NEW_ADDRESS_MAILS_PER_HOUR {
+        assert_eq!(
+            ask(format!("nobody-{n}@example.com")).await.status,
+            StatusCode::ACCEPTED
+        );
+    }
+    let links: i64 = sqlx::query_scalar("SELECT count(*) FROM sign_in_links")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        links,
+        tokencontroller_server::sign_in::links::NEW_ADDRESS_MAILS_PER_HOUR
+    );
+
+    // One more stranger gets the same answer and nothing else: no link, no
+    // mail. The answer never says whether an address is a member.
+    assert_eq!(
+        ask("one-more@example.com".to_owned()).await.status,
+        StatusCode::ACCEPTED
+    );
+    let links: i64 = sqlx::query_scalar("SELECT count(*) FROM sign_in_links")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        links,
+        tokencontroller_server::sign_in::links::NEW_ADDRESS_MAILS_PER_HOUR
+    );
+
+    // A member still gets their link.
+    assert_eq!(
+        ask("mara@kestrel.example".to_owned()).await.status,
+        StatusCode::ACCEPTED
+    );
+    let member_links: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM sign_in_links WHERE email = 'mara@kestrel.example'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(member_links, 1);
+}
+
+#[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
 async fn too_many_links_for_one_address_are_refused(pool: PgPool) {
     let app = app(&pool);
     let body = json!({"email": "mara@kestrel.example"});
