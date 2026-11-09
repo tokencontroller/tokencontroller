@@ -113,8 +113,8 @@ pub fn as_of(text: Option<&str>) -> Result<OffsetDateTime, ApiError> {
 /// The last moment of a day in UTC.
 #[must_use]
 pub fn end_of(date: Date) -> OffsetDateTime {
-    date.next_day().map_or(
-        OffsetDateTime::new_utc(date, time::Time::MIDNIGHT),
+    date.next_day().map_or_else(
+        || OffsetDateTime::new_utc(date, time::Time::MIDNIGHT),
         |next| {
             OffsetDateTime::new_utc(next, time::Time::MIDNIGHT)
                 .saturating_sub(time::Duration::nanoseconds(1))

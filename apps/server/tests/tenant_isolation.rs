@@ -1680,7 +1680,7 @@ fn public_cases() -> Vec<Case> {
             vec![
                 post("/api/v1/sign-in")
                     .by(Cred::Nobody)
-                    .json(bruno.clone())
+                    .json(bruno)
                     .expect(ACCEPTED),
             ],
         ),

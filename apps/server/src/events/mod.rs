@@ -490,7 +490,7 @@ mod tests {
     fn new_ids_carry_their_kinds_prefix() {
         let event = event(Record::Cutoff(date!(2026 - 03 - 31))).unwrap();
         assert!(event.id.as_str().starts_with("cut_"));
-        assert_eq!(prefix_of(&Record::Reversal(event.id.clone())), "rev_");
+        assert_eq!(prefix_of(&Record::Reversal(event.id)), "rev_");
         assert_ne!(new_id("x_"), new_id("x_"));
     }
 

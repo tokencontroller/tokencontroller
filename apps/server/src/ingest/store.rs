@@ -198,13 +198,13 @@ fn answer(fold: &Fold, session: &SessionId, messages: usize, tags: &Tags) -> Sto
         cost = cost.checked_add(line.amount).unwrap_or(cost);
         let entry = by_label
             .entry(line.label)
-            .or_insert(tokencontroller_core::Money::zero(fold.currency()));
+            .or_insert_with(|| tokencontroller_core::Money::zero(fold.currency()));
         *entry = entry.checked_add(line.amount).unwrap_or(*entry);
     }
     let label = by_label
         .iter()
         .max_by_key(|(_, amount)| amount.nanos())
-        .map_or(Label::of(tags), |(label, _)| *label);
+        .map_or_else(|| Label::of(tags), |(label, _)| *label);
     StoredEntry {
         session_id: session.to_string(),
         messages,
@@ -565,7 +565,7 @@ mod tests {
         let message = Message {
             session_id: session.clone(),
             message_id: MessageId::new("m1").unwrap(),
-            person: mara.clone(),
+            person: mara,
             model: ModelRef::new("anthropic", "claude-sonnet-5"),
             tokens: Some(tokencontroller_core::TokenCounts {
                 input: 1_000_000,

@@ -73,6 +73,17 @@ allow_attributes = "forbid"
 allow_attributes_without_reason = "forbid"
 dbg_macro = "forbid"
 print_stdout = "deny"
+# From the nursery group, picked one by one: the whole group still has lints
+# that are wrong too often (future_not_send, suspicious_operation_groupings)
+# or only about style (missing_const_for_fn).
+redundant_clone = "forbid"
+needless_pass_by_ref_mut = "forbid"
+useless_let_if_seq = "forbid"
+or_fun_call = "forbid"
+# Crash and clock rules not covered above.
+exit = "forbid"
+panic_in_result_fn = "forbid"
+unchecked_time_subtraction = "forbid"
 
 [profile.release]
 overflow-checks = true

@@ -51,15 +51,16 @@ impl Run {
                 .map(|value| value.trim().to_owned())
                 .filter(|value| !value.is_empty())
         };
-        let mut tags = Tags::new();
-        if let Some(text) = var("TC_TAGS") {
-            tags = Tags::parse(
-                text.split(',')
-                    .map(str::trim)
-                    .filter(|pair| !pair.is_empty()),
-            )
+        let mut tags = var("TC_TAGS")
+            .map(|text| {
+                Tags::parse(
+                    text.split(',')
+                        .map(str::trim)
+                        .filter(|pair| !pair.is_empty()),
+                )
+                .unwrap_or_default()
+            })
             .unwrap_or_default();
-        }
         for (name, variable) in [
             (TagName::feature(), "TC_FEATURE"),
             (TagName::project(), "TC_PROJECT"),
@@ -129,7 +130,7 @@ impl Facts {
         self.duration_seconds = later.duration_seconds.or(self.duration_seconds);
         self.subagents = later.subagents.or(self.subagents);
         self.files_touched = later.files_touched.or(self.files_touched);
-        self.result = later.result.or(self.result.take());
+        self.result = later.result.or_else(|| self.result.take());
     }
 
     fn core(&self, summary: Option<String>) -> SessionFacts {
@@ -165,8 +166,10 @@ impl Recorded {
             self.summary = later.summary;
         }
         self.tags.extend(later.tags);
-        self.pull_request = later.pull_request.or(self.pull_request.take());
-        self.pull_request_title = later.pull_request_title.or(self.pull_request_title.take());
+        self.pull_request = later.pull_request.or_else(|| self.pull_request.take());
+        self.pull_request_title = later
+            .pull_request_title
+            .or_else(|| self.pull_request_title.take());
         self.facts.merge(later.facts);
     }
 
@@ -704,7 +707,7 @@ impl<'a> Folded<'a> {
                 session_id: key.0.clone(),
                 message_id: key.1.clone(),
             })
-            .or(self.splits.get(session_target))
+            .or_else(|| self.splits.get(session_target))
             .filter(|split| split.parts.len() == lines.len())
             .map_or_else(|| vec![1; lines.len()], |split| split.weights());
         let weight_sum = weights

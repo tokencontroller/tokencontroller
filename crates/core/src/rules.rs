@@ -404,11 +404,7 @@ mod tests {
                 key: key("same"),
             },
         );
-        let rules = vec![
-            late_org.clone(),
-            early_person.clone(),
-            same_order_org.clone(),
-        ];
+        let rules = vec![late_org, early_person, same_order_org];
         let names: Vec<&str> = in_order(&rules)
             .into_iter()
             .map(|rule| rule.name.as_str())

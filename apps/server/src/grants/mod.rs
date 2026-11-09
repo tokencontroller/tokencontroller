@@ -430,11 +430,11 @@ mod tests {
             organization_id: Uuid::nil(),
             events,
         };
-        assert_eq!(role_filters(&log, id), vec![web.0.clone(), acme.0.clone()]);
+        assert_eq!(role_filters(&log, id), vec![web.0, acme.0]);
         assert_eq!(role_filters(&log, Uuid::from_u128(8)), Vec::<Tags>::new());
         let fold = log.fold(OffsetDateTime::UNIX_EPOCH).unwrap();
         let newer = Grant {
-            person: person.clone(),
+            person,
             capability: Capability::View,
             filter: Filter::default(),
         };

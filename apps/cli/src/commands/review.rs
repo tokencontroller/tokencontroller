@@ -356,7 +356,7 @@ pub fn split(app: &mut App<'_>, number: i64, pairs: &[String], remember: bool) -
 }
 
 /// Records a split on this machine and, connected, in the organization.
-fn record_split(app: &mut App<'_>, session: &SessionView, split: Split) -> Result<()> {
+fn record_split(app: &App<'_>, session: &SessionView, split: Split) -> Result<()> {
     split
         .check()
         .map_err(|error| Error::usage(error.to_string()))?;
