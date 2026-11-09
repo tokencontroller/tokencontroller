@@ -28,7 +28,7 @@ Authorization: Bearer tc_svc_…
 
 The person who created the service token is the person of the message. `tokens` with all four kinds is required; a token entry without counts is saved as a count error with no cost. `reported_cost` is optional and is kept as a fact, never shown as the cost: the cost comes from the [price table](/account/price-table). Every field is in the [token entry schema](/reference/token-entry); the endpoint itself is on the [API page](/reference/api/messages#token-entries).
 
-To send several token entries in one call, send a list of up to 1,000. Either all of them are saved or none.
+To send several token entries in one call, send a list of up to 1,000. Either all of them are saved or none. On the hosted service, a list that would pass the organization's [messages per day](/plans#messages) is refused with `429`.
 
 ## The answer {#answer}
 

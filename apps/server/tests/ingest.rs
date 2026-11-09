@@ -516,3 +516,104 @@ async fn the_seed_is_the_worked_month_and_loads_twice(pool: PgPool) {
         usd("800.00")
     );
 }
+
+/// Hooks a shared service could add: three messages a day.
+struct ThreeADay;
+
+impl tokencontroller_server::hooks::ServiceHooks for ThreeADay {
+    fn daily_message_limit<'a>(
+        &'a self,
+        _state: &'a AppState,
+        _organization_id: Uuid,
+    ) -> tokencontroller_server::hooks::HookFuture<
+        'a,
+        Option<tokencontroller_server::hooks::DailyMessageLimit>,
+    > {
+        Box::pin(async {
+            Ok(Some(tokencontroller_server::hooks::DailyMessageLimit {
+                max: 3,
+                message: "This plan takes in 3 messages a day.".to_owned(),
+            }))
+        })
+    }
+}
+
+fn too_many(error: &tokencontroller_server::error::ApiError) -> bool {
+    error.status() == axum::http::StatusCode::TOO_MANY_REQUESTS
+}
+
+#[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
+async fn a_daily_message_limit_refuses_the_batch_that_would_pass_it(pool: PgPool) {
+    let mut kestrel = kestrel(&pool).await.unwrap();
+    kestrel.state = kestrel.state.clone().with_hooks(Arc::new(ThreeADay));
+    let at = datetime!(2026-10-05 09:00 UTC);
+    let telemetry = |calls: Vec<TelemetryMessage>| {
+        store::store_telemetry(
+            &kestrel.state,
+            kestrel.organization_id,
+            &kestrel.mara,
+            calls,
+        )
+    };
+
+    // Two of three: stored.
+    let first = telemetry(vec![call("s1", "m1", at, 10), call("s1", "m2", at, 10)])
+        .await
+        .unwrap();
+    assert_eq!(first.new_messages, 2);
+
+    // Two more would make four: the whole batch is refused, nothing stored.
+    let refused = telemetry(vec![call("s1", "m3", at, 10), call("s1", "m4", at, 10)])
+        .await
+        .unwrap_err();
+    assert!(too_many(&refused), "{refused}");
+    assert!(
+        refused.to_string().contains("3 messages a day"),
+        "{refused}"
+    );
+    assert!(refused.to_string().contains("00:00 UTC"), "{refused}");
+    assert_eq!(message_events(&pool, "s1").await.unwrap(), 2);
+
+    // Calls already on record add nothing, so they pass below the limit.
+    let again = telemetry(vec![call("s1", "m1", at, 10)]).await.unwrap();
+    assert_eq!(again.known_messages, 1);
+
+    // One more fills the day; after that even a token entry is refused.
+    telemetry(vec![call("s1", "m3", at, 10)]).await.unwrap();
+    let full = telemetry(vec![call("s1", "m4", at, 10)]).await.unwrap_err();
+    assert!(too_many(&full), "{full}");
+    let entry = entry(&serde_json::json!({ "local_id": "desk:1" }))
+        .unwrap()
+        .check()
+        .unwrap();
+    let refused_entry = store::store_entries(
+        &kestrel.state,
+        kestrel.organization_id,
+        &kestrel.mara,
+        vec![entry],
+    )
+    .await
+    .unwrap_err();
+    assert!(too_many(&refused_entry), "{refused_entry}");
+
+    // Messages recorded on an earlier day do not count against today.
+    sqlx::query(
+        "UPDATE events SET recorded_at = recorded_at - interval '1 day' WHERE kind = 'message'",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    let next_day = telemetry(vec![call("s1", "m4", at, 10)]).await.unwrap();
+    assert_eq!(next_day.new_messages, 1);
+    assert_eq!(message_events(&pool, "s1").await.unwrap(), 4);
+
+    // The open build has no limit.
+    let open = AppState::new(pool.clone(), config(), Arc::new(NoExtension));
+    let calls = (5..10)
+        .map(|n| call("s1", &format!("m{n}"), at, 10))
+        .collect();
+    let stored = store::store_telemetry(&open, kestrel.organization_id, &kestrel.mara, calls)
+        .await
+        .unwrap();
+    assert_eq!(stored.new_messages, 5);
+}

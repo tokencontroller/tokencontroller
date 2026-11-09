@@ -66,7 +66,7 @@ Every error is JSON with a stable code and a sentence:
 | `404` | `not_found` | No such record inside what the caller may view. |
 | `409` | `conflict` | The call makes no sense now: an event already reversed, a member limit reached, a price row already in force. |
 | `410` | `gone` | A sign-in link that was used or has expired. |
-| `429` | `too_many_requests` | Too many sign-in links for one address. |
+| `429` | `too_many_requests` | Too many sign-in links for one address, or the organization reached its [messages per day](/plans#messages); nothing of the batch was stored. |
 | `503` | `database_unavailable` | The database does not answer. Try again. |
 
 Every answer carries an `x-request-id` header; quote it when you write to support.
