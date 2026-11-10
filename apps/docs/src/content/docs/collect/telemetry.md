@@ -17,9 +17,9 @@ Claude Code, Codex CLI, Gemini CLI, Copilot CLI and Cursor Enterprise can push t
 
 The ingest endpoint takes OTLP over HTTP, as protobuf or JSON, plain or gzip. It does not take gRPC.
 
-The ingest endpoint never stores prompt text: it removes it from model call events and drops any other event that carries it. Turning prompt logging off in the agent still sends less data.
+The endpoint stores what it received and removes content text (prompts, responses, tool output, file contents) on arrival, unless your organization switches keeping it on. Records that are not model calls are kept as activities. Turning prompt logging off in the agent still sends less data.
 
-Every event must carry the token counts by kind: input, output, cache read and cache write. Cost comes from the [price table](/account/price-table) for every agent; the cost figure Claude Code sends along is kept as a fact and never shown as the cost.
+A model call carries its token counts by kind, such as input, output, cache read and cache write; kinds are open names (see [token kinds](/reference/data-model#token-kinds)). Cost comes from the [price table](/account/price-table) for every agent; the cost figure Claude Code sends along is kept as a fact and never shown as the cost.
 
 ## Claude Code {#claude-code}
 

@@ -3,7 +3,7 @@ title: "Bills and reconciliation"
 description: "Connect Anthropic, OpenAI or a CSV bill, and the check on each bill's own range: bill equals the cost of its messages plus what no message explains."
 ---
 
-A bill is a provider's figure for metered usage over a date range: provider, first and last day, amount, currency. Seats, subscriptions and other flat fees are not usage: they are not on a bill, and finance handles them as before.
+When you use AI agents, you may get bills from more than one provider, or two bills from the same one, such as an API account and a seat plan. A bill is what a provider charged you under one contract over a date range: contract, first and last day, amount, currency. A metered contract, such as an API account, bills per use. A flat contract, such as a seat plan, bills its fee plus any extra usage. This page shows how to bring bills in and check each one against what your agents used.
 
 ## What is reconciled {#what}
 
@@ -34,13 +34,13 @@ For organizations that pay OpenAI for API usage. An organization owner creates a
 
 ### CSV {#csv}
 
-Any bill can be uploaded as CSV, and this is the way for Bedrock, Vertex and Foundry. Under _Bills_, choose _Upload CSV_ and give the provider, first and last day, amount and currency (see the [bill fields](/reference/bill)), or upload the cloud's own cost export. The upload shows what it read before anything is saved: each bill in the file, and whether it is new, restates the bill in force, or has the same figures. A file with a problem names the row and column and saves nothing.
+Any bill can be uploaded as CSV, and this is the way for Bedrock, Vertex and Foundry. Under _Bills_, choose _Upload CSV_ and give the provider, the contract, first and last day, amount and currency (see the [bill fields](/reference/bill)), or upload the cloud's own cost export. The upload shows what it read before anything is saved: each bill in the file, and whether it is new, restates the bill in force, or has the same figures. A file with a problem names the row and column and saves nothing.
 
 ![The CSV upload: what the file holds, each bill against the bill in force, before anything is saved](/screens/17-upload-csv-bill.png)
 
 ## Restated bills and currency {#sources}
 
-A provider can restate a bill. The new figure is a new bill event for the same provider and range; the old one is reversed and stays visible. A pull with the same figures changes nothing. A bill in another currency keeps its own amount and the exchange rate of its last day.
+A provider can restate a bill. The new figure is a new bill event for the same contract and range; the old one is reversed and stays visible. A pull with the same figures changes nothing. A bill in another currency keeps its own amount and the exchange rate of its last day.
 
 ## Reconciliation {#reconciliation}
 

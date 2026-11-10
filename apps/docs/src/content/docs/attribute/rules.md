@@ -19,7 +19,7 @@ A signal is a fact about a session that hints at where its cost belongs. A tag i
 | Telemetry resource attributes | `OTEL_RESOURCE_ATTRIBUTES`; see [Telemetry](/collect/telemetry#tags) |
 | Subagent type | Session files |
 
-Prompts and titles never leave the machine; see [Security and privacy](/security).
+Prompts and titles are read on the machine and only the keys are sent, unless your organization switches keeping content text on; see [Security and privacy](/security).
 
 ## What a rule is {#rule}
 
