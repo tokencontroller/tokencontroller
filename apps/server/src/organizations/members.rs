@@ -381,12 +381,11 @@ pub(super) async fn invite_member(
     let person = events::person(&email)?;
     let mut tx = state.db.begin().await?;
     let person_id = sqlx::query_scalar!(
-        r#"INSERT INTO people (organization_id, email, name, role)
-           VALUES ($1, $2, $3, $4) RETURNING id"#,
+        r#"INSERT INTO people (organization_id, email, name)
+           VALUES ($1, $2, $3) RETURNING id"#,
         member.organization_id,
         email,
-        name,
-        request.role.as_str()
+        name
     )
     .fetch_one(&mut *tx)
     .await?;
@@ -592,13 +591,11 @@ pub(super) async fn update_member(
     sqlx::query!(
         r#"UPDATE people SET
              name = coalesce($3, name),
-             role = coalesce($4, role),
-             email = coalesce($5, email)
+             email = coalesce($4, email)
            WHERE id = $1 AND organization_id = $2"#,
         id,
         member.organization_id,
         name,
-        change.role.map(Role::as_str),
         email
     )
     .execute(&mut *tx)

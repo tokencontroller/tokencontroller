@@ -169,16 +169,15 @@ async fn organization(tx: &mut PgConnection) -> Result<(), sqlx::Error> {
 async fn people(tx: &mut PgConnection) -> Result<(), sqlx::Error> {
     for person in &PEOPLE {
         sqlx::query!(
-            r#"INSERT INTO people (id, organization_id, email, name, role, joined_at, removed_at)
-               VALUES ($1, $2, $3, $4, $5, CASE WHEN $6 THEN now() END, NULL)
+            r#"INSERT INTO people (id, organization_id, email, name, joined_at, removed_at)
+               VALUES ($1, $2, $3, $4, CASE WHEN $5 THEN now() END, NULL)
                ON CONFLICT (id) DO UPDATE SET email = EXCLUDED.email, name = EXCLUDED.name,
-                 role = EXCLUDED.role, removed_at = NULL,
-                 joined_at = CASE WHEN $6 THEN coalesce(people.joined_at, now()) END"#,
+                 removed_at = NULL,
+                 joined_at = CASE WHEN $5 THEN coalesce(people.joined_at, now()) END"#,
             person.id,
             ids::ORGANIZATION,
             person.email,
             person.name,
-            person.role.as_str(),
             person.joined
         )
         .execute(&mut *tx)
