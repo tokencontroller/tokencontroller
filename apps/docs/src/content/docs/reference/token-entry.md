@@ -11,16 +11,16 @@ A token entry is one message, or one session with its messages, as the [token en
 | --- | --- |
 | `agent_harness` | The product the agent ran on, such as `claude-code` or `support-desk`. Required. |
 | `agent_name` | A label for the agent, such as "review bot". Optional. |
-| `provider` | Who charges for the model calls: `anthropic`, `openai`, `google`, `aws_bedrock`, `gcp_vertex`, `azure_foundry`, `github`, `cursor` or `other`. Optional; without it, it follows from the model's name. Picks the price table rows and the bill. |
+| `provider` | Who charges for the model calls: `anthropic`, `openai`, `google`, `aws_bedrock`, `gcp_vertex`, `azure_foundry`, `github`, `cursor` or `other`. Optional; send it when you know it. It is never guessed from the model's name. With the contract it picks the price table rows. |
 | `model` | The model that did the work, such as `claude-sonnet-4-5`. `anthropic/claude-sonnet-4-5`, with the provider in front, is the same model. Required. |
 | `started_at`, `ended_at` | When the session started and ended. Required. |
-| `tokens` | Counts by kind: `input`, `output`, `cache_read`, `cache_write`. All four required; a missing kind is a count error. |
+| `tokens` | Counts by kind, such as `input`, `output`, `cache_read`, `cache_write`, `cache_write_5m`, `cache_write_1h`. Kinds are open names; a kind with no price row is listed and leaves the rest priced. No counts at all is a count error. See [token kinds](/reference/data-model#token-kinds). |
 | `reported_cost` | The agent's own cost figure in US dollars, as a number or a decimal string such as `"0.031"`. Optional. Stored as a fact about the message; the cost shown is counts × the [price table](/account/price-table). |
-| `summary` | What the session did, from one line to a short report. With the tag values, the only text stored. |
+| `summary` | What the session did, from one line to a short report. With the tag values, the only text stored while content text is off (see [Security and privacy](/security)). |
 | `facts` | Session facts: `turns`, `tool_calls`, `retries`, `duration_seconds`, `subagents`, `files_touched`, `result` (a URL such as the pull request). All optional. |
 | `feature`, `project` | Where it belongs: a feature key such as `KD-214`, a project by key. Optional. A tag named here wins over every rule; without one, [rules split it](/attribute/rules#order). |
 | `tags` | Any other tags, such as `{"purpose": "code-review"}`. One value per tag name. Optional. Tags sent here win over rules. |
-| `signals` | Facts about the session that rules read. Optional. See [Signals](#signals). |
+| `signals` | Any names and values that may help to assign the session, which rules read. Optional and open: the names below are the ones Token Controller's collectors send. A signal named like a tag, such as `contract`, is your own assignment. See [Signals](#signals). |
 | `session_id` | The agent harness's id for the session. Required for a session record. A message seen again with the same session id and message id is the same record. |
 | `messages` | The session's model calls. Optional for a session record; with them, a session that telemetry also reported is counted exactly once, call by call. See [Messages](#messages). |
 | `splits` | How the session is split. Optional; without it the session is one split, or rules split it. See [Splits](#splits). |

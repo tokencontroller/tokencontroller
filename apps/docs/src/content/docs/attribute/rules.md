@@ -19,7 +19,7 @@ A signal is a fact about a session that hints at where its cost belongs. A tag i
 | Telemetry resource attributes | `OTEL_RESOURCE_ATTRIBUTES`; see [Telemetry](/collect/telemetry#tags) |
 | Subagent type | Session files |
 
-Prompts and titles never leave the machine; see [Security and privacy](/security).
+Prompts and titles are read on the machine and only the keys are sent, unless your organization switches keeping content text on; see [Security and privacy](/security).
 
 ## What a rule is {#rule}
 
@@ -30,7 +30,7 @@ Prompts and titles never leave the machine; see [Security and privacy](/security
 | Scope | The organization, or one person. Organization rules run before personal ones. |
 | Order | Rules of one scope run in order; the first that finds a tag value for a tag name wins. |
 
-A rule writes a [split](#splits) on arrival. A new or changed rule also runs back over every message since the [cutoff](/account/cutoff) that has no hand assignment, so a fix reaches past work. Figures as of the cutoff never change.
+A rule writes a [split](#splits) on arrival. A new or changed rule also runs back over every message since the [cutoff](/account/cutoff) that has no hand assignment, so a fix reaches past work. A rule that gives a contract may run back before the cutoff too, so an older bill can meet its messages. Figures as of the cutoff never change.
 
 ## The default rules {#defaults}
 

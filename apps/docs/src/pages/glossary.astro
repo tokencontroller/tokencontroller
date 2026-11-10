@@ -5,7 +5,7 @@ import StarlightPage from '@astrojs/starlight/components/StarlightPage.astro';
 import { execSync } from 'node:child_process';
 import source from '../../glossary.md?raw';
 
-type Term = { term: string; meaning: string; avoid?: string };
+type Term = { term: string; meaning: string; aka?: string; avoid?: string };
 type Section = { id: string; title: string; terms: Term[] };
 
 const slug = (t: string) => t.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
@@ -29,7 +29,14 @@ for (const block of source.split('## Language')[1].split(/\n(?=### )/)) {
       avoid = am[1].trim();
       text = text.slice(0, am.index).trim();
     }
-    terms.push({ term: m[1] + (m[2] ? ', ' + m[2] : ''), meaning: inline(text), avoid });
+    // "_Also known as_:" names the word a reader from controlling, an ERP system or OpenTelemetry may know.
+    let aka: string | undefined;
+    const km = text.match(/\n?_Also known as_:\s*(.*)$/);
+    if (km) {
+      aka = km[1].trim();
+      text = text.slice(0, km.index).trim();
+    }
+    terms.push({ term: m[1] + (m[2] ? ', ' + m[2] : ''), meaning: inline(text), aka, avoid });
   }
   sections.push({ id: slug(title), title, terms });
 }
@@ -52,7 +59,7 @@ try {
   }}
   headings={sections.map((s) => ({ depth: 2, slug: s.id, text: s.title }))}
 >
-  <p>The precise meaning of every term in Token Controller. The product and these docs use these words, and only these.</p>
+  <p>The precise meaning of every term in Token Controller. The product and these docs use these words, and only these. Where another field has a word for the same idea, such as controlling, an ERP system or OpenTelemetry, it is listed as also known as.</p>
   {
     sections.map((s) => (
       <>
@@ -70,6 +77,12 @@ try {
                 <td>{t.term}</td>
                 <td>
                   <Fragment set:html={t.meaning} />
+                  {t.aka && (
+                    <>
+                      <br />
+                      <span class="aka">Also known as: {t.aka}</span>
+                    </>
+                  )}
                   {t.avoid && (
                     <>
                       <br />

@@ -10,7 +10,7 @@ The cutoff is one date per organization. Every figure as of the cutoff is frozen
 | | Before the cutoff | After the cutoff |
 | --- | --- | --- |
 | New messages, splits, accepts, bills | Only an org manager with [adjust](/account/roles#capabilities) may add events dated there. | Anyone with the capability. |
-| Rules | Run back over unassigned messages only since the cutoff. | Run on arrival and back over unassigned messages. |
+| Rules | Run back over unassigned messages only since the cutoff. Contract rules may run back before it; figures as of the cutoff stay as they were. | Run on arrival and back over unassigned messages. |
 | Reports as of the cutoff | Frozen: the same answer every time. | Change as events arrive. |
 
 Every report shows its as-of date. A report as of today includes everything; a report as of the cutoff is the one finance gets.

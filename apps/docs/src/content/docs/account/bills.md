@@ -3,7 +3,7 @@ title: "Bills and reconciliation"
 description: "Connect Anthropic, OpenAI or a CSV bill, and the check on each bill's own range: bill equals the cost of its messages plus what no message explains."
 ---
 
-A bill is a provider's figure for metered usage over a date range: provider, first and last day, amount, currency. Seats, subscriptions and other flat fees are not usage: they are not on a bill, and finance handles them as before.
+When you use AI agents, you may get bills from more than one provider, or two bills from the same one, such as an API account and a seat plan. A bill is what a provider charged you under one contract over a date range: contract, first and last day, amount, currency. A metered contract, such as an API account, bills per use. A flat contract, such as a seat plan, bills its fee plus any extra usage. This page shows how to bring bills in and check each one against what your agents used.
 
 ## What is reconciled {#what}
 
@@ -34,25 +34,26 @@ For organizations that pay OpenAI for API usage. An organization owner creates a
 
 ### CSV {#csv}
 
-Any bill can be uploaded as CSV, and this is the way for Bedrock, Vertex and Foundry. Under _Bills_, choose _Upload CSV_ and give the provider, first and last day, amount and currency (see the [bill fields](/reference/bill)), or upload the cloud's own cost export. The upload shows what it read before anything is saved: each bill in the file, and whether it is new, restates the bill in force, or has the same figures. A file with a problem names the row and column and saves nothing.
+Any bill can be uploaded as CSV, and this is the way for Bedrock, Vertex and Foundry. Under _Bills_, choose _Upload CSV_ and give the provider, the contract, first and last day, amount and currency (see the [bill fields](/reference/bill)), or upload the cloud's own cost export. The upload shows what it read before anything is saved: each bill in the file, and whether it is new, restates the bill in force, or has the same figures. A file with a problem names the row and column and saves nothing.
 
 ![The CSV upload: what the file holds, each bill against the bill in force, before anything is saved](/screens/17-upload-csv-bill.png)
 
 ## Restated bills and currency {#sources}
 
-A provider can restate a bill. The new figure is a new bill event for the same provider and range; the old one is reversed and stays visible. A pull with the same figures changes nothing. A bill in another currency keeps its own amount and the exchange rate of its last day.
+A provider can restate a bill. The new figure is a new bill event for the same contract and range; the old one is reversed and stays visible. A pull with the same figures changes nothing. A bill in another currency keeps its own amount and the exchange rate of its last day.
 
 ## Reconciliation {#reconciliation}
 
-Reconciliation runs on the bill's own date range, per provider:
+Each bill has one contract, and the check runs on the bill's own date range against the messages with the same contract:
 
-| | |
+| Contract | Check |
 | --- | --- |
-| Bill | cost of every message of that provider in the range + what the bill has that no message explains |
+| Metered | Bill = cost of the messages with this contract in the range + what the bill has that no message explains |
+| Flat | Bill = fee + extra usage. The cost of its messages minus extra usage is covered by the plan. |
 
-The second part is a line on the bill, never a concept of its own: usage in the provider's own chat app, per-call fees the agent harness does not report, a message whose model is missing from the price table. It must be zero or positive. Negative means a message is wrong: a wrong count, a wrong model, a price row that is too high, or a message counted that the provider did not charge. Find it and reverse it.
+What no message explains is a line on the bill: usage in the provider's own chat app, or per-call fees the agent does not report. It must be zero or positive. Negative means a message is wrong: a wrong count, a wrong model, a price row that is too high, or a message under the wrong contract. Find it and reverse it.
 
-Tags play no part in the check. With several providers, each bill is checked on its own; the organization total is the sum of the bills. In the [worked month](/concepts#month), messages cost 950, the bill is 1,000, and 50 is chat app usage no message explains.
+Beside every check you see the messages of the same provider that have no contract yet, and those whose contract came only from the provider having one contract. How a message gets its contract is on the [data model](/reference/data-model#contract) page, and the [worked month](/concepts#month) checks three bills.
 
 ![Bills and the reconciliation: bill, cost of messages, what no message explains, per provider](/screens/06-bills-and-reconciliation.png)
 

@@ -607,7 +607,53 @@ main h1#_top {
 }
 
 /* Glossary */
+.sl-markdown-content .aka,
 .sl-markdown-content .avoid {
   color: var(--muted);
   font-size: 0.85em;
+}
+
+/* Flow drawings on How it works: boxes for sources, records, tags and results, in both themes. */
+.flow svg text {
+  font-family: var(--sans);
+  fill: var(--ink);
+}
+.flow .hd {
+  font-size: 13px;
+  font-weight: 600;
+}
+.flow .sub,
+.flow .lbl {
+  font-size: 11.5px;
+  fill: var(--muted);
+}
+.flow .lbl {
+  paint-order: stroke;
+  stroke: var(--card);
+  stroke-width: 4px;
+}
+.flow .src {
+  fill: var(--card);
+  stroke: var(--line-2);
+}
+.flow .rec {
+  fill: var(--bg-soft);
+  stroke: var(--line-2);
+}
+.flow .tag {
+  fill: var(--accent-tint);
+  stroke: var(--accent);
+}
+.flow .out {
+  fill: var(--card);
+  stroke: var(--ink);
+  stroke-width: 1.4;
+}
+.flow .ln {
+  stroke: var(--line-2);
+  stroke-width: 1.4;
+  fill: none;
+}
+.flow .ah {
+  fill: var(--line-2);
 }

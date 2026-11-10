@@ -109,4 +109,4 @@ await tc.tokenEntries.create({
 })
 ```
 
-The examples on these pages use the [worked month](/concepts#month): Kestrel Digital, one provider, March 2026, a bill of 1,000, messages of 950, features KD-1 and KD-2 in project Shop for client Acme, Mara and Tom in team web.
+The examples on these pages use one organization, Kestrel Digital, in March 2026: one bill of 1,000, messages of 950, features KD-1 and KD-2 in project Shop for client Acme, Mara and Tom in team web.
