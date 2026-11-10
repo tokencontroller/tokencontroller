@@ -41,7 +41,7 @@ Tags go on messages afterwards, by a [rule](/attribute/rules) that reads a signa
 One tag is built in for the money side: `contract`. A bill has exactly one contract, and a message gets at most one, from the first of these that applies:
 
 1. Someone set it by hand, or the collector sent it.
-2. A rule matched a signal, such as "signed in with a plan" or "signed in with an API key". Token Controller ships these rules for the agents it knows.
+2. A rule matched a signal, such as the account the agent was signed in to, or the agent's name. Token Controller ships sign-in rules for the agents that report their sign-in.
 3. The message's project brings a contract by default.
 4. The message's provider has only one contract.
 
@@ -59,10 +59,10 @@ A small agency works in March with three contracts: a Claude seat plan `claude-t
 
 | Session | Person | Agent | Contract | Set by | Cost |
 | --- | --- | --- | --- | --- | ---: |
-| S1 | Mara | Claude Code | `claude-team` | rule: signed in with a plan | 400 |
+| S1 | Mara | Claude Code | `claude-team` | rule: signed in to the team's Claude organization | 400 |
 | S2 | Mara | Codex | `openai-api` | the provider's only contract | 300 |
-| S3 | Tom | review bot | `anthropic-api` | rule: signed in with an API key | 100 |
-| S4 | Tom | Claude Code | `anthropic-api` | rule: signed in with an API key | 150 |
+| S3 | Tom | review bot | `anthropic-api` | rule: agent name review bot | 100 |
+| S4 | Tom | Claude Code | `anthropic-api` | by hand, in the review list | 150 |
 | All messages | | | | | 950 |
 
 The same sessions by what the work was for:

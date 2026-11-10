@@ -4,7 +4,7 @@ Builds on ADR 0006 and ADR 0028. Every usage endpoint writes model calls into on
 
 Three rules keep a session counted once when two sources do not agree on IDs:
 
-- A telemetry event without a message ID of its own gets one built from the session, time, model and tokens, prefixed `otel:`, so a retried export lands on the same row. These rows cannot match a session file, so once a session record with its own messages claims the session, they stop counting.
+- A telemetry event without a message ID of its own gets one built from the session, time, model and tokens, prefixed `otel:`, so a retried export lands on the same row. These rows carry no id a session file has, so once a session record with its own messages claims the session, each is matched to a file message of the same session on model, token counts and time, and stops counting (ADR 0028).
 - A session record sent without messages counts as one message named after the session, until real messages for the session arrive; then that stand-in stops counting.
 - Telemetry metrics are stored as received and do not make messages. Agent harnesses send the same calls as log events or spans, one per call, and counting both would double the cost.
 
