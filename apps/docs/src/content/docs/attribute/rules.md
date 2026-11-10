@@ -30,7 +30,7 @@ Prompts and titles are read on the machine and only the keys are sent, unless yo
 | Scope | The organization, or one person. Organization rules run before personal ones. |
 | Order | Rules of one scope run in order; the first that finds a tag value for a tag name wins. |
 
-A rule writes a [split](#splits) on arrival. A new or changed rule also runs back over every message since the [cutoff](/account/cutoff) that has no hand assignment, so a fix reaches past work. Figures as of the cutoff never change.
+A rule writes a [split](#splits) on arrival. A new or changed rule also runs back over every message since the [cutoff](/account/cutoff) that has no hand assignment, so a fix reaches past work. A rule that gives a contract may run back before the cutoff too, so an older bill can meet its messages. Figures as of the cutoff never change.
 
 ## The default rules {#defaults}
 

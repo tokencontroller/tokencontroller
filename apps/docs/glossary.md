@@ -110,7 +110,7 @@ The assignment that makes one estimate the plan for its tag set. Accepting anoth
 _Avoid_: Permission, right, scope
 
 **Rule**:
-A pattern over any signal that gives a tag value, with a scope (the organization or one person) and an order. Rules resolve per tag name, so a project set by hand does not stop a contract rule. A rule runs when a message arrives and runs back in time. "Remember" on a hand assignment creates one.
+A pattern over any signal that gives a tag value, with a scope (the organization or one person) and an order. Rules resolve per tag name, so a project set by hand does not stop a contract rule. A rule runs when a message arrives and runs back over messages since the cutoff; a contract rule may run back before it. "Remember" on a hand assignment creates one.
 _Also known as_: Allocation rule, posting rule (accounting)
 _Avoid_: Mapping
 

@@ -36,7 +36,7 @@ Bills come in on their own, from a provider's billing API or a CSV upload. Each 
 
 So far, messages and bills know nothing about each other. Tags connect them. A tag says what something was for, such as `project: shop`, `feature: KD-1` or `client: acme`. Tag values may come from a tag source such as Jira or a CRM, from a list, or be typed by hand.
 
-Tags go on messages afterwards, by a [rule](/attribute/rules) that reads a signal ("repository `kestrel/shop` is project Shop"), by a default ("feature KD-1 belongs to project Shop"), or by hand in the [review list](/attribute/review). They also run back in time, so a rule you add today may tag last month's messages too.
+Tags go on messages afterwards, by a [rule](/attribute/rules) that reads a signal ("repository `kestrel/shop` is project Shop"), by a default ("feature KD-1 belongs to project Shop"), or by hand in the [review list](/attribute/review). They also run back over messages since the [cutoff](/account/cutoff), so a rule you add today may tag last month's messages too. A contract rule may run back further, since it changes no figure as of the cutoff.
 
 One tag is built in for the money side: `contract`. A bill has exactly one contract, and a message gets at most one, from the first of these that applies:
 

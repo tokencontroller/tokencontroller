@@ -88,7 +88,7 @@ POST /api/v1/people/7f1c4e2a-…/attributes
 
 ## Rules {#rules}
 
-A rule is a pattern over one signal that gives a tag value. It runs when a message arrives and back over unassigned messages since the cutoff.
+A rule is a pattern over one signal that gives a tag value. It runs when a message arrives and back over unassigned messages since the cutoff; a rule that gives a contract may run back before it.
 
 ```http
 POST /api/v1/rules

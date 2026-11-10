@@ -43,5 +43,5 @@ Most unexpected figures have one of a few causes: what the bill has that no mess
 
 | You see | Why | What to do |
 | --- | --- | --- |
-| A frozen figure did not follow a new price row, rule or default | Figures as of the [cutoff](/account/cutoff) are frozen. Rules run back only since the cutoff. | Read the report as of today, or have an org manager [adjust](/account/cutoff#adjust) the event in before the cutoff. |
+| A frozen figure did not follow a new price row, rule or default | Figures as of the [cutoff](/account/cutoff) are frozen. Rules run back only since the cutoff, and a contract rule that runs back further leaves frozen figures as they were. | Read the report as of today, or have an org manager [adjust](/account/cutoff#adjust) the event in before the cutoff. |
 | A message arrived for a range before the cutoff | It waits, visible, dated when it arrived. | An org manager adjusts it in or reverses it. |

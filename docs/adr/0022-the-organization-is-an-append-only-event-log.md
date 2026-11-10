@@ -2,7 +2,7 @@
 
 Everything an organization holds is an event in one ordered, append-only log: source records (messages, bills, estimates, tag values, attribute values, shares, price table rows), assignments (splits, accepts, grants), the cutoff, submits and approvals, rules, and reversals. No row is ever updated or deleted. A correction is a new event: a reversal cancels any earlier event, and a new assignment supersedes the earlier one on the same target. Every figure the service shows is a fold of the log up to a date, "as of": as of today for the live figures, as of the cutoff for the frozen ones, and every report carries that date.
 
-One cutoff date per organization replaces calendar periods and the monthly close. Events dated before the cutoff need the adjust capability; rules run back only since it; figures as of it never change on their own. Restated bills, late messages and corrected splits are new events dated when they arrive, and an org manager with adjust may date them before the cutoff on purpose.
+One cutoff date per organization replaces calendar periods and the monthly close. Events dated before the cutoff need the adjust capability; rules run back only since it, except that contract assignment may run back before it (ADR 0028); figures as of it never change on their own. Restated bills, late messages and corrected splits are new events dated when they arrive, and an org manager with adjust may date them before the cutoff on purpose.
 
 ## Why
 

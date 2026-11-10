@@ -22,7 +22,7 @@ Usage and bills come in on their own, in any order, with no tags. Tags go on bot
 
 **The check.** For a metered contract, bill = cost of the messages with that contract in the bill's range + unexplained, unexplained never negative. For a flat contract, bill = fee + extra usage, and the cost of its messages minus extra usage is "covered by the plan". Every check also shows the messages of the same provider with no contract and those whose contract came from the fallback, so a check cannot be made to balance by leaving messages out. Reports always show cost at the price table; cost under a flat contract is marked "on a plan", with a subtotal per kind of contract.
 
-**Time.** Tagging runs back in time. Contract assignment may run back before the cutoff, since figures as of the cutoff stay as they were.
+**Time.** Tagging runs back since the cutoff (ADR 0022). Contract assignment may run back before the cutoff, so a bill connected late can meet its messages; figures as of the cutoff stay as they were.
 
 **Matching across sources.** When two usage sources report the same session without a shared call id (Codex telemetry has none, though its `conversation.id` is the session id), calls are matched one by one inside the session on model, token counts and time. When the session ids differ too, the same matching runs inside one person's sessions that overlap in time. Session totals are never used. Both received records stay stored, and one counts.
 
@@ -34,6 +34,6 @@ The old model bound a bill to a provider and guessed the provider from the model
 
 ## Consequences
 
-- This record replaces ADR 0021. ADRs 0006, 0018 and 0024 are read with it.
+- This record replaces ADR 0021. ADRs 0006, 0018, 0022 and 0024 are read with it.
 - The model world test holds three contracts, four bills, two sessions started in the same minute by one person and every hard case above, with exact figures. A generated test makes up small organizations and checks that cost by any tag adds up to the total, that contracts plus "no contract" add up to the total, and that the result does not depend on the order in which messages, bills and tags arrived.
 - The words door, translator and ticket system are not used.

@@ -68,7 +68,7 @@ Need a capability. Each supersedes the earlier assignment on the same target; th
 | --- | --- |
 | Cutoff | One date per organization, moved by an org manager. See [Cutoff](/account/cutoff). |
 | Submit | A person submits all their own messages inside a window. Approval is optional per organization. |
-| Rule | A pattern over any signal that gives a tag value, with scope (organization or person) and order. Resolved per tag name. Runs on arrival and back in time. "Remember" on a hand assignment creates one. |
+| Rule | A pattern over any signal that gives a tag value, with scope (organization or person) and order. Resolved per tag name. Runs on arrival and back since the cutoff; a contract rule may run back before it. "Remember" on a hand assignment creates one. |
 | Re-read | Received records read again by a newer reader, with the reader's version. |
 | Reversal | Cancels any earlier event. |
 
