@@ -2800,16 +2800,29 @@ async fn a_role_is_what_its_grants_say(pool: PgPool) {
     assert_eq!(role_of(Auth::Cookie(&priya)).await, "agent_manager");
 }
 
-/// A role is kept only as its grants (ADR 0027 second step): the people table
-/// has no column left that could disagree with them.
+/// A role is kept only as its grants. The service no longer writes the
+/// people.role column (ADR 0027 first step, dropped in a later release), so
+/// it keeps its default while the grants make an org manager.
 #[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
-async fn the_people_table_keeps_no_role(pool: PgPool) {
-    let columns: Vec<String> = sqlx::query_scalar(
-        "SELECT column_name::text FROM information_schema.columns WHERE table_name = 'people'",
+async fn the_role_column_is_no_longer_written(pool: PgPool) {
+    let app = app(&pool);
+    let (_, org_manager) = organization(&pool, "Kestrel Digital", "n.berger@kestrel.example")
+        .await
+        .unwrap();
+    let me = send(
+        &app,
+        Method::GET,
+        "/api/v1/me",
+        Auth::Cookie(&org_manager),
+        None,
     )
-    .fetch_all(&pool)
     .await
     .unwrap();
-    assert!(columns.contains(&"email".to_owned()));
-    assert!(!columns.contains(&"role".to_owned()));
+    assert_eq!(me.json["person"]["role"], "org_manager", "{}", me.text);
+    let column: String =
+        sqlx::query_scalar("SELECT role FROM people WHERE email = 'n.berger@kestrel.example'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(column, "agent_manager");
 }
