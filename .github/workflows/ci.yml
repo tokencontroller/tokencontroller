@@ -4,7 +4,8 @@
 # - the merge queue (merge_group) runs Harness, Rust, TypeScript and the image
 #   with its end-to-end smoke test, on the code exactly as it will land;
 # - a push to main or a version tag only builds and publishes the image, since
-#   the queue tested that same code. A run by hand runs everything.
+#   the queue tested that same code, and compiles the Rust job's code once
+#   to keep its cache on main. A run by hand runs everything.
 # Only the review job reads a secret, and it passes without one.
 # The review job switches GitHub's auto merge on when the change is clean
 # (ADR 0013). GitHub then waits for every required check, puts the pull
@@ -86,6 +87,9 @@ jobs:
       - name: Install the pinned toolchain
         run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
+        with:
+          # The job "Rust cache for main" below keeps this cache on main.
+          shared-key: rust
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-nextest
@@ -116,6 +120,49 @@ jobs:
           print(f"- {tests} tests ran, {failures + errors} failed, none skipped.\n")
           PY
           fi
+
+  rust-cache:
+    # The Rust job runs on pull requests and in the queue, and no later run
+    # may read a cache those runs keep: each queue entry has a ref of its
+    # own. With no cache on main, every queue run and every pull request's
+    # first run compiled every dependency (about four of the queue's six
+    # minutes). This job compiles what the Rust job compiles and keeps the
+    # cache on main, where pull requests and the queue read it. It checks
+    # nothing: the queue checked this code.
+    name: Rust cache for main
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: tc
+          POSTGRES_PASSWORD: secret
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U tc"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 30
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install the pinned toolchain
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: rust
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+      - name: Apply migrations for compile-time query checks
+        run: |
+          for file in apps/server/migrations/*.sql; do
+            psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q -f "$file"
+          done
+      - name: Compile as the Rust job does
+        run: |
+          cargo clippy --workspace --all-targets --locked -- -D warnings
+          cargo nextest run --workspace --locked --profile ci --no-run
 
   mutants:
     # Mutation testing (ADR 0003) of the core lines a pull request changes, so
@@ -217,6 +264,28 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: docker/setup-buildx-action@v4
+        id: buildx
+      # BuildKit's cache mounts (cargo's registry and target, pnpm's store)
+      # last only as long as the runner, so every image compiled the server
+      # from scratch. The publish job below keeps them on main whenever
+      # Cargo.lock or the toolchain changed; the queue reads them.
+      - name: Restore the build caches
+        uses: actions/cache/restore@v4
+        with:
+          path: build-cache
+          key: image-build-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock') }}
+          restore-keys: image-build-
+      - name: Put the caches into BuildKit
+        uses: reproducible-containers/buildkit-cache-dance@v3
+        with:
+          builder: ${{ steps.buildx.outputs.name }}
+          cache-map: |
+            {
+              "build-cache/registry": "/usr/local/cargo/registry",
+              "build-cache/target": "/src/target",
+              "build-cache/pnpm": "/root/.local/share/pnpm/store"
+            }
+          skip-extraction: true
       - name: Build the image
         uses: docker/build-push-action@v7
         with:
@@ -243,6 +312,26 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: docker/setup-buildx-action@v4
+        id: buildx
+      - name: Restore the build caches, and save them after the build
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: build-cache
+          key: image-build-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock') }}
+          restore-keys: image-build-
+      - name: Put the caches into BuildKit
+        # Its post step takes them back out before the cache step above saves.
+        uses: reproducible-containers/buildkit-cache-dance@v3
+        with:
+          builder: ${{ steps.buildx.outputs.name }}
+          cache-map: |
+            {
+              "build-cache/registry": "/usr/local/cargo/registry",
+              "build-cache/target": "/src/target",
+              "build-cache/pnpm": "/root/.local/share/pnpm/store"
+            }
+          skip-extraction: ${{ steps.cache.outputs.cache-hit == 'true' }}
       - uses: docker/login-action@v4
         with:
           registry: ghcr.io
