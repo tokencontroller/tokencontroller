@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "INSERT INTO people (organization_id, email, name, role)\n           VALUES ($1, $2, $3, $4) RETURNING id",
+  "query": "INSERT INTO people (organization_id, email, name)\n           VALUES ($1, $2, $3) RETURNING id",
   "describe": {
     "columns": [
       {
@@ -19,7 +19,6 @@
       "Left": [
         "Uuid",
         "Text",
-        "Text",
         "Text"
       ]
     },
@@ -27,5 +26,5 @@
       false
     ]
   },
-  "hash": "5e97f2c51e5030d2a5b90359759ed321f18a3c87380c62582770b2c04e3143a5"
+  "hash": "3e2f9340a8c701f053c12e30340dda46b7c1288500cf3639777c6e67c3a0a63e"
 }

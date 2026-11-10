@@ -32,7 +32,7 @@ pub use context::Context;
 pub(crate) use members::require_an_org_manager;
 pub use members::{MemberLimitView, MemberStatus, MemberView, clean_name, person_of};
 pub use provisioning::{add_member, member_by_email, only_organization, remove_member};
-pub use role::{Role, UnknownRole};
+pub use role::Role;
 pub use rules::{RuleView, parse_rule};
 pub(crate) use settings::validate_currency;
 pub use settings::{Organization, reporting_currency};
@@ -93,8 +93,8 @@ pub async fn create(conn: &mut PgConnection, name: &str, email: &str) -> Result<
     .fetch_one(&mut *conn)
     .await?;
     let person_id = sqlx::query_scalar!(
-        r#"INSERT INTO people (organization_id, email, role, joined_at)
-           VALUES ($1, $2, 'org_manager', now()) RETURNING id"#,
+        r#"INSERT INTO people (organization_id, email, joined_at)
+           VALUES ($1, $2, now()) RETURNING id"#,
         organization_id,
         email
     )

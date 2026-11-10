@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO people (id, organization_id, email, name, joined_at, removed_at)\n               VALUES ($1, $2, $3, $4, CASE WHEN $5 THEN now() END, NULL)\n               ON CONFLICT (id) DO UPDATE SET email = EXCLUDED.email, name = EXCLUDED.name,\n                 removed_at = NULL,\n                 joined_at = CASE WHEN $5 THEN coalesce(people.joined_at, now()) END",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Text",
+        "Bool"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "656794828993b27c5a7bb39a23b294ecea4d98ffac847b88ca2efa0dfa476aba"
+}

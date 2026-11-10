@@ -11,6 +11,7 @@ use http_body_util::BodyExt as _;
 use serde_json::{Value, json};
 use sqlx::PgPool;
 use tokencontroller_core::NoExtension;
+use tokencontroller_server::organizations::Role;
 use tokencontroller_server::sign_in::secret;
 use tokencontroller_server::{AppState, Config, router};
 use tower::ServiceExt as _;
@@ -1154,10 +1155,10 @@ async fn the_last_org_manager_stays(pool: PgPool) {
     .unwrap();
     assert_eq!(remove.status, StatusCode::CONFLICT);
 
-    // A row that only says org manager makes nobody one: the role is read
+    // A member without role grants is no org manager: the role is read
     // from the grants in the log.
     let bare: Uuid = sqlx::query_scalar(
-        "INSERT INTO people (organization_id, email, role, joined_at) VALUES ($1, 'k.novak@kestrel.example', 'org_manager', now()) RETURNING id",
+        "INSERT INTO people (organization_id, email, joined_at) VALUES ($1, 'k.novak@kestrel.example', now()) RETURNING id",
     )
     .bind(organization_id)
     .fetch_one(&pool)
@@ -2100,7 +2101,7 @@ async fn identity_providers_add_remove_and_sign_in_members(pool: PgPool) {
         .await
         .unwrap();
     assert_eq!(member.name, "Ana Weiss");
-    assert_eq!(member.role.as_str(), "agent_manager");
+    assert_eq!(member.role, Role::AgentManager);
 
     // One account belongs to one organization.
     let (_, _) = organization(&pool, "Globex", "g.boss@globex.example")
@@ -2597,77 +2598,7 @@ async fn migrations_that_left_the_repo_do_not_stop_the_service(pool: PgPool) {
     );
 }
 
-/// People from before cost model 2 had a role but no grant events, so an
-/// org manager saw an empty organization. The migration writes the grants
-/// their role gives, once.
-#[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
-async fn people_from_before_the_event_log_get_their_role_grants(pool: PgPool) {
-    const BACKFILL: &str =
-        include_str!("../migrations/20261029080000_events_role_grants_for_earlier_people.sql");
-    let app = app(&pool);
-    let (organization_id, org_manager) =
-        organization(&pool, "Kestrel Digital", "n.berger@kestrel.example")
-            .await
-            .unwrap();
-    sqlx::query("INSERT INTO people (organization_id, email, role, joined_at) VALUES ($1, 'j.wolf@kestrel.example', 'agent_manager', now())")
-        .bind(organization_id)
-        .execute(&pool)
-        .await
-        .unwrap();
-    // As the earlier model left them: no grant events at all.
-    sqlx::query("DELETE FROM events WHERE kind = 'grant'")
-        .execute(&pool)
-        .await
-        .unwrap();
-    let auth = Auth::Cookie(&org_manager);
-    let recorded = send(
-        &app,
-        Method::POST,
-        "/api/v1/token-entries",
-        auth,
-        Some(json!({
-            "agent_harness": "claude-code",
-            "model": "claude-opus-5",
-            "provider": "anthropic",
-            "started_at": "2026-10-06T09:00:00Z",
-            "ended_at": "2026-10-06T09:30:00Z",
-            "tokens": {"input": 12000, "output": 3000, "cache_read": 0, "cache_write": 0},
-            "session_id": "cloud-session-1",
-            "local_id": "cloud-local-1"
-        })),
-    )
-    .await
-    .unwrap();
-    assert_eq!(recorded.status, StatusCode::CREATED, "{}", recorded.text);
-    let sessions = "/api/v1/sessions?from=2026-10-01&to=2026-10-31";
-    let before = send(&app, Method::GET, sessions, auth, None).await.unwrap();
-    assert_eq!(before.json["sessions"], json!([]), "{}", before.text);
-
-    sqlx::raw_sql(BACKFILL).execute(&pool).await.unwrap();
-    sqlx::raw_sql(BACKFILL).execute(&pool).await.unwrap();
-
-    let after = send(&app, Method::GET, sessions, auth, None).await.unwrap();
-    assert_eq!(after.status, StatusCode::OK, "{}", after.text);
-    assert_eq!(after.json["sessions"][0]["session_id"], "cloud-session-1");
-    let grants: Vec<(String, String)> = sqlx::query_as(
-        "SELECT payload->'grant'->>'person', payload->'grant'->>'capability' FROM events WHERE kind = 'grant' ORDER BY 1, 2",
-    )
-    .fetch_all(&pool)
-    .await
-    .unwrap();
-    let org_manager_grants = [
-        "adjust", "approve", "assign", "cutoff", "grant", "plan", "view",
-    ]
-    .map(|capability| ("n.berger@kestrel.example".to_owned(), capability.to_owned()));
-    let mut expected = vec![("j.wolf@kestrel.example".to_owned(), "view".to_owned())];
-    expected.extend(org_manager_grants);
-    assert_eq!(grants, expected);
-    let listed = send(&app, Method::GET, "/api/v1/grants", auth, None)
-        .await
-        .unwrap();
-    assert_eq!(listed.status, StatusCode::OK, "{}", listed.text);
-}
-
+/// A member's role is what their role grants in the log say.
 #[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
 async fn a_role_is_what_its_grants_say(pool: PgPool) {
     let app = app(&pool);
@@ -2867,4 +2798,31 @@ async fn a_role_is_what_its_grants_say(pool: PgPool) {
     assert_eq!(to_agent.json["role"], "agent_manager");
     assert_eq!(to_agent.json["filters"], json!([]));
     assert_eq!(role_of(Auth::Cookie(&priya)).await, "agent_manager");
+}
+
+/// A role is kept only as its grants. The service no longer writes the
+/// people.role column (ADR 0027 first step, dropped in a later release), so
+/// it keeps its default while the grants make an org manager.
+#[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
+async fn the_role_column_is_no_longer_written(pool: PgPool) {
+    let app = app(&pool);
+    let (_, org_manager) = organization(&pool, "Kestrel Digital", "n.berger@kestrel.example")
+        .await
+        .unwrap();
+    let me = send(
+        &app,
+        Method::GET,
+        "/api/v1/me",
+        Auth::Cookie(&org_manager),
+        None,
+    )
+    .await
+    .unwrap();
+    assert_eq!(me.json["person"]["role"], "org_manager", "{}", me.text);
+    let column: String =
+        sqlx::query_scalar("SELECT role FROM people WHERE email = 'n.berger@kestrel.example'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(column, "agent_manager");
 }

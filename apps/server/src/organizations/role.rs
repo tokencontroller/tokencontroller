@@ -5,7 +5,6 @@
 //! the empty filter. Roles are ordered so a check for "at least" works.
 
 use std::fmt;
-use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
@@ -27,16 +26,6 @@ pub enum Role {
 }
 
 impl Role {
-    /// The value stored in the database.
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::AgentManager => "agent_manager",
-            Self::PeopleManager => "people_manager",
-            Self::OrgManager => "org_manager",
-        }
-    }
-
     /// The core crate's role, whose grants this role bundles.
     #[must_use]
     pub const fn core(self) -> tokencontroller_core::Role {
@@ -58,24 +47,6 @@ impl fmt::Display for Role {
     }
 }
 
-/// A role name that is not one of the three.
-#[derive(Debug, PartialEq, Eq, thiserror::Error)]
-#[error("unknown role {0:?}")]
-pub struct UnknownRole(pub String);
-
-impl FromStr for Role {
-    type Err = UnknownRole;
-
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        match value {
-            "agent_manager" => Ok(Self::AgentManager),
-            "people_manager" => Ok(Self::PeopleManager),
-            "org_manager" => Ok(Self::OrgManager),
-            other => Err(UnknownRole(other.to_owned())),
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -84,17 +55,6 @@ mod tests {
     fn roles_stack() {
         assert!(Role::AgentManager < Role::PeopleManager);
         assert!(Role::PeopleManager < Role::OrgManager);
-    }
-
-    #[test]
-    fn roles_round_trip_through_the_database_value() {
-        for role in [Role::AgentManager, Role::PeopleManager, Role::OrgManager] {
-            assert_eq!(role.as_str().parse::<Role>(), Ok(role));
-        }
-        assert_eq!(
-            "controller".parse::<Role>(),
-            Err(UnknownRole("controller".to_owned()))
-        );
     }
 
     #[test]
