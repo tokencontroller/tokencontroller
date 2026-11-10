@@ -2,7 +2,8 @@
 //! carries prompt, completion or message text, tool input or output, or
 //! system instructions is dropped whole, before anything is read from it,
 //! unless it is a model call: a model call loses every attribute and the body
-//! that carry text, and keeps its token counts (ADR 0021).
+//! that carry text, and keeps its token counts. ADR 0028 replaces this with
+//! "remove content text unless the organization switches keeping it on" (stage D2).
 
 use opentelemetry_proto::tonic::common::v1::any_value::Value;
 use opentelemetry_proto::tonic::common::v1::{AnyValue, KeyValue};

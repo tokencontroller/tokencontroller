@@ -16,7 +16,7 @@ A token entry is one message, or one session with its messages, as the [token en
 | `started_at`, `ended_at` | When the session started and ended. Required. |
 | `tokens` | Counts by kind, such as `input`, `output`, `cache_read`, `cache_write`, `cache_write_5m`, `cache_write_1h`. Kinds are open names; a kind with no price row is listed and leaves the rest priced. No counts at all is a count error. See [token kinds](/reference/data-model#token-kinds). |
 | `reported_cost` | The agent's own cost figure in US dollars, as a number or a decimal string such as `"0.031"`. Optional. Stored as a fact about the message; the cost shown is counts × the [price table](/account/price-table). |
-| `summary` | What the session did, from one line to a short report. With the tag values, the only text stored. |
+| `summary` | What the session did, from one line to a short report. With the tag values, the only text stored while content text is off (see [Security and privacy](/security)). |
 | `facts` | Session facts: `turns`, `tool_calls`, `retries`, `duration_seconds`, `subagents`, `files_touched`, `result` (a URL such as the pull request). All optional. |
 | `feature`, `project` | Where it belongs: a feature key such as `KD-214`, a project by key. Optional. A tag named here wins over every rule; without one, [rules split it](/attribute/rules#order). |
 | `tags` | Any other tags, such as `{"purpose": "code-review"}`. One value per tag name. Optional. Tags sent here win over rules. |
