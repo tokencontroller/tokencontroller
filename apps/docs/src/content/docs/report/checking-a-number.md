@@ -34,7 +34,7 @@ Most unexpected figures have one of a few causes: what the bill has that no mess
 | You see | Why | What to do |
 | --- | --- | --- |
 | A message is labelled unknown model | The model has no [price row](/account/price-table#missing) on that day. Its cost is never shown as zero. | Add the row, with a valid-from date on or before the message. |
-| A message is labelled count error | It came without token counts by kind. | Have the door send the counts; see [Choosing a door](/collect#message). |
+| A message is labelled count error | It came without token counts by kind. | Have the collector send the counts; see [Choosing a collector](/collect#message). |
 | A session seems to count twice, through telemetry and a session file | It does not: the two are one record by [session id and message id](/collect/telemetry#sees). | Nothing. |
 | A session is on a feature it only mentioned | Rules cannot tell a mention from work. | Assign it by hand and tick remember. |
 | A session is split equally between two features | It named both and nobody decided. | Split it by hand. |

@@ -3,7 +3,7 @@ title: "Messages and sessions"
 description: "Report usage with token entries, import CSV, push OpenTelemetry, read messages and sessions with their cost and tags, and split a session."
 ---
 
-A message is one model call with its token counts; a session is the messages of one agent run. Any agent reports them with one call per session. Every door lands in the same log, and a message seen through two doors is one record.
+A message is one model call with its token counts; a session is the messages of one agent run. Any agent reports them with one call per session. Every usage endpoint lands in the same log, and a message seen through two usage sources is one record.
 
 | Endpoint | What it does | Who |
 | --- | --- | --- |
