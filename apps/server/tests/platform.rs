@@ -2598,9 +2598,7 @@ async fn migrations_that_left_the_repo_do_not_stop_the_service(pool: PgPool) {
     );
 }
 
-/// People from before cost model 2 had a role but no grant events, so an
-/// org manager saw an empty organization. The migration writes the grants
-/// their role gives, once.
+/// A member's role is what their role grants in the log say.
 #[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
 async fn a_role_is_what_its_grants_say(pool: PgPool) {
     let app = app(&pool);
@@ -2800,4 +2798,18 @@ async fn a_role_is_what_its_grants_say(pool: PgPool) {
     assert_eq!(to_agent.json["role"], "agent_manager");
     assert_eq!(to_agent.json["filters"], json!([]));
     assert_eq!(role_of(Auth::Cookie(&priya)).await, "agent_manager");
+}
+
+/// A role is kept only as its grants (ADR 0027 second step): the people table
+/// has no column left that could disagree with them.
+#[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
+async fn the_people_table_keeps_no_role(pool: PgPool) {
+    let columns: Vec<String> = sqlx::query_scalar(
+        "SELECT column_name::text FROM information_schema.columns WHERE table_name = 'people'",
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert!(columns.contains(&"email".to_owned()));
+    assert!(!columns.contains(&"role".to_owned()));
 }

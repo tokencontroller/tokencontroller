@@ -393,6 +393,37 @@ mod tests {
     }
 
     #[test]
+    fn a_people_manager_with_every_grant_reversed_is_an_agent_manager() {
+        let id = Uuid::from_u128(7);
+        let web = Filter(Tags::parse(["team=web"]).unwrap());
+        let mut events = role_log(id, Role::PeopleManager, std::slice::from_ref(&web));
+        let grants: Vec<EventId> = events
+            .iter()
+            .filter(|event| {
+                matches!(&event.record, Record::Grant(grant) if grant.capability == Capability::Grant)
+            })
+            .map(|event| event.id.clone())
+            .collect();
+        assert!(!grants.is_empty());
+        for (index, grant) in grants.into_iter().enumerate() {
+            events.push(
+                Event::new(
+                    &format!("rev_{index}"),
+                    OffsetDateTime::UNIX_EPOCH,
+                    Record::Reversal(grant),
+                )
+                .unwrap(),
+            );
+        }
+        let log = Log {
+            organization_id: Uuid::nil(),
+            events,
+        };
+        assert_eq!(role_of(&log, id), Role::AgentManager);
+        assert_eq!(role_filters(&log, id), Vec::<Tags>::new());
+    }
+
+    #[test]
     fn the_filters_of_a_people_manager_come_from_their_role_grants() {
         let person = TagValue::new("priya@kestrel.example").unwrap();
         let id = Uuid::from_u128(7);
