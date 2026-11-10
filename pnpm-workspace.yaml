@@ -7,3 +7,9 @@ packages:
 onlyBuiltDependencies:
   - esbuild
   - sharp
+
+# Security fixes Dependabot cannot make: parents pin an exact vulnerable version.
+overrides:
+  undici: 8.12.2
+  seroval: 1.6.11
+  postcss-selector-parser: 6.1.5
