@@ -3,7 +3,7 @@ title: "Grants and roles"
 description: "The seven capabilities, grants as (person, capability, filter), the three roles that bundle them, and what a new person gets."
 ---
 
-A grant is (person, capability, filter): what a person may do, on which part of the organization. A role is a named bundle of grants. At sign-up there is one question: do you manage agents, or do you manage people?
+When more than one person works in your organization, you may want a team lead to see their team's cost, or an account manager to approve the work for one client. A grant is (person, capability, filter): what a person may do, on which part of the organization. A role is a named bundle of grants. At sign-up there is one question: do you manage agents, or do you manage people?
 
 ## Capabilities {#capabilities}
 

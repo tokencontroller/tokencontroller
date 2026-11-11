@@ -14,11 +14,14 @@ The service reads its settings from environment variables. It refuses to start w
 | `TC_SECRET_KEY` | A random string of at least 32 characters for signing sessions and tokens, such as from `openssl rand -hex 32`. Required. |
 | `TC_SMTP_URL` | The mail server for sign-in links, invites and reminders, such as `smtps://user:password@smtp.example.com:465`. Required for magic links. |
 | `TC_SMTP_FROM` | The sender of that mail, such as `Token Controller <tc@example.com>`. Without it, mail comes from `noreply@` and the host of `TC_PUBLIC_URL`. |
-| `TC_PRICE_TABLE` | The path of your [price table](/reference/pricing-tables#file) file, a CSV with provider, model, kind, price per million and valid from. The open edition ships without prices, so without this file every message is an unknown model. The file is read at start and when it changes; each new row is an event. See [Price table](#price-table). |
+| `TC_PRICE_TABLE` | The path of your [price table](/reference/pricing-tables#file) file, a CSV with provider, model, kind, price per million and valid from. The open edition ships without prices, so without this file every message is not priced yet. The file is read at start and again every 15 minutes, so a changed file needs no restart. The service refuses to start on a file it cannot read. See [Price table](#price-table). |
 | `TC_RATES_REFRESH` | `on` (the default) or `off`. `off` stops the daily exchange rate refresh, for instances without internet access. Bills in another currency then need their exchange rate. |
 | `TC_CLASSIFIER_URL` | A [System 1 classifier](/glossary#system-1-classifier) API as the [estimator](/account/estimates) and for deviation labels, such as OpenAI's Decisions API at `https://api.openai.com/v1` or a model server of your own. Without it, the instance has no estimates from a classifier and no labels; people still type estimates. Needs `TC_CLASSIFIER_MODEL`. A self-hosted classifier learns from that instance's data only. |
 | `TC_CLASSIFIER_MODEL` | The classifier model, such as `gpt-6-luna`. Needs `TC_CLASSIFIER_URL`. |
 | `TC_CLASSIFIER_KEY` | The API key for `TC_CLASSIFIER_URL`, if it needs one. |
+| `SENTRY_DSN` | A Sentry project to send the service's errors to. Without it, the service reports errors nowhere. Only errors go: no request bodies, no personal data, no performance samples. |
+| `SENTRY_ENVIRONMENT` | The environment name Sentry shows, such as `production`. Optional. |
+| `RUST_LOG` | How much the service logs, such as `info` (the default) or `debug`. |
 
 Without a mail server, someone with access to the container can still sign a member in. This prints a sign-in link that works once and for 15 minutes:
 
@@ -26,11 +29,13 @@ Without a mail server, someone with access to the container can still sign a mem
 docker compose exec tokencontroller tokencontroller sign-in-link ana@example.com
 ```
 
-Every usage endpoint stores what it received for 400 days. After an upgrade whose release notes say it reads more of the telemetry, you may read an organization's stored telemetry again. It adds only the model calls and activities not on record yet, and they do not count against a daily limit:
+Every usage endpoint stores what it received for 400 days. After an upgrade whose release notes say it reads more of the telemetry, you may read an organization's stored OpenTelemetry records again. It adds only the model calls and activities not on record yet:
 
 ```sh
 docker compose exec tokencontroller tokencontroller reread 0e000000-0000-4000-8000-000000000001
 ```
+
+Every command of the `tokencontroller` program is listed under [CLI](/reference/cli#server).
 
 ## Price table {#price-table}
 
@@ -43,12 +48,12 @@ These switch on the [Enterprise plan](/self-hosting/enterprise) features in the 
 | Variable | Meaning |
 | --- | --- |
 | `TC_LICENSE_KEY` | The license key that comes with the contract. With it the managed price table is in force: the table as of the image's build, plus newer prices the instance fetches from `app.tokencontroller.com` every six hours when its network allows outbound HTTPS there. Without that access, newer prices come with the next image, or as a file from us for `TC_PRICE_TABLE`. Without a valid key, the image works like the open-source one. From 30 days before the key's last day of support, org managers see a renewal notice. The features keep working for 30 days after that day. |
-| `TC_TELEMETRY_FORWARD_URL` | Your collector's OTLP HTTP endpoint, such as `https://otel.example.com:4318`. Every telemetry batch the service accepts goes there unchanged, before the service removes content text. |
+| `TC_TELEMETRY_FORWARD_URL` | Your collector's OTLP HTTP endpoint, such as `https://otel.example.com:4318`. Every telemetry batch the service accepts goes there unchanged, before the service removes content text; the signal path, such as `/v1/logs`, is added. |
 | `TC_TELEMETRY_FORWARD_HEADERS` | Headers for your collector, as `name=value,name2=value2`, the same as `OTEL_EXPORTER_OTLP_HEADERS`. |
 
 ### Cloud bill connectors {#cloud-bills}
 
-Each cloud bill connector is on when its settings are set. Once a day it fetches last month's bill and this month's so far; changed figures make a new bill for the range and reverse the old one. Clouds still restate the first days after a month ends, so last month's bill is [final](/reference/bill) from the 6th; move the [cutoff](/account/cutoff) after that.
+Each cloud bill connector is on when its settings are set. Once a day it fetches last month's bill and this month's so far; changed figures make a new bill for the range and reverse the old one. A cloud bill is metered and goes to that cloud's only metered contract, or creates one named after it, such as `aws_bedrock`. Clouds still restate the first days after a month ends, so last month's bill is [final](/reference/bill) from the 6th; move the [cutoff](/account/cutoff) after that.
 
 | Variable | Meaning |
 | --- | --- |

@@ -3,7 +3,7 @@ title: "CLI"
 description: "Install tc, connect or stay local, check, submit and export."
 ---
 
-The CLI, `tc`, reads session files, splits sessions with your rules, and submits. It works with no service connected.
+You may want to see what your own agent sessions cost, with or without your organization. The CLI, `tc`, reads session files, splits sessions with your rules, and submits. It works with no service connected.
 
 ## Install {#install}
 
@@ -52,3 +52,14 @@ Without a tracked folder, `tc` counts every session on the machine. The first ti
 ## What it reads {#sources}
 
 Session files of Claude Code and Codex, counted the way the open source ccusage project counts them: one message per model call, with its token counts by kind. Every other agent reports by [telemetry](/collect/telemetry) or through the [token entries endpoint](/collect/token-entries). Reading the same files twice changes nothing, so run it as often as you like. There is no background process and no sync between your machines: each machine submits its own messages.
+
+## What it sends {#sends}
+
+`tc submit` sends each session as a [token entry](/reference/token-entry): its messages, the working directory, the branch, the feature keys found in your prompts, and the tags and splits it set. It never sends prompt text.
+
+| | Claude Code | Codex |
+| --- | --- | --- |
+| Provider | None; the session file names none. | The provider Codex reports, such as `openai`. |
+| Sign-in | The organization of a claude.ai or Console sign-in, as Claude Code wrote it at session start, as the signal `organization.id`. Nothing for an API key. | Nothing. |
+
+`tc` never puts today's sign-in on a session that started earlier. A message without a provider is priced when every provider in the price table charges the same for its model; see [Price table](/account/price-table#missing).

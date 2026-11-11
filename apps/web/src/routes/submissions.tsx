@@ -102,12 +102,12 @@ function RejectDialog({ submission, onClose }: { submission: Submission; onClose
     mutationFn: () => api.reject(submission.id, reason),
     onSuccess: async () => {
       await refreshAll();
-      notify("Rejected", "It goes back to their check list.");
+      notify("Rejected", "It goes back to their sessions to check.");
       onClose();
     },
   });
   return (
-    <Dialog open onOpenChange={(o) => { if (!o) onClose(); }} title="Reject the submission" description="Say what to fix. It goes back to its person's check list.">
+    <Dialog open onOpenChange={(o) => { if (!o) onClose(); }} title="Reject the submission" description="Say what to fix. It goes back to its person's sessions to check.">
       <form className="flex flex-col gap-4" onSubmit={(e) => { e.preventDefault(); reject.mutate(); }}>
         <Field label="Reason">
           <Textarea value={reason} onChange={(e) => setReason(e.target.value)} />

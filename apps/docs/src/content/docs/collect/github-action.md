@@ -27,6 +27,10 @@ Some agents run without a person: a PR review bot, a nightly dependency update, 
 
 The output `messages` says how many messages the step reported, and the job summary says it in a line.
 
+## What it sends {#sends}
+
+The Action runs `tc submit` on the runner, so it sends what [`tc` sends](/collect/cli#sends) from the session files the job wrote, and no prompt text. It adds what the job itself knows, as signals: the repository, the branch, and the pull request's number and title. Claude Code with an API key, as CI usually runs it, records no sign-in and no provider, so its messages get their contract from a rule, such as one on the agent name, or from their project's default; otherwise they wait in the [review list](/attribute/review).
+
 ## Whose messages CI cost is {#ci}
 
 The person who created the service token is the person of every message reported with it, usually the tech lead who set up the agent. Their attributes travel with the messages. How to hand an automation over is under [Grants and roles](/account/roles#person).
@@ -34,7 +38,7 @@ The person who created the service token is the person of every message reported
 ## Which tags CI cost gets {#placing}
 
 - A feature given to the Action, or set as `TC_FEATURE` by an earlier step, wins over everything else.
-- A review of a pull request lands on the feature of that pull request. The Action reads the pull request's number and title on the runner; only the feature keys found in the title leave it.
+- A review of a pull request lands on the feature of that pull request, when a rule finds its key in the pull request title.
 - The project named in the Action wins over a rule on the repository.
 - CI work that matches no feature lands on the project, as project overhead.
 

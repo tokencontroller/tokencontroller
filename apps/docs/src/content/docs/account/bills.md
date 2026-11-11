@@ -14,11 +14,11 @@ When you use AI agents, you may get bills from more than one provider, or two bi
 | [OpenAI](#openai) API | OpenAI Admin key | The Costs API, per day, project and API key | When the month ends |
 | Bedrock, Vertex, Foundry | The cloud's export as [CSV](#csv), or a connector on an Enterprise plan contract | The cloud's export | On upload |
 | Anything else | [CSV](#csv), typed in by hand, or the [bills endpoint](/reference/api/bills#send) | That bill | On upload |
-| Seat plans (Claude Team, Max, Pro) | Nothing to connect | No bill: the seat is a flat fee. Cost is still computed from the price table. | |
+| Seat plans, such as Claude Team, Max or Pro | [Typed in](#manual) under a flat contract, with the fee and any extra usage | The plan's invoice | On entry |
 
 ## Connecting a provider {#connect}
 
-All keys are added under _Bills_. A connected provider is pulled once a day for the last 62 days; _Pull now_ pulls at once.
+All keys are added under _Bills_, _Connect_. A connected provider is pulled once a day for the last 62 days; _Pull now_ pulls at once. A pulled bill goes to the provider's only metered contract, or, while there is none or more than one, to a contract named after the provider, such as `anthropic`, which the first bill creates.
 
 ### Anthropic Enterprise {#anthropic-enterprise}
 
@@ -35,6 +35,10 @@ For organizations that pay OpenAI for API usage. An organization owner creates a
 ### CSV {#csv}
 
 Any bill can be uploaded as CSV, and this is the way for Bedrock, Vertex and Foundry. Under _Bills_, choose _Upload CSV_ and give the provider, the contract, first and last day, amount and currency (see the [bill fields](/reference/bill)), or upload the cloud's own cost export. The upload shows what it read before anything is saved: each bill in the file, and whether it is new, restates the bill in force, or has the same figures. A file with a problem names the row and column and saves nothing.
+
+### By hand {#manual}
+
+For a seat plan or any bill no API reports, choose _Add a bill_. Pick the contract, or leave _The provider's only contract_, or name a new one with its kind, metered or flat. For a flat contract, give the fee or the extra usage too; either is enough, since the bill is their sum.
 
 ![The CSV upload: what the file holds, each bill against the bill in force, before anything is saved](/screens/17-upload-csv-bill.png)
 
@@ -55,7 +59,7 @@ What no message explains is a line on the bill: usage in the provider's own chat
 
 Beside every check you see the messages of the same provider that have no contract yet, and those whose contract came only from the provider having one contract. How a message gets its contract is on the [data model](/reference/data-model#contract) page, and the [worked month](/concepts#month) checks three bills.
 
-![Bills and the reconciliation: bill, cost of messages, what no message explains, per provider](/screens/06-bills-and-reconciliation.png)
+![Bills and their checks: bill, cost of messages, what no message explains, per contract](/screens/06-bills-and-reconciliation.png)
 
 ## As of {#as-of}
 

@@ -38,7 +38,7 @@ A local tool such as `tc connect` sends `{"email": "…", "local_tool": true}` a
 ```http
 POST /api/v1/sign-up
 
-{ "email": "nadia@kestrel.example", "organization_name": "Kestrel Digital", "name": "Nadia Okafor", "reporting_currency": "EUR", "manages": "people" }
+{ "email": "nadia@kestrel.example", "organization_name": "Kestrel Digital", "name": "Nadia Okafor", "reporting_currency": "USD", "manages": "people" }
 ```
 
 `202`: a link is on its way, and the organization exists once it is used, in any browser. `manages` is `agents` or `people` and picks the first steps the web app shows. `reporting_currency` defaults to `USD`. An address that is already a member gets an ordinary sign-in link instead: one account belongs to one organization. `POST /sign-up/link` with `{"token": "…", "organization_name": "…"}` creates the organization from the link in the "no account" mail and signs the founder in at once (`204`, cookie set).
@@ -47,20 +47,20 @@ POST /api/v1/sign-up
 
 ```json
 {
+  "person": { "id": "7f1c4e2a-…", "email": "mara@kestrel.example", "name": "Mara Lind", "role": "agent_manager", "attributes": { "team": "web" }, "filters": [], "status": "joined", "invited_at": "2026-02-01T09:20:00Z", "joined_at": "2026-02-01T09:31:00Z" },
+  "organization": { "id": "6b657374-0000-4000-8000-000000000001", "name": "Kestrel Digital", "slug": "kestrel" },
   "credential": "session",
-  "person": { "id": "7f1c4e2a-…", "name": "Mara Lind", "email": "mara@kestrel.example", "role": "agent_manager", "filters": [], "attributes": { "team": "web" }, "status": "joined", "invited_at": "2026-01-08T09:20:00Z", "joined_at": "2026-01-08T09:31:00Z" },
-  "organization": { "id": "…", "name": "Kestrel Digital", "slug": "kestrel" },
   "org_manager_notice": null
 }
 ```
 
-`credential` is `session` for a person and `read` for a read token. `org_manager_notice` is a sentence for org managers to show on every page, such as an Enterprise plan renewal, and `null` otherwise.
+`person` is the member as [`GET /members`](/reference/api/organization#members) shows them. `credential` is `session` for a person, in the browser or through `tc connect`, and `read` for a read token. `org_manager_notice` is a sentence for org managers to show on every page, such as an Enterprise plan renewal, and `null` otherwise.
 
-`GET /invites/{code}` takes the part after `/i/` in an invite link and answers `{"email": "mara@kestrel.example", "organization_name": "Kestrel Digital"}`, so the sign-in page can fill the address in.
+`GET /invites/{code}` takes the part after `/i/` in an invite link and answers `{"organization_name": "Kestrel Digital", "email": "mara@kestrel.example"}`, so the sign-in page can fill the address in.
 
 ## Health and status {#status}
 
-`GET /health` answers `{"status": "ok", "database": "ok", "version": "1.0.0", "edition": "open"}`, or `503` with a check `failing`. `GET /status` is what [status.tokencontroller.com](https://status.tokencontroller.com) shows:
+`GET /health` answers `{"status": "ok", "version": "1.0.0", "edition": "open", "database": "ok"}`, or `503` with a check `failing`. `edition` is `open`, or the edition an Enterprise plan build reports. `GET /status` is what [status.tokencontroller.com](https://status.tokencontroller.com) shows:
 
 ```json
 {

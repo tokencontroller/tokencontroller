@@ -9,8 +9,8 @@ The fields of a bill, as the bills endpoint and [CSV upload](/account/bills#csv)
 
 | Field | Meaning |
 | --- | --- |
-| `provider` | Who charged, such as `anthropic`, `openai` or `cursor`. Required. It is the contract's provider. |
-| `contract` | The key of the contract the bill is for, such as `anthropic-api` or `claude-team`. Optional. A new key creates the contract. Left out, the bill goes to the provider's only contract of its kind (metered unless `contract_kind` says flat), so a plan's bill never takes in the metered bills, or creates one named after the provider when it has none; with two contracts of one provider, name it. |
+| `provider` | Who charged, such as `anthropic`, `openai` or `cursor`: any name in small letters, digits and `_`, spelled as messages spell it. Required. It is the contract's provider. |
+| `contract` | The key of the contract the bill is for, such as `anthropic-api` or `claude-team`. Optional. A new key creates the contract. Left out, the bill goes to the provider's only contract of the bill's kind (metered unless `contract_kind` says flat); when the provider has none of that kind, a contract named after the provider is created. With two contracts of one kind at one provider, name it. |
 | `contract_kind` | `metered` or `flat`, for a contract this bill creates. Optional; `metered` when left out. |
 | `from`, `to` | The first and last day the bill covers, in UTC. Required. Reconciliation runs on this range. |
 | `amount` | What the provider charged under the contract in the range. Required. For a flat contract, the fee plus extra usage. |

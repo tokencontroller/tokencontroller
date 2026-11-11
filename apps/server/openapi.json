@@ -1407,7 +1407,7 @@
             }
           },
           "429": {
-            "description": "The organization reached its daily message limit; nothing was stored",
+            "description": "The organization reached its daily limit of messages or received bytes; no message was made",
             "content": {
               "application/json": {
                 "schema": {
@@ -1531,7 +1531,7 @@
             }
           },
           "429": {
-            "description": "The organization reached its daily message limit; nothing was stored",
+            "description": "The organization reached its daily limit of messages or received bytes; no message was made",
             "content": {
               "application/json": {
                 "schema": {
@@ -2091,7 +2091,7 @@
           {
             "name": "unassigned",
             "in": "query",
-            "description": "Only messages that still have no feature and no project:\norganization overhead, the check list.",
+            "description": "Only messages that still have no feature and no project:\norganization overhead, the review list.",
             "required": false,
             "schema": {
               "type": "boolean"
@@ -3229,7 +3229,7 @@
           {
             "name": "unassigned",
             "in": "query",
-            "description": "Only messages that still have no feature and no project:\norganization overhead, the check list.",
+            "description": "Only messages that still have no feature and no project:\norganization overhead, the review list.",
             "required": false,
             "schema": {
               "type": "boolean"
@@ -4534,7 +4534,7 @@
             }
           },
           "400": {
-            "description": "A token entry breaks the schema; nothing was stored",
+            "description": "A token entry breaks the schema; no message was made, the received record is kept",
             "content": {
               "application/json": {
                 "schema": {
@@ -4544,7 +4544,7 @@
             }
           },
           "429": {
-            "description": "The organization reached its daily message limit; nothing was stored",
+            "description": "The organization reached its daily limit of messages or received bytes; no message was made",
             "content": {
               "application/json": {
                 "schema": {
@@ -4594,7 +4594,7 @@
             }
           },
           "429": {
-            "description": "The organization reached its daily message limit; nothing was stored",
+            "description": "The organization reached its daily limit of messages or received bytes; no message was made",
             "content": {
               "application/json": {
                 "schema": {
