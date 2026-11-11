@@ -521,6 +521,7 @@ fn message_of(
             prompt_keys,
             config,
             resource,
+            other: std::collections::BTreeMap::new(),
         },
         session: record
             .map(|record| record.facts.clone())

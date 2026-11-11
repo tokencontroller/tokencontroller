@@ -104,6 +104,9 @@ GET /api/v1/messages?from=2026-03-01&to=2026-03-31&filter=feature:KD-1&limit=50
       "person": "mara@kestrel.example",
       "provider": "anthropic",
       "model": "claude-sonnet-5",
+      "contract": "anthropic-api",
+      "contract_by": "fallback",
+      "on_a_plan": false,
       "agent_harness": "support-desk",
       "agent_name": "review bot",
       "at": "2026-03-04T09:12:00Z",
@@ -129,7 +132,7 @@ GET /api/v1/messages?from=2026-03-01&to=2026-03-31&filter=feature:KD-1&limit=50
 }
 ```
 
-`cost_label` is `priced`, `count_error` or `unknown_model`; with the last two, `cost` is `null`, never zero. Each part of `parts` is one piece of the message's split: `assigned` is what the split said, `tags` the tag set closed under [defaults](/account/tags#defaults) with the person and their attributes, which is what filters and reports see. `assigned_by` is `hand`, `rule` or `default`. `submitted` is `open`, `submitted`, `approved` or `rejected`.
+`provider` is the provider of the message's contract, else the one the sender reported, else `null`: it is never guessed from the model's name. `contract` is the message's contract, if it has one, and `contract_by` how it got it: `hand`, `sender`, `rule`, `project_default` or `fallback` (the provider's only contract). `on_a_plan` is `true` when the contract is flat, so a fee pays the message's cost. `tokens` holds every kind the message has, such as `cache_write_1h`; the four common kinds are always there. `signals` may hold names beyond the ones listed in the [token entry schema](/reference/token-entry). `cost_label` is `priced`, `count_error` or `not_priced_yet`; with the last two, `cost` is `null`, never zero. Each part of `parts` is one piece of the message's split: `assigned` is what the split said, `tags` the tag set closed under [defaults](/account/tags#defaults) with the person and their attributes, which is what filters and reports see. `assigned_by` is `hand`, `rule` or `default`. `submitted` is `open`, `submitted`, `approved` or `rejected`.
 
 ## Sessions {#sessions}
 

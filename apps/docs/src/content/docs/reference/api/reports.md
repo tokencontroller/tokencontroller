@@ -50,6 +50,9 @@ Authorization: Bearer tc_read_…
   "total": "950.00",
   "count_errors": 0,
   "unknown_models": [],
+  "not_priced_yet": { "messages": 0, "tokens": {} },
+  "unpriced_kinds": [],
+  "on_a_plan": "0.00",
   "rows": [
     { "key": "KD-1", "amount": "580.00", "share": "0.610526", "messages": 2 },
     { "key": "KD-2", "amount": "120.00", "share": "0.126316", "messages": 1 },
@@ -58,7 +61,7 @@ Authorization: Bearer tc_read_…
 }
 ```
 
-The rows of one grouping add up to `total`: 580 + 120 + 250 = 950. `key: null` is the cost with no value for that name, here Tom's review bot on Shop and his session on nothing. `messages` counts the messages a row has a part of, so a split session counts in each of its rows. `count_errors` are messages in the range with no counts; `unknown_models` have no price row; neither is in `total`.
+The rows of one grouping add up to `total`: 580 + 120 + 250 = 950. `key: null` is the cost with no value for that name, here Tom's review bot on Shop and his session on nothing. `messages` counts the messages a row has a part of, so a split session counts in each of its rows. `count_errors` are messages in the range with no counts. `not_priced_yet` counts the messages whose price is not certain yet, with their tokens by kind, and `unknown_models` names their models; they are not in `total`. `unpriced_kinds` are token kinds with no price row: the rest of each message is priced. `on_a_plan` is the part of `total` under a flat contract, which a fee pays.
 
 The same month, other groupings: `by=project` gives shop 800 and null 150; `by=client` acme 800; `by=person` Mara 700, Tom 250; `by=label` direct 700, project_overhead 100, organization_overhead 150; `by=team` web 950. A filter narrows before grouping: `filter=feature:KD-1` gives total 580; `filter=team:web&by=feature` the same three rows. See [Reports](/report/reports) and [Checking a number](/report/checking-a-number).
 

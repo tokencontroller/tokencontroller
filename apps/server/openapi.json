@@ -5020,7 +5020,10 @@
           "total",
           "rows",
           "count_errors",
-          "unknown_models"
+          "unknown_models",
+          "not_priced_yet",
+          "unpriced_kinds",
+          "on_a_plan"
         ],
         "properties": {
           "as_of": {
@@ -5055,6 +5058,14 @@
             "type": "string",
             "format": "date"
           },
+          "not_priced_yet": {
+            "$ref": "#/components/schemas/NotPricedYet",
+            "description": "Messages in the filter and range not priced yet, with their token\ncounts: their cost is not in the total."
+          },
+          "on_a_plan": {
+            "type": "string",
+            "description": "The part of the total under a flat contract, paid by its fee: \"on\na plan\". The rest is under metered contracts or none."
+          },
           "rows": {
             "type": "array",
             "items": {
@@ -5074,7 +5085,14 @@
             "items": {
               "type": "string"
             },
-            "description": "Models in the filter and range with no price row."
+            "description": "The models of the messages not priced yet."
+          },
+          "unpriced_kinds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Token kinds with tokens and no price row, left out of the total\nwhile the rest of each message is priced."
           },
           "view": {
             "type": "string",
@@ -6050,8 +6068,8 @@
           "session_id",
           "message_id",
           "person",
-          "provider",
           "model",
+          "on_a_plan",
           "at",
           "agent_harness",
           "cost_label",
@@ -6079,6 +6097,20 @@
             "type": "string",
             "format": "date-time"
           },
+          "contract": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The message's contract, if it has one."
+          },
+          "contract_by": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "How the message got its contract: `hand`, `sender`, `rule`,\n`project_default` or `fallback`."
+          },
           "cost": {
             "type": [
               "string",
@@ -6088,7 +6120,7 @@
           },
           "cost_label": {
             "type": "string",
-            "description": "`priced`, `count_error` or `unknown_model`."
+            "description": "`priced`, `count_error` or `not_priced_yet`."
           },
           "facts": {
             "type": "object"
@@ -6098,6 +6130,10 @@
           },
           "model": {
             "type": "string"
+          },
+          "on_a_plan": {
+            "type": "boolean",
+            "description": "Whether the contract is flat, so the message's cost is paid by a\nfee: \"on a plan\"."
           },
           "parts": {
             "type": "array",
@@ -6109,7 +6145,11 @@
             "type": "string"
           },
           "provider": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The provider of the message's contract, else the provider the\nsender reported, else `null`: it is never guessed from the model."
           },
           "reported_cost": {
             "type": [
@@ -6877,6 +6917,32 @@
           }
         },
         "additionalProperties": false
+      },
+      "NotPricedYet": {
+        "type": "object",
+        "description": "The messages of a report that are not priced yet, never a silent zero.",
+        "required": [
+          "messages",
+          "tokens"
+        ],
+        "properties": {
+          "messages": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "tokens": {
+            "type": "object",
+            "description": "Their tokens by kind.",
+            "additionalProperties": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          }
+        }
       },
       "Organization": {
         "type": "object",

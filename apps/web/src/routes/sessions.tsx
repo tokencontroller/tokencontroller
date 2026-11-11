@@ -76,7 +76,7 @@ export function SessionsPage(): ReactNode {
                   <span className="flex flex-col items-end gap-0.5">
                     <Amount value={s.cost} />
                     {s.count_errors ? <Badge tone="exception">{s.count_errors} count error{s.count_errors > 1 ? "s" : ""}</Badge> : null}
-                    {s.unknown_models.length ? <Badge tone="exception">unknown model</Badge> : null}
+                    {s.unknown_models.length ? <Badge tone="exception">not priced yet</Badge> : null}
                   </span>
                 ),
                 csv: (s) => s.cost,

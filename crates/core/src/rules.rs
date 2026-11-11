@@ -259,6 +259,7 @@ mod tests {
                 resource: [("service.name".to_owned(), "bot".to_owned())]
                     .into_iter()
                     .collect(),
+                other: BTreeMap::new(),
             },
             session: SessionFacts::default(),
         }

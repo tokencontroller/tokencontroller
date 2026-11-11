@@ -196,7 +196,51 @@ pub enum Record {
     Reversal(EventId),
 }
 
+/// The JSON names of every kind of record this version reads, as the log
+/// stores them: `{"message": {…}}`.
+pub const RECORD_NAMES: [&str; 17] = [
+    "message",
+    "bill",
+    "estimate",
+    "tag_value",
+    "share",
+    "price_row",
+    "attribute_value",
+    "person_attribute",
+    "split",
+    "accept",
+    "grant",
+    "cutoff",
+    "submit",
+    "approval",
+    "rule",
+    "contract_assignment",
+    "reversal",
+];
+
 impl Record {
+    /// Reads a record as the log stores it. A kind of record this version
+    /// does not know, written by a later one, is `None`: the version before
+    /// a release stays the way back and passes over what it cannot use
+    /// (ADR 0027). A known kind that does not read is an error.
+    ///
+    /// # Errors
+    ///
+    /// The JSON error when the payload is not a record, or is a known kind
+    /// that does not read.
+    pub fn read(payload: serde_json::Value) -> Result<Option<Self>, serde_json::Error> {
+        let unknown = payload.as_object().is_some_and(|fields| {
+            fields.len() == 1
+                && fields
+                    .keys()
+                    .all(|name| !RECORD_NAMES.contains(&name.as_str()))
+        });
+        if unknown {
+            return Ok(None);
+        }
+        serde_json::from_value(payload).map(Some)
+    }
+
     /// The word the docs use for this kind of event.
     #[must_use]
     pub const fn kind(&self) -> &'static str {
@@ -277,6 +321,25 @@ impl Event {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_kind_of_record_from_a_later_version_is_passed_over() {
+        let later = serde_json::json!({"activity": {"kind": "tool_run"}});
+        assert_eq!(Record::read(later).unwrap(), None);
+        let cutoff = serde_json::json!({"cutoff": "2026-10-31"});
+        assert!(matches!(Record::read(cutoff), Ok(Some(Record::Cutoff(_)))));
+        // A known kind that does not read is an error, never passed over.
+        assert!(Record::read(serde_json::json!({"cutoff": 7})).is_err());
+        assert!(Record::read(serde_json::json!("cutoff")).is_err());
+        // Every name in the list is a kind this version reads.
+        for name in RECORD_NAMES {
+            let error = serde_json::from_value::<Record>(serde_json::json!({ name: null }))
+                .err()
+                .map(|error| error.to_string())
+                .unwrap_or_default();
+            assert!(!error.contains("unknown variant"), "{name}: {error}");
+        }
+    }
+
     use super::*;
     use time::macros::{date, datetime};
 

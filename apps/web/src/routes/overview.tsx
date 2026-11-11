@@ -50,7 +50,7 @@ export function OverviewPage(): ReactNode {
           {cost.data.count_errors || cost.data.unknown_models.length ? (
             <Note tone="exception">
               {cost.data.count_errors ? `${String(cost.data.count_errors)} messages came without token counts (count errors). ` : ""}
-              {cost.data.unknown_models.length ? `Unknown models, with no price: ${cost.data.unknown_models.join(", ")}.` : ""} Their cost is not in these figures.
+              {cost.data.unknown_models.length ? `Not priced yet: ${cost.data.unknown_models.join(", ")}.` : ""} Their cost is not in these figures.
             </Note>
           ) : null}
         </>

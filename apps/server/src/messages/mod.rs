@@ -88,8 +88,18 @@ pub struct MessageView {
     pub session_id: String,
     pub message_id: String,
     pub person: String,
-    pub provider: String,
+    /// The provider of the message's contract, else the provider the
+    /// sender reported, else `null`: it is never guessed from the model.
+    pub provider: Option<String>,
     pub model: String,
+    /// The message's contract, if it has one.
+    pub contract: Option<String>,
+    /// How the message got its contract: `hand`, `sender`, `rule`,
+    /// `project_default` or `fallback`.
+    pub contract_by: Option<&'static str>,
+    /// Whether the contract is flat, so the message's cost is paid by a
+    /// fee: "on a plan".
+    pub on_a_plan: bool,
     #[serde(with = "time::serde::rfc3339")]
     #[schema(value_type = String, format = DateTime)]
     pub at: OffsetDateTime,
@@ -100,7 +110,7 @@ pub struct MessageView {
     /// `C(e)` in US dollars, or `null` with a cost label other than
     /// `priced`.
     pub cost: Option<String>,
-    /// `priced`, `count_error` or `unknown_model`.
+    /// `priced`, `count_error` or `not_priced_yet`.
     pub cost_label: &'static str,
     pub reported_cost: Option<String>,
     /// `hand`, `rule` or `default`.
@@ -164,7 +174,17 @@ const fn cost_label(label: CostLabel) -> &'static str {
     match label {
         CostLabel::Priced => "priced",
         CostLabel::CountError => "count_error",
-        CostLabel::NotPricedYet => "unknown_model",
+        CostLabel::NotPricedYet => "not_priced_yet",
+    }
+}
+
+const fn contract_by(by: tokencontroller_core::ContractBy) -> &'static str {
+    match by {
+        tokencontroller_core::ContractBy::Hand => "hand",
+        tokencontroller_core::ContractBy::Sender => "sender",
+        tokencontroller_core::ContractBy::Rule => "rule",
+        tokencontroller_core::ContractBy::ProjectDefault => "project_default",
+        tokencontroller_core::ContractBy::Fallback => "fallback",
     }
 }
 
@@ -297,8 +317,11 @@ pub fn message_views(
                 session_id: key.0,
                 message_id: key.1,
                 person: message.person.to_string(),
-                provider: message.model.provider.clone().unwrap_or_default(),
+                provider: first.model.provider.clone(),
                 model: message.model.model.clone(),
+                contract: first.contract().map(ToString::to_string),
+                contract_by: first.contract_by.map(contract_by),
+                on_a_plan: first.on_a_plan,
                 at: message.at,
                 agent_harness: message.agent_harness.clone(),
                 agent_name: message.agent_name.clone(),

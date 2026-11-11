@@ -42,17 +42,17 @@ function priceOf(db: Db, m: MockMessage, kind: string): number | null {
 }
 
 /** C(e): `null` with the reason when there is none, never zero. */
-export function messageCost(db: Db, m: MockMessage): { nanos: number | null; label: "priced" | "count_error" | "unknown_model" } {
+export function messageCost(db: Db, m: MockMessage): { nanos: number | null; label: "priced" | "count_error" | "not_priced_yet" } {
   if (!m.tokens) return { nanos: null, label: "count_error" };
   let total = 0;
   for (const kind of KINDS) {
     const count = m.tokens[kind];
     if (!count) continue;
     const p = priceOf(db, m, kind);
-    if (p === null) return { nanos: null, label: "unknown_model" };
+    if (p === null) return { nanos: null, label: "not_priced_yet" };
     total += (count * p) / 1_000_000;
   }
-  if (!KINDS.some((k) => priceOf(db, m, k) !== null)) return { nanos: null, label: "unknown_model" };
+  if (!KINDS.some((k) => priceOf(db, m, k) !== null)) return { nanos: null, label: "not_priced_yet" };
   return { nanos: total, label: "priced" };
 }
 
@@ -229,7 +229,7 @@ export function sessionView(db: Db, s: MockSession): Session {
     messages: s.messages.length,
     cost: dec(total),
     count_errors: costs.filter((c) => c.label === "count_error").length,
-    unknown_models: [...new Set(s.messages.filter((_, i) => costs[i]?.label === "unknown_model").map((m) => `${m.provider}/${m.model}`))],
+    unknown_models: [...new Set(s.messages.filter((_, i) => costs[i]?.label === "not_priced_yet").map((m) => `${m.provider}/${m.model}`))],
     assigned_by: split.by,
     submitted: submittedOf(db, s),
     parts: split.parts.map((p) => {

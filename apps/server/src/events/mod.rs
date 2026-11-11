@@ -208,7 +208,7 @@ async fn read_all(db: &sqlx::PgPool, organization_id: Uuid) -> Result<Vec<Event>
     .fetch_all(db)
     .await?
     .into_iter()
-    .map(|row| {
+    .filter_map(|row| {
         stored_event(
             &row.id,
             row.recorded_at,
@@ -216,6 +216,7 @@ async fn read_all(db: &sqlx::PgPool, organization_id: Uuid) -> Result<Vec<Event>
             row.supersedes.as_deref(),
             row.payload,
         )
+        .transpose()
     })
     .collect()
 }
@@ -236,7 +237,7 @@ async fn read_grants(db: &sqlx::PgPool, organization_id: Uuid) -> Result<Vec<Eve
     .fetch_all(db)
     .await?
     .into_iter()
-    .map(|row| {
+    .filter_map(|row| {
         stored_event(
             &row.id,
             row.recorded_at,
@@ -244,23 +245,31 @@ async fn read_grants(db: &sqlx::PgPool, organization_id: Uuid) -> Result<Vec<Eve
             row.supersedes.as_deref(),
             row.payload,
         )
+        .transpose()
     })
     .collect()
 }
 
-/// An event as a row of `events` holds it.
+/// An event as a row of `events` holds it, or `None` for a kind of
+/// record a later version wrote: this version is the way back during a
+/// deploy and passes over what it cannot use (ADR 0027).
 fn stored_event(
     id: &str,
     recorded_at: OffsetDateTime,
     recorded_by: Option<&str>,
     supersedes: Option<&str>,
     payload: serde_json::Value,
-) -> Result<Event, ApiError> {
+) -> Result<Option<Event>, ApiError> {
     let broken =
         |what: &str| ApiError::Internal(anyhow::anyhow!("event {id} cannot be read: {what}"));
-    let record: Record =
-        serde_json::from_value(payload).map_err(|error| broken(&error.to_string()))?;
-    Ok(Event {
+    let Some(record) = Record::read(payload).map_err(|error| broken(&error.to_string()))? else {
+        tracing::warn!(
+            event = id,
+            "passed over an event of a kind this version does not read"
+        );
+        return Ok(None);
+    };
+    Ok(Some(Event {
         id: EventId::new(id).map_err(|error| broken(&error.to_string()))?,
         recorded_at,
         supersedes: supersedes
@@ -272,7 +281,7 @@ fn stored_event(
             .transpose()
             .map_err(|error| broken(&error.to_string()))?,
         record,
-    })
+    }))
 }
 
 /// The managed price table rows as events: the rows of the file

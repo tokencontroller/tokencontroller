@@ -4662,3 +4662,119 @@ async fn estimates_list_newest_first_inside_the_view(pool: PgPool) {
     .await;
     result.unwrap();
 }
+
+// ---- Reading what a later version writes (ADR 0027, ADR 0028) ----------
+
+/// Puts an event into the log as a later version would write it.
+async fn record_raw(pool: &PgPool, id: &str, kind: &str, payload: Value) -> TestResult<()> {
+    sqlx::query(
+        "INSERT INTO events (organization_id, id, recorded_at, kind, payload)
+         VALUES ($1, $2, now(), $3, $4)",
+    )
+    .bind(ids::ORGANIZATION)
+    .bind(id)
+    .bind(kind)
+    .bind(payload)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+#[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
+async fn a_log_with_the_new_shapes_reads(pool: PgPool) {
+    let k = Kestrel::load(&pool).await.unwrap();
+    let before = k
+        .get(&k.nadia, &format!("/reports/cost?{MARCH}"))
+        .await
+        .unwrap()
+        .ok(StatusCode::OK)
+        .unwrap();
+    let message = |id: &str, model: &str, tokens: Value| {
+        json!({"message": {
+            "session_id": "later-1", "message_id": id, "person": emails::MARA,
+            "at": "2026-03-20T10:00:00Z", "agent_harness": "claude-code",
+            "model": {"model": model},
+            "tokens": tokens,
+            "received": "rcv_1",
+            "signals": {"branch": "main", "anthropic.provider": "claude.ai"},
+            "session": {"turns": 1, "pauses": 2}
+        }})
+    };
+    // No provider, a model every provider in the table prices the same, a
+    // kind with no price and a signal with no field of its own.
+    record_raw(
+        &pool,
+        "msg_later_1",
+        "message",
+        message(
+            "m1",
+            seed::MODEL,
+            json!({"input": 1_000_000, "output": 0, "cache_write_1h": 500}),
+        ),
+    )
+    .await
+    .unwrap();
+    // A model with no price at all: not priced yet, with its tokens.
+    record_raw(
+        &pool,
+        "msg_later_2",
+        "message",
+        message(
+            "m2",
+            "some-new-model",
+            json!({"input": 70, "reasoning": 30}),
+        ),
+    )
+    .await
+    .unwrap();
+    // A kind of record this version does not know is passed over.
+    record_raw(
+        &pool,
+        "act_later_1",
+        "activity",
+        json!({"activity": {"kind": "tool_run", "session_id": "later-1"}}),
+    )
+    .await
+    .unwrap();
+
+    let messages = k
+        .get(&k.nadia, &format!("/messages?{MARCH}&session_id=later-1"))
+        .await
+        .unwrap()
+        .ok(StatusCode::OK)
+        .unwrap();
+    let list = messages["messages"].as_array().unwrap();
+    assert_eq!(list.len(), 2);
+    let m1 = list.iter().find(|m| m["message_id"] == "m1").unwrap();
+    assert_eq!(m1["cost_label"], "priced");
+    assert_eq!(m1["model"], seed::MODEL);
+    assert_eq!(m1["tokens"]["cache_write_1h"], 500);
+    assert_eq!(m1["signals"]["anthropic.provider"], "claude.ai");
+    let m2 = list.iter().find(|m| m["message_id"] == "m2").unwrap();
+    assert_eq!(m2["cost_label"], "not_priced_yet");
+    assert_eq!(m2["provider"], Value::Null);
+    assert_eq!(m2["cost"], Value::Null);
+
+    let after = k
+        .get(&k.nadia, &format!("/reports/cost?{MARCH}"))
+        .await
+        .unwrap()
+        .ok(StatusCode::OK)
+        .unwrap();
+    assert_ne!(after["total"], before["total"], "the priced message counts");
+    assert_eq!(after["not_priced_yet"]["messages"], 1);
+    assert_eq!(after["not_priced_yet"]["tokens"]["input"], 70);
+    assert_eq!(after["not_priced_yet"]["tokens"]["reasoning"], 30);
+    assert!(
+        after["unpriced_kinds"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("cache_write_1h"))
+    );
+    assert!(
+        after["unknown_models"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("some-new-model"))
+    );
+}
