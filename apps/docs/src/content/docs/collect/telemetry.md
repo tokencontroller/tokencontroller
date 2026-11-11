@@ -3,7 +3,7 @@ title: "Telemetry push"
 description: "Settings for Claude Code, Codex CLI, Gemini CLI, Copilot CLI and Cursor Enterprise to push every model call over OpenTelemetry, and what telemetry can and cannot see."
 ---
 
-Claude Code, Codex CLI, Gemini CLI, Copilot CLI and Cursor Enterprise can push their usage straight to your organization over OpenTelemetry. Nothing is installed on anyone's machine. Every agent sends to the same ingest URL, `https://app.tokencontroller.com/api/v1/ingest/otlp`, with your organization token (`tc_org_…`, under _Settings_ in the web app).
+If you want every agent's usage counted without asking each person to install something, you may let the agents report it themselves. Claude Code, Codex CLI, Gemini CLI, Copilot CLI and Cursor Enterprise can push their usage straight to your organization over OpenTelemetry. Nothing is installed on anyone's machine. Every agent sends to the same ingest URL, `https://app.tokencontroller.com/api/v1/ingest/otlp`, with your organization token (`tc_org_…`, under _Settings_ in the web app).
 
 ## Settings by agent {#settings}
 
@@ -17,9 +17,20 @@ Claude Code, Codex CLI, Gemini CLI, Copilot CLI and Cursor Enterprise can push t
 
 The ingest endpoint takes OTLP over HTTP, as protobuf or JSON, plain or gzip. It does not take gRPC.
 
-The endpoint stores what it received and removes content text (prompts, responses, tool output, file contents) on arrival, unless your organization switches keeping it on. Records that are not model calls are kept as activities. Turning prompt logging off in the agent still sends less data.
+The endpoint stores what it received as a received record, after removing content text (prompts, responses, tool output, file contents), unless your organization switches keeping it on. Nothing is refused for content text; the answer says how many records lost some. Turning prompt logging off in the agent still sends less data. See [What the usage endpoints keep](/collect#received).
 
-A model call carries its token counts by kind, such as input, output, cache read and cache write; kinds are open names (see [token kinds](/reference/data-model#token-kinds)). Cost comes from the [price table](/account/price-table) for every agent; the cost figure Claude Code sends along is kept as a fact and never shown as the cost.
+Each model call becomes a message with its token counts by kind, such as input, output, cache read and cache write; kinds are open names (see [token kinds](/reference/data-model#token-kinds)). Other records of a known agent, such as a tool run or a commit counter, are kept as activities. Cost comes from the [price table](/account/price-table) for every agent; the cost figure Claude Code sends along is kept as a signal and never shown as the cost.
+
+The person of a message is the member whose email the agent reports, else the person who created the organization token. Every other attribute the agent sends stays on the message as a [signal](/reference/data-model#signals).
+
+| Agent | Provider it reports | Sign-in it reports |
+| --- | --- | --- |
+| Claude Code | Its route, `anthropic.provider`: the Anthropic API, Bedrock, Vertex or Foundry | `organization.id` for a claude.ai or Console sign-in |
+| Gemini CLI | Its sign-in, `auth_type`: a Gemini API key or Google sign-in, or Vertex AI | |
+| Copilot CLI | `gen_ai.provider.name`, when it names a provider the price table knows | |
+| Codex CLI, Cursor | None | |
+
+A message without a provider is priced when every provider in the price table charges the same for its model; otherwise it is [not priced yet](/account/price-table#missing) until it gets a contract. A shipped sign-in rule puts Claude Code messages with an `organization.id` under that organization's own contract; see [which contract a message gets](/reference/data-model#contract).
 
 ## Claude Code {#claude-code}
 
@@ -39,7 +50,7 @@ An administrator adds this to Claude Code's managed settings:
 }
 ```
 
-The exporter adds `/v1/metrics` and `/v1/logs` to the endpoint itself. Each model call is one message, from its log event; metrics are accepted and not counted, because they repeat the same calls. `OTEL_METRICS_INCLUDE_REPOSITORY` adds the repository, a signal that a rule turns into the project.
+The exporter adds `/v1/metrics` and `/v1/logs` to the endpoint itself. Each model call is one message, from its log event. Of the metrics, counters such as commits and pull requests are kept as activities; the token and cost counters are left out, because the log events already count every call. `OTEL_METRICS_INCLUDE_REPOSITORY` adds the repository, a signal a rule can turn into the project.
 
 ## Codex CLI {#codex}
 
@@ -55,7 +66,7 @@ exporter = { otlp-http = {
 }}
 ```
 
-Codex sends the URL as written, so it ends in `/v1/logs`. The [CLI](/collect/cli) also reads Codex session files, which adds the branch and lets people check before they submit.
+Codex sends the URL as written, so it ends in `/v1/logs`. Codex telemetry names no provider. The [CLI](/collect/cli) also reads Codex session files, which adds the provider Codex reports and the branch, and lets people check before they submit.
 
 ## Gemini CLI {#gemini-cli}
 
@@ -96,12 +107,12 @@ Agents that read `OTEL_RESOURCE_ATTRIBUTES`, such as Claude Code and Copilot CLI
 "OTEL_RESOURCE_ATTRIBUTES": "purpose=product"
 ```
 
-A resource attribute is a [signal](/attribute/rules#signals), not a tag: a rule such as "resource attribute `purpose` is tag `purpose` with that key" turns it into a tag value. A person's team and department come from their [attributes](/account/attributes), not from telemetry. Resource attributes are the same for every session on a machine, so they suit a purpose or an environment, not features.
+A resource attribute arrives as a [signal](/attribute/rules#signals). When its name is one of your tag names, such as `purpose`, it is the sender's own assignment: it sets that tag on the message and wins over your rules. Any other name stays a signal that a rule can read. A person's team and department come from their [attributes](/account/attributes). Resource attributes are the same for every session on a machine, so they suit a purpose or an environment, not features.
 
 ## What telemetry sees, and what it does not {#sees}
 
-Each telemetry event is one message: token counts by kind, model, person, repository and the ids of the session and message. It does not see the branch, the pull request or a summary. Organizations that only push telemetry get cost on projects, by repository, and nobody submits anything. Adding the [mod](/collect/claude-code) or the [CLI](/collect/cli) puts cost on features, with the person's own check.
+Each model call in telemetry is one message: token counts by kind, model, person, repository, the provider where the agent reports it, and the ids of the session and message. Telemetry does not see the branch, the pull request or a summary. Organizations that only push telemetry get cost on projects, by a rule on the repository, and nobody submits anything. Adding the [mod](/collect/claude-code) or the [CLI](/collect/cli) puts cost on features, with the person's own check.
 
-When telemetry and a session file describe the same message, by session id and message id, they are one record, counted once. For Claude Code that message id is the API request id (`req_…`): telemetry sends it with every call, and the CLI submits it from the session file.
+When telemetry and a session file describe the same model call, by session id and message id, it counts once. For Claude Code that message id is the API request id (`req_…`): telemetry sends it with every call, and the CLI submits it from the session file. Where the ids do not match, such as Codex telemetry, which gives a call no id of its own, calls are matched one by one on time, model and token counts, inside one person's sessions that overlap in time. Both received records stay; one message counts.
 
-On the hosted service, an organization takes in a limited number of [messages per day](/plans#messages). Above it, the endpoint answers `429` and the batch is not stored.
+On the hosted service, an organization takes in a limited number of [messages and received bytes per day](/plans#messages). Above it, the endpoint answers `429` and none of the batch's messages count.

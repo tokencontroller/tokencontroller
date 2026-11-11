@@ -3,11 +3,11 @@ title: "Estimates and plans"
 description: "Ask what described work will cost, read an estimate with its cost and deviation, accept one as the plan, and set a person's share of a project."
 ---
 
-An estimate is what a described piece of work will cost: a probability distribution in US dollars with its median. Any token can ask. Accepting an estimate makes it the plan for its tag set; shares give each person their part of a project's plan.
+An estimate is what a described piece of work will cost: a probability distribution in US dollars with its median. Any signed-in person can ask. Accepting an estimate makes it the plan for its tag set; shares give each person their part of a project's plan.
 
 | Endpoint | What it does | Who |
 | --- | --- | --- |
-| `POST /estimates` | Ask any estimator for an estimate, or type one. | Any signed-in person; plan on the tag set when one is given |
+| `POST /estimates` | Ask the estimator for an estimate, or type one. | Any signed-in person; plan on the tag set when one is given |
 | `GET /estimates` | The estimates you may view, newest first, each with whether it is the plan and the cost so far. | View on the tag set |
 | `GET /estimates/{id}` | One estimate with the cost of its tag set and the labelled deviation. | View on the tag set |
 | `POST /estimates/{id}/accept` | Make an estimate the plan for its tag set. | Plan on the tag set, in the web app |
@@ -21,11 +21,11 @@ POST /api/v1/estimates
 Authorization: Bearer tc_cli_…
 
 {
-  "work": "Refund checkout for a returns portal",
+  "work": "Checkout redesign: a new checkout flow with saved addresses and one-page payment",
   "tags": { "feature": "KD-1" },
   "from": "2026-03-01",
   "to": "2026-03-31",
-  "context": "Last flow: 702.40 USD, sandbox timeouts"
+  "context": "The last checkout flow cost 702.40 USD, with sandbox timeouts"
 }
 ```
 
@@ -45,15 +45,10 @@ Each estimate is billed once, whatever the length of `work` and `context`, so se
 ```json
 {
   "id": "est_4k2q9w",
-  "work": "Refund checkout for a returns portal",
+  "work": "Checkout redesign: a new checkout flow with saved addresses and one-page payment",
   "tags": { "feature": "KD-1" },
-  "from": "2026-03-01",
-  "to": "2026-03-31",
-  "estimator": "classifier",
   "currency": "USD",
   "median": "500.00",
-  "markup_percent": 0,
-  "amount": "500.00",
   "distribution": [
     { "up_to": "250.00", "p": "0.04" },
     { "up_to": "500.00", "p": "0.46" },
@@ -61,19 +56,24 @@ Each estimate is billed once, whatever the length of `work` and `context`, so se
     { "up_to": "1000.00", "p": "0.12" },
     { "up_to": null, "p": "0.05" }
   ],
+  "markup_percent": 0,
+  "estimator": "classifier",
+  "from": "2026-03-01",
+  "to": "2026-03-31",
+  "amount": "500.00",
   "accepted": false,
-  "cost": "580.00",
+  "cost": null,
   "deviation": null,
   "deviation_label": null,
-  "recorded_at": "2026-02-27T10:04:00Z"
+  "recorded_at": "2026-02-21T10:00:00Z"
 }
 ```
 
-`median` is the estimate; `amount` is the plan amount, the median with the markup inside: with `markup_percent: 15` it would be `575.00`. Each band of `distribution` is the chance `p` that the cost ends at or below `up_to`; the last band has no upper end. `estimator` is `classifier`, or the email of the person who typed it. `cost` is the cost of the tag set over the estimate's range so far, where the tag set has one.
+`median` is the estimate; `amount` is the plan amount, the median with the markup inside: with `markup_percent: 15` it would be `575.00`. Each band of `distribution` is the chance `p` that the cost ends at or below `up_to`; the last band has no upper end. `estimator` is `classifier`, or the email of the person who typed it. `cost` is the cost of the tag set over the estimate's range so far, where the tag set has one; asked before March, KD-1 has none yet.
 
 ## Read estimates {#read}
 
-`GET /estimates/{id}` returns the same shape with today's figures. Once accepted, `deviation` is plan minus cost, positive favourable, and `deviation_label` is `scope`, `trouble` or `estimate_itself` from the classifier, as on [Deviation and forecast](/report/deviation#labels). For KD-1 in the worked month: amount 500, cost 580, deviation `"-80.00"`, label `scope`.
+`GET /estimates/{id}` returns the same shape with today's figures. Once accepted, `deviation` is plan minus cost, positive favourable, and `deviation_label` is `scope`, `trouble` or `estimate_itself` from the classifier, as on [Deviation and forecast](/report/deviation#labels). For KD-1 as of 5 April: `amount` `"500.00"`, `cost` `"580.00"`, `deviation` `"-80.00"`, `deviation_label` `"scope"`.
 
 `GET /estimates?as_of=2026-04-05` lists every estimate you may view, newest first, in the same shape. Many estimates may exist for one tag set; `accepted` marks the plan.
 
@@ -109,4 +109,4 @@ POST /api/v1/shares
 }
 ```
 
-`over` is the sum of the project's shares on the share's first day where it is above 1, such as `"1.2"`. `GET /shares?as_of=2026-03-31` lists the shares in force whose project you may view. A person's plan is the sum of their shares times the plans of those projects; it appears in the [deviation report](/reference/api/reports#deviation) grouped by person. See [Shares](/account/estimates#shares).
+`over` is the sum of the project's shares on the share's first day where it is above 1, such as `"1.2"`. `GET /shares?as_of=2026-03-31` lists the shares in force whose project you may view. A person's plan is the sum of their shares times the plans of those projects: Mara's 0.6 of Shop's 232.50 in March is 139.50. It appears in the [deviation report](/reference/api/reports#deviation) grouped by person. See [Shares](/account/estimates#shares).

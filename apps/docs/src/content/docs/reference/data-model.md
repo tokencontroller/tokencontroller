@@ -17,7 +17,7 @@ Usage and bills come in on their own, in any order, with no tags. Tags go on bot
 
 Every usage endpoint stores what it received, with the endpoint and the time, before it does anything else. Messages and activities are made from these received records and point back to them. When Token Controller learns to read something new, the stored records are read again, back in time, and the re-read is logged.
 
-Received records sit outside the organization's log, in a store of their own with a retention period, and they can be deleted. Content text (prompts, responses, tool output, file contents) is removed on arrival unless the organization switches keeping it on. See [Security and privacy](/security).
+Received records sit outside the organization's log, in a store of their own. They are kept for 400 days, and they can be deleted. Content text (prompts, responses, tool output, file contents) is removed on arrival unless the organization switches keeping it on. See [Security and privacy](/security).
 
 ## Source records {#source}
 
@@ -125,7 +125,7 @@ The [worked month](/concepts#month) runs the cost formulas on three bills.
   <li><b>Every message has a person.</b><p>For a service token, the person who created it.</p></li>
   <li><b>One value per tag name on a split, one contract per message.</b><p>So cost grouped by one tag name adds up to the total.</p></li>
   <li><b>Only messages are summed.</b><p>Bills are checked against them, plans are compared with them.</p></li>
-  <li><b>Nothing is guessed.</b><p>The provider never follows from the model's name. Unknown is shown as unknown, and a message not priced yet is its own line with its token counts.</p></li>
+  <li><b>Nothing is guessed.</b><p>The provider is never guessed from the model's name. Unknown is shown as unknown, and a message not priced yet is its own line with its token counts.</p></li>
   <li><b>A check cannot balance by leaving messages out.</b><p>Messages of the same provider with no contract always show beside it.</p></li>
   <li><b>Management control never writes into cost accounting.</b><p>Estimates, accepts and shares read C(F, w) and change no split.</p></li>
 </ol>

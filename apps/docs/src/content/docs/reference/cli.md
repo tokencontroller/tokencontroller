@@ -1,6 +1,6 @@
 ---
 title: "CLI"
-description: "Every tc command, flag, setting and environment variable."
+description: "Every tc command, flag, setting and environment variable, and the commands of the service program tokencontroller."
 ---
 
 Every `tc` command. Each takes `--help` and `--json`, and `tc` works with no service connected. A message whose session file has no token counts is kept as a count error, with no cost.
@@ -15,7 +15,7 @@ Every `tc` command. Each takes `--help` and `--json`, and `tc` works with no ser
 | `tc tag N NAME=VALUE…` | Set tags on session N (its number from `tc review`), such as `feature=KD-214` or `purpose=learning`. An empty value, such as `purpose=`, removes a tag. `--remember` makes the assignment a rule; it takes one tag value per name, as a rule sets one. |
 | `tc split N FEATURE=WEIGHT…` | Split session N between two or more features, such as `KD-231=60 KD-240=40`. Weights need not add up to 100; they become fractions that do add up to 1. `--remember` is refused: a rule names one tag value, so use `tc tag N feature=KEY --remember`. |
 | `tc submit` | Submit every message of yours since your last submit. With nothing new it tells the service there was nothing to add. For `--tag` and `--signal`, see [In CI and scripts](#scripts). |
-| `tc report --by NAME\|label\|day` | Cost in a table, by any tag or attribute name, by deviation label or by day; default `feature`. `--filter NAME=VALUE` limits it and can be repeated; `--since 2026-10-01` sets the first day (default: the first of this month). |
+| `tc report --by NAME\|label\|day` | Cost in a table, by any tag or attribute name, by label or by day; default `feature`. `--filter NAME=VALUE` limits it and can be repeated; `--since 2026-10-01` sets the first day (default: the first of this month). Below the table it names the models of messages not priced yet, whose cost is missing above, and the number of count errors. |
 | `tc export --csv` | Every message as CSV, the only format. |
 | `tc rules` | List, add, move and remove personal rules. See [Rules](#rules). |
 | `tc config [KEY [VALUE]]` | Show or change a setting. Without a key it lists every setting; an empty value removes one. See [Settings](#settings). |
@@ -49,7 +49,7 @@ tc rules move 2 1                                         # earlier rules win
 tc rules remove 1
 ```
 
-A rule is a signal, a test, a value and the tag value it sets. The signals are those on the [Rules](/attribute/rules#signals) page: `branch`, `directory`, `repository`, `pull-request`, `config` and `subagent`, plus `feature`, the feature found so far, for rules that set other tags. A captured group in a `matches` test names the feature, as in `tc rules add branch matches '(KD-\d+)' feature=$1`. The tests are `is`, `starts-with`, `contains`, `matches` (a regular expression) and `is-set`, which takes no value. Without a test, a value containing any of `^ $ * + ? ( ) [ ] { } | \` is a regular expression and any other value must match exactly.
+A rule is a signal, a test, a value and the tag value it sets. The signals are those on the [Rules](/attribute/rules#signals) page: `branch`, `directory`, `repository`, `pull-request` (its title), `config:NAME` (a value of the repository's `.tokencontroller.toml`), `subagent` (the agent name) and `feature` (the keys found in prompts and titles). `signal:NAME` reads any other signal by its name, such as `signal:organization.id`. A captured group in a `matches` test names the feature, as in `tc rules add branch matches '(KD-\d+)' feature=$1`. The tests are `is`, `starts-with`, `contains`, `matches` (a regular expression) and `is-set`, which takes no value. Without a test, a value containing any of `^ $ * + ? ( ) [ ] { } | \` is a regular expression and any other value must match exactly.
 
 Organization rules run before yours. Once connected, your rules live in your organization, so the web app and the mod show the same list.
 
@@ -60,7 +60,7 @@ Settings are kept in `config.toml` in the `tc` folder (see `TC_HOME` below).
 | Setting | What it does |
 | --- | --- |
 | `feature-key-pattern` | A feature key pattern, such as `^(KD\|OPS)-\d+`, for use with no service connected. Once connected, the organization's rules apply. |
-| `price-table` | The path of your own price table, a CSV with the columns `provider,model,kind,price_per_million,valid_from`, as in [Price tables](/reference/pricing-tables#file). `tc` ships no prices; without this file and with no service connected, every message is an unknown model with no cost. Once connected, the service's table is used. |
+| `price-table` | The path of your own price table, a CSV with the columns `provider,model,kind,price_per_million,valid_from`, as in [Price tables](/reference/pricing-tables#file). `tc` ships no prices; without this file and with no service connected, every message is not priced yet: listed with its token counts, never with a cost of zero. Once connected, the service's table is used. |
 | `since` | A day, such as `2026-09-01`. Sessions that started earlier are not read. Without it, the first run reaches back 31 days. |
 | `folders` | The tracked folders, set with `tc track` and `tc untrack`. `all` counts every folder without asking; an empty value removes the choice, so `tc` asks again. See [Folders](#folders). |
 | `service` | The service `tc` is connected to. Set by `tc connect`. |
@@ -85,3 +85,18 @@ With `--json` every command prints one JSON value and nothing else. Messages go 
 | `TC_SIGNALS` | Signals for every session in this run, as JSON, such as `{"repository":"kestrel/storefront","pull_request":12}`. The names are those of `--signal`. |
 | `TC_HOME` | The folder for `config.toml` and the local event log `tc.sqlite`, which `tc` folds with the same accounting core as the service. Default: `tokencontroller` in the system's folder for application data (`$XDG_DATA_HOME` or `~/.local/share` on Linux, `~/Library/Application Support` on macOS, `%APPDATA%` on Windows). |
 | `CLAUDE_CONFIG_DIR`, `CODEX_HOME` | Where Claude Code and Codex keep their session files, as the agents themselves read them. |
+
+## The service program {#server}
+
+The service's own program is `tokencontroller`. In the open image it takes these commands; run them in the container, such as `docker compose exec tokencontroller tokencontroller reread …`. `serve`, `sign-in-link` and `reread` read the service's [environment variables](/self-hosting/configuration#vars), `seed` needs only `DATABASE_URL`, and `openapi` and `otlp-decode` need none.
+
+| Command | What it does |
+| --- | --- |
+| `tokencontroller serve` | Runs the service. The default when no command is given. |
+| `tokencontroller seed` | Loads the example organization of the [worked month](/concepts#month). Safe to run more than once. |
+| `tokencontroller openapi` | Prints the OpenAPI document of the [HTTP API](/reference/api). |
+| `tokencontroller sign-in-link EMAIL` | Prints a sign-in link for a member, for an instance without a mail server. |
+| `tokencontroller otlp-decode logs\|traces\|metrics [--content-type TYPE] [--content-encoding ENCODING] FILE` | Reads one saved OpenTelemetry export request the way the [OpenTelemetry endpoint](/collect/telemetry) does and prints, as JSON, the messages and activities it holds, after content text is removed. `-` reads standard input; without `--content-type` the body is protobuf. |
+| `tokencontroller reread ORGANIZATION_ID` | Reads an organization's stored OpenTelemetry records again with this version, oldest first, and adds the model calls and activities not on record yet. Each re-read is logged with the version. Token entries and CSV files are read whole on arrival, so they are not read again. What a re-read adds does not count against a daily cap. |
+
+The Enterprise image takes `serve`, `seed` and `openapi`.

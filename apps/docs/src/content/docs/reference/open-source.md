@@ -23,4 +23,4 @@ Report bugs and ask questions in GitHub issues. Pull requests from outside are n
 | Project | Used for |
 | --- | --- |
 | ccusage | How the CLI counts session files on the developer's machine: its readers follow ccusage's rules (MIT). |
-| LiteLLM, models.dev | Sources of the managed [price table](/reference/pricing-tables). The CLI carries a copy for figures on the machine. |
+| LiteLLM, models.dev | Sources of the managed [price table](/reference/pricing-tables). The CLI carries no prices; it reads your own file or the service's table. |

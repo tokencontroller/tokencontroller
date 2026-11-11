@@ -3,7 +3,7 @@ title: "Attributes"
 description: "Attributes on people: team, department, location, their defaults, and how a message carries them."
 ---
 
-An attribute is on a person, such as `team: web` or `department: engineering`. It says who the person is; a [tag](/account/tags) says what the work was for. The two words are different on purpose.
+You may want to see what a team or a department spent, not only what a project cost. An attribute is on a person, such as `team: web` or `department: engineering`. It says who the person is; a [tag](/account/tags) says what the work was for. The two words are different on purpose.
 
 ## Attribute values {#values}
 
@@ -25,4 +25,4 @@ A message carries its person's attributes as of its time. An attribute value on 
 
 Attributes and tags mix in one [filter](/account/tags#filters): cost of `team: web` on `client: acme`, the plan of `department: engineering`, a grant on `team: web`. A head of engineering is a people manager over `department: engineering`; a manager is never a tag or an attribute.
 
-<div class="note"><b>Telemetry.</b> Agents that read <code>OTEL_RESOURCE_ATTRIBUTES</code> can send <code>team=web</code> with every message. That is a <a href="/attribute/rules#signals">signal</a>, not the attribute: a rule turns it into a tag value, and the person's attributes come from the person record.</div>
+<div class="note"><b>Telemetry.</b> Agents that read <code>OTEL_RESOURCE_ATTRIBUTES</code> can send <code>team=web</code> with every message. That arrives as a <a href="/attribute/rules#signals">signal</a>, not as the attribute. A rule may read it to set a tag. A person's attributes are set on the person, from a date.</div>

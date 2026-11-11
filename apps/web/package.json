@@ -14,7 +14,8 @@
     "build": "pnpm generate && tsc -b --noEmit && vite build",
     "build:mock": "pnpm generate && VITE_API_MOCK=1 vite build --outDir dist-mock",
     "e2e": "playwright test --project=desktop --project=phone",
-    "screenshots": "playwright test --project=screenshots"
+    "screenshots": "playwright test --project=screenshots",
+    "demo": "node demo/tour.mjs"
   },
   "dependencies": {
     "@base-ui/react": "1.9.0",

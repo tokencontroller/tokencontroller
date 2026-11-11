@@ -28,7 +28,7 @@ The hosted service takes in up to 50,000 messages a day for a Solo organization 
 
 The same day also counts what the usage endpoints receive: up to 500 MB for a Solo organization and 10 GB on the Team plan, as the records arrived. That is about 10 KB for each message of the limit, far more than an agent sends, so it may only matter when an organization keeps content text or sends many records without token counts. Records read again after an upgrade count against neither limit.
 
-A batch that would pass the limit is refused whole with `429 too_many_requests`, and nothing of it is stored. `tc` keeps the sessions it could not send and sends them with the next `tc submit`. Telemetry exporters try again for a short while and then drop the batch, so those calls are missing from that day's figures; the bill still shows the cost when you [reconcile](/account/bills). A message already on record, such as a call telemetry counted that `tc` later sends with its session, does not count again. Once the day is full, every batch is refused until 00:00 UTC.
+A batch that would pass the limit is refused whole with `429 too_many_requests`, and none of its messages count. `tc` keeps the sessions it could not send and sends them with the next `tc submit`. Telemetry exporters try again for a short while and then drop the batch, so those calls are missing from that day's figures; the bill still shows the cost when you [reconcile](/account/bills). A message already on record, such as a call telemetry counted that `tc` later sends with its session, does not count again. Once the day is full, every batch is refused until 00:00 UTC.
 
 The Enterprise plan and self-hosted have no limit.
 

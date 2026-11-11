@@ -3,20 +3,23 @@ title: "Organization settings"
 description: "What an org manager sets up once, inviting people, and how members sign in."
 ---
 
-An organization is one customer of Token Controller: one event log of its people, tag values, messages, bills and plans, with one cutoff and one reporting currency. An org manager sets it up once.
+When you start with Token Controller, you set up one organization: one event log of its people, tag values, messages, bills and plans, with one cutoff and one reporting currency. An org manager sets it up once.
 
 ## Organization settings {#settings}
 
 | Setting | What it does |
 | --- | --- |
 | Reporting currency | The one currency figures are shown in. The price table is in US dollars; a bill keeps its own currency and the exchange rate of its last day. |
-| Price table | The managed table, with your own rows and overrides. See [Price table](/account/price-table). |
-| Tag names and tag values | Projects, features and clients, your own tag names, and the ticket systems features sync from. See [Tags](/account/tags). |
+| Price table | The managed table, with your own rows, for every contract or for one. See [Price table](/account/price-table). |
+| Tag names and tag values | Projects, features, clients and contracts, your own tag names, and the Jira connection features may sync from. See [Tags](/account/tags). |
 | Attribute names | Team, department, location and their defaults. See [Attributes](/account/attributes). |
 | Organization rules | Rules that run before everyone's personal rules. See [Rules](/attribute/rules). |
 | Approval | Whether submissions need approval. See [Submit and approval](/account/submit). |
 | Cutoff | The date up to which figures are frozen. See [Cutoff](/account/cutoff). |
 | Sign-in | Which [sign-in](#sign-in) methods members may use, and which email domains. |
+| Content text | Whether the usage endpoints keep prompts, responses, tool output and file contents in what they received. Off by default; set through the [API](/reference/api/organization). See [Security and privacy](/security#never). |
+
+The name, the reporting currency, the sign-in domains and approval are under _Settings_ in the web app. The other settings have their own screens.
 
 ## People {#people}
 

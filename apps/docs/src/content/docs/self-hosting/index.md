@@ -9,7 +9,7 @@ Self-hosted Token Controller is the same product as the hosted Team plan, from t
 
 | Part | What it is |
 | --- | --- |
-| The service | One program, written in Rust, in one Docker image. It serves the HTTP API and the web app, receives telemetry over OpenTelemetry (HTTP and protobuf), and runs the background jobs, such as bill pulls, Jira sync and exchange rates. Sign-in runs inside it too: magic link by email, and OIDC on the [Enterprise plan](/self-hosting/enterprise). |
+| The service | One program, written in Rust, in one Docker image. It serves the HTTP API and the web app, receives telemetry over OpenTelemetry (HTTP, as protobuf or JSON), and runs the background jobs, such as bill pulls, the Jira sync, exchange rates and removing received records after 400 days. Sign-in runs inside it too: magic link by email, and OIDC on the [Enterprise plan](/self-hosting/enterprise). |
 | Postgres | All data lives in one Postgres database. See [Postgres](#postgres). |
 | Email | Any SMTP server, for sign-in links, invites and the request to submit. |
 
@@ -55,7 +55,7 @@ The service listens on port 8080; put a reverse proxy with TLS in front of it. T
 
 ## Postgres {#postgres}
 
-Postgres 15 or newer. A managed database from your cloud works as well as your own. Messages are small, because no transcripts or prompts are stored: a 150-member organization fits in a small database instance.
+Postgres 15 or newer. A managed database from your cloud works as well as your own. Besides the event log, Postgres keeps what each usage endpoint received, for 400 days. Content text such as prompts and transcripts is removed on arrival unless an organization switches keeping it on, so messages and received records stay small, and a 150-member organization may fit in a small database instance.
 
 ## Upgrades and backups {#upgrades}
 
@@ -66,7 +66,7 @@ docker compose up -d
 
 The service updates the database schema when it starts. Read the [changelog](/changelog) before a new major version.
 
-Only the Postgres database holds state, so backing it up backs up everything. The [raw export](/report/exports#raw-export) is a second copy of the event log in plain JSON.
+Only the Postgres database holds state, so backing it up backs up everything. The [raw export](/report/exports#raw-export) is a second copy of the event log in plain JSON, without the received records.
 
 ## Support {#support}
 

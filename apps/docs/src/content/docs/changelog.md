@@ -15,7 +15,7 @@ First release.
 
 - The [Claude Code mod](/collect/claude-code) and the [CLI](/collect/cli), `tc`, which read session files, split sessions with your rules and submit.
 - [Telemetry ingest](/collect/telemetry) over OpenTelemetry for Claude Code, Codex CLI, Gemini CLI, Copilot CLI and Cursor.
-- The [token entries endpoint](/collect/token-entries) for any other agent, and [messages by hand or from a CSV file](/collect/manual).
+- The [token entries endpoint](/collect/token-entries) for any other agent, and [messages from a CSV file](/collect/manual).
 - The [GitHub Action](/collect/github-action) for agents that run in CI, such as a PR review bot.
 - [Rules](/attribute/rules) over signals that split sessions onto features and projects.
 - [Bills](/account/bills) from Anthropic and OpenAI, and any bill by CSV.

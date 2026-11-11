@@ -1,6 +1,6 @@
 ---
 title: "Exports and API access"
-description: "CSV of any report and table, the read-only reporting API for spreadsheets and BI tools, and the raw export of the whole event log."
+description: "CSV of reports, bills and the check, the read-only reporting API for spreadsheets and BI tools with the on-a-plan subtotals and the not-priced line, and the raw export of the whole event log."
 ---
 
 | You want | Use |
@@ -11,7 +11,16 @@ description: "CSV of any report and table, the read-only reporting API for sprea
 
 ## CSV {#csv}
 
-Every report and table in the web app downloads as CSV: messages with their splits and tags, any report with its grouping, the reconciliation, deviations. The file holds exactly what the table shows, with your filter and as-of date in its header. A report's CSV can add any tag or attribute name as a column. Without a service, `tc export --csv` writes every message from the [CLI](/collect/cli).
+In the web app, the cost report, the deviation report and the price table download as CSV. The file holds the rows the table shows and, for the cost report, the total. Every report and table the API serves answers as CSV too, with `format=csv`:
+
+| Endpoint | Columns |
+| --- | --- |
+| `GET /reports/cost` | `key`, `amount`, `share`, `messages` |
+| `GET /reports/deviation`, `/reports/forecast` | The rows of the report |
+| `GET /bills`, `/bills/{id}` | Each bill with the cost of its messages and what no message explains |
+| `GET /reconciliation` | The [check](/account/bills#reconciliation) of each bill under its contract: bill, messages, unexplained, fee, extra usage, covered by the plan, and the two lines beside it, `same_provider_no_contract` and `contract_from_fallback` |
+
+A cost report's CSV holds its rows only. The [on a plan](/report/reports#on-a-plan) subtotals and the [not priced yet](/report/reports#not-priced) line come with the reporting API's JSON. Without a service, `tc export --csv` writes every message from the [CLI](/collect/cli).
 
 ## Reporting API {#reporting-api}
 
@@ -22,8 +31,20 @@ GET https://app.tokencontroller.com/api/v1/reports/cost?by=team&filter=client:ac
 Authorization: Bearer tc_read_…
 ```
 
+Besides `total` and `rows`, the cost report carries:
+
+| Field | Meaning |
+| --- | --- |
+| `on_a_plan`, `metered`, `no_contract` | The total split by the kind of contract its messages ran under. `on_a_plan` is the part already paid by a flat contract's fee. |
+| `not_priced_yet` | The messages not priced yet, with their token counts by kind. Their cost is not in the total. |
+| `unknown_models` | The models of those messages, as `provider/model`. |
+| `unpriced_kinds` | Token kinds with tokens and no price row, left out while the rest of each message is priced. |
+| `count_errors` | Messages with no token counts. |
+
+Each message in `GET /messages` carries `on_a_plan` and its `cost_label`: `priced`, `count_error` or `not_priced_yet`.
+
 Create a read token in the web app under _Settings_. It sees what its creator's grants cover. Every report and its parameters are in the [HTTP API](/reference/api/reports) reference.
 
 ## Raw export {#raw-export}
 
-Leaving must be easy. An org manager chooses _Raw export_ under _Settings_ and gets a zip of JSON files: the whole event log, one file per record type, plus the price table rows and the grants. Reading it back as of any date gives the same figures the service shows.
+Leaving must be easy. An org manager chooses _Raw export_ under _Settings_ and gets a zip of JSON files: the whole event log, one file per record type, plus the price table rows and the grants. Reading it back as of any date gives the same figures the service shows. Received records are kept outside the log, so they are not in it.

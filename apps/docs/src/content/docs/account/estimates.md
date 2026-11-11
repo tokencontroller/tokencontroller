@@ -3,7 +3,7 @@ title: "Plans and estimates"
 description: "Estimates as distributions from any estimator, accepting one as the plan, shares of a plan per person, and markup."
 ---
 
-An estimate is what a described piece of work will cost. Accepting one makes it the plan for its tag set. A plan is compared with cost and never stops spending.
+Before work starts, you may want to know what it may cost, and later compare that with what it did cost. An estimate is what a described piece of work may cost. Accepting one makes it the plan for its tag set. A plan is compared with cost and never stops spending.
 
 ## Estimates {#estimates}
 

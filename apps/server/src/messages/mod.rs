@@ -49,7 +49,7 @@ pub struct MessagesQuery {
     /// One session.
     pub session_id: Option<String>,
     /// Only messages that still have no feature and no project:
-    /// organization overhead, the check list.
+    /// organization overhead, the review list.
     pub unassigned: Option<bool>,
     /// At most this many, newest first. Default 200.
     pub limit: Option<usize>,
