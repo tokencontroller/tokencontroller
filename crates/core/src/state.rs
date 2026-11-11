@@ -395,29 +395,12 @@ impl State {
     /// counts however finely the cache writes are told, and times within
     /// [`MATCH_WINDOW`]. It looks inside the message's own session first;
     /// only a session with no other source's messages looks at the same
-    /// person's sessions that overlap it in time. Session totals are never
+    /// person's other sessions, which the time window keeps to those that
+    /// overlap it. Session totals are never
     /// used. Each message is matched once, the closest in time first. A
     /// built message with no match keeps counting: it may be a call only
     /// that source sees.
     fn match_built_ids(&self) -> BTreeMap<MessageKey, MessageKey> {
-        let mut spans: BTreeMap<&SessionId, (OffsetDateTime, OffsetDateTime)> = BTreeMap::new();
-        for message in self.messages.values() {
-            let at = message.value.at;
-            spans
-                .entry(&message.value.session_id)
-                .and_modify(|(first, last)| {
-                    *first = (*first).min(at);
-                    *last = (*last).max(at);
-                })
-                .or_insert((at, at));
-        }
-        let overlap = |a: &SessionId, b: &SessionId| match (spans.get(a), spans.get(b)) {
-            (Some((a_first, a_last)), Some((b_first, b_last))) => {
-                a_first.saturating_sub(MATCH_WINDOW) <= *b_last
-                    && b_first.saturating_sub(MATCH_WINDOW) <= *a_last
-            }
-            _ => false,
-        };
         let others: Vec<&Message> = self
             .messages
             .values()
@@ -442,11 +425,7 @@ impl State {
                 .iter()
                 .filter(|other| {
                     other.person == built.person
-                        && if own_session {
-                            other.session_id == built.session_id
-                        } else {
-                            overlap(&other.session_id, &built.session_id)
-                        }
+                        && (!own_session || other.session_id == built.session_id)
                         && other.model.model == built.model.model
                         && match (&other.model.provider, &built.model.provider) {
                             (Some(a), Some(b)) => a == b,
@@ -2873,6 +2852,207 @@ mod tests {
         assert_eq!(
             serde_json::to_string(&DeviationLabel::Trouble).unwrap(),
             r#""trouble""#
+        );
+    }
+
+    #[test]
+    fn the_match_window_is_thirty_seconds_either_way() {
+        let at = datetime!(2026-03-10 09:00 UTC);
+        assert_eq!(
+            gap(at, at.saturating_add(Duration::seconds(5))),
+            5_000_000_000
+        );
+        assert_eq!(
+            gap(at.saturating_add(Duration::seconds(5)), at),
+            5_000_000_000
+        );
+        assert!(within_window(at, at.saturating_add(Duration::seconds(30))));
+        assert!(!within_window(at, at.saturating_add(Duration::seconds(31))));
+        assert!(!within_window(at.saturating_sub(Duration::seconds(31)), at));
+    }
+
+    fn call(
+        session: &str,
+        id: &str,
+        provider: Option<&str>,
+        at: OffsetDateTime,
+        input: u64,
+    ) -> Event {
+        let mut sent = message(session, id, "tom", at, 0);
+        sent.tokens = Some(TokenCounts::new().with(TokenKind::INPUT, input));
+        sent.model = match provider {
+            Some(provider) => ModelRef::new(provider, "gpt-5"),
+            None => ModelRef::unreported("gpt-5"),
+        };
+        event(
+            &format!("e-{session}-{id}"),
+            APRIL,
+            Record::Message(Box::new(sent)),
+        )
+    }
+
+    fn matched_of(events: &[Event]) -> Vec<(String, String)> {
+        State::fold(events, APRIL, Currency::USD)
+            .unwrap()
+            .matched()
+            .iter()
+            .map(|((session, id), (to_session, to_id))| {
+                (format!("{session}/{id}"), format!("{to_session}/{to_id}"))
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_built_id_matches_only_the_same_call() {
+        let at = datetime!(2026-03-10 09:00 UTC);
+        let later = |seconds| at.saturating_add(Duration::seconds(seconds));
+        let file = call("c1", "turn-1", Some("openai"), at, 100);
+        // Same call, four seconds later: matched.
+        let echo = call("c1", "otel:a", Some("openai"), later(4), 100);
+        assert_eq!(
+            matched_of(&[file.clone(), echo]),
+            [("c1/otel:a".to_owned(), "c1/turn-1".to_owned())]
+        );
+        // Another provider, other counts, or out of the window: not the same call.
+        for other in [
+            call("c1", "otel:b", Some("azure_foundry"), later(4), 100),
+            call("c1", "otel:c", Some("openai"), later(4), 101),
+            call("c1", "otel:d", Some("openai"), later(40), 100),
+        ] {
+            assert!(matched_of(&[file.clone(), other]).is_empty());
+        }
+        // A built message without a provider still matches.
+        let unreported = call("c1", "otel:e", None, later(4), 100);
+        assert_eq!(matched_of(&[file, unreported]).len(), 1);
+        // A session with its own file messages looks nowhere else.
+        let elsewhere = call("c2", "turn-1", Some("openai"), later(2), 100);
+        let mine = call("c1", "turn-9", Some("openai"), later(30), 7);
+        let echo = call("c1", "otel:f", Some("openai"), later(4), 100);
+        assert!(matched_of(&[elsewhere.clone(), mine, echo]).is_empty());
+        // A telemetry-only session looks in the person's other sessions.
+        let lonely = call("tel", "otel:g", Some("openai"), later(4), 100);
+        assert_eq!(
+            matched_of(&[elsewhere, lonely]),
+            [("tel/otel:g".to_owned(), "c2/turn-1".to_owned())]
+        );
+    }
+
+    fn contract_bill(provider: &str, contract: Option<&str>, from: Date, amount: &str) -> Bill {
+        let mut bill = Bill::of_provider(
+            provider.to_owned(),
+            DateRange::new(from, from.saturating_add(Duration::days(27))).unwrap(),
+            usd(amount),
+        );
+        bill.contract = contract.map(key);
+        bill
+    }
+
+    #[test]
+    fn a_bill_read_in_the_fold_keeps_its_contract() {
+        let march = date!(2026 - 03 - 01);
+        let unnamed = contract_bill("anthropic", None, march, "50");
+        let bills = [
+            contract_bill("openai", Some("openai-api"), march, "50"),
+            contract_bill("anthropic", Some("api"), date!(2026 - 02 - 01), "50"),
+            contract_bill("anthropic", Some("team"), march, "70"),
+            unnamed.clone(),
+        ];
+        let events: Vec<Event> = bills
+            .into_iter()
+            .enumerate()
+            .map(|(index, bill)| {
+                event(
+                    &format!("b{index}"),
+                    APRIL.saturating_add(Duration::seconds(i64::try_from(index).unwrap())),
+                    Record::Bill(bill),
+                )
+            })
+            .collect();
+        let state = State::fold(
+            &events,
+            APRIL.saturating_add(Duration::hours(1)),
+            Currency::USD,
+        )
+        .unwrap();
+        // Anthropic has two contracts, so the bill naming none got one
+        // named after its provider, and asking again gives the same.
+        assert_eq!(state.contract_of_bill(&unnamed), key("anthropic"));
+        assert_eq!(state.contracts().len(), 4);
+    }
+
+    #[test]
+    fn a_contract_tag_value_brings_its_terms() {
+        let mut team = TagValueRecord {
+            name: TagName::contract(),
+            key: key("team"),
+            title: None,
+            description: None,
+            source_id: None,
+            source_status: None,
+            defaults: Tags::new(),
+            contract: Some(ContractTerms {
+                provider: "anthropic".to_owned(),
+                kind: ContractKind::Flat,
+                fee: Some(usd("150")),
+            }),
+        };
+        let mut project = team.clone();
+        project.name = name("project");
+        project.key = key("shop");
+        let state = State::fold(
+            &[
+                event("v1", JANUARY, Record::TagValue(team.clone())),
+                event("v2", JANUARY, Record::TagValue(project)),
+            ],
+            APRIL,
+            Currency::USD,
+        )
+        .unwrap();
+        assert_eq!(state.contracts().len(), 1);
+        assert_eq!(
+            state.contracts().get(&key("team")).map(|terms| terms.kind),
+            Some(ContractKind::Flat)
+        );
+        team.contract = None;
+        let state = State::fold(
+            &[event("v1", JANUARY, Record::TagValue(team))],
+            APRIL,
+            Currency::USD,
+        )
+        .unwrap();
+        assert!(state.contracts().is_empty());
+    }
+
+    #[test]
+    fn hand_contracts_are_listed_and_provider_cost_keeps_to_its_range() {
+        let in_march = message("s1", "m1", "tom", datetime!(2026-03-10 09:00 UTC), 1);
+        let in_april = message("s1", "m2", "tom", datetime!(2026-04-02 09:00 UTC), 1);
+        let state = State::fold(
+            &[
+                event("p1", JANUARY, price_row(TokenKind::INPUT, "10")),
+                event("m1", APRIL, Record::Message(Box::new(in_march))),
+                event("m2", APRIL, Record::Message(Box::new(in_april))),
+                event(
+                    "a1",
+                    APRIL,
+                    Record::ContractAssignment(ContractAssignment {
+                        target: session("s1"),
+                        contract: key("api"),
+                    }),
+                ),
+            ],
+            APRIL.saturating_add(Duration::hours(1)),
+            Currency::USD,
+        )
+        .unwrap();
+        assert_eq!(state.contract_assignments().count(), 1);
+        assert_eq!(
+            state.provider_cost("anthropic", march()).unwrap().amount,
+            usd("10")
+        );
+        assert_eq!(
+            state.provider_cost("openai", march()).unwrap().amount,
+            usd("0")
         );
     }
 }

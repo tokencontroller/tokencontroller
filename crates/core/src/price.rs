@@ -313,7 +313,7 @@ impl PriceTable {
         let kinds: BTreeSet<&TokenKind> = self
             .rows
             .iter()
-            .filter(|row| row.provider == provider && row.model == model.model)
+            .filter(|row| row.provider == provider)
             .map(|row| &row.kind)
             .collect();
         kinds
@@ -777,6 +777,24 @@ mod tests {
         assert_eq!(prices.get(&TokenKind::OUTPUT), Some(&usd("15")));
         assert_eq!(prices.get(&TokenKind::INPUT), None);
         assert!(table.prices(&sonnet(), date!(2025 - 12 - 31)).is_empty());
+        // A row of another model or another provider is not this model's.
+        let mut other_model = row(
+            TokenKind::INPUT,
+            "3",
+            date!(2026 - 01 - 01),
+            PriceSource::Managed,
+        );
+        other_model.model = "claude-haiku-4-5".to_owned();
+        table.insert(other_model).unwrap();
+        let mut other_provider = row(
+            TokenKind::CACHE_READ,
+            "0.3",
+            date!(2026 - 01 - 01),
+            PriceSource::Managed,
+        );
+        other_provider.provider = "aws_bedrock".to_owned();
+        table.insert(other_provider).unwrap();
+        assert_eq!(table.prices(&sonnet(), ON).len(), 1);
     }
 
     #[test]
