@@ -285,6 +285,7 @@ fn message(session: Session<'_>) -> anyhow::Result<Event> {
             summary: Some(session.summary.to_owned()),
             ..Default::default()
         },
+        received: None,
     };
     Ok(
         event(session.id, session.at, Record::Message(Box::new(record)))?

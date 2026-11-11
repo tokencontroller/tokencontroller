@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, name, slug, reporting_currency, approval, sign_in_domains, created_at\n           FROM organizations WHERE id = $1",
+  "query": "SELECT id, name, slug, reporting_currency, approval, sign_in_domains,\n                  keep_content_text, created_at\n           FROM organizations WHERE id = $1",
   "describe": {
     "columns": [
       {
@@ -71,6 +71,17 @@
       },
       {
         "ordinal": 6,
+        "name": "keep_content_text",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "organizations",
+            "name": "keep_content_text"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
         "name": "created_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -93,8 +104,9 @@
       false,
       false,
       false,
+      false,
       false
     ]
   },
-  "hash": "06d6f66454bfd7f765d0d8d3a88a1d3fd7eb560020dff55d293164583709fa36"
+  "hash": "952ea50e79c612a0815c316ece40ee3e5a1b962fbdeec7fe04db3ff6af06d760"
 }

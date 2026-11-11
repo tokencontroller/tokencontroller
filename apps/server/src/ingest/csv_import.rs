@@ -52,7 +52,7 @@ pub enum CsvError {
     #[error("the file has no {0} column")]
     MissingColumn(&'static str),
     #[error(
-        "column {0:?} is not a field of the token entry schema; tags go in columns named tags.<name>"
+        "column {0:?} is not a field of the token entry schema; tags, other token kinds and other signals go in columns named tags.<name>, tokens.<kind> and signals.<name>"
     )]
     UnknownColumn(String),
     #[error("column {0:?} appears twice")]
@@ -137,10 +137,13 @@ fn check_headers(headers: &[String]) -> Result<(), CsvError> {
         if !seen.insert(header.as_str()) {
             return Err(CsvError::DuplicateColumn(header.clone()));
         }
+        // Tags, token kinds and signals beyond the named columns are open.
         let known = COLUMNS.contains(&header.as_str())
-            || header
-                .strip_prefix("tags.")
-                .is_some_and(|name| !name.is_empty());
+            || ["tags.", "tokens.", "signals."].iter().any(|prefix| {
+                header
+                    .strip_prefix(prefix)
+                    .is_some_and(|name| !name.is_empty())
+            });
         if !known {
             return Err(CsvError::UnknownColumn(header.clone()));
         }
@@ -180,6 +183,20 @@ fn count(cells: &BTreeMap<&str, &str>, column: &str) -> Result<Option<u64>, Stri
         .transpose()
 }
 
+/// The token kinds in columns beyond the four named ones, such as
+/// `tokens.cache_write_1h`.
+fn other_kinds(cells: &BTreeMap<&str, &str>) -> Result<BTreeMap<String, u64>, String> {
+    let mut kinds = BTreeMap::new();
+    for column in cells.keys().filter(|column| !COLUMNS.contains(column)) {
+        if let Some(kind) = column.strip_prefix("tokens.")
+            && let Some(tokens) = count(cells, column)?
+        {
+            kinds.insert(kind.to_owned(), tokens);
+        }
+    }
+    Ok(kinds)
+}
+
 fn entry_from_cells(cells: &BTreeMap<&str, &str>) -> Result<NewTokenEntry, String> {
     let reported_cost = cells
         .get("reported_cost")
@@ -213,6 +230,7 @@ fn entry_from_cells(cells: &BTreeMap<&str, &str>) -> Result<NewTokenEntry, Strin
             output: count(cells, "tokens.output")?,
             cache_write: count(cells, "tokens.cache_write")?,
             cache_read: count(cells, "tokens.cache_read")?,
+            other: other_kinds(cells)?,
         },
         reported_cost,
         summary: text(cells, "summary"),
@@ -229,6 +247,18 @@ fn entry_from_cells(cells: &BTreeMap<&str, &str>) -> Result<NewTokenEntry, Strin
             subagent_type: text(cells, "signals.subagent_type"),
             keys: Vec::new(),
             config: BTreeMap::new(),
+            other: cells
+                .iter()
+                .filter(|(column, _)| !COLUMNS.contains(column))
+                .filter_map(|(column, value)| {
+                    column.strip_prefix("signals.").map(|name| {
+                        (
+                            name.to_owned(),
+                            serde_json::Value::String((*value).to_owned()),
+                        )
+                    })
+                })
+                .collect(),
         },
         session_id: text(cells, "session_id"),
         messages: Vec::new(),
@@ -284,9 +314,10 @@ mod tests {
         let rows = parse(file).unwrap();
         let entry = rows[0].result.as_ref().unwrap();
         assert_eq!(entry.entry.tokens.input, Some(1200));
-        assert!(
-            entry.messages[0].tokens.is_none(),
-            "three kinds missing is a count error"
+        // A kind left out has no tokens.
+        assert_eq!(
+            entry.messages[0].tokens,
+            Some(tokencontroller_core::TokenCounts::common(1200, 0, 0, 0))
         );
         assert_eq!(entry.reported_cost.unwrap().nanos(), 500_000_000);
     }
@@ -334,6 +365,36 @@ mod tests {
             entry.signals.repository.as_deref(),
             Some("github.com/kestrel/storefront")
         );
+    }
+
+    #[test]
+    fn other_token_kinds_and_signals_have_columns_of_their_own() {
+        let file = "agent_harness,model,started_at,ended_at,tokens.input,tokens.cache_write_1h,signals.organization.id\n\
+                    claude-code,claude-sonnet-5,2026-09-18T09:12:00Z,2026-09-18T09:40:00Z,10,4,6f1e2a3b\n";
+        let rows = parse(file).unwrap();
+        let checked = rows[0].result.as_ref().unwrap();
+        let tokens = checked.messages[0].tokens.as_ref().unwrap();
+        assert_eq!(tokens.get(&tokencontroller_core::TokenKind::INPUT), 10);
+        assert_eq!(
+            tokens.get(&tokencontroller_core::TokenKind::CACHE_WRITE_1H),
+            4
+        );
+        assert_eq!(
+            checked.entry.signals.other.get("organization.id"),
+            Some(&serde_json::json!("6f1e2a3b"))
+        );
+        let broken = "agent_harness,model,started_at,ended_at,tokens.Thinking\n\
+                      a,m,2026-09-18T09:12:00Z,2026-09-18T09:40:00Z,3\n";
+        let rows = parse(broken).unwrap();
+        assert!(rows[0].result.as_ref().unwrap_err().contains("token kind"));
+        for prefix in ["tokens.", "signals."] {
+            assert_eq!(
+                parse(&format!(
+                    "agent_harness,model,started_at,ended_at,{prefix}\n"
+                )),
+                Err(CsvError::UnknownColumn(prefix.to_owned()))
+            );
+        }
     }
 
     #[test]

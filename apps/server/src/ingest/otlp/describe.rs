@@ -5,15 +5,16 @@
 use serde_json::{Value, json};
 use time::format_description::well_known::Rfc3339;
 
-use super::extract::{Extracted, extract_from_logs, extract_from_traces};
+use super::extract::{extract_from_logs, extract_from_metrics, extract_from_traces};
 use super::wire::{
     DecodeError, Encoding, Signal, decode_logs, decode_metrics, decode_traces, decompress,
 };
 use crate::ingest::model::TelemetryMessage;
 
 /// Reads one export request body the way the receiver does and describes
-/// the result: the messages it would store, with their counts, and how many
-/// records it dropped, stripped or ignored. Metrics decode to no messages.
+/// the result: the messages it would store, with their counts, the
+/// activities, how many records had content text removed and how many it
+/// ignored. Metrics give activities only.
 ///
 /// # Errors
 ///
@@ -30,17 +31,19 @@ pub fn describe(
     let extracted = match signal {
         Signal::Logs => extract_from_logs(&decode_logs(&raw, encoding)?),
         Signal::Traces => extract_from_traces(&decode_traces(&raw, encoding)?),
-        Signal::Metrics => {
-            decode_metrics(&raw, encoding)?;
-            Extracted::default()
-        }
+        Signal::Metrics => extract_from_metrics(&decode_metrics(&raw, encoding)?),
     };
     Ok(json!({
         "signal": signal_name(signal),
         "encoding": encoding.content_type(),
         "messages": extracted.messages.iter().map(message_json).collect::<Vec<_>>(),
-        "dropped_with_prompt_text": extracted.dropped_with_prompt_text,
-        "stripped_prompt_text": extracted.stripped_prompt_text,
+        "activities": extracted.activities.iter().map(|activity| json!({
+            "harness": activity.harness.name(),
+            "kind": activity.kind,
+            "session_id": activity.session_id,
+            "occurred_at": activity.occurred_at.format(&Rfc3339).ok(),
+        })).collect::<Vec<_>>(),
+        "content_removed": extracted.content_removed,
         "ignored": extracted.ignored,
     }))
 }
@@ -69,6 +72,7 @@ fn message_json(message: &TelemetryMessage) -> Value {
         "reported_cost": message.reported_cost,
         "person_email": message.person_email,
         "person_account_id": message.person_account_id,
+        "provider": message.provider,
         "repository": message.repository,
         "attributes": message.attributes,
     })

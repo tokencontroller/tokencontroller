@@ -232,6 +232,7 @@ export function createDb(): Db {
       name: "Kestrel Digital",
       slug: "kestrel",
       reporting_currency: "USD",
+      keep_content_text: false,
       approval: true,
       cutoff: "2026-02-28",
       sign_in_domains: ["kestrel.example"],

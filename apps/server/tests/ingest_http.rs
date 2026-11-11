@@ -392,10 +392,10 @@ async fn claude_code_telemetry_builds_a_token_entry_once(pool: PgPool) {
         .unwrap();
         assert_eq!(answer.status, StatusCode::OK);
         assert_eq!(answer.content_type, "application/json");
-        // Two events carried prompt text and were dropped.
+        // Nothing is refused: content text is removed and the rest counted.
         assert_eq!(
             answer.json["partialSuccess"]["rejectedLogRecords"],
-            json!(2)
+            json!(0)
         );
     }
     assert_eq!(kestrel.forwarder.batches.load(Ordering::SeqCst), 2);
@@ -534,14 +534,12 @@ async fn a_claude_code_call_seen_by_telemetry_and_a_submit_counts_once(pool: PgP
     assert_eq!(all, 2);
 }
 
-#[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
-async fn gemini_cli_with_default_settings_is_counted_without_its_text(pool: PgPool) {
-    let kestrel = kestrel(&pool).await.unwrap();
-    // Gemini CLI logs prompts by default, so its response event carries the
-    // response text next to the token counts.
+/// A Gemini CLI response with default settings: the response text sits
+/// next to the token counts.
+fn gemini_export() -> Value {
     let text = |key: &str, value: &str| json!({ "key": key, "value": { "stringValue": value } });
     let int = |key: &str, value: i64| json!({ "key": key, "value": { "intValue": value } });
-    let export = json!({ "resourceLogs": [{
+    json!({ "resourceLogs": [{
         "resource": { "attributes": [text("service.name", "gemini-cli")] },
         "scopeLogs": [{ "scope": { "name": "gemini-cli" }, "logRecords": [{
             "timeUnixNano": "1791199800250000000",
@@ -555,7 +553,15 @@ async fn gemini_cli_with_default_settings_is_counted_without_its_text(pool: PgPo
                 text("response_text", "Fixed the build."),
             ],
         }] }],
-    }] });
+    }] })
+}
+
+#[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
+async fn gemini_cli_with_default_settings_is_counted_without_its_text(pool: PgPool) {
+    let kestrel = kestrel(&pool).await.unwrap();
+    // Gemini CLI logs prompts by default, so its response event carries the
+    // response text next to the token counts.
+    let export = gemini_export();
     let answer = send(
         &kestrel.app,
         "/api/v1/ingest/otlp/v1/logs",
@@ -574,7 +580,7 @@ async fn gemini_cli_with_default_settings_is_counted_without_its_text(pool: PgPo
         partial["errorMessage"]
             .as_str()
             .unwrap()
-            .contains("1 model calls carried prompt text")
+            .contains("1 records carried content text")
     );
 
     let rows: Vec<(String, String)> = sqlx::query_as(
@@ -685,5 +691,263 @@ async fn a_csv_file_is_previewed_then_imported_as_messages(pool: PgPool) {
     assert_eq!(
         imported.json["token_entries"][0]["unknown_tags"],
         json!(["feature: KD-214"])
+    );
+}
+
+/// A call with the browser session, answering the status and the JSON.
+async fn call(
+    app: &Router,
+    method: Method,
+    path: &str,
+    session: &str,
+    body: Option<Value>,
+) -> TestResult<(StatusCode, Value)> {
+    let mut request = Request::builder()
+        .method(method)
+        .uri(path)
+        .header(header::COOKIE, format!("tc_session={session}"));
+    let body = match body {
+        Some(json) => {
+            request = request.header(header::CONTENT_TYPE, "application/json");
+            Body::from(serde_json::to_vec(&json)?)
+        }
+        None => Body::empty(),
+    };
+    let response = app.clone().oneshot(request.body(body)?).await?;
+    let status = response.status();
+    let bytes = response.into_body().collect().await?.to_bytes();
+    Ok((
+        status,
+        serde_json::from_slice(&bytes).unwrap_or(Value::Null),
+    ))
+}
+
+/// The received records of an organization: id, endpoint, whether content
+/// text was kept, and the body as text.
+async fn received(
+    pool: &PgPool,
+    organization_id: Uuid,
+) -> TestResult<Vec<(String, String, bool, String)>> {
+    Ok(sqlx::query_as(
+        "SELECT id, endpoint, content_kept, encode(body, 'escape') FROM received_records
+         WHERE organization_id = $1 ORDER BY received_at, id",
+    )
+    .bind(organization_id)
+    .fetch_all(pool)
+    .await?)
+}
+
+#[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
+async fn what_arrives_is_stored_first_and_without_content_text_by_default(pool: PgPool) {
+    let kestrel = kestrel(&pool).await.unwrap();
+    let answer = send(
+        &kestrel.app,
+        "/api/v1/ingest/otlp/v1/logs",
+        &kestrel.organization_token,
+        "application/json",
+        serde_json::to_vec(&gemini_export()).unwrap(),
+        false,
+    )
+    .await
+    .unwrap();
+    assert_eq!(answer.status, StatusCode::OK);
+    let records = received(&pool, kestrel.organization_id).await.unwrap();
+    assert_eq!(records.len(), 1, "{records:?}");
+    let (id, endpoint, kept, body) = &records[0];
+    assert!(id.starts_with("rcv_"), "{id}");
+    assert_eq!(endpoint, "otlp-logs");
+    assert!(!kept);
+    // The record is stored without the text, as protobuf.
+    assert!(!body.contains("Fixed the build"));
+    assert!(body.contains("input_token_count"));
+    // The message points back to the record it was read from.
+    let pointers: Vec<Option<String>> = sqlx::query_scalar(
+        "SELECT payload->'message'->>'received' FROM events WHERE organization_id = $1 AND kind = 'message'",
+    )
+    .bind(kestrel.organization_id)
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(pointers, vec![Some(id.clone())]);
+
+    // An org manager sees the record, then deletes it.
+    let (status, list) = call(
+        &kestrel.app,
+        Method::GET,
+        "/api/v1/received-records",
+        &kestrel.session,
+        None,
+    )
+    .await
+    .unwrap();
+    assert_eq!(status, StatusCode::OK, "{list}");
+    assert_eq!(list[0]["id"], json!(id));
+    assert_eq!(list[0]["endpoint"], json!("otlp-logs"));
+    assert_eq!(list[0]["content_kept"], json!(false));
+    assert!(list[0]["bytes"].as_i64().unwrap() > list[0]["stored_bytes"].as_i64().unwrap());
+    let path = format!("/api/v1/received-records/{id}");
+    let (status, _) = call(&kestrel.app, Method::DELETE, &path, &kestrel.session, None)
+        .await
+        .unwrap();
+    assert_eq!(status, StatusCode::OK);
+    let (status, _) = call(&kestrel.app, Method::DELETE, &path, &kestrel.session, None)
+        .await
+        .unwrap();
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert!(
+        received(&pool, kestrel.organization_id)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    // The message stays: deleting what arrived deletes no figure.
+    let messages: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM events WHERE organization_id = $1 AND kind = 'message'",
+    )
+    .bind(kestrel.organization_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(messages, 1);
+}
+
+#[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
+async fn an_organization_that_keeps_content_text_finds_it_in_the_received_record(pool: PgPool) {
+    let kestrel = kestrel(&pool).await.unwrap();
+    let (status, organization) = call(
+        &kestrel.app,
+        Method::PATCH,
+        "/api/v1/organization",
+        &kestrel.session,
+        Some(json!({"keep_content_text": true})),
+    )
+    .await
+    .unwrap();
+    assert_eq!(status, StatusCode::OK, "{organization}");
+    assert_eq!(organization["keep_content_text"], json!(true));
+    let answer = send(
+        &kestrel.app,
+        "/api/v1/ingest/otlp/v1/logs",
+        &kestrel.organization_token,
+        "application/json",
+        serde_json::to_vec(&gemini_export()).unwrap(),
+        false,
+    )
+    .await
+    .unwrap();
+    assert_eq!(answer.status, StatusCode::OK);
+    // No warning: the organization asked for the text.
+    assert!(
+        answer.json["partialSuccess"]["errorMessage"].is_null()
+            || answer.json["partialSuccess"]["errorMessage"] == json!(""),
+        "{}",
+        answer.json
+    );
+    let records = received(&pool, kestrel.organization_id).await.unwrap();
+    assert_eq!(records.len(), 1);
+    assert!(records[0].2);
+    assert!(records[0].3.contains("Fixed the build"));
+    // The log still holds no content text.
+    let logged: Vec<String> = sqlx::query_scalar(
+        "SELECT payload::text FROM events WHERE organization_id = $1 AND kind = 'message'",
+    )
+    .bind(kestrel.organization_id)
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(logged.len(), 1);
+    assert!(!logged[0].contains("Fixed the build"));
+}
+
+#[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
+async fn telemetry_records_that_are_not_model_calls_become_activities_once(pool: PgPool) {
+    let kestrel = kestrel(&pool).await.unwrap();
+    let activities = || async {
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM events WHERE organization_id = $1 AND kind = 'activity'",
+        )
+        .bind(kestrel.organization_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap()
+    };
+    let mut counts = Vec::new();
+    for _ in 0..2 {
+        let answer = send(
+            &kestrel.app,
+            "/api/v1/ingest/otlp/v1/logs",
+            &kestrel.organization_token,
+            "application/json",
+            CLAUDE_CODE_LOGS.as_bytes().to_vec(),
+            false,
+        )
+        .await
+        .unwrap();
+        assert_eq!(answer.status, StatusCode::OK);
+        counts.push(activities().await);
+    }
+    assert!(counts[0] > 0, "{counts:?}");
+    // The same export sent again adds no activity, but is received again.
+    assert_eq!(counts[0], counts[1]);
+    assert_eq!(
+        received(&pool, kestrel.organization_id)
+            .await
+            .unwrap()
+            .len(),
+        2
+    );
+    // Each activity points back to a received record and holds no text.
+    let rows: Vec<(Option<String>, String)> = sqlx::query_as(
+        "SELECT payload->'activity'->>'received', payload::text FROM events
+         WHERE organization_id = $1 AND kind = 'activity'",
+    )
+    .bind(kestrel.organization_id)
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    for (pointer, payload) in rows {
+        assert!(
+            pointer.is_some_and(|id| id.starts_with("rcv_")),
+            "{payload}"
+        );
+    }
+}
+
+#[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
+async fn token_entries_take_any_token_kind_and_signal_and_keep_what_arrived(pool: PgPool) {
+    let kestrel = kestrel(&pool).await.unwrap();
+    let mut entry = support_entry();
+    entry["tokens"]["reasoning"] = json!(250);
+    entry["signals"]["queue"] = json!("refunds-eu");
+    entry["signals"]["prompt"] = json!("Customer wrote: where is my money");
+    let answer = send(
+        &kestrel.app,
+        "/api/v1/token-entries",
+        &kestrel.service,
+        "application/json",
+        serde_json::to_vec(&entry).unwrap(),
+        false,
+    )
+    .await
+    .unwrap();
+    assert!(answer.status.is_success(), "{}", answer.json);
+    let records = received(&pool, kestrel.organization_id).await.unwrap();
+    assert_eq!(records.len(), 1);
+    assert_eq!(records[0].1, "token-entries");
+    assert!(records[0].3.contains("refunds-eu"));
+    assert!(!records[0].3.contains("where is my money"));
+    let payload: Value = sqlx::query_scalar(
+        "SELECT payload->'message' FROM events WHERE organization_id = $1 AND kind = 'message'",
+    )
+    .bind(kestrel.organization_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(payload["tokens"]["reasoning"], json!(250));
+    assert_eq!(payload["received"], json!(records[0].0));
+    assert!(payload.to_string().contains("refunds-eu"), "{payload}");
+    assert!(
+        !payload.to_string().contains("where is my money"),
+        "{payload}"
     );
 }

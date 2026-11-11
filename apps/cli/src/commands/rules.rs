@@ -77,6 +77,9 @@ fn signal_of(word: &str) -> Option<Signal> {
         "subagent" => Signal::AgentName,
         "feature" => Signal::PromptKeys,
         _ => {
+            if let Some(name) = word.strip_prefix("signal:").filter(|name| !name.is_empty()) {
+                return Some(Signal::Named(name.to_owned()));
+            }
             let name = word
                 .strip_prefix("config:")
                 .or_else(|| word.strip_prefix("config."))?;
@@ -98,6 +101,7 @@ fn signal_word(signal: &Signal) -> String {
         Signal::Config(name) => format!("config:{name}"),
         Signal::Resource(name) if name == "working_directory" => "directory".to_owned(),
         Signal::Resource(name) => format!("resource:{name}"),
+        Signal::Named(name) => format!("signal:{name}"),
     }
 }
 
@@ -440,6 +444,14 @@ mod tests {
         let config = parse_words(&context, &words("config:client is acme client=acme")).unwrap();
         assert_eq!(config.signal, Signal::Config("client".into()));
         assert_eq!(signal_word(&config.signal), "config:client");
+        let named = parse_words(
+            &context,
+            &words("signal:organization.id is 6f1e project=shop"),
+        )
+        .unwrap();
+        assert_eq!(named.signal, Signal::Named("organization.id".into()));
+        assert_eq!(signal_word(&named.signal), "signal:organization.id");
+        assert_eq!(signal_of("signal:"), None);
         assert_eq!(
             signal_word(&Signal::Resource("working_directory".into())),
             "directory"

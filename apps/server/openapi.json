@@ -2289,6 +2289,156 @@
         }
       }
     },
+    "/api/v1/received-records": {
+      "get": {
+        "tags": [
+          "received records"
+        ],
+        "summary": "The organization's received records, the latest first, without their\nbodies. Org managers only.",
+        "operationId": "list_received",
+        "parameters": [
+          {
+            "name": "before",
+            "in": "query",
+            "description": "Only records received before this moment or day (the day's start):\nRFC 3339 or `YYYY-MM-DD`.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "At most this many records, the latest first. Default 100, at most\n1,000. Listing only.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ReceivedRecordView"
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "received records"
+        ],
+        "summary": "Delete for good every received record before a moment or day, or all\nof them without `before`. The messages and activities read from them\nstay. Org managers only.",
+        "operationId": "delete_received_before",
+        "parameters": [
+          {
+            "name": "before",
+            "in": "query",
+            "description": "Only records received before this moment or day (the day's start):\nRFC 3339 or `YYYY-MM-DD`.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "At most this many records, the latest first. Default 100, at most\n1,000. Listing only.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReceivedDeleted"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/received-records/{id}": {
+      "delete": {
+        "tags": [
+          "received records"
+        ],
+        "summary": "Delete one received record for good. The messages and activities read\nfrom it stay. Org managers only.",
+        "operationId": "delete_received",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The record's id, such as rcv_…",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReceivedDeleted"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/reconciliation": {
       "get": {
         "tags": [
@@ -4269,7 +4419,7 @@
         "tags": [
           "token entries"
         ],
-        "summary": "Report token entries: one message or session record, or a list. The\nperson of every message is the token's creator, or you when signed in.\nEach becomes a message event; a message sent again with the same\nsession id and message id is the same record, and an entry with a\n`local_id` seen before adds nothing. The answer carries each entry's\ncost, label and the tags that are no value on record.",
+        "summary": "Report token entries: one message or session record, or a list. The\nperson of every message is the token's creator, or you when signed in.\nWhat arrived is stored first as a received record, without content text\nunless the organization keeps it. Each entry becomes message events; a message sent again with the same\nsession id and message id is the same record, and an entry with a\n`local_id` seen before adds nothing. The answer carries each entry's\ncost, label and the tags that are no value on record.",
         "operationId": "create_token_entries",
         "requestBody": {
           "content": {
@@ -5543,66 +5693,73 @@
         }
       },
       "Facts": {
-        "type": "object",
-        "description": "Facts about the session. All optional.",
-        "properties": {
-          "duration_seconds": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int64",
-            "minimum": 0
+        "allOf": [
+          {
+            "type": "object",
+            "description": "Any other fact, by name, kept as a signal."
           },
-          "files_touched": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int64",
-            "minimum": 0
-          },
-          "result": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Where the result is, such as the pull request's URL."
-          },
-          "retries": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int64",
-            "minimum": 0
-          },
-          "subagents": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int64",
-            "minimum": 0
-          },
-          "tool_calls": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int64",
-            "minimum": 0
-          },
-          "turns": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int64",
-            "minimum": 0
+          {
+            "type": "object",
+            "properties": {
+              "duration_seconds": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int64",
+                "minimum": 0
+              },
+              "files_touched": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int64",
+                "minimum": 0
+              },
+              "result": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Where the result is, such as the pull request's URL."
+              },
+              "retries": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int64",
+                "minimum": 0
+              },
+              "subagents": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int64",
+                "minimum": 0
+              },
+              "tool_calls": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int64",
+                "minimum": 0
+              },
+              "turns": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int64",
+                "minimum": 0
+              }
+            }
           }
-        },
-        "additionalProperties": false
+        ],
+        "description": "Facts about the session. All optional. A fact with no field of its own\nis kept as a signal."
       },
       "ForecastReport": {
         "type": "object",
@@ -6867,7 +7024,7 @@
               "string",
               "null"
             ],
-            "description": "Who charges for the model calls: `anthropic`, `openai`, `google`,\n`aws_bedrock`, `gcp_vertex`, `azure_foundry`, `github`, `cursor` or\n`other`. Without it, it follows from the model's name."
+            "description": "Who charges for the model calls, spelled as bills spell it, such as\n`anthropic`, `aws_bedrock` or `openai`, when the sender knows it.\nIt is never guessed from the model's name: without it, the message's\ncontract names its provider (ADR 0028)."
           },
           "reported_cost": {
             "type": [
@@ -6913,7 +7070,7 @@
           },
           "tokens": {
             "$ref": "#/components/schemas/TokensInput",
-            "description": "Counts by kind. All four kinds; a missing kind is a count error."
+            "description": "Counts by kind. A kind left out has no tokens; no kind at all is a\ncount error."
           }
         },
         "additionalProperties": false
@@ -6954,6 +7111,7 @@
           "reporting_currency",
           "approval",
           "sign_in_domains",
+          "keep_content_text",
           "created_at"
         ],
         "properties": {
@@ -6976,6 +7134,10 @@
           "id": {
             "type": "string",
             "format": "uuid"
+          },
+          "keep_content_text": {
+            "type": "boolean",
+            "description": "Whether received records keep content text (prompts, responses,\ntool output, file contents). Off by default: content text is removed\non arrival. Kept text is shown on no screen."
           },
           "name": {
             "type": "string"
@@ -7002,6 +7164,12 @@
         "description": "A change to the settings. Fields left out stay as they are.",
         "properties": {
           "approval": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "keep_content_text": {
             "type": [
               "boolean",
               "null"
@@ -7268,6 +7436,75 @@
             "items": {
               "$ref": "#/components/schemas/PriceRowView"
             }
+          }
+        }
+      },
+      "ReceivedDeleted": {
+        "type": "object",
+        "description": "How many received records a delete removed.",
+        "required": [
+          "deleted"
+        ],
+        "properties": {
+          "deleted": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "ReceivedRecordView": {
+        "type": "object",
+        "description": "One received record, without its body.",
+        "required": [
+          "id",
+          "endpoint",
+          "received_at",
+          "content_type",
+          "bytes",
+          "stored_bytes",
+          "content_kept",
+          "delete_after"
+        ],
+        "properties": {
+          "bytes": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The size as it arrived."
+          },
+          "content_kept": {
+            "type": "boolean",
+            "description": "Whether content text was kept."
+          },
+          "content_type": {
+            "type": "string"
+          },
+          "delete_after": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "endpoint": {
+            "type": "string",
+            "description": "`token-entries`, `token-entries-csv`, `otlp-logs`, `otlp-traces` or\n`otlp-metrics`."
+          },
+          "id": {
+            "type": "string"
+          },
+          "received_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "received_by": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The person the credential belongs to, by email."
+          },
+          "stored_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The size as stored, after content text was removed."
           }
         }
       },
@@ -7808,68 +8045,75 @@
         "description": "Create an organization with the link from the \"no account\" mail."
       },
       "Signals": {
-        "type": "object",
-        "description": "Facts about a session that rules read. Signals are not tags.",
-        "properties": {
-          "branch": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "config": {
+        "allOf": [
+          {
             "type": "object",
-            "description": "Values from the repository's `.tokencontroller.toml`, by name.",
-            "additionalProperties": {
-              "type": "string"
-            },
-            "propertyNames": {
-              "type": "string"
+            "description": "Any other signal, by name, such as `organization.id`."
+          },
+          {
+            "type": "object",
+            "properties": {
+              "branch": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "config": {
+                "type": "object",
+                "description": "Values from the repository's `.tokencontroller.toml`, by name.",
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "propertyNames": {
+                  "type": "string"
+                }
+              },
+              "keys": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Keys found in prompts, the session title and the pull request\ntitle, such as `KD-214`. Only the keys, never the text."
+              },
+              "pull_request": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int64",
+                "description": "The pull request number.",
+                "minimum": 0
+              },
+              "pull_request_title": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "repository": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Such as `github.com/kestrel/storefront`."
+              },
+              "subagent_type": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "working_directory": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
             }
-          },
-          "keys": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "description": "Keys found in prompts, the session title and the pull request\ntitle, such as `KD-214`. Only the keys, never the text."
-          },
-          "pull_request": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int64",
-            "description": "The pull request number.",
-            "minimum": 0
-          },
-          "pull_request_title": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "repository": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Such as `github.com/kestrel/storefront`."
-          },
-          "subagent_type": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "working_directory": {
-            "type": [
-              "string",
-              "null"
-            ]
           }
-        },
-        "additionalProperties": false
+        ],
+        "description": "Names and values that came with the session and help to assign it\n(ADR 0028). The named ones have their own fields; any other signal is\nsent by its name, such as `organization.id`, and kept as it came. A\nsignal named like a tag, such as `project`, is the sender's own\nassignment. Content text (prompts, responses, tool output, file\ncontents) is removed on arrival."
       },
       "SplitView": {
         "type": "object",
@@ -8251,7 +8495,7 @@
       },
       "TokensInput": {
         "type": "object",
-        "description": "Token counts by kind as they arrive. All four kinds are required; an\nentry missing one has no counts and is a count error, never zero.",
+        "description": "Token counts by kind as they arrive. Kinds are open names (ADR 0028):\nthe four every agent reports have their own fields, and any other kind,\nsuch as `cache_write_1h` or `reasoning`, is sent by its name. A kind left\nout has no tokens; an entry that sends no kind at all has no counts and\nis a count error, never zero.",
         "properties": {
           "cache_read": {
             "type": [
@@ -8267,6 +8511,7 @@
               "null"
             ],
             "format": "int64",
+            "description": "A cache write whose duration the agent did not say; priced as a\n5-minute write. Send `cache_write_5m` and `cache_write_1h` where\nthe agent tells them apart.",
             "minimum": 0
           },
           "input": {
@@ -8286,7 +8531,12 @@
             "minimum": 0
           }
         },
-        "additionalProperties": false
+        "additionalProperties": {
+          "type": "integer",
+          "format": "int64",
+          "description": "Any other kind, by its name: small letters, digits and `_`.",
+          "minimum": 0
+        }
       }
     },
     "securitySchemes": {

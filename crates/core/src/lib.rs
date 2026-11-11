@@ -55,6 +55,7 @@
 //! [`Money::allocate`] so parts always add up.
 
 pub mod access;
+pub mod activity;
 pub mod bill;
 pub mod contract;
 pub mod estimate;
@@ -74,6 +75,7 @@ pub mod tokens;
 pub mod values;
 
 pub use access::{Capability, Grant, Role, can};
+pub use activity::Activity;
 pub use bill::{Bill, Reconciliation};
 pub use contract::{ContractAssignment, ContractBy, ContractKind, ContractTerms};
 pub use estimate::{Accept, BASIS_POINTS, Band, Distribution, DistributionError, Estimate};

@@ -231,6 +231,10 @@ pub struct Message {
     pub signals: Signals,
     #[serde(default)]
     pub session: SessionFacts,
+    /// The received record the message was read from, such as `rcv_…`,
+    /// when a usage endpoint stored one (ADR 0028).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub received: Option<String>,
 }
 
 /// The start of a message id a usage endpoint built because the source
@@ -274,6 +278,7 @@ mod tests {
             tags: Tags::new(),
             signals: Signals::default(),
             session: SessionFacts::default(),
+            received: None,
         }
     }
 
@@ -455,6 +460,12 @@ mod tests {
         )
         .unwrap();
         assert_eq!(message.model.provider, None);
+        assert_eq!(message.received.as_deref(), Some("rcv_1"));
+        assert!(
+            !serde_json::to_string(&super::tests::message("m1"))
+                .unwrap()
+                .contains("received")
+        );
         let tokens = message.tokens.unwrap();
         assert_eq!(tokens.get(&crate::tokens::TokenKind::CACHE_WRITE_1H), 4);
         assert_eq!(

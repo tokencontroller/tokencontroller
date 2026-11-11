@@ -52,6 +52,10 @@ impl TelemetryHarness {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TelemetryMessage {
     pub harness: TelemetryHarness,
+    /// The provider the agent reported for the call, read from the route it
+    /// names, such as `aws_bedrock` for `anthropic.provider = bedrock`.
+    /// Never guessed from the model's name.
+    pub provider: Option<String>,
     /// The agent harness's session ID; joins telemetry to token entries.
     pub session_id: String,
     /// The ID of this model call within the session, unique per session.
@@ -69,5 +73,20 @@ pub struct TelemetryMessage {
     pub repository: Option<String>,
     /// Resource and event attributes, by name, that may become tags. Only
     /// names on the organization's tag list are kept later.
+    pub attributes: std::collections::BTreeMap<String, String>,
+}
+
+/// One record of an agent that is no model call, seen through telemetry,
+/// before it is stored as an activity.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TelemetryActivity {
+    pub harness: TelemetryHarness,
+    /// The record's name, such as `claude_code.tool_result`.
+    pub kind: String,
+    pub session_id: Option<String>,
+    pub occurred_at: OffsetDateTime,
+    /// Who it was: the email address the harness reports, if any.
+    pub person_email: Option<String>,
+    /// Everything else, by name, as text. Never content text.
     pub attributes: std::collections::BTreeMap<String, String>,
 }

@@ -1,10 +1,13 @@
 //! From decoded export requests to one [`TelemetryMessage`] per model call.
 
 use opentelemetry_proto::tonic::collector::logs::v1::ExportLogsServiceRequest;
+use opentelemetry_proto::tonic::collector::metrics::v1::ExportMetricsServiceRequest;
 use opentelemetry_proto::tonic::collector::trace::v1::ExportTraceServiceRequest;
 use opentelemetry_proto::tonic::common::v1::any_value::Value;
 use opentelemetry_proto::tonic::common::v1::{AnyValue, KeyValue};
 use opentelemetry_proto::tonic::logs::v1::LogRecord;
+use opentelemetry_proto::tonic::metrics::v1::metric::Data;
+use opentelemetry_proto::tonic::metrics::v1::{NumberDataPoint, number_data_point};
 use opentelemetry_proto::tonic::trace::v1::Span;
 use sha2::{Digest as _, Sha256};
 use time::OffsetDateTime;
@@ -12,7 +15,7 @@ use time::OffsetDateTime;
 use super::fields::Fields;
 use super::harness::{self, Door};
 use super::privacy::{body_carries_prompt_text, carries_prompt_text, without_prompt_text};
-use crate::ingest::model::{TelemetryMessage, TokenCounts};
+use crate::ingest::model::{TelemetryActivity, TelemetryHarness, TelemetryMessage, TokenCounts};
 
 /// Where the person who made a call is named, in order.
 const EMAIL_ATTRIBUTES: &[&str] = &["user.email", "cursor.user.email"];
@@ -43,17 +46,38 @@ const REPOSITORY_ATTRIBUTES: &[&str] = &[
 /// known, and so never become tags.
 const ROUTING_ATTRIBUTES: &[&str] = &["event.name", "event.timestamp", "event.sequence"];
 
-/// What an export request holds once the prompt text rule has run.
+/// Kinds of records that only repeat a stream, many per model call, and
+/// become no activity: Codex CLI's streaming events. They stay in the
+/// received record.
+const STREAM_KINDS: &[&str] = &["sse_event", "websocket_event"];
+
+/// Where a record that is no model call names its session, in order.
+const SESSION_ATTRIBUTES: &[&str] = &[
+    "session.id",
+    "conversation.id",
+    "gen_ai.conversation.id",
+    "prompt.id",
+];
+
+/// Where an agent reports the route it reached the model by, which names
+/// the provider (ADR 0028): `Claude Code`'s `anthropic.provider`, Gemini
+/// CLI's `auth_type` and the `GenAI` convention Copilot CLI writes. They
+/// stay on the message as signals too.
+const PROVIDER_ATTRIBUTES: &[&str] = &["anthropic.provider", "auth_type", "gen_ai.provider.name"];
+
+/// What an export request holds once content text was removed.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Extracted {
     /// One per model call, in the order of the request.
     pub messages: Vec<TelemetryMessage>,
-    /// Events and spans dropped whole because they carried prompt text.
-    pub dropped_with_prompt_text: u32,
-    /// Model calls in [`Self::messages`] that carried prompt text and kept
-    /// only what carries none.
-    pub stripped_prompt_text: u32,
-    /// Events and spans that are no model call, or one without a session or
+    /// One per record of an agent that is no model call, such as a tool
+    /// run or a counter.
+    pub activities: Vec<TelemetryActivity>,
+    /// Records that carried content text, which was removed before
+    /// anything was read from them (ADR 0028).
+    pub content_removed: u32,
+    /// Records of no agent harness, of another door than their agent's
+    /// model calls, streaming events, and model calls without a session or
     /// with token counts that cannot be read.
     pub ignored: u32,
 }
@@ -98,17 +122,93 @@ pub fn extract_from_traces(request: &ExportTraceServiceRequest) -> Extracted {
     extracted
 }
 
+/// Metric names that repeat what model calls already count.
+const COUNTED_BY_MESSAGES: &[&str] = &["token.usage", "cost.usage"];
+
+/// The counters in a metrics export request of a known agent, as
+/// activities: one per data point of a sum or gauge that is not zero, such
+/// as `claude_code.commit.count` or `claude_code.pull_request.count`, with
+/// its value as the signal `value`. Token and cost counters repeat the
+/// model calls and are left out; so are histograms.
+#[must_use]
+pub fn extract_from_metrics(request: &ExportMetricsServiceRequest) -> Extracted {
+    let mut extracted = Extracted::default();
+    for resource_metrics in &request.resource_metrics {
+        let resource = resource_attributes(resource_metrics.resource.as_ref());
+        let service_name = resource
+            .iter()
+            .find(|attribute| attribute.key == "service.name")
+            .and_then(|attribute| string_value(attribute.value.as_ref()));
+        for scope_metrics in &resource_metrics.scope_metrics {
+            let scope = scope_metrics
+                .scope
+                .as_ref()
+                .map_or("", |scope| scope.name.as_str());
+            for metric in &scope_metrics.metrics {
+                let points = match &metric.data {
+                    Some(Data::Sum(sum)) => sum.data_points.as_slice(),
+                    Some(Data::Gauge(gauge)) => gauge.data_points.as_slice(),
+                    _ => &[],
+                };
+                let harness = harness::detect(&[metric.name.as_str()], scope, service_name);
+                let counted = COUNTED_BY_MESSAGES
+                    .iter()
+                    .any(|name| metric.name.ends_with(name));
+                for point in points {
+                    match harness
+                        .filter(|_| !counted)
+                        .and_then(|harness| counter(harness, &metric.name, resource, point))
+                    {
+                        Some(activity) => extracted.activities.push(activity),
+                        None => extracted.ignored = extracted.ignored.saturating_add(1),
+                    }
+                }
+            }
+        }
+    }
+    extracted
+}
+
+/// One data point as an activity, unless it is zero or has no time.
+fn counter(
+    harness: TelemetryHarness,
+    name: &str,
+    resource: &[KeyValue],
+    point: &NumberDataPoint,
+) -> Option<TelemetryActivity> {
+    let value = match point.value? {
+        number_data_point::Value::AsInt(number) => (number != 0).then(|| number.to_string()),
+        number_data_point::Value::AsDouble(number) => {
+            (number != 0.0 && number.is_finite()).then(|| format!("{number}"))
+        }
+    }?;
+    let occurred_at = unix_nanos(point.time_unix_nano)?;
+    let mut fields = Fields::new(resource, &point.attributes);
+    let session_id = fields.take_text(SESSION_ATTRIBUTES);
+    let person_email = fields
+        .take_text(EMAIL_ATTRIBUTES)
+        .map(|email| email.to_lowercase());
+    let mut attributes = fields.into_attributes();
+    attributes.insert("value".to_owned(), value);
+    Some(TelemetryActivity {
+        harness,
+        kind: name.to_owned(),
+        session_id,
+        occurred_at,
+        person_email,
+        attributes,
+    })
+}
+
 impl Extracted {
     fn add(&mut self, record: &Record<'_>) {
-        match record.outcome() {
+        let (outcome, removed) = record.outcome();
+        if removed {
+            self.content_removed = self.content_removed.saturating_add(1);
+        }
+        match outcome {
             Outcome::Message(message) => self.messages.push(*message),
-            Outcome::Stripped(message) => {
-                self.messages.push(*message);
-                self.stripped_prompt_text = self.stripped_prompt_text.saturating_add(1);
-            }
-            Outcome::Dropped => {
-                self.dropped_with_prompt_text = self.dropped_with_prompt_text.saturating_add(1);
-            }
+            Outcome::Activity(activity) => self.activities.push(*activity),
             Outcome::Ignored => self.ignored = self.ignored.saturating_add(1),
         }
     }
@@ -116,9 +216,7 @@ impl Extracted {
 
 enum Outcome {
     Message(Box<TelemetryMessage>),
-    /// A model call that carried prompt text, read without it.
-    Stripped(Box<TelemetryMessage>),
-    Dropped,
+    Activity(Box<TelemetryActivity>),
     Ignored,
 }
 
@@ -193,26 +291,22 @@ impl<'a> Record<'a> {
         }
     }
 
-    fn outcome(&self) -> Outcome {
+    /// What the record is once its content text is removed, and whether
+    /// it carried any.
+    fn outcome(&self) -> (Outcome, bool) {
         let attribute_lists = [self.attributes]
             .into_iter()
             .chain(self.inner_attributes.iter().copied());
         if carries_prompt_text(attribute_lists, self.body, &self.names) {
-            return self
-                .without_prompt_text()
-                .map_or(Outcome::Dropped, |message| {
-                    Outcome::Stripped(Box::new(message))
-                });
+            return (self.without_content_text(), true);
         }
-        self.message().map_or(Outcome::Ignored, |message| {
-            Outcome::Message(Box::new(message))
-        })
+        (self.read(), false)
     }
 
-    /// The model call read from what carries no prompt text: the attributes
+    /// The record read from what carries no content text: the attributes
     /// without those that carry some, no body, no span events, and no name
-    /// taken from a body that is text. `None` when that is no model call.
-    fn without_prompt_text(&self) -> Option<TelemetryMessage> {
+    /// taken from a body that is text.
+    fn without_content_text(&self) -> Outcome {
         let attributes = without_prompt_text(self.attributes);
         let body_is_text = body_carries_prompt_text(self.body, &self.names);
         let body_text = self.body.and_then(|body| string_value(Some(body)));
@@ -229,19 +323,69 @@ impl<'a> Record<'a> {
             names,
             ..*self
         }
-        .message()
+        .read()
     }
 
-    fn message(&self) -> Option<TelemetryMessage> {
+    /// A model call; else an activity of a known agent on its own door;
+    /// else nothing.
+    fn read(&self) -> Outcome {
+        if let Some(message) = self.message() {
+            return Outcome::Message(Box::new(message));
+        }
+        self.activity().map_or(Outcome::Ignored, |activity| {
+            Outcome::Activity(Box::new(activity))
+        })
+    }
+
+    fn harness(&self) -> Option<TelemetryHarness> {
         let service_name = self
             .resource
             .iter()
             .find(|attribute| attribute.key == "service.name")
             .and_then(|attribute| string_value(attribute.value.as_ref()));
         let harness = harness::detect(&self.names, self.scope, service_name)?;
-        if harness::door(harness) != self.door {
+        (harness::door(harness) == self.door).then_some(harness)
+    }
+
+    /// The record as an activity: its kind is its most specific name, such
+    /// as `claude_code.tool_result`.
+    fn activity(&self) -> Option<TelemetryActivity> {
+        let harness = self.harness()?;
+        let kind = self
+            .names
+            .iter()
+            .copied()
+            .find(|name| name.contains('.') && !name.contains(' '))
+            .or_else(|| self.names.first().copied())?;
+        if STREAM_KINDS.iter().any(|stream| kind.ends_with(stream)) {
             return None;
         }
+        let mut fields = Fields::new(self.resource, self.attributes);
+        if harness::is_named_as_call(harness, &self.names, &fields) {
+            return None;
+        }
+        let occurred_at = unix_nanos(self.time)
+            .or_else(|| fields.take_timestamp("event.timestamp"))
+            .or_else(|| unix_nanos(self.fallback_time))?;
+        let session_id = fields
+            .take_text(SESSION_ATTRIBUTES)
+            .or_else(|| trace_id(self.trace_id));
+        let person_email = fields
+            .take_text(EMAIL_ATTRIBUTES)
+            .map(|email| email.to_lowercase());
+        fields.discard(ROUTING_ATTRIBUTES);
+        Some(TelemetryActivity {
+            harness,
+            kind: kind.to_owned(),
+            session_id,
+            occurred_at,
+            person_email,
+            attributes: fields.into_attributes(),
+        })
+    }
+
+    fn message(&self) -> Option<TelemetryMessage> {
+        let harness = self.harness()?;
         let mut fields = Fields::new(self.resource, self.attributes);
         let call = harness::read_call(harness, &self.names, &mut fields)?;
         let occurred_at = unix_nanos(self.time)
@@ -259,9 +403,13 @@ impl<'a> Record<'a> {
             .map(|email| email.to_lowercase());
         let person_account_id = fields.take_text(ACCOUNT_ATTRIBUTES);
         let repository = take_repository(&mut fields);
+        let provider = PROVIDER_ATTRIBUTES
+            .iter()
+            .find_map(|key| reported_provider(key, fields.peek_text(key)?));
         fields.discard(ROUTING_ATTRIBUTES);
         Some(TelemetryMessage {
             harness,
+            provider,
             session_id,
             message_id,
             model: call.model,
@@ -274,6 +422,26 @@ impl<'a> Record<'a> {
             attributes: fields.into_attributes(),
         })
     }
+}
+
+/// The provider a reported route names, spelled as bills spell it. A
+/// route that names no provider we know gives none; it stays a signal.
+fn reported_provider(key: &str, route: &str) -> Option<String> {
+    let provider = match (key, route.trim()) {
+        ("anthropic.provider", "firstParty") => "anthropic",
+        ("anthropic.provider", "bedrock") => "aws_bedrock",
+        ("anthropic.provider", "vertex") | ("auth_type", "vertex-ai") => "gcp_vertex",
+        ("anthropic.provider", "foundry") => "azure_foundry",
+        ("auth_type", "gemini-api-key" | "oauth-personal") => "google",
+        ("gen_ai.provider.name", name) => {
+            return crate::ingest::provider::PROVIDERS
+                .iter()
+                .find(|known| **known == name)
+                .map(|known| (*known).to_owned());
+        }
+        _ => return None,
+    };
+    Some(provider.to_owned())
 }
 
 fn resource_attributes(

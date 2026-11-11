@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use time::{Date, OffsetDateTime};
 
 use crate::access::Grant;
+use crate::activity::Activity;
 use crate::bill::Bill;
 use crate::contract::ContractAssignment;
 use crate::estimate::{Accept, Estimate};
@@ -158,6 +159,9 @@ impl fmt::Display for DateRange {
 pub enum Record {
     /// Source record 1: one model call inside an agent session.
     Message(Box<Message>),
+    /// A record from a session that is not a model call, such as a tool
+    /// run. No formula reads it yet.
+    Activity(Box<Activity>),
     /// Source record 3: a provider's bill under one contract.
     Bill(Bill),
     /// Source record 3: an estimate of what work will cost.
@@ -198,8 +202,9 @@ pub enum Record {
 
 /// The JSON names of every kind of record this version reads, as the log
 /// stores them: `{"message": {…}}`.
-pub const RECORD_NAMES: [&str; 17] = [
+pub const RECORD_NAMES: [&str; 18] = [
     "message",
+    "activity",
     "bill",
     "estimate",
     "tag_value",
@@ -246,6 +251,7 @@ impl Record {
     pub const fn kind(&self) -> &'static str {
         match self {
             Self::Message(_) => "message",
+            Self::Activity(_) => "activity",
             Self::Bill(_) => "bill",
             Self::Estimate(_) => "estimate",
             Self::TagValue(_) => "tag value",
@@ -323,8 +329,15 @@ impl Event {
 mod tests {
     #[test]
     fn a_kind_of_record_from_a_later_version_is_passed_over() {
-        let later = serde_json::json!({"activity": {"kind": "tool_run"}});
+        let later = serde_json::json!({"tool_run_summary": {"kind": "tool_run"}});
         assert_eq!(Record::read(later).unwrap(), None);
+        // An activity is a kind this version reads.
+        let activity = serde_json::json!({"activity": {
+            "kind": "tool_run", "person": "mara", "at": "2026-10-05T09:12:00Z",
+            "agent_harness": "claude-code"}});
+        let read = Record::read(activity).unwrap().unwrap();
+        assert_eq!(read.kind(), "activity");
+        assert!(matches!(read, Record::Activity(_)));
         let cutoff = serde_json::json!({"cutoff": "2026-10-31"});
         assert!(matches!(Record::read(cutoff), Ok(Some(Record::Cutoff(_)))));
         // A known kind that does not read is an error, never passed over.

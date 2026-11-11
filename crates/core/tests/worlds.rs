@@ -231,6 +231,7 @@ fn message(index: usize, made: &Made) -> Outcome<Message> {
         tags: sent(made)?,
         signals,
         session: SessionFacts::default(),
+        received: None,
     })
 }
 

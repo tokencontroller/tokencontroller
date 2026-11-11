@@ -7,14 +7,16 @@ use axum::extract::State;
 use axum::http::header::{CONTENT_ENCODING, CONTENT_TYPE};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
+use prost::Message as _;
 use serde::{Deserialize, Serialize};
 use tokencontroller_core::extension::{TelemetryBatch, TelemetrySignal};
 use utoipa::ToSchema;
 
 use super::csv_import::{self, RowProblem};
 use super::entry::NewTokenEntry;
-use super::otlp::{self, DecodeError, Encoding, Extracted, Signal};
-use super::store::{self, StoredEntry, TelemetryOutcome};
+use super::otlp::{self, DecodeError, Encoding, Signal};
+use super::received::{self, Arrival, Endpoint};
+use super::store::{self, StoredEntry, Telemetry, TelemetryOutcome};
 use crate::AppState;
 use crate::error::{ApiError, ErrorBody};
 use crate::sign_in::{Caller, CredentialKind, Member};
@@ -44,7 +46,8 @@ pub enum StoredEntries {
 
 /// Report token entries: one message or session record, or a list. The
 /// person of every message is the token's creator, or you when signed in.
-/// Each becomes a message event; a message sent again with the same
+/// What arrived is stored first as a received record, without content text
+/// unless the organization keeps it. Each entry becomes message events; a message sent again with the same
 /// session id and message id is the same record, and an entry with a
 /// `local_id` seen before adds nothing. The answer carries each entry's
 /// cost, label and the tags that are no value on record.
@@ -62,12 +65,16 @@ pub enum StoredEntries {
 pub(super) async fn create_token_entries(
     State(state): State<AppState>,
     caller: Caller,
-    Json(body): Json<TokenEntries>,
+    Json(body): Json<serde_json::Value>,
 ) -> Result<(StatusCode, Json<StoredEntries>), ApiError> {
     caller.require_credential(&[CredentialKind::Service, CredentialKind::Session])?;
     if caller.credential.kind() == CredentialKind::Session && caller.person_removed {
         return Err(ApiError::Unauthorized);
     }
+    let person = caller.person()?;
+    let received = receive_entries(&state, caller.organization_id, &person, body).await?;
+    let body: TokenEntries = serde_json::from_value(received.stripped)
+        .map_err(|error| ApiError::BadRequest(format!("the token entries do not read: {error}")))?;
     let (one, entries) = match body {
         TokenEntries::One(entry) => (true, vec![*entry]),
         TokenEntries::Many(entries) => (false, entries),
@@ -87,8 +94,14 @@ pub(super) async fn create_token_entries(
             })
         })?);
     }
-    let mut bodies =
-        store::store_entries(&state, caller.organization_id, &caller.person()?, checked).await?;
+    let mut bodies = store::store_received_entries(
+        &state,
+        caller.organization_id,
+        &person,
+        checked,
+        Some(&received.id),
+    )
+    .await?;
     let answer = match (one, bodies.pop()) {
         (true, Some(body)) => StoredEntries::One(body),
         (_, last) => {
@@ -97,6 +110,70 @@ pub(super) async fn create_token_entries(
         }
     };
     Ok((StatusCode::CREATED, Json(answer)))
+}
+
+/// A received record of token entries, stored, and the entries without
+/// content text, ready to read.
+struct ReceivedEntries {
+    id: String,
+    stripped: serde_json::Value,
+}
+
+/// Removes the signals and session facts whose name holds content text
+/// from each token entry in a body, and answers how many it removed.
+fn remove_content_text(body: &mut serde_json::Value) -> usize {
+    let entries: Vec<&mut serde_json::Value> = match body {
+        serde_json::Value::Array(entries) => entries.iter_mut().collect(),
+        entry => vec![entry],
+    };
+    let mut removed = 0_usize;
+    for entry in entries {
+        for part in ["signals", "facts"] {
+            if let Some(fields) = entry
+                .get_mut(part)
+                .and_then(serde_json::Value::as_object_mut)
+            {
+                let before = fields.len();
+                fields.retain(|name, _| !otlp::is_content_text_name(name));
+                removed = removed.saturating_add(before.saturating_sub(fields.len()));
+            }
+        }
+    }
+    removed
+}
+
+/// Stores a token entries body as it arrived, before anything else: with
+/// content text unless the organization keeps it.
+async fn receive_entries(
+    state: &AppState,
+    organization_id: uuid::Uuid,
+    person: &tokencontroller_core::TagValue,
+    body: serde_json::Value,
+) -> Result<ReceivedEntries, ApiError> {
+    let raw = serde_json::to_vec(&body).map_err(|error| ApiError::Internal(error.into()))?;
+    received::check_bytes(state, organization_id, raw.len()).await?;
+    let keep = received::keeps_content_text(&state.db, organization_id).await?;
+    let mut stripped = body;
+    let removed = remove_content_text(&mut stripped);
+    let stored = if keep || removed == 0 {
+        raw.clone()
+    } else {
+        serde_json::to_vec(&stripped).map_err(|error| ApiError::Internal(error.into()))?
+    };
+    let id = received::store(
+        &state.db,
+        organization_id,
+        &Arrival {
+            endpoint: Endpoint::TokenEntries,
+            received_by: Some(person.as_str()),
+            content_type: "application/json",
+            body: &stored,
+            bytes: raw.len(),
+            content_kept: keep,
+        },
+    )
+    .await?;
+    Ok(ReceivedEntries { id, stripped })
 }
 
 /// What a CSV file holds, before anything is saved.
@@ -181,9 +258,27 @@ pub(super) async fn import_csv(
             first.line, first.problem
         )));
     }
+    let person = member.person()?;
+    received::check_bytes(&state, member.organization_id, body.len()).await?;
+    // The CSV columns hold no content text: signals and facts beyond the
+    // named ones come in their own columns and are read without it.
+    let id = received::store(
+        &state.db,
+        member.organization_id,
+        &Arrival {
+            endpoint: Endpoint::TokenEntriesCsv,
+            received_by: Some(person.as_str()),
+            content_type: "text/csv",
+            body: &body,
+            bytes: body.len(),
+            content_kept: false,
+        },
+    )
+    .await?;
     let checked = rows.into_iter().filter_map(|row| row.result.ok()).collect();
     let token_entries =
-        store::store_entries(&state, member.organization_id, &member.person()?, checked).await?;
+        store::store_received_entries(&state, member.organization_id, &person, checked, Some(&id))
+            .await?;
     Ok((StatusCode::CREATED, Json(CsvImported { token_entries })))
 }
 
@@ -205,6 +300,36 @@ fn decode_failure(error: &DecodeError) -> Response {
         }),
     )
         .into_response()
+}
+
+/// Reads an export into messages and activities, and gives the body to
+/// store when content text had to be removed from it, as protobuf.
+fn read_export(
+    raw: &[u8],
+    encoding: Encoding,
+    signal: Signal,
+    keep: bool,
+) -> Result<(otlp::Extracted, Option<Vec<u8>>), otlp::DecodeError> {
+    match signal {
+        Signal::Logs => otlp::decode_logs(raw, encoding).map(|mut request| {
+            let extracted = otlp::extract_from_logs(&request);
+            let stored =
+                (!keep && otlp::strip_logs(&mut request) > 0).then(|| request.encode_to_vec());
+            (extracted, stored)
+        }),
+        Signal::Traces => otlp::decode_traces(raw, encoding).map(|mut request| {
+            let extracted = otlp::extract_from_traces(&request);
+            let stored =
+                (!keep && otlp::strip_traces(&mut request) > 0).then(|| request.encode_to_vec());
+            (extracted, stored)
+        }),
+        Signal::Metrics => otlp::decode_metrics(raw, encoding).map(|mut request| {
+            let extracted = otlp::extract_from_metrics(&request);
+            let stored =
+                (!keep && otlp::strip_metrics(&mut request) > 0).then(|| request.encode_to_vec());
+            (extracted, stored)
+        }),
+    }
 }
 
 /// One OTLP export: checks the organization token, hands the batch to the
@@ -236,52 +361,68 @@ async fn receive(
         content_type: encoding.content_type(),
         body: &raw,
     });
-    let extracted = match signal {
-        Signal::Logs => {
-            otlp::decode_logs(&raw, encoding).map(|request| otlp::extract_from_logs(&request))
-        }
-        Signal::Traces => {
-            otlp::decode_traces(&raw, encoding).map(|request| otlp::extract_from_traces(&request))
-        }
-        // Metrics repeat the calls the events already count.
-        Signal::Metrics => otlp::decode_metrics(&raw, encoding).map(|_| Extracted::default()),
-    };
-    let extracted = match extracted {
-        Ok(extracted) => extracted,
+    received::check_bytes(state, caller.organization_id, raw.len()).await?;
+    let keep = received::keeps_content_text(&state.db, caller.organization_id).await?;
+    let read = read_export(&raw, encoding, signal, keep);
+    let (extracted, stripped) = match read {
+        Ok(read) => read,
         Err(error) => return Ok(decode_failure(&error)),
     };
-    let outcome = if extracted.messages.is_empty() {
+    // Collection is holy: what arrived is stored before anything is read
+    // into the log, without content text unless the organization keeps it.
+    let (content_type, body) = match &stripped {
+        Some(stripped) => (Encoding::Protobuf.content_type(), stripped.as_slice()),
+        None => (encoding.content_type(), raw.as_slice()),
+    };
+    let person = caller.person()?;
+    let id = received::store(
+        &state.db,
+        caller.organization_id,
+        &Arrival {
+            endpoint: match signal {
+                Signal::Logs => Endpoint::OtlpLogs,
+                Signal::Traces => Endpoint::OtlpTraces,
+                Signal::Metrics => Endpoint::OtlpMetrics,
+            },
+            received_by: Some(person.as_str()),
+            content_type,
+            body,
+            bytes: raw.len(),
+            content_kept: keep,
+        },
+    )
+    .await?;
+    let outcome = if extracted.messages.is_empty() && extracted.activities.is_empty() {
         TelemetryOutcome::default()
     } else {
-        store::store_telemetry(
+        store::store_received_telemetry(
             state,
             caller.organization_id,
-            &caller.person()?,
-            extracted.messages,
+            &person,
+            Telemetry {
+                messages: extracted.messages,
+                activities: extracted.activities,
+                received: Some(id),
+            },
         )
         .await?
     };
     tracing::debug!(
         new = outcome.new_messages,
         known = outcome.known_messages,
-        dropped = extracted.dropped_with_prompt_text,
-        stripped = extracted.stripped_prompt_text,
+        activities = outcome.new_activities,
+        content_removed = extracted.content_removed,
         "telemetry received"
     );
-    let rejected = i64::from(extracted.dropped_with_prompt_text);
-    let stripped = extracted.stripped_prompt_text;
-    let message = match (rejected, stripped) {
-        (0, 0) => String::new(),
-        (_, 0) => format!(
-            "{rejected} events carried prompt text and were dropped; turn off prompt logging in the agent's telemetry settings"
-        ),
-        (0, _) => format!(
-            "{stripped} model calls carried prompt text, which was removed before they were counted; turn off prompt logging in the agent's telemetry settings"
-        ),
-        (_, _) => format!(
-            "{rejected} events carried prompt text and were dropped, and {stripped} model calls had theirs removed before they were counted; turn off prompt logging in the agent's telemetry settings"
-        ),
+    let removed = extracted.content_removed;
+    let message = if removed == 0 || keep {
+        String::new()
+    } else {
+        format!(
+            "{removed} records carried content text, such as prompts or responses, which was removed on arrival; the rest was counted. Turn off prompt logging in the agent's telemetry settings to send none."
+        )
     };
+    let rejected = 0;
     let (content_type, answer) = otlp::encode_response(signal, rejected, &message, encoding);
     Ok(([(CONTENT_TYPE, content_type)], answer).into_response())
 }

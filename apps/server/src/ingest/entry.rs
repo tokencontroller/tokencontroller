@@ -29,10 +29,19 @@ pub const PERSON_TAG: &str = "person";
 /// The scale a split fraction is held at: `0.6` is 600 000 of 1 000 000.
 pub const FRACTION_SCALE: u32 = 6;
 
-/// Token counts by kind as they arrive. All four kinds are required; an
-/// entry missing one has no counts and is a count error, never zero.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
-#[serde(deny_unknown_fields)]
+/// The most signals one token entry may carry beyond the named ones.
+pub const MAX_SIGNALS: usize = 200;
+
+/// The longest signal value accepted, written as JSON: a value, never a
+/// transcript.
+pub const MAX_SIGNAL_LEN: usize = 10_000;
+
+/// Token counts by kind as they arrive. Kinds are open names (ADR 0028):
+/// the four every agent reports have their own fields, and any other kind,
+/// such as `cache_write_1h` or `reasoning`, is sent by its name. A kind left
+/// out has no tokens; an entry that sends no kind at all has no counts and
+/// is a count error, never zero.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct TokensInput {
     #[serde(default)]
     pub input: Option<u64>,
@@ -40,37 +49,72 @@ pub struct TokensInput {
     pub output: Option<u64>,
     #[serde(default)]
     pub cache_read: Option<u64>,
+    /// A cache write whose duration the agent did not say; priced as a
+    /// 5-minute write. Send `cache_write_5m` and `cache_write_1h` where
+    /// the agent tells them apart.
     #[serde(default)]
     pub cache_write: Option<u64>,
+    /// Any other kind, by its name: small letters, digits and `_`.
+    #[serde(flatten)]
+    pub other: BTreeMap<String, u64>,
 }
 
 impl TokensInput {
-    /// The counts, when every kind was sent.
-    #[must_use]
-    pub fn complete(self) -> Option<TokenCounts> {
-        Some(TokenCounts::common(
-            self.input?,
-            self.output?,
-            self.cache_write?,
-            self.cache_read?,
-        ))
+    /// The counts, or `None` when no kind was sent.
+    ///
+    /// # Errors
+    ///
+    /// An [`EntryError`] for a kind name that cannot be one.
+    pub fn counts(&self) -> Result<Option<TokenCounts>, EntryError> {
+        let named = [
+            (tokencontroller_core::TokenKind::INPUT, self.input),
+            (tokencontroller_core::TokenKind::OUTPUT, self.output),
+            (tokencontroller_core::TokenKind::CACHE_READ, self.cache_read),
+            (
+                tokencontroller_core::TokenKind::CACHE_WRITE,
+                self.cache_write,
+            ),
+        ];
+        if named.iter().all(|(_, count)| count.is_none()) && self.other.is_empty() {
+            return Ok(None);
+        }
+        let mut counts = TokenCounts::new();
+        for (kind, count) in named {
+            counts.set(kind, count.unwrap_or(0));
+        }
+        for (name, count) in &self.other {
+            let kind = tokencontroller_core::TokenKind::new(name)
+                .map_err(|error| EntryError(format!("tokens: {error}")))?;
+            let added = counts
+                .get(&kind)
+                .checked_add(*count)
+                .ok_or_else(|| EntryError("the tokens are too many to add up".to_owned()))?;
+            counts.set(kind, added);
+        }
+        Ok(Some(counts))
     }
 
-    /// Counts that were all sent.
+    /// Counts as the token entry schema writes them.
     #[must_use]
     pub fn of(counts: &TokenCounts) -> Self {
+        let common = |kind: tokencontroller_core::TokenKind| Some(counts.get(&kind));
         Self {
-            input: Some(counts.get(&tokencontroller_core::TokenKind::INPUT)),
-            output: Some(counts.get(&tokencontroller_core::TokenKind::OUTPUT)),
-            cache_read: Some(counts.get(&tokencontroller_core::TokenKind::CACHE_READ)),
-            cache_write: Some(counts.get(&tokencontroller_core::TokenKind::CACHE_WRITE)),
+            input: common(tokencontroller_core::TokenKind::INPUT),
+            output: common(tokencontroller_core::TokenKind::OUTPUT),
+            cache_read: common(tokencontroller_core::TokenKind::CACHE_READ),
+            cache_write: common(tokencontroller_core::TokenKind::CACHE_WRITE),
+            other: counts
+                .iter()
+                .filter(|(kind, _)| !tokencontroller_core::TokenKind::COMMON.contains(kind))
+                .map(|(kind, count)| (kind.to_string(), count))
+                .collect(),
         }
     }
 }
 
-/// Facts about the session. All optional.
+/// Facts about the session. All optional. A fact with no field of its own
+/// is kept as a signal.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
-#[serde(deny_unknown_fields)]
 pub struct Facts {
     #[serde(default)]
     pub turns: Option<u64>,
@@ -87,11 +131,19 @@ pub struct Facts {
     /// Where the result is, such as the pull request's URL.
     #[serde(default)]
     pub result: Option<String>,
+    /// Any other fact, by name, kept as a signal.
+    #[serde(flatten)]
+    #[schema(value_type = Object)]
+    pub other: BTreeMap<String, serde_json::Value>,
 }
 
-/// Facts about a session that rules read. Signals are not tags.
+/// Names and values that came with the session and help to assign it
+/// (ADR 0028). The named ones have their own fields; any other signal is
+/// sent by its name, such as `organization.id`, and kept as it came. A
+/// signal named like a tag, such as `project`, is the sender's own
+/// assignment. Content text (prompts, responses, tool output, file
+/// contents) is removed on arrival.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
-#[serde(deny_unknown_fields)]
 pub struct Signals {
     #[serde(default)]
     pub branch: Option<String>,
@@ -114,12 +166,19 @@ pub struct Signals {
     /// Values from the repository's `.tokencontroller.toml`, by name.
     #[serde(default)]
     pub config: BTreeMap<String, String>,
+    /// Any other signal, by name, such as `organization.id`.
+    #[serde(flatten)]
+    #[schema(value_type = Object)]
+    pub other: BTreeMap<String, serde_json::Value>,
 }
 
 impl Signals {
-    /// The signals as the core carries them.
+    /// The signals as the core carries them, with the session facts that
+    /// have no field of their own.
     #[must_use]
-    pub fn core(&self) -> tokencontroller_core::Signals {
+    pub fn core(&self, facts: &Facts) -> tokencontroller_core::Signals {
+        let mut other = facts.other.clone();
+        other.extend(self.other.clone());
         tokencontroller_core::Signals {
             branch: self.branch.clone(),
             working_directory: self.working_directory.clone(),
@@ -130,9 +189,47 @@ impl Signals {
             prompt_keys: self.keys.clone(),
             config: self.config.clone(),
             resource: BTreeMap::new(),
-            other: BTreeMap::new(),
+            other,
         }
     }
+
+    /// Removes every signal whose name holds content text, and answers
+    /// how many were removed.
+    pub fn remove_content_text(&mut self) -> usize {
+        let before = self.other.len();
+        self.other
+            .retain(|name, _| !super::otlp::is_content_text_name(name));
+        before.saturating_sub(self.other.len())
+    }
+}
+
+fn check_signals(signals: &Signals, facts: &Facts) -> Result<(), EntryError> {
+    let count = signals.other.len().saturating_add(facts.other.len());
+    if count > MAX_SIGNALS {
+        return Err(EntryError(format!(
+            "a token entry carries at most {MAX_SIGNALS} signals beyond the named ones"
+        )));
+    }
+    for (name, value) in signals.other.iter().chain(&facts.other) {
+        label("signal name", name)?;
+        if value.to_string().chars().count() > MAX_SIGNAL_LEN {
+            return Err(EntryError(format!(
+                "signal {name} is longer than {MAX_SIGNAL_LEN} characters: send a value, not a transcript"
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// A provider as bills spell it: small letters, digits and `_`, such as
+/// `anthropic` or `aws_bedrock`.
+#[must_use]
+pub fn is_provider(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 40
+        && name
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
 }
 
 /// One token entry as it arrives: one message, or one session with its
@@ -145,9 +242,10 @@ pub struct NewTokenEntry {
     /// A label for the agent, such as "review bot".
     #[serde(default)]
     pub agent_name: Option<String>,
-    /// Who charges for the model calls: `anthropic`, `openai`, `google`,
-    /// `aws_bedrock`, `gcp_vertex`, `azure_foundry`, `github`, `cursor` or
-    /// `other`. Without it, it follows from the model's name.
+    /// Who charges for the model calls, spelled as bills spell it, such as
+    /// `anthropic`, `aws_bedrock` or `openai`, when the sender knows it.
+    /// It is never guessed from the model's name: without it, the message's
+    /// contract names its provider (ADR 0028).
     #[serde(default)]
     pub provider: Option<String>,
     /// The model that did the work.
@@ -160,7 +258,8 @@ pub struct NewTokenEntry {
     #[serde(with = "time::serde::rfc3339")]
     #[schema(value_type = String, format = DateTime)]
     pub ended_at: OffsetDateTime,
-    /// Counts by kind. All four kinds; a missing kind is a count error.
+    /// Counts by kind. A kind left out has no tokens; no kind at all is a
+    /// count error.
     pub tokens: TokensInput,
     /// The agent's own cost figure in US dollars, a fact about the message.
     /// The cost shown is counts × the price table.
@@ -247,7 +346,8 @@ pub struct NewMessage {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CheckedTokenEntry {
     pub entry: NewTokenEntry,
-    pub provider: &'static str,
+    /// The provider the sender named, if any.
+    pub provider: Option<String>,
     /// The tags the entry names: `feature`, `project` and `tags` together.
     pub tags: BTreeMap<String, String>,
     pub reported_cost: Option<Money>,
@@ -265,7 +365,7 @@ pub struct CheckedMessage {
     pub message_id: String,
     pub model: String,
     pub at: OffsetDateTime,
-    /// `None` when a kind was missing: a count error.
+    /// `None` when no kind was sent: a count error.
     pub tokens: Option<TokenCounts>,
     pub reported_cost: Option<Money>,
 }
@@ -376,15 +476,14 @@ impl NewTokenEntry {
             label("signals.keys", key)?;
         }
         if let Some(provider) = &self.provider
-            && !super::provider::PROVIDERS.contains(&provider.as_str())
+            && !is_provider(provider)
         {
             return Err(EntryError(format!(
-                "provider {provider:?} is not one of {}",
-                super::provider::PROVIDERS.join(", ")
+                "provider {provider:?} is not a provider: use small letters, digits and _, such as anthropic"
             )));
         }
-        let provider =
-            super::provider::infer(self.provider.as_deref(), &self.agent_harness, &self.model);
+        check_signals(&self.signals, &self.facts)?;
+        let provider = self.provider.clone();
         let reported_cost = cost("reported_cost", self.reported_cost.as_ref())?;
         let messages = self.check_messages(reported_cost)?;
         let splits = self.check_splits(&messages)?;
@@ -407,7 +506,7 @@ impl NewTokenEntry {
                 message_id: WHOLE_SESSION_MESSAGE.to_owned(),
                 model: self.model.clone(),
                 at: self.ended_at,
-                tokens: self.tokens.complete(),
+                tokens: self.tokens.counts()?,
                 reported_cost,
             }]);
         }
@@ -433,7 +532,7 @@ impl NewTokenEntry {
                     message.message_id
                 )));
             }
-            let tokens = message.tokens.complete();
+            let tokens = message.tokens.counts()?;
             sum = match (sum, tokens.clone()) {
                 (Some(sum), Some(tokens)) => Some(sum.checked_add(&tokens).ok_or_else(|| {
                     EntryError("the messages' tokens are too many to add up".to_owned())
@@ -448,7 +547,7 @@ impl NewTokenEntry {
                 reported_cost: cost("message reported_cost", message.reported_cost.as_ref())?,
             });
         }
-        if let (Some(sum), Some(tokens)) = (sum, self.tokens.complete())
+        if let (Some(sum), Some(tokens)) = (sum, self.tokens.counts()?)
             && sum != tokens
         {
             return Err(EntryError(
@@ -617,7 +716,8 @@ mod tests {
     fn the_docs_example_is_accepted() {
         let entry = checked(docs_example()).unwrap();
         assert_eq!(entry.reported_cost.unwrap().nanos(), 31_000_000);
-        assert_eq!(entry.provider, "anthropic");
+        // Nothing is guessed from the model's name.
+        assert_eq!(entry.provider, None);
         assert_eq!(entry.tags["client"], "acme");
         assert_eq!(entry.tags["project"], "support");
         assert_eq!(entry.messages.len(), 1);
@@ -634,11 +734,95 @@ mod tests {
     }
 
     #[test]
-    fn a_missing_token_kind_is_a_count_error() {
+    fn token_kinds_are_open_and_a_kind_left_out_has_none() {
         let mut value = docs_example();
         value["tokens"] = serde_json::json!({"input": 1, "output": 2, "cache_read": 3});
         let entry = checked(value).unwrap();
-        assert!(entry.messages[0].tokens.is_none());
+        let tokens = entry.messages[0].tokens.as_ref().unwrap();
+        assert_eq!(tokens.get(&tokencontroller_core::TokenKind::INPUT), 1);
+        assert_eq!(tokens.get(&tokencontroller_core::TokenKind::CACHE_WRITE), 0);
+
+        let mut finer = docs_example();
+        finer["tokens"] = serde_json::json!({
+            "input": 1, "cache_write_5m": 2, "cache_write_1h": 3, "reasoning": 4
+        });
+        let entry = checked(finer).unwrap();
+        let tokens = entry.messages[0].tokens.as_ref().unwrap();
+        assert_eq!(
+            tokens.get(&tokencontroller_core::TokenKind::CACHE_WRITE_1H),
+            3
+        );
+        assert_eq!(
+            tokens.get(&tokencontroller_core::TokenKind::new("reasoning").unwrap()),
+            4
+        );
+        assert_eq!(TokensInput::of(tokens).other.get("reasoning"), Some(&4));
+        assert_eq!(TokensInput::of(tokens).input, Some(1));
+
+        // No kind at all is a count error, never zero.
+        let mut none = docs_example();
+        none["tokens"] = serde_json::json!({});
+        assert!(checked(none).unwrap().messages[0].tokens.is_none());
+
+        let mut bad = docs_example();
+        bad["tokens"] = serde_json::json!({"Thinking": 4});
+        assert!(checked(bad).unwrap_err().0.contains("token kind"));
+    }
+
+    #[test]
+    fn signals_and_facts_are_open() {
+        let mut value = docs_example();
+        value["signals"] = serde_json::json!({
+            "branch": "KD-1-fix",
+            "organization.id": "6f1e2a3b-0000",
+            "seats": 3
+        });
+        value["facts"] = serde_json::json!({"turns": 2, "pauses": 4});
+        let entry = checked(value).unwrap();
+        let core = entry.entry.signals.core(&entry.entry.facts);
+        assert_eq!(core.branch.as_deref(), Some("KD-1-fix"));
+        assert_eq!(
+            core.other.get("organization.id"),
+            Some(&serde_json::json!("6f1e2a3b-0000"))
+        );
+        assert_eq!(core.other.get("seats"), Some(&serde_json::json!(3)));
+        assert_eq!(core.other.get("pauses"), Some(&serde_json::json!(4)));
+        assert_eq!(entry.entry.facts.turns, Some(2));
+
+        let mut signals = entry.entry.signals;
+        signals
+            .other
+            .insert("prompt".to_owned(), serde_json::json!("Fix the build"));
+        assert_eq!(signals.remove_content_text(), 1);
+        assert!(!signals.other.contains_key("prompt"));
+        assert!(signals.other.contains_key("organization.id"));
+
+        let mut many = docs_example();
+        let lots: serde_json::Map<String, serde_json::Value> = (0..=MAX_SIGNALS)
+            .map(|index| (format!("s{index}"), serde_json::json!(1)))
+            .collect();
+        many["signals"] = serde_json::Value::Object(lots);
+        assert!(checked(many).unwrap_err().0.contains("at most"));
+
+        let mut long = docs_example();
+        long["signals"] = serde_json::json!({"note": "x".repeat(MAX_SIGNAL_LEN)});
+        assert!(checked(long).unwrap_err().0.contains("not a transcript"));
+    }
+
+    #[test]
+    fn a_provider_is_any_name_spelled_as_bills_spell_it() {
+        assert!(is_provider("anthropic"));
+        assert!(is_provider("acme_cloud2"));
+        assert!(!is_provider(""));
+        assert!(!is_provider("Acme"));
+        assert!(!is_provider(&"a".repeat(41)));
+        assert!(is_provider(&"a".repeat(40)));
+        let mut value = docs_example();
+        value["provider"] = serde_json::json!("acme_cloud");
+        assert_eq!(
+            checked(value).unwrap().provider.as_deref(),
+            Some("acme_cloud")
+        );
     }
 
     #[test]
@@ -700,7 +884,7 @@ mod tests {
             (
                 "provider",
                 serde_json::json!("acme-cloud"),
-                "provider \"acme-cloud\" is not one of",
+                "provider \"acme-cloud\" is not a provider",
             ),
         ];
         for (field, value, expected) in cases {
@@ -830,7 +1014,7 @@ mod tests {
             "config": {"project": "shop"}
         }))
         .unwrap();
-        let core = signals.core();
+        let core = signals.core(&Facts::default());
         assert_eq!(core.prompt_keys, vec!["KD-1"]);
         assert_eq!(core.pull_request, Some(12));
         assert_eq!(core.config.get("project").map(String::as_str), Some("shop"));

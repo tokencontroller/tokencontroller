@@ -527,6 +527,7 @@ fn message_of(
             .map(|record| record.facts.clone())
             .unwrap_or_default()
             .core(summary),
+        received: None,
     })
 }
 

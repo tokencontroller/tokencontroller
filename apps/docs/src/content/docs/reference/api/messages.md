@@ -72,11 +72,11 @@ Agents push every model call to `https://app.tokencontroller.com/api/v1/ingest/o
 
 | Path | Takes |
 | --- | --- |
-| `POST /ingest/otlp/v1/logs` | One model call per log event: Claude Code, Codex CLI, Gemini CLI, Cursor. |
-| `POST /ingest/otlp/v1/traces` | One model call per chat span: Copilot CLI. |
-| `POST /ingest/otlp/v1/metrics` | Accepted and not counted, so an agent that sends metrics gets no error. The events already count every call. |
+| `POST /ingest/otlp/v1/logs` | One model call per log event: Claude Code, Codex CLI, Gemini CLI, Cursor. Other events of these agents are kept as activities. |
+| `POST /ingest/otlp/v1/traces` | One model call per chat span: Copilot CLI. Other spans are kept as activities. |
+| `POST /ingest/otlp/v1/metrics` | Counters such as commits and lines changed, kept as activities. Token and cost counters are left out, since the events already count every call. |
 
-OTLP over HTTP, as `application/x-protobuf` or `application/json`, plain or `Content-Encoding: gzip`. gRPC is not taken. The answer is the OTLP export response of that signal; `415` for another content type, `413` for a body that is too large, `400` for one that cannot be decoded. Prompt text is removed from model call events and any other event that carries it is dropped. Resource attributes arrive as [signals](/collect/telemetry#tags), so rules can place the cost.
+OTLP over HTTP, as `application/x-protobuf` or `application/json`, plain or `Content-Encoding: gzip`. gRPC is not taken. The answer is the OTLP export response of that signal; `415` for another content type, `413` for a body that is too large, `400` for one that cannot be decoded. Each export is stored as a [received record](#received-records) before it is read. Content text (prompts, responses, tool output, file contents) is removed on arrival unless the organization keeps it; nothing is refused for it, and the answer's `errorMessage` says how many records lost some. Resource attributes arrive as [signals](/collect/telemetry#tags), so rules can place the cost.
 
 ## Messages {#messages}
 
@@ -178,3 +178,15 @@ POST /api/v1/splits
 ```
 
 `201` with the split: its `id` (`spl_…`), `session_id`, `message_id` when it was on one message, `parts` as above, and `supersedes`, the id of the split it replaced. Add `message_id` to split one message; add `dated` to date the split, which before the [cutoff](/account/cutoff#adjust) needs adjust. Your own sessions need nothing more; someone else's need assign on a filter the session is in. `404` when the session or message is not inside what you may view.
+
+## Received records {#received-records}
+
+Every usage endpoint (`POST /token-entries`, the CSV import and the three OTLP paths) stores what it received before it reads it. Messages and activities read from a record carry its id in `received`. Records are kept for 400 days, then deleted. Org managers only, signed in in the browser.
+
+```http
+GET /api/v1/received-records?before=2026-03-01&limit=100
+```
+
+The latest first, without their bodies: `id` (`rcv_…`), `endpoint` (`token-entries`, `token-entries-csv`, `otlp-logs`, `otlp-traces` or `otlp-metrics`), `received_at`, `received_by`, `content_type`, `bytes` as it arrived, `stored_bytes` after content text was removed, `content_kept` and `delete_after`.
+
+`DELETE /received-records/{id}` deletes one record; `DELETE /received-records?before=2026-03-01` deletes every record received before that day or moment, and without `before` all of them. Both answer `{"deleted": n}`. Deleting a record changes no figure: the messages read from it stay.

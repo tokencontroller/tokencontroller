@@ -220,8 +220,8 @@ pub async fn kind_of(
     }))
 }
 
-/// Refuses tags with a name that is on neither list. `person` is always a
-/// name.
+/// Refuses tags with a name that is on neither list. `person` and
+/// `contract` are always names.
 ///
 /// # Errors
 ///
@@ -234,7 +234,9 @@ pub async fn check_names(db: &PgPool, organization_id: Uuid, tags: &Tags) -> Res
     .fetch_all(db)
     .await?;
     for (name, _) in tags.iter() {
-        if name.as_str() != "person" && !known.iter().any(|known| known == name.as_str()) {
+        let built_in =
+            name.as_str() == "person" || *name == tokencontroller_core::TagName::contract();
+        if !built_in && !known.iter().any(|known| known == name.as_str()) {
             return Err(ApiError::BadRequest(format!(
                 "{name} is not a tag or attribute name of the organization; an org manager adds names"
             )));

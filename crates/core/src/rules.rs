@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 use crate::contract::ContractTerms;
-use crate::message::Message;
+use crate::message::{Message, Signals};
 use crate::pattern::TextPattern;
 use crate::tags::{TagName, TagValue, Tags};
 use crate::values::Values;
@@ -45,6 +45,10 @@ pub enum Signal {
     Config(String),
     /// A telemetry resource attribute, by name.
     Resource(String),
+    /// Any signal, by the name it came with, such as `organization.id`:
+    /// a text value among the open signals, else a telemetry attribute of
+    /// that name (ADR 0028).
+    Named(String),
 }
 
 /// What a matching rule writes.
@@ -111,10 +115,13 @@ impl Rule {
                 .map(String::as_str)
                 .into_iter()
                 .collect(),
+            Signal::Named(name) => named(signals, name).into_iter().collect(),
         }
     }
 
     /// The tag the rule gives a message, or `None` when it does not match.
+    /// A key the rule finds must be a tag value on record, unless the rule
+    /// creates its contract.
     /// The first text of the signal that matches decides.
     #[must_use]
     pub fn apply(&self, message: &Message, values: &Values) -> Option<(TagName, TagValue)> {
@@ -131,7 +138,7 @@ impl Rule {
                     let Ok(key) = TagValue::new(found) else {
                         continue;
                     };
-                    if !values.is_tag_value(name, &key) {
+                    if self.contract.is_none() && !values.is_tag_value(name, &key) {
                         continue;
                     }
                     (name.clone(), key)
@@ -148,6 +155,41 @@ impl Rule {
             Then::Tag { name, .. } | Then::KeyOf { name } => name,
         }
     }
+}
+
+/// The text of a signal by the name it came with: an open signal that is
+/// text, else a telemetry attribute of that name.
+#[must_use]
+pub fn named<'m>(signals: &'m Signals, name: &str) -> Option<&'m str> {
+    signals
+        .other
+        .get(name)
+        .and_then(serde_json::Value::as_str)
+        .or_else(|| signals.resource.get(name).map(String::as_str))
+}
+
+/// The signal that names the account an agent was signed in with, where
+/// the agent records one: Claude Code sends the organization of a
+/// claude.ai or Console sign-in, and nothing for an API key.
+pub const SIGNED_IN_ORGANIZATION: &str = "organization.id";
+
+/// The rule we ship on how an agent was signed in: a message whose agent
+/// names the Anthropic organization it was signed in with goes to that
+/// organization's own contract, `anthropic-` and the first eight characters
+/// of its id, created metered the first time it matches. It runs after the
+/// organization's own rules, so any of theirs on `contract` wins. An API
+/// key names no organization, so its messages get their contract from the
+/// other steps.
+#[must_use]
+pub fn signed_in_contract(message: &Message) -> Option<(TagValue, ContractTerms)> {
+    let id = named(&message.signals, SIGNED_IN_ORGANIZATION)?;
+    let short: String = id.chars().take(8).collect::<String>().to_ascii_lowercase();
+    let readable = short.chars().count() == 8 && short.chars().all(|c| c.is_ascii_hexdigit());
+    if !readable {
+        return None;
+    }
+    let key = TagValue::new(&format!("anthropic-{short}")).ok()?;
+    Some((key, ContractTerms::metered("anthropic")))
 }
 
 /// The rules in the order they run: by order, the organization's before a
@@ -262,6 +304,7 @@ mod tests {
                 other: BTreeMap::new(),
             },
             session: SessionFacts::default(),
+            received: None,
         }
     }
 
@@ -390,6 +433,91 @@ mod tests {
         );
         assert_eq!(applied(&missing, &message("mara")), None);
         assert_eq!(missing.texts(&message("mara")), Vec::<&str>::new());
+    }
+
+    #[test]
+    fn a_named_signal_reads_open_signals_then_telemetry_attributes() {
+        let mut with = message("mara");
+        with.signals
+            .other
+            .insert("auth_type".to_owned(), serde_json::json!("vertex-ai"));
+        with.signals
+            .other
+            .insert("seats".to_owned(), serde_json::json!(3));
+        with.signals
+            .resource
+            .insert("seats".to_owned(), "three".to_owned());
+        let read = |signal: &str| {
+            rule(
+                "r",
+                Scope::Organization,
+                1,
+                Signal::Named(signal.to_owned()),
+                ".",
+                Then::Tag {
+                    name: name("project"),
+                    key: key("shop"),
+                },
+            )
+            .texts(&with)
+            .into_iter()
+            .map(str::to_owned)
+            .collect::<Vec<String>>()
+        };
+        assert_eq!(read("auth_type"), vec!["vertex-ai"]);
+        // A value that is no text falls back to the telemetry attribute.
+        assert_eq!(read("seats"), vec!["three"]);
+        assert_eq!(read("service.name"), vec!["bot"]);
+        assert!(read("missing").is_empty());
+    }
+
+    #[test]
+    fn a_rule_that_creates_its_contract_takes_a_key_not_on_record() {
+        let mut signed_in = message("mara");
+        signed_in
+            .signals
+            .other
+            .insert("workspace".to_owned(), serde_json::json!("ws-team"));
+        let mut creating = rule(
+            "workspace",
+            Scope::Organization,
+            1,
+            Signal::Named("workspace".to_owned()),
+            "ws-(?P<key>.+)",
+            Then::KeyOf {
+                name: TagName::contract(),
+            },
+        );
+        assert_eq!(creating.apply(&signed_in, &values()), None);
+        creating.contract = Some(ContractTerms::metered("anthropic"));
+        assert_eq!(
+            creating.apply(&signed_in, &values()),
+            Some((TagName::contract(), key("team")))
+        );
+    }
+
+    #[test]
+    fn the_shipped_sign_in_rule_reads_the_first_eight_characters() {
+        let with = |id: serde_json::Value| {
+            let mut message = message("mara");
+            message
+                .signals
+                .other
+                .insert(SIGNED_IN_ORGANIZATION.to_owned(), id);
+            signed_in_contract(&message).map(|(key, terms)| (key.to_string(), terms.provider))
+        };
+        assert_eq!(
+            with(serde_json::json!("6F1E2A3B-0000-4000-8000-000000000001")),
+            Some(("anthropic-6f1e2a3b".to_owned(), "anthropic".to_owned()))
+        );
+        assert_eq!(
+            with(serde_json::json!("6f1e2a3b")),
+            Some(("anthropic-6f1e2a3b".to_owned(), "anthropic".to_owned()))
+        );
+        assert_eq!(with(serde_json::json!("6f1e2a3")), None);
+        assert_eq!(with(serde_json::json!("6f1e2a3g-0000")), None);
+        assert_eq!(with(serde_json::json!(12_345_678)), None);
+        assert_eq!(signed_in_contract(&message("mara")), None);
     }
 
     #[test]

@@ -707,6 +707,7 @@ fn message(row: &Row) -> Outcome<Message> {
         tags: tags(&cell(row, "tags")?)?,
         signals,
         session: tokencontroller_core::SessionFacts::default(),
+        received: None,
     })
 }
 
