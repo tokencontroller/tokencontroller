@@ -4866,12 +4866,18 @@
           "to",
           "amount",
           "currency",
-          "lines"
+          "lines",
+          "contract"
         ],
         "properties": {
           "amount": {
             "type": "string",
             "example": "1234.56"
+          },
+          "contract": {
+            "type": "string",
+            "description": "The contract the bill goes to: the one the file names, else the\nprovider's only contract of its kind.",
+            "example": "anthropic-api"
           },
           "currency": {
             "type": "string",
@@ -4888,6 +4894,17 @@
             "type": "string",
             "format": "date"
           },
+          "in_force": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BillCsvInForce",
+                "description": "The bill in force for the same provider, contract and range, which\nthis one restates; `null` for a new bill."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "lines": {
             "type": "integer",
             "description": "How many lines a cloud's export was summed from.",
@@ -4899,6 +4916,29 @@
           "to": {
             "type": "string",
             "format": "date"
+          }
+        }
+      },
+      "BillCsvInForce": {
+        "type": "object",
+        "description": "The bill a file's bill would restate.",
+        "required": [
+          "amount",
+          "currency",
+          "same"
+        ],
+        "properties": {
+          "amount": {
+            "type": "string",
+            "example": "1000.00"
+          },
+          "currency": {
+            "type": "string",
+            "example": "USD"
+          },
+          "same": {
+            "type": "boolean",
+            "description": "Whether the file's bill has the same figures, so uploading it\nchanges nothing."
           }
         }
       },
@@ -8196,6 +8236,7 @@
           "count_errors",
           "unknown_models",
           "contracts",
+          "contract_by",
           "no_contract",
           "provider_unknown",
           "parts",
@@ -8216,6 +8257,13 @@
           },
           "assigned_by": {
             "type": "string"
+          },
+          "contract_by": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "How those contracts were set, each way once: `hand`, `sender`,\n`rule`, `project_default` or `fallback`."
           },
           "contracts": {
             "type": "array",

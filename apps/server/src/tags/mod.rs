@@ -478,7 +478,16 @@ async fn list_tags(
     let fold = log.fold(crate::dates::as_of(query.as_of.as_deref())?)?;
     let person = member.person()?;
     let values = values_view(&log, &fold, &person);
-    let names = names(&state.db, member.organization_id, Kind::Tag).await?;
+    let mut names = names(&state.db, member.organization_id, Kind::Tag).await?;
+    // `contract` is always a name, though no organization stores it on its
+    // list; it goes last among the built-in ones.
+    if !names
+        .iter()
+        .any(|(name, _)| name == TagName::contract().as_str())
+    {
+        let at = names.iter().take_while(|(_, built_in)| *built_in).count();
+        names.insert(at, (TagName::contract().as_str().to_owned(), true));
+    }
     Ok(Json(
         names
             .into_iter()

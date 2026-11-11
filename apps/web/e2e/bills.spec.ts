@@ -16,6 +16,8 @@ test("an org manager reads the checks and adds a bill by hand", async ({ page })
   await expect(team.getByText("on a plan")).toBeVisible();
   await expect(team.getByText("$350.00")).toBeVisible();
   await expect(page.getByRole("group", { name: /^openai-api/ }).getByText("Contract only from the provider")).toBeVisible();
+  const contracts = page.getByRole("table", { name: "Contracts" });
+  await expect(contracts.getByText("Claude Team plan").filter({ visible: true })).toBeVisible();
 
   await page.getByRole("button", { name: "Add a bill" }).click();
   const dialog = page.getByRole("dialog", { name: "Add a bill" });
@@ -71,7 +73,7 @@ test("a cloud's own cost export is one month's bill", async ({ page }) => {
   ].join("\n");
   await dialog.getByLabel("CSV file").setInputFiles({ name: "cur.csv", mimeType: "text/csv", buffer: Buffer.from(report) });
   const holds = dialog.getByRole("table", { name: "What the file holds" });
-  await expect(holds.getByText("aws_bedrock").filter({ visible: true })).toBeVisible();
+  await expect(holds.getByText("aws_bedrock-api").filter({ visible: true })).toBeVisible();
   await expect(holds.getByText("$500.00").filter({ visible: true })).toBeVisible();
   await dialog.getByRole("button", { name: "Upload the bill" }).click();
   await expect(page.getByRole("group", { name: /^aws_bedrock/ })).toBeVisible();

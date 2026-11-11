@@ -501,18 +501,44 @@ async fn cost_report(
     Query(query): Query<ReportQuery>,
 ) -> Result<Response, ApiError> {
     let report = cost(&state, &member, &query).await?;
-    table(
-        &report.rows,
+    if !csv::wants_csv(query.format.as_deref()) {
+        return Ok(axum::response::IntoResponse::into_response(Json(report)));
+    }
+    Ok(cost_csv(&report)
+        .map_err(|error| ApiError::Internal(error.into()))?
+        .into_download("cost.csv"))
+}
+
+/// The cost report as a CSV file: its rows, then the lines under them
+/// (plan decision 12): the total, the total by the kind of contract its
+/// messages ran under, and the messages not priced yet, whose cost is not
+/// in the total.
+fn cost_csv(report: &CostReport) -> Result<csv::Csv, serde_json::Error> {
+    let mut file = csv::from_rows(
         &[
             ("key", "/key"),
             ("amount", "/amount"),
             ("share", "/share"),
             ("messages", "/messages"),
         ],
-        &report,
-        query.format.as_deref(),
-        "cost.csv",
-    )
+        &report.rows,
+    )?;
+    let empty = String::new;
+    file.row(["total".to_owned(), report.total.clone(), empty(), empty()]);
+    for (key, amount) in [
+        ("on a plan", &report.on_a_plan),
+        ("metered", &report.metered),
+        ("no contract", &report.no_contract),
+    ] {
+        file.row([key.to_owned(), amount.clone(), empty(), empty()]);
+    }
+    file.row([
+        "not priced yet".to_owned(),
+        empty(),
+        empty(),
+        report.not_priced_yet.messages.to_string(),
+    ]);
+    Ok(file)
 }
 
 /// The cost report for a caller, as the endpoint and the MCP server

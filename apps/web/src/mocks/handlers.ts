@@ -191,15 +191,18 @@ function windowOf(url: URL): Window | Response {
 function keyOf(line: Line, by: string): string | null {
   switch (by) {
     case "label":
-      return labelOf(line.tags);
+      // Reports write the label with a space, as the service does.
+      return labelOf(line.tags).replace("_", " ");
     case "agent_harness":
       return line.session.agent_harness;
     case "agent_name":
       return line.session.agent_name;
     case "model":
-      return `${line.message.provider}/${line.message.model}`;
+      return line.message.provider ? `${line.message.provider}/${line.message.model}` : line.message.model;
     case "day":
       return line.day;
+    case "contract":
+      return line.contract?.key ?? null;
     default:
       return line.tags[by] ?? null;
   }
@@ -885,10 +888,17 @@ export const handlers = [
     return HttpResponse.json(billView(db, bill), { status: 201 });
   }, "org_manager")),
   // A CSV bill file: what it holds, then the upload (mirrors integrations/bill_uploads.rs)
-  http.post(`${API}/bills/csv/preview`, member(async ({ url, request }) => {
+  http.post(`${API}/bills/csv/preview`, member(async ({ db, url, request }) => {
     const read = readBillCsv(await request.text(), url.searchParams.get("cloud"), url.searchParams.get("month"));
     if (read.problem) return HttpResponse.json({ bills: [], problem: read.problem });
-    return HttpResponse.json({ bills: read.bills.map((b) => ({ ...b, amount: dec(b.amount) })), problem: null });
+    // Each bill against the bill in force for the contract it goes to, as the service does.
+    const bills = read.bills.map((b) => {
+      const contract = billContract(db, b.provider, null, "metered");
+      const current = db.bills.find((x) => x.contract === contract && x.from === b.from && x.to === b.to);
+      const in_force = current ? { amount: dec(current.amount), currency: current.currency, same: current.amount === b.amount && current.currency === b.currency } : null;
+      return { ...b, amount: dec(b.amount), contract, in_force };
+    });
+    return HttpResponse.json({ bills, problem: null });
   }, "org_manager")),
   http.post(`${API}/bills/csv`, member(async ({ db, me, url, request }) => {
     const read = readBillCsv(await request.text(), url.searchParams.get("cloud"), url.searchParams.get("month"));

@@ -1552,7 +1552,7 @@ async fn tag_names_and_values(pool: PgPool) {
         .iter()
         .map(|tag| tag["name"].as_str().unwrap())
         .collect();
-    assert_eq!(names, ["client", "feature", "project", "epic"]);
+    assert_eq!(names, ["client", "feature", "project", "contract", "epic"]);
 
     // A value's defaults must be values on record.
     let no_client = send(

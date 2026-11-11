@@ -34,7 +34,7 @@ For organizations that pay OpenAI for API usage. An organization owner creates a
 
 ### CSV {#csv}
 
-Any bill can be uploaded as CSV, and this is the way for Bedrock, Vertex and Foundry. Under _Bills_, choose _Upload CSV_ and give the provider, the contract, first and last day, amount and currency (see the [bill fields](/reference/bill)), or upload the cloud's own cost export. The upload shows what it read before anything is saved: each bill in the file, and whether it is new, restates the bill in force, or has the same figures. A file with a problem names the row and column and saves nothing.
+Any bill can be uploaded as CSV, and this is the way for Bedrock, Vertex and Foundry. Under _Bills_, choose _Upload CSV_ and give the provider, the contract, first and last day, amount and currency (see the [bill fields](/reference/bill)), or upload the cloud's own cost export. The upload shows what it read before anything is saved: each bill in the file, the contract it goes to, and whether it is new, restates the bill in force for that contract, or has the same figures. A file with a problem names the row and column and saves nothing.
 
 ### By hand {#manual}
 
@@ -58,6 +58,8 @@ Each bill has one contract, and the check runs on the bill's own date range agai
 What no message explains is a line on the bill: usage in the provider's own chat app, or per-call fees the agent does not report. It must be zero or positive. Negative means a message is wrong: a wrong count, a wrong model, a price row that is too high, or a message under the wrong contract. Find it and reverse it.
 
 Beside every check you see the messages of the same provider that have no contract yet, and those whose contract came only from the provider having one contract. How a message gets its contract is on the [data model](/reference/data-model#contract) page, and the [worked month](/concepts#month) checks three bills.
+
+Under the checks, _Contracts_ lists every contract of the organization with its provider, whether it is metered or on a plan, and a flat contract's fee per month.
 
 ![Bills and their checks: bill, cost of messages, what no message explains, per contract](/screens/06-bills-and-reconciliation.png)
 

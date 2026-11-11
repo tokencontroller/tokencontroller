@@ -11,6 +11,8 @@ test("the org manager's overview is the worked month", async ({ page }) => {
   await expect(checks.getByText("$270.00")).toBeVisible();
   await expect(checks.getByText("$250.00")).toBeVisible();
   await expect(page.getByText("On a plan $400.00")).toBeVisible();
+  // 950 = direct 700 + project overhead 100 + organization overhead 150.
+  await expect(page.getByText("$100.00").first()).toBeVisible();
   await expect(page.getByText("−$567.50").first()).toBeVisible();
 });
 

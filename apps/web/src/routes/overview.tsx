@@ -46,8 +46,8 @@ export function OverviewPage(): ReactNode {
           <KpiRow>
             <Kpi hero label="Cost" value={<Amount value={cost.data.total} currency={cost.data.currency} />} note={onAPlan ? <>On a plan <Amount value={onAPlan} currency={cost.data.currency} /></> : "Everything you may view"} />
             <Kpi label="Direct" value={<Amount value={lineOf("direct")} currency={cost.data.currency} />} note="On a feature" />
-            <Kpi label="Project overhead" value={<Amount value={lineOf("project_overhead")} currency={cost.data.currency} />} note="On a project, no feature" />
-            <Kpi label="Organization overhead" value={<Amount value={lineOf("organization_overhead")} currency={cost.data.currency} />} note="On no project" tone={Number(lineOf("organization_overhead")) > 0 ? "exception" : undefined} />
+            <Kpi label="Project overhead" value={<Amount value={lineOf("project overhead")} currency={cost.data.currency} />} note="On a project, no feature" />
+            <Kpi label="Organization overhead" value={<Amount value={lineOf("organization overhead")} currency={cost.data.currency} />} note="On no project" tone={Number(lineOf("organization overhead")) > 0 ? "exception" : undefined} />
           </KpiRow>
           {cost.data.count_errors || cost.data.unknown_models.length ? (
             <Note tone="exception">

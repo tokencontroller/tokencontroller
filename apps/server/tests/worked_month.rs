@@ -676,6 +676,19 @@ async fn the_report_comes_as_csv(pool: PgPool) {
             answer.content_type
         );
         assert!(answer.text.contains("KD-1,580.00"), "{}", answer.text);
+        // Under the rows: the total, what of it ran on a plan, and the
+        // messages not priced yet (plan decision 12).
+        assert!(answer.text.contains("\ntotal,950.00,,"), "{}", answer.text);
+        assert!(
+            answer.text.contains("\non a plan,400.00,,"),
+            "{}",
+            answer.text
+        );
+        assert!(
+            answer.text.contains("\nnot priced yet,,,"),
+            "{}",
+            answer.text
+        );
         Ok(())
     }
     .await;
@@ -4033,7 +4046,9 @@ async fn tags_list_the_built_in_names_and_their_values(pool: PgPool) {
             .iter()
             .map(|t| text(t, "name"))
             .collect();
-        assert_eq!(names, ["client", "feature", "project"]);
+        // `contract` is always a name, with the contracts that have a value.
+        assert_eq!(names, ["client", "feature", "project", "contract"]);
+        assert_eq!(tags[3]["built_in"], true);
         let feature = &tags[1];
         assert_eq!(feature["built_in"], true);
         assert_eq!(count(&feature["values"]), 2);
@@ -4244,8 +4259,8 @@ async fn a_new_tag_name_takes_values_and_groups_reports(pool: PgPool) {
             "150.00"
         );
         let tags = k.get(&k.nadia, "/tags").await?.ok(StatusCode::OK)?;
-        assert_eq!(count(&tags), 4);
-        assert_eq!(tags[3]["built_in"], false);
+        assert_eq!(count(&tags), 5);
+        assert_eq!(tags[4]["built_in"], false);
         Ok(())
     }
     .await;
@@ -4264,7 +4279,7 @@ async fn a_tag_name_is_taken_away_with_its_values(pool: PgPool) {
             .await?;
         assert_eq!(gone.status, StatusCode::NO_CONTENT, "{}", gone.text);
         let tags = k.get(&k.nadia, "/tags").await?.ok(StatusCode::OK)?;
-        assert_eq!(count(&tags), 3);
+        assert_eq!(count(&tags), 4);
         let answer = k
             .send(&k.nadia, Method::DELETE, "/tags/feature", None)
             .await?;

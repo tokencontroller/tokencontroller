@@ -1,6 +1,6 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useState, type ReactNode } from "react";
-import type { Bill, BillCloud, BillCsvBill, BillCsvProblem } from "@/api/contract";
+import type { BillCloud, BillCsvBill, BillCsvProblem } from "@/api/contract";
 import { api, type BillCsvFile } from "@/api/endpoints";
 import { Amount } from "@/components/controls";
 import { Badge } from "@/components/ui/badge";
@@ -12,7 +12,6 @@ import { DataTable } from "@/components/ui/table";
 import { notify } from "@/components/ui/toast";
 import { downloadFile, toCsv } from "@/lib/csv";
 import { formatRange } from "@/lib/format";
-import { fromDecimal, nanosOf } from "@/lib/money";
 import { refreshAll } from "@/lib/queries";
 
 // Docs: Bills and reconciliation > CSV. Any bill can be uploaded as CSV: our
@@ -37,17 +36,16 @@ function downloadTemplate(): void {
 }
 
 /**
- * How a bill in the file stands against the bill in force for its provider
- * and range. A CSV bill names no contract, so it goes to the provider's
- * metered contract; a flat contract's bill is not the one it restates.
+ * How a bill in the file stands against the bill in force for the same
+ * provider, contract and range. The service works it out: the contract is
+ * the one the file names, else the provider's only contract of its kind.
  */
 type Standing = { kind: "new" } | { kind: "same" } | { kind: "restates"; amount: string; currency: string };
 
-function standingOf(bill: BillCsvBill, inForce: Bill[]): Standing {
-  const current = inForce.find((b) => b.provider === bill.provider && b.from === bill.from && b.to === bill.to && !b.reversed_by && b.reconciliation?.contract_kind !== "flat");
+function standingOf(bill: BillCsvBill): Standing {
+  const current = bill.in_force;
   if (!current) return { kind: "new" };
-  const same = current.currency === bill.currency && nanosOf(fromDecimal(current.amount, current.currency)) === nanosOf(fromDecimal(bill.amount, bill.currency));
-  return same ? { kind: "same" } : { kind: "restates", amount: current.amount, currency: current.currency };
+  return current.same ? { kind: "same" } : { kind: "restates", amount: current.amount, currency: current.currency };
 }
 
 function StandingCell({ standing }: { standing: Standing }) {
@@ -134,7 +132,6 @@ export function UploadCsvDialog({ open, onOpenChange }: { open: boolean; onOpenC
   const options: BillCsvFile = kind ? { cloud: kind, month } : {};
   const ready = file !== null && (kind === "" || isMonth(month));
 
-  const inForce = useQuery({ queryKey: ["bills"], queryFn: api.bills, enabled: open });
   const preview = useQuery({
     queryKey: ["bill-csv-preview", kind, month, file?.name, file?.size, file?.lastModified],
     enabled: ready,
@@ -172,8 +169,7 @@ export function UploadCsvDialog({ open, onOpenChange }: { open: boolean; onOpenC
   });
 
   const chosen = kinds.find((k) => k.value === kind) ?? kinds[0];
-  const standings = new Map(bills.map((b) => [`${b.provider} ${b.from} ${b.to}`, standingOf(b, inForce.data ?? [])] as const));
-  const changes = [...standings.values()].filter((s) => s.kind !== "same").length;
+  const changes = bills.filter((b) => standingOf(b).kind !== "same").length;
 
   return (
     <Dialog open={open} onOpenChange={(next) => (next ? onOpenChange(true) : close())} title="Upload a CSV bill" description="What the file holds is shown before anything is saved. A file with a problem saves nothing." wide>
@@ -214,14 +210,14 @@ export function UploadCsvDialog({ open, onOpenChange }: { open: boolean; onOpenC
             caption="What the file holds"
             stack
             rows={bills}
-            rowKey={(b) => `${b.provider} ${b.from} ${b.to}`}
+            rowKey={(b) => `${b.contract} ${b.from} ${b.to}`}
             columns={[
-              { key: "provider", header: "Provider", cell: (b) => b.provider },
+              { key: "contract", header: "Contract", cell: (b) => <span className="inline-flex flex-col items-end sm:items-start"><span className="font-medium">{b.contract}</span><span className="text-caption text-muted">{b.provider}</span></span> },
               { key: "range", header: "Range", cell: (b) => formatRange(b.from, b.to) },
               { key: "amount", header: "Amount", align: "right", cell: (b) => <Amount value={b.amount} currency={b.currency} /> },
               { key: "rate", header: "Exchange rate", align: "right", cell: (b) => (b.exchange_rate ? <span className="num">{b.exchange_rate}</span> : <span className="text-muted">filled in</span>) },
               ...(kind ? [{ key: "lines", header: "Lines summed", align: "right" as const, cell: (b: BillCsvBill) => <span className="num">{String(b.lines)}</span> }] : []),
-              { key: "standing", header: "Against the bill in force", cell: (b) => <StandingCell standing={standings.get(`${b.provider} ${b.from} ${b.to}`) ?? { kind: "new" }} /> },
+              { key: "standing", header: "Against the bill in force", cell: (b) => <StandingCell standing={standingOf(b)} /> },
             ]}
           />
         ) : null}

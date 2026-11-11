@@ -15,7 +15,7 @@ The full tag set is the split's own tags with their defaults (feature brings pro
 
 ## Grouping {#grouping}
 
-Group a report by any tag name or attribute name: `project`, `feature`, `client`, `team`, `department`, `person`, or by agent harness, agent name, model or day. For one name, the values partition the total: cost per project adds up to the filter's cost, with one line for splits that have no value. In the [worked month](/concepts#month) every grouping of the same 950 adds up: Mara 700 and Tom 250; Shop 800 and none 150; team web 950.
+Group a report by any tag name or attribute name: `project`, `feature`, `client`, `contract`, `team`, `department`, `person`, or by agent harness, agent name, model or day. For one name, the values partition the total: cost per project adds up to the filter's cost, with one line for splits that have no value. In the [worked month](/concepts#month) every grouping of the same 950 adds up: Mara 700 and Tom 250; Shop 800 and none 150; team web 950.
 
 Filters on different names overlap: `team: web` and `project: shop` can count the same money. Add up lines within one grouping, never across two reports.
 

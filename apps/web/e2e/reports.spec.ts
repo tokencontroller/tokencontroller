@@ -15,6 +15,10 @@ test("an org manager reads cost and deviation for March", async ({ page }) => {
 
   await page.getByLabel("Group by").selectOption("label");
   await expect(cost.locator("tr").filter({ hasText: "Direct" }).getByText("$700.00").filter({ visible: true })).toBeVisible();
+  await expect(cost.locator("tr").filter({ hasText: "Project overhead" }).getByText("$100.00").filter({ visible: true })).toBeVisible();
+
+  await page.getByLabel("Group by").selectOption("contract");
+  await expect(cost.locator("tr").filter({ hasText: "anthropic-api" }).first()).toBeVisible();
 
   await page.getByLabel("Group by").selectOption("project");
   await page.getByRole("tab", { name: "Deviation" }).click();
