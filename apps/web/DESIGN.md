@@ -51,7 +51,7 @@ All in `src/components/ui/`.
 | Piece | Where | How to use it |
 |---|---|---|
 | `PageHeader` | display.tsx | `title`, at most a short `lead` (such as the range), `meta` (such as as-of), and the one primary action in `actions` |
-| `Section` | display.tsx | The card. `title`, `badge` for a short status next to it (such as "built in"), `hint` for the explanation, `actions` for small buttons, `flush` when the body is a table, `footer` for a form's save button. `lead` is only for the hosted add-on's screens until they move |
+| `Section` | display.tsx | The card. `title`, `badge` for a short status next to it (such as "built in"), `hint` for the explanation, `actions` for small buttons, `flush` when the body is a table, `footer` for a form's save button. |
 | `Card` | display.tsx | A card with no title, such as a filter toolbar |
 | `KpiRow` + `Kpi` | display.tsx | Two to four figures in one card, split by hairlines. The first is the `hero` (larger, wider). A `note` of at most four words |
 | `Figure` | display.tsx | A figure inside a card, such as bill, cost of messages and the gap |
@@ -78,7 +78,7 @@ Cards run to the screen's edges, so tables get the width. Columns that matter le
 
 ## Open work
 
-Every screen of the public web app is in the system. The hosted add-on's screens (Billing, feedback) move in the private repository; after that, `Section`'s `lead` and the old colour names `page` and `sheet` go. These shared pieces are still to make, at the latest with the first screen that needs them:
+Every screen is in the system, the hosted add-on's too. These shared pieces are still to make, at the latest with the first screen that needs them:
 
 - A date range button in place of the browser's date inputs (reports, plans).
 - On a phone, report filters folded into one summary row that opens them.

@@ -64,16 +64,14 @@ const cardClass = "rounded-lg border border-line bg-surface shadow-card max-sm:-
 
 /**
  * A card: one thing on the screen, with its title, an optional hint and its
- * actions in one row. `flush` lets a table run to the card's edges. `lead`
- * is kept for screens not yet moved to the system; new screens put that text
- * in `hint`.
+ * actions in one row. `flush` lets a table run to the card's edges. An
+ * explanation goes in `hint`, never in a line under the title.
  */
 export function Section({
   id,
   title,
   actions,
   children,
-  lead,
   hint,
   badge,
   flush = false,
@@ -85,7 +83,6 @@ export function Section({
   badge?: ReactNode;
   actions?: ReactNode;
   children: ReactNode;
-  lead?: ReactNode;
   hint?: ReactNode;
   flush?: boolean;
   footer?: ReactNode;
@@ -100,7 +97,6 @@ export function Section({
             {hint ? <Hint label={`About ${title}`}>{hint}</Hint> : null}
             {badge ? <span className="ml-1">{badge}</span> : null}
           </div>
-          {lead ? <p className="mt-0.5 text-small text-muted">{lead}</p> : null}
         </div>
         {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
       </div>
