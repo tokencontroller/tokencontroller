@@ -24,7 +24,7 @@ use time::OffsetDateTime;
 use utoipa::ToSchema;
 use utoipa_axum::router::OpenApiRouter;
 
-use crate::integrations::{bill_connections, ticket_systems};
+use crate::integrations::{bill_connections, tag_sources};
 use crate::{AppState, Config};
 
 /// This area's routes, relative to `/api/v1`.
@@ -139,9 +139,9 @@ pub async fn request_now(db: &PgPool, job: &str) -> Result<(), sqlx::Error> {
 pub fn standard(config: &Config) -> Vec<Job> {
     let mut jobs = vec![
         Job::new(
-            ticket_systems::JOB,
-            ticket_systems::JOB_EVERY,
-            ticket_systems::sync_due,
+            tag_sources::JOB,
+            tag_sources::JOB_EVERY,
+            tag_sources::sync_due,
         ),
         Job::new(
             bill_connections::JOB,

@@ -106,8 +106,8 @@ export type EventView = Schemas["EventView"];
 export type ApiToken = Schemas["ApiToken"];
 export type ApiTokenKind = Schemas["TokenKind"];
 export type CreatedApiToken = Schemas["CreatedApiToken"];
-export type TicketSystem = Schemas["TicketSystemView"];
-export type NewTicketSystem = Schemas["NewTicketSystem"];
+export type TagSource = Schemas["TagSourceView"];
+export type NewTagSource = Schemas["NewTagSource"];
 export type TicketMapping = Schemas["Mapping"];
 export type ExternalProject = Schemas["ExternalProject"];
 

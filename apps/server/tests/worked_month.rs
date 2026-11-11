@@ -187,7 +187,7 @@ async fn the_month_costs_950(pool: PgPool) {
         assert_eq!(text(&report, "currency"), "USD");
         assert_eq!(text(&report, "view"), "money");
         assert_eq!(report["count_errors"], 0);
-        assert_eq!(count(&report["unknown_models"]), 0);
+        assert_eq!(count(&report["not_priced_models"]), 0);
         let whole = row(&report, None).ok_or("no row")?;
         assert_eq!(whole["messages"], 4);
         assert_eq!(text(whole, "share"), "1");
@@ -4019,13 +4019,13 @@ async fn a_reversed_price_row_leaves_the_messages_unpriced(pool: PgPool) {
             .ok(StatusCode::OK)?;
         // Only the Codex session, on OpenAI, keeps a price.
         assert_eq!(text(&report, "total"), "300.00");
-        assert_eq!(count(&report["unknown_models"]), 1);
+        assert_eq!(count(&report["not_priced_models"]), 1);
         let rows = k
             .get(&k.nadia, "/reconciliation")
             .await?
             .ok(StatusCode::OK)?;
         let api = check_of(&rows, "anthropic-api")?;
-        assert_eq!(count(&api["unknown_models"]), 1);
+        assert_eq!(count(&api["not_priced_models"]), 1);
         assert_eq!(text(api, "unexplained"), "270.00");
         Ok(())
     }
@@ -5175,7 +5175,7 @@ async fn a_log_with_the_new_shapes_reads(pool: PgPool) {
             .contains(&json!("cache_write_1h"))
     );
     assert!(
-        after["unknown_models"]
+        after["not_priced_models"]
             .as_array()
             .unwrap()
             .contains(&json!("some-new-model"))

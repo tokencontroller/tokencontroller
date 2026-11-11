@@ -21,7 +21,7 @@ import type {
   Submission,
   SubmitRequest,
   Tags,
-  TicketSystem,
+  TagSource,
 } from "@/api/contract";
 
 export const TODAY = "2026-04-10";
@@ -166,7 +166,7 @@ export interface Db {
   rules: Rule[];
   saved: SavedReport[];
   tokens: ApiToken[];
-  ticketSystems: TicketSystem[];
+  tagSources: TagSource[];
   events: EventView[];
   nextId: number;
 }
@@ -446,7 +446,7 @@ export function createDb(): Db {
     ],
     saved: [],
     tokens: [{ id: "tok_bot", name: "review bot", kind: "service", person_id: ids.tom, shown_prefix: "tc_svc_9f2c", created_at: SETUP, last_used_at: "2026-04-09T02:00:00Z", needs_owner: false }],
-    ticketSystems: [],
+    tagSources: [],
     events: [],
     nextId: 100,
   };

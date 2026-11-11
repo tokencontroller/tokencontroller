@@ -78,7 +78,7 @@ export function sessionFeature(rows: readonly ReviewRow[], sessionId: string): s
   return rest.length === 0 ? first : `${first} +${rest.length}`
 }
 
-/** `feature KD-214 · team web`, the check list's tag column. */
+/** `feature KD-214 · team web`, the review list's tag column. */
 export function tagLine(tags: Record<string, string>): string {
   const order = ['feature', 'project']
   const names = Object.keys(tags).sort((a, b) => {

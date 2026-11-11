@@ -4,7 +4,7 @@
 //! kind of record the API has: members, tag and attribute values, rules,
 //! grants, messages, splits, estimates, shares, submissions, a cutoff,
 //! bills, price table rows, saved reports, API tokens, bill connections and
-//! ticket systems. Then every route in the service's OpenAPI document is
+//! tag sources. Then every route in the service's OpenAPI document is
 //! called as Alpha's members with Bravo's ids, names and keys. Each call
 //! must be refused, or answer with nothing of Bravo's, and Bravo's data must
 //! be exactly as it was afterwards.
@@ -392,7 +392,7 @@ struct Bravo {
     cli_session: Uuid,
     saved_report: String,
     bill_connection: Uuid,
-    ticket_system: Uuid,
+    tag_source: Uuid,
     received: String,
     /// Every name, key, text and id of Bravo's.
     secrets: Vec<String>,
@@ -754,19 +754,19 @@ async fn bravo_books(app: &Router, boss: &str, b: &mut Bravo) -> TestResult<()> 
     )
     .await?;
     b.bill_connection = id_at(&connection, "/id")?;
-    let ticket_system = must(
+    let tag_source = must(
         app,
         Method::POST,
-        "/api/v1/ticket-systems",
+        "/api/v1/tag-sources",
         boss,
         Payload::Json(json!({"kind": "jira", "site": "https://bravo.atlassian.net", "token": "ATATT3xFfGF0-bravo", "email": "bruno@bravo.example"})),
     )
     .await?;
-    b.ticket_system = id_at(&ticket_system, "/id")?;
+    b.tag_source = id_at(&tag_source, "/id")?;
     must(
         app,
         Method::PUT,
-        &format!("/api/v1/ticket-systems/{}/mappings", b.ticket_system),
+        &format!("/api/v1/tag-sources/{}/mappings", b.tag_source),
         boss,
         Payload::Json(json!([{"external": "BRV", "external_name": "Bravo ledger board", "project": "bravo-ledger"}])),
     )
@@ -794,7 +794,7 @@ async fn bravo_ids(pool: &PgPool, organization_id: Uuid) -> TestResult<Vec<Strin
     for table in [
         "api_tokens",
         "bill_connections",
-        "ticket_systems",
+        "tag_sources",
         "saved_reports",
         "submit_requests",
     ] {
@@ -1601,45 +1601,45 @@ fn received_cases(b: &Bravo) -> Vec<Case> {
     ]
 }
 
-fn ticket_system_cases(b: &Bravo) -> Vec<Case> {
+fn tag_source_cases(b: &Bravo) -> Vec<Case> {
     vec![
         case(
             "GET",
-            "/api/v1/ticket-systems",
-            vec![get("/api/v1/ticket-systems").expect(OK)],
+            "/api/v1/tag-sources",
+            vec![get("/api/v1/tag-sources").expect(OK)],
         ),
         case(
             "POST",
-            "/api/v1/ticket-systems",
+            "/api/v1/tag-sources",
             vec![
-                post("/api/v1/ticket-systems")
+                post("/api/v1/tag-sources")
                     .json(json!({"kind": "jira", "site": "https://alpha.atlassian.net", "token": "ATATT3xFfGF0-alpha", "email": "alice@alpha.example"}))
                     .expect(CREATED),
             ],
         ),
         case(
             "DELETE",
-            "/api/v1/ticket-systems/{id}",
-            vec![delete(format!("/api/v1/ticket-systems/{}", b.ticket_system)).expect(NOT_FOUND)],
+            "/api/v1/tag-sources/{id}",
+            vec![delete(format!("/api/v1/tag-sources/{}", b.tag_source)).expect(NOT_FOUND)],
         ),
         case(
             "PUT",
-            "/api/v1/ticket-systems/{id}/mappings",
+            "/api/v1/tag-sources/{id}/mappings",
             vec![
-                put(format!("/api/v1/ticket-systems/{}/mappings", b.ticket_system))
+                put(format!("/api/v1/tag-sources/{}/mappings", b.tag_source))
                     .json(json!([{"external": "BRV", "project": "alpha-app"}]))
                     .expect(NOT_FOUND),
             ],
         ),
         case(
             "GET",
-            "/api/v1/ticket-systems/{id}/projects",
-            vec![get(format!("/api/v1/ticket-systems/{}/projects", b.ticket_system)).expect(NOT_FOUND)],
+            "/api/v1/tag-sources/{id}/projects",
+            vec![get(format!("/api/v1/tag-sources/{}/projects", b.tag_source)).expect(NOT_FOUND)],
         ),
         case(
             "POST",
-            "/api/v1/ticket-systems/{id}/sync",
-            vec![post(format!("/api/v1/ticket-systems/{}/sync", b.ticket_system)).expect(NOT_FOUND)],
+            "/api/v1/tag-sources/{id}/sync",
+            vec![post(format!("/api/v1/tag-sources/{}/sync", b.tag_source)).expect(NOT_FOUND)],
         ),
     ]
 }
@@ -1853,7 +1853,7 @@ fn all_cases(alpha: &Alpha, bravo: &Bravo) -> Vec<Case> {
     cases.extend(plan_cases(alpha, bravo));
     cases.extend(message_cases(bravo));
     cases.extend(bill_cases(bravo));
-    cases.extend(ticket_system_cases(bravo));
+    cases.extend(tag_source_cases(bravo));
     cases.extend(report_cases());
     cases.extend(mcp_cases());
     // Alpha's messages reuse Bravo's session ids and feature key, which
@@ -2102,7 +2102,7 @@ async fn bravo_view(app: &Router, bravo: &Bravo) -> TestResult<Vec<String>> {
         "/api/v1/reconciliation".to_owned(),
         "/api/v1/reports/saved".to_owned(),
         "/api/v1/bill-connections".to_owned(),
-        "/api/v1/ticket-systems".to_owned(),
+        "/api/v1/tag-sources".to_owned(),
         "/api/v1/reports/cost?from=2026-10-01&to=2026-10-31&by=feature".to_owned(),
         "/api/v1/reports/deviation?from=2026-10-01&to=2026-10-31".to_owned(),
         "/api/v1/events".to_owned(),

@@ -59,7 +59,7 @@ Connecting Jira is optional. With it, every feature is a copy of its Jira issue,
 | --- | --- |
 | Address | Your site, such as `https://acme.atlassian.net`, with an API token and the email of its Atlassian account. |
 | Sync map | Map each Jira project to a Token Controller project. Its issues become features with that project as default. |
-| Fields | Key, title, description, type, status, parent and assignee are copied. Through the [API](/reference/api/tags#ticket-systems), a sync map can list fewer, such as leaving out the description. |
+| Fields | Key, title, description, type, status, parent and assignee are copied. Through the [API](/reference/api/tags#tag-sources), a sync map can list fewer, such as leaving out the description. |
 | Status | The connection shows when it last synced and why the last sync failed. |
 | Disconnect | Its features stay and stop syncing. |
 | Responsibility | Whoever connects Jira answers for that data flow. |

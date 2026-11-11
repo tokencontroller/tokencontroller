@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM tag_source_projects\n         WHERE tag_source_id = $1 AND NOT (external_project = ANY($2))",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "TextArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "33c933497bfa4b222b6d0946cd65ff97010c6833b74b9a30d546c987e9ad226d"
+}

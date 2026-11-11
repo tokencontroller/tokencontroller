@@ -55,7 +55,7 @@ pub trait ServiceHooks: Send + Sync + 'static {
     }
 
     /// How many messages one organization may add per day, or `None` for
-    /// no limit, as in the open build. The doors take everything else
+    /// no limit, as in the open build. The usage endpoints take everything else
     /// (ADR 0022); this limit only stops one organization from filling a
     /// shared service.
     fn daily_message_limit<'a>(

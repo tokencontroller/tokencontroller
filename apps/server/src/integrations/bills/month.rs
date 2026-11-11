@@ -147,8 +147,9 @@ impl From<BillMonth> for String {
     }
 }
 
-/// How a provider charges for what a bill covers: the metered ways. Seats
-/// and subscriptions are flat fees and have no bill.
+/// How a provider charges for what a pulled bill covers: the metered ways.
+/// Seats and subscriptions are flat contracts; their bills come by upload or
+/// by hand, with the contract they are for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Charging {

@@ -1,6 +1,6 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useState, type ReactNode } from "react";
-import type { TagValue, TicketSystem } from "@/api/contract";
+import type { TagValue, TagSource } from "@/api/contract";
 import { api } from "@/api/endpoints";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -120,13 +120,13 @@ function ValueDialog({ name, onClose, value }: { name: string; onClose: () => vo
 }
 
 function JiraSection() {
-  const systems = useQuery({ queryKey: ["ticket-systems"], queryFn: api.ticketSystems });
+  const systems = useQuery({ queryKey: ["tag-sources"], queryFn: api.tagSources });
   const [open, setOpen] = useState(false);
   const [site, setSite] = useState("");
   const [email, setEmail] = useState("");
   const [token, setToken] = useState("");
   const connect = useMutation({
-    mutationFn: () => api.connectTicketSystem({ kind: "jira", site, email, token }),
+    mutationFn: () => api.connectTagSource({ kind: "jira", site, email, token }),
     onSuccess: async () => {
       await refreshAll();
       notify("Jira connected");
@@ -158,7 +158,7 @@ function JiraSection() {
   );
 }
 
-function JiraConnection({ system }: { system: TicketSystem }) {
+function JiraConnection({ system }: { system: TagSource }) {
   const projects = useQuery({ queryKey: ["jira-projects", system.id], queryFn: () => api.externalProjects(system.id) });
   const tags = useTags();
   const ours = tags.data?.find((n) => n.name === "project")?.values ?? [];
@@ -171,7 +171,7 @@ function JiraConnection({ system }: { system: TicketSystem }) {
     },
   });
   const sync = useMutation({ mutationFn: () => api.syncTickets(system.id), onSuccess: async () => { await refreshAll(); notify("Sync started"); } });
-  const disconnect = useMutation({ mutationFn: () => api.disconnectTicketSystem(system.id), onSuccess: refreshAll });
+  const disconnect = useMutation({ mutationFn: () => api.disconnectTagSource(system.id), onSuccess: refreshAll });
   return (
     <div>
       <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-2">

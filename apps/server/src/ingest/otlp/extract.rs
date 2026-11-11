@@ -13,7 +13,7 @@ use sha2::{Digest as _, Sha256};
 use time::OffsetDateTime;
 
 use super::fields::Fields;
-use super::harness::{self, Door};
+use super::harness::{self, Endpoint};
 use super::privacy::{body_carries_prompt_text, carries_prompt_text, without_prompt_text};
 use crate::ingest::model::{TelemetryActivity, TelemetryHarness, TelemetryMessage, TokenCounts};
 
@@ -76,7 +76,7 @@ pub struct Extracted {
     /// Records that carried content text, which was removed before
     /// anything was read from them (ADR 0028).
     pub content_removed: u32,
-    /// Records of no agent harness, of another door than their agent's
+    /// Records of no agent harness, of another endpoint than their agent's
     /// model calls, streaming events, and model calls without a session or
     /// with token counts that cannot be read.
     pub ignored: u32,
@@ -222,7 +222,7 @@ enum Outcome {
 
 /// A log record or span, seen the same way.
 struct Record<'a> {
-    door: Door,
+    endpoint: Endpoint,
     resource: &'a [KeyValue],
     scope: &'a str,
     attributes: &'a [KeyValue],
@@ -259,7 +259,7 @@ impl<'a> Record<'a> {
         .filter(|name| !name.is_empty())
         .collect();
         Self {
-            door: Door::Logs,
+            endpoint: Endpoint::Logs,
             resource,
             scope,
             attributes: &log.attributes,
@@ -274,7 +274,7 @@ impl<'a> Record<'a> {
 
     fn span(resource: &'a [KeyValue], scope: &'a str, span: &'a Span) -> Self {
         Self {
-            door: Door::Spans,
+            endpoint: Endpoint::Spans,
             resource,
             scope,
             attributes: &span.attributes,
@@ -326,7 +326,7 @@ impl<'a> Record<'a> {
         .read()
     }
 
-    /// A model call; else an activity of a known agent on its own door;
+    /// A model call; else an activity of a known agent on its own endpoint;
     /// else nothing.
     fn read(&self) -> Outcome {
         if let Some(message) = self.message() {
@@ -344,7 +344,7 @@ impl<'a> Record<'a> {
             .find(|attribute| attribute.key == "service.name")
             .and_then(|attribute| string_value(attribute.value.as_ref()));
         let harness = harness::detect(&self.names, self.scope, service_name)?;
-        (harness::door(harness) == self.door).then_some(harness)
+        (harness::endpoint(harness) == self.endpoint).then_some(harness)
     }
 
     /// The record as an activity: its kind is its most specific name, such

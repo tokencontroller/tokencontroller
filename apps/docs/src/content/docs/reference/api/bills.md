@@ -78,7 +78,7 @@ Authorization: Bearer tc_svc_…
     "contract_from_fallback": "0.00",
     "a_message_is_wrong": false,
     "count_errors": 0,
-    "unknown_models": []
+    "not_priced_models": []
   }
 }
 ```
@@ -120,7 +120,7 @@ One row per bill in force, with the bill's `bill_id`, `provider`, `from`, `to` a
     "bill": "270.00", "messages": "250.00", "unexplained": "20.00",
     "fee": null, "extra_usage": null, "covered": null,
     "same_provider_no_contract": "0.00", "contract_from_fallback": "0.00",
-    "a_message_is_wrong": false, "count_errors": 0, "unknown_models": []
+    "a_message_is_wrong": false, "count_errors": 0, "not_priced_models": []
   },
   {
     "bill_id": "bil_b20c…", "provider": "openai", "from": "2026-03-01", "to": "2026-03-31", "final": true,
@@ -128,7 +128,7 @@ One row per bill in force, with the bill's `bill_id`, `provider`, `from`, `to` a
     "bill": "300.00", "messages": "300.00", "unexplained": "0.00",
     "fee": null, "extra_usage": null, "covered": null,
     "same_provider_no_contract": "0.00", "contract_from_fallback": "300.00",
-    "a_message_is_wrong": false, "count_errors": 0, "unknown_models": []
+    "a_message_is_wrong": false, "count_errors": 0, "not_priced_models": []
   },
   {
     "bill_id": "bil_9d2f…", "provider": "anthropic", "from": "2026-03-01", "to": "2026-03-31", "final": true,
@@ -136,14 +136,14 @@ One row per bill in force, with the bill's `bill_id`, `provider`, `from`, `to` a
     "bill": "250.00", "messages": "400.00", "unexplained": "0.00",
     "fee": "200.00", "extra_usage": "50.00", "covered": "350.00",
     "same_provider_no_contract": "0.00", "contract_from_fallback": "0.00",
-    "a_message_is_wrong": false, "count_errors": 0, "unknown_models": []
+    "a_message_is_wrong": false, "count_errors": 0, "not_priced_models": []
   }
 ]
 ```
 
 For a metered contract, `bill` = `messages` + `unexplained`: 270 = 250 + 20. A negative `unexplained` sets `a_message_is_wrong`: a wrong count, a wrong model, a price row too high, or a message under the wrong contract. For a flat contract, `bill` = `fee` + `extra_usage` + `unexplained`, and `covered` = `messages` − `extra_usage` is what the plan was worth: 400 − 50 = 350. `fee` comes from the bill, or from the contract for a whole month; `extra_usage` from the bill, or as the bill less the fee; `covered` is `null` while the fee is not known. A flat check says a message is wrong when `covered` is below zero.
 
-Beside every check: `same_provider_no_contract`, the cost of the messages of the bill's provider in its range with no contract, and `contract_from_fallback`, the part of `messages` whose contract came only from the provider having one contract. A check cannot look right by leaving messages out. `count_errors` are messages in the range with no counts; `unknown_models` are the models of messages not priced yet, as `provider/model`, or the model alone when the provider is not known. `provider=anthropic` keeps one provider's bills; `format=csv` gives the table as a file. See [Reconciliation](/account/bills#reconciliation).
+Beside every check: `same_provider_no_contract`, the cost of the messages of the bill's provider in its range with no contract, and `contract_from_fallback`, the part of `messages` whose contract came only from the provider having one contract. A check cannot look right by leaving messages out. `count_errors` are messages in the range with no counts; `not_priced_models` are the models of messages not priced yet, as `provider/model`, or the model alone when the provider is not known. `provider=anthropic` keeps one provider's bills; `format=csv` gives the table as a file. See [Reconciliation](/account/bills#reconciliation).
 
 ## Contracts {#contracts}
 

@@ -40,7 +40,7 @@ pub struct SessionJson {
     pub cost: Option<String>,
     pub currency: String,
     pub count_errors: usize,
-    pub unknown_models: Vec<String>,
+    pub not_priced_models: Vec<String>,
     pub summary: Option<String>,
     pub status: String,
     pub rejected_reason: Option<String>,
@@ -68,7 +68,7 @@ impl SessionJson {
             cost: session.cost.map(decimal),
             currency: currency.code(),
             count_errors: session.count_errors,
-            unknown_models: session.unknown_models.clone(),
+            not_priced_models: session.not_priced_models.clone(),
             summary: session.summary.clone(),
             status: session.status.as_str().to_owned(),
             rejected_reason: match &session.status {
@@ -162,7 +162,7 @@ pub fn print_sessions(app: &mut App<'_>, sessions: &[SessionView]) -> Result<()>
 
 fn cost_cell(session: &SessionView) -> String {
     match session.cost {
-        Some(cost) if session.unknown_models.is_empty() && session.count_errors == 0 => {
+        Some(cost) if session.not_priced_models.is_empty() && session.count_errors == 0 => {
             output::display(cost)
         }
         Some(cost) => format!("{}+", output::display(cost)),

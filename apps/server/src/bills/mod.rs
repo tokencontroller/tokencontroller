@@ -88,8 +88,9 @@ pub struct NewBill {
     /// names messages carry.
     pub provider: String,
     /// The contract the bill is for, such as `anthropic-api`. Left out, it
-    /// goes to the provider's only contract, else to one named after the
-    /// provider. A new key creates the contract.
+    /// goes to the provider's only contract of its kind (metered unless
+    /// `contract_kind` says flat), else to one named after the provider. A
+    /// new key creates the contract.
     pub contract: Option<TagValue>,
     /// The kind of contract a new key creates; metered when left out.
     pub contract_kind: Option<ContractKind>,
@@ -191,7 +192,7 @@ pub struct ReconciliationView {
     /// `messages`.
     pub count_errors: usize,
     /// Models in the range with no price row, as `provider/model`.
-    pub unknown_models: Vec<String>,
+    pub not_priced_models: Vec<String>,
 }
 
 /// A bill as the API shows it.
@@ -618,7 +619,7 @@ async fn reconcile(
         contract_from_fallback: events::json::money(reconciliation.contract_from_fallback),
         a_message_is_wrong: reconciliation.a_message_is_wrong(),
         count_errors: messages.count_errors.len(),
-        unknown_models: messages
+        not_priced_models: messages
             .not_priced_models
             .iter()
             .map(|model| match &model.provider {

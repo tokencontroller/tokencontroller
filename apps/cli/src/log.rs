@@ -642,7 +642,7 @@ pub struct SessionView {
     /// The cost of the priced messages, `None` while none is priced.
     pub cost: Option<Money>,
     pub count_errors: usize,
-    pub unknown_models: Vec<String>,
+    pub not_priced_models: Vec<String>,
     pub reported_cost: Option<Money>,
     pub summary: Option<String>,
     pub facts: SessionFacts,
@@ -816,7 +816,7 @@ impl<'a> Folded<'a> {
         let mut cost: Option<Money> = None;
         let mut reported: Option<Money> = None;
         let mut count_errors = 0_usize;
-        let mut unknown_models: Vec<String> = Vec::new();
+        let mut not_priced_models: Vec<String> = Vec::new();
         let mut assigned_by: Option<String> = None;
         let mut subagent_types: Vec<String> = Vec::new();
         let count = u64::try_from(messages.len()).unwrap_or(u64::MAX).max(1);
@@ -839,8 +839,8 @@ impl<'a> Folded<'a> {
                 }
                 Some(tokencontroller_core::CostLabel::NotPricedYet) | None => {
                     let model = message.value.model.to_string();
-                    if !unknown_models.contains(&model) {
-                        unknown_models.push(model);
+                    if !not_priced_models.contains(&model) {
+                        not_priced_models.push(model);
                     }
                 }
             }
@@ -882,7 +882,7 @@ impl<'a> Folded<'a> {
             tokens,
             cost,
             count_errors,
-            unknown_models,
+            not_priced_models,
             reported_cost: reported,
             summary: first.value.session.summary.clone(),
             facts: first.value.session.clone(),
@@ -1398,7 +1398,7 @@ mod tests {
         let views = sessions(&state, &rows(&["s1"])).unwrap();
         let s1 = views.first().unwrap();
         assert_eq!(s1.cost, None);
-        assert_eq!(s1.unknown_models, ["claude-sonnet-4-5"]);
+        assert_eq!(s1.not_priced_models, ["claude-sonnet-4-5"]);
         assert_eq!(s1.assigned_by, "hand");
         assert_eq!(s1.label, Label::ProjectOverhead);
         assert_eq!(s1.signals.repository.as_deref(), Some("kestrel/ops"));

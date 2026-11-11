@@ -469,7 +469,7 @@ mod tests {
         assert!(!table().knows("anthropic", SONNET, date!(2025 - 12 - 31)));
         assert!(!table().knows("anthropic", "mystery-1", ON));
         assert!(!table().knows("acme", SONNET, ON));
-        // Zero counts of an unknown model are not priced either.
+        // Zero counts of a model with no price row are not priced either.
         unknown.tokens = Some(TokenCounts::new());
         assert_eq!(
             table().cost(&unknown).unwrap().label,

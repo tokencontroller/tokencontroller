@@ -1,5 +1,5 @@
 //! Which agent harness an event or span comes from, and how each one names
-//! the parts of a model call. Each agent harness has one door for its model
+//! the parts of a model call. Each agent harness has one endpoint for its model
 //! calls, so a call is never counted twice: `Claude Code`, Codex CLI, Gemini
 //! CLI and `Cursor` log one event per call, Copilot CLI writes one `chat`
 //! span per call. Their other events and spans are not model calls.
@@ -10,7 +10,7 @@ use super::fields::Fields;
 use crate::ingest::model::{TelemetryHarness, TokenCounts};
 
 /// The model name stored when an agent harness reports none.
-pub(super) const UNKNOWN_MODEL: &str = "unknown";
+pub(super) const NO_MODEL: &str = "unknown";
 
 /// Name prefixes of events, spans and instrumentation scopes that tell the
 /// agent harness apart, before the `service.name` resource attribute does.
@@ -25,7 +25,7 @@ const NAME_PREFIXES: &[(&str, TelemetryHarness)] = &[
 
 /// The signal an agent harness sends its model calls on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum Door {
+pub(super) enum Endpoint {
     Logs,
     Spans,
 }
@@ -81,13 +81,13 @@ fn by_service_name(service_name: &str) -> Option<TelemetryHarness> {
 }
 
 /// Where an agent harness's model calls arrive.
-pub(super) const fn door(harness: TelemetryHarness) -> Door {
+pub(super) const fn endpoint(harness: TelemetryHarness) -> Endpoint {
     match harness {
-        TelemetryHarness::CopilotCli => Door::Spans,
+        TelemetryHarness::CopilotCli => Endpoint::Spans,
         TelemetryHarness::ClaudeCode
         | TelemetryHarness::CodexCli
         | TelemetryHarness::GeminiCli
-        | TelemetryHarness::Cursor => Door::Logs,
+        | TelemetryHarness::Cursor => Endpoint::Logs,
     }
 }
 
@@ -296,7 +296,7 @@ fn optional(fields: &mut Fields<'_>, keys: &[&str]) -> Option<u64> {
 fn model(fields: &mut Fields<'_>, keys: &[&str]) -> String {
     fields
         .take_text(keys)
-        .unwrap_or_else(|| UNKNOWN_MODEL.to_owned())
+        .unwrap_or_else(|| NO_MODEL.to_owned())
 }
 
 /// The input tokens not read from or written to a cache, from a total that

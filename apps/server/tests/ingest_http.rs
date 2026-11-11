@@ -424,7 +424,7 @@ async fn claude_code_telemetry_builds_a_token_entry_once(pool: PgPool) {
     assert_eq!(known, 2);
 }
 
-/// Both doors for one Claude Code call: telemetry names it by its API
+/// Both routes for one Claude Code call: telemetry names it by its API
 /// request id, and so does `tc` when it submits the session file (ADR
 /// 0018). The call is one record, counted once; the submit's copy
 /// supersedes telemetry's and adds what telemetry cannot see.

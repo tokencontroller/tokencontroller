@@ -167,7 +167,7 @@ function flush($: $): Promise<void> {
   })
 }
 
-/** Reads today's figures and the check list from tc for the band and the pane. */
+/** Reads today's figures and the review list from tc for the band and the pane. */
 async function refresh($: $): Promise<void> {
   const run = await tc($, ['status', '--json'])
   if (!run.ok) {

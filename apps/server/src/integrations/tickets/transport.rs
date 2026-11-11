@@ -1,4 +1,4 @@
-//! Sending requests to a ticket system and reading its answers: sign-in,
+//! Sending requests to a tag source and reading its answers: sign-in,
 //! error answers turned into [`SyncError`], and `Link` header paging.
 
 use std::time::Duration;
@@ -9,7 +9,7 @@ use serde::de::DeserializeOwned;
 use serde_json::Value;
 use time::OffsetDateTime;
 
-use super::{Connection, Credentials, SyncError, TicketSystem, text};
+use super::{Connection, Credentials, SyncError, TagSourceKind, text};
 
 /// The longest provider message kept in an error, in characters.
 const MAX_MESSAGE_CHARS: usize = 300;
@@ -64,24 +64,24 @@ pub(super) async fn send<T: DeserializeOwned>(
 fn signed_in(connection: &Connection, request: RequestBuilder) -> RequestBuilder {
     let credentials = &connection.credentials;
     match connection.system {
-        TicketSystem::Jira => match credentials {
+        TagSourceKind::Jira => match credentials {
             Credentials::EmailAndToken { email, token } => request.basic_auth(email, Some(token)),
         },
     }
 }
 
-fn not_accepted(system: TicketSystem) -> SyncError {
+fn not_accepted(system: TagSourceKind) -> SyncError {
     let credential = match system {
-        TicketSystem::Jira => "account email and API token",
+        TagSourceKind::Jira => "account email and API token",
     };
     SyncError::Unauthorized(format!(
-        "{} did not accept the {credential}. Check it under Settings, Ticket systems.",
+        "{} did not accept the {credential}. Check it under Tags, Jira.",
         system.name()
     ))
 }
 
 fn failure(
-    system: TicketSystem,
+    system: TagSourceKind,
     status: StatusCode,
     headers: &HeaderMap,
     body: &str,
@@ -166,7 +166,7 @@ mod tests {
 
     fn connection(base_url: &str) -> Connection {
         Connection {
-            system: TicketSystem::Jira,
+            system: TagSourceKind::Jira,
             base_url: base_url.to_owned(),
             credentials: Credentials::EmailAndToken {
                 email: "dev@acme.example".to_owned(),
@@ -221,7 +221,7 @@ mod tests {
         .unwrap();
         assert_eq!(
             failure(
-                TicketSystem::Jira,
+                TagSourceKind::Jira,
                 StatusCode::FORBIDDEN,
                 &limited,
                 "{}",
@@ -254,7 +254,7 @@ mod tests {
         let long = "x".repeat(1_000);
         assert_eq!(provider_message(&long).chars().count(), MAX_MESSAGE_CHARS);
         let server_error = failure(
-            TicketSystem::Jira,
+            TagSourceKind::Jira,
             StatusCode::INTERNAL_SERVER_ERROR,
             &HeaderMap::new(),
             r#"{"$id":"1","message":"TF400898: An internal error occurred."}"#,

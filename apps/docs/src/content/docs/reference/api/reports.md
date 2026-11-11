@@ -54,7 +54,7 @@ Authorization: Bearer tc_read_…
     { "key": "KD-2", "amount": "120.00", "share": "0.126316", "messages": 1 }
   ],
   "count_errors": 0,
-  "unknown_models": [],
+  "not_priced_models": [],
   "not_priced_yet": { "messages": 0, "tokens": {} },
   "unpriced_kinds": [],
   "on_a_plan": "400.00",
@@ -67,7 +67,7 @@ The rows of one grouping add up to `total`: 250 + 580 + 120 = 950. The row with 
 
 `on_a_plan` is the part of `total` under a flat contract, which a fee pays: S1 under the seat plan `claude-team`. `metered` is the part under metered contracts and `no_contract` the part with no contract yet; the three add up to `total`. With `view=share` they are fractions too.
 
-`count_errors` are messages in the range with no counts. `not_priced_yet` counts the messages whose price is not certain yet, with their tokens added up by kind, such as `{"messages": 3, "tokens": {"input": 41200, "output": 6100}}`, and `unknown_models` names their models; they are not in `total`, and show as their own line, never as zero. `unpriced_kinds` are token kinds with tokens and no price row, such as `reasoning`: they are left out, and the rest of each message is priced. See [Not priced yet](/reference/pricing-tables#unknown).
+`count_errors` are messages in the range with no counts. `not_priced_yet` counts the messages whose price is not certain yet, with their tokens added up by kind, such as `{"messages": 3, "tokens": {"input": 41200, "output": 6100}}`, and `not_priced_models` names their models; they are not in `total`, and show as their own line, never as zero. `unpriced_kinds` are token kinds with tokens and no price row, such as `reasoning`: they are left out, and the rest of each message is priced. See [Not priced yet](/reference/pricing-tables#unknown).
 
 The same month, other groupings: `by=project` gives shop 800 and null 150; `by=client` acme 800; `by=person` Mara 700, Tom 250; `by=label` direct 700, project_overhead 100, organization_overhead 150; `by=team` web 950; `by=contract` anthropic-api 250, claude-team 400, openai-api 300. A filter narrows before grouping: `filter=feature:KD-1` gives total 580; `filter=team:web&by=feature` the same three rows. See [Reports](/report/reports) and [Checking a number](/report/checking-a-number).
 

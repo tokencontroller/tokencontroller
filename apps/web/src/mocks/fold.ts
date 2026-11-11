@@ -249,7 +249,7 @@ export function sessionView(db: Db, s: MockSession): Session {
     messages: s.messages.length,
     cost: dec(total),
     count_errors: costs.filter((c) => c.label === "count_error").length,
-    unknown_models: [...new Set(s.messages.filter((_, i) => costs[i]?.label === "not_priced_yet").map((m) => (m.provider ? `${m.provider}/${m.model}` : m.model)))],
+    not_priced_models: [...new Set(s.messages.filter((_, i) => costs[i]?.label === "not_priced_yet").map((m) => (m.provider ? `${m.provider}/${m.model}` : m.model)))],
     contracts: [...new Set(s.messages.flatMap((m) => contractOf(db, s, m)?.key ?? []))],
     contract_by: [...new Set(s.messages.flatMap((m) => contractOf(db, s, m)?.by ?? []))],
     no_contract: s.messages.filter((m) => m.provider && !contractOf(db, s, m)).length,

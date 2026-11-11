@@ -1,5 +1,5 @@
-//! Ticket systems an organization connects, and the sync that keeps their
-//! features current: every 15 minutes per ticket system, or when someone
+//! Tag sources an organization connects, and the sync that keeps their
+//! features current: every 15 minutes per tag source, or when someone
 //! asks (docs: Account > Tags > Jira).
 //!
 //! An org manager connects Jira Cloud with an API token, then maps each of
@@ -26,7 +26,7 @@ use utoipa_axum::routes;
 use uuid::Uuid;
 
 use super::tickets::{
-    self, Connection, Credentials, ExternalProject, SyncError, SyncedTicket, TicketSystem,
+    self, Connection, Credentials, ExternalProject, SyncError, SyncedTicket, TagSourceKind,
 };
 use super::{ConnectionStatus, secrets};
 use crate::AppState;
@@ -37,14 +37,14 @@ use crate::sign_in::{Caller, Member};
 /// The job that syncs tickets.
 pub const JOB: &str = "ticket-sync";
 
-/// How often the job looks for ticket systems that are due. A sync someone
+/// How often the job looks for tag sources that are due. A sync someone
 /// asks for starts at the runner's next tick instead.
 pub const JOB_EVERY: Duration = Duration::from_mins(5);
 
-/// How often each ticket system syncs, in minutes.
+/// How often each tag source syncs, in minutes.
 const SYNC_EVERY_MINUTES: i32 = 15;
 
-/// Ticket systems one run syncs at most; the rest wait for the next run.
+/// Tag sources one run syncs at most; the rest wait for the next run.
 const PER_RUN: i64 = 20;
 
 /// The fields the sync map can copy onto a feature.
@@ -59,19 +59,19 @@ pub const FIELDS: [&str; 6] = [
 
 pub(super) fn routes() -> OpenApiRouter<AppState> {
     OpenApiRouter::new()
-        .routes(routes!(list_ticket_systems, connect_ticket_system))
-        .routes(routes!(disconnect_ticket_system))
+        .routes(routes!(list_tag_sources, connect_tag_source))
+        .routes(routes!(disconnect_tag_source))
         .routes(routes!(external_projects))
         .routes(routes!(set_mappings))
         .routes(routes!(sync_now))
 }
 
-/// A connected ticket system, as the web app shows it. The token is never
+/// A connected tag source, as the web app shows it. The token is never
 /// sent back.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, ToSchema)]
-pub struct TicketSystemView {
+pub struct TagSourceView {
     pub id: Uuid,
-    pub kind: TicketSystem,
+    pub kind: TagSourceKind,
     /// The Jira Cloud site.
     pub site: String,
     /// The token's last characters, to tell tokens apart.
@@ -90,7 +90,7 @@ pub struct TicketSystemView {
 /// issues get as default.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct Mapping {
-    /// The Jira project key, as `GET /ticket-systems/{id}/projects` lists
+    /// The Jira project key, as `GET /tag-sources/{id}/projects` lists
     /// them.
     pub external: String,
     /// Its name. Optional when mapping; the key stands in.
@@ -104,13 +104,13 @@ pub struct Mapping {
     pub fields: Option<Vec<String>>,
 }
 
-/// A ticket system to connect.
+/// A tag source to connect.
 #[derive(Deserialize, ToSchema)]
-pub struct NewTicketSystem {
-    pub kind: TicketSystem,
+pub struct NewTagSource {
+    pub kind: TagSourceKind,
     /// The Jira Cloud site, such as `https://acme.atlassian.net`.
     pub site: String,
-    /// An API token from the ticket system.
+    /// An API token from the tag source.
     pub token: String,
     /// The email of the Atlassian account the token belongs to. Jira Cloud
     /// signs in with both.
@@ -118,7 +118,7 @@ pub struct NewTicketSystem {
     pub email: Option<String>,
 }
 
-/// What is stored, sealed, for a ticket system.
+/// What is stored, sealed, for a tag source.
 #[derive(Serialize, Deserialize)]
 struct StoredCredentials {
     email: String,
@@ -138,21 +138,24 @@ async fn views(
     db: &PgPool,
     organization_id: Uuid,
     only: Option<Uuid>,
-) -> Result<Vec<TicketSystemView>, sqlx::Error> {
+) -> Result<Vec<TagSourceView>, sqlx::Error> {
     let systems = sqlx::query!(
-        "SELECT id, kind, site, key_hint, last_sync_at, last_error FROM ticket_systems
+        r#"SELECT id AS "id!", kind AS "kind!", site AS "site!", key_hint AS "key_hint!",
+                last_sync_at, last_error
+         FROM tag_sources
          WHERE organization_id = $1 AND ($2::uuid IS NULL OR id = $2)
-         ORDER BY created_at, id",
+         ORDER BY created_at, id"#,
         organization_id,
         only
     )
     .fetch_all(db)
     .await?;
     let mappings = sqlx::query!(
-        "SELECT ticket_system_id, external_project, external_name, project, fields
-         FROM ticket_system_projects
+        r#"SELECT tag_source_id AS "tag_source_id!", external_project AS "external_project!",
+                external_name AS "external_name!", project AS "project!", fields AS "fields!"
+         FROM tag_source_projects
          WHERE organization_id = $1
-         ORDER BY external_name, external_project",
+         ORDER BY external_name, external_project"#,
         organization_id
     )
     .fetch_all(db)
@@ -160,14 +163,14 @@ async fn views(
     Ok(systems
         .into_iter()
         .filter_map(|system| {
-            Some(TicketSystemView {
+            Some(TagSourceView {
                 id: system.id,
-                kind: TicketSystem::from_name(&system.kind)?,
+                kind: TagSourceKind::from_name(&system.kind)?,
                 site: system.site,
                 key_hint: system.key_hint,
                 mappings: mappings
                     .iter()
-                    .filter(|mapping| mapping.ticket_system_id == system.id)
+                    .filter(|mapping| mapping.tag_source_id == system.id)
                     .map(|mapping| Mapping {
                         external: mapping.external_project.clone(),
                         external_name: Some(mapping.external_name.clone()),
@@ -183,7 +186,7 @@ async fn views(
         .collect())
 }
 
-async fn view(db: &PgPool, organization_id: Uuid, id: Uuid) -> Result<TicketSystemView, ApiError> {
+async fn view(db: &PgPool, organization_id: Uuid, id: Uuid) -> Result<TagSourceView, ApiError> {
     views(db, organization_id, Some(id))
         .await?
         .into_iter()
@@ -199,38 +202,38 @@ async fn require_org_manager(state: &AppState, caller: &Caller) -> Result<(), Ap
     access::require_org_manager(&fold, &person)
 }
 
-/// The ticket systems the organization connected.
+/// The tag sources the organization connected.
 #[utoipa::path(
     get,
-    path = "/ticket-systems",
+    path = "/tag-sources",
     tag = "integrations",
-    responses((status = OK, body = Vec<TicketSystemView>)),
+    responses((status = OK, body = Vec<TagSourceView>)),
 )]
-async fn list_ticket_systems(
+async fn list_tag_sources(
     State(state): State<AppState>,
     member: Member,
-) -> Result<Json<Vec<TicketSystemView>>, ApiError> {
+) -> Result<Json<Vec<TagSourceView>>, ApiError> {
     Ok(Json(views(&state.db, member.organization_id, None).await?))
 }
 
-/// Connect a ticket system with an API token. Org managers only. The first
-/// sync starts right away; whoever connects a ticket system answers for
+/// Connect a tag source with an API token. Org managers only. The first
+/// sync starts right away; whoever connects a tag source answers for
 /// that data flow.
 #[utoipa::path(
     post,
-    path = "/ticket-systems",
+    path = "/tag-sources",
     tag = "integrations",
-    request_body = NewTicketSystem,
+    request_body = NewTagSource,
     responses(
-        (status = CREATED, body = TicketSystemView),
+        (status = CREATED, body = TagSourceView),
         (status = BAD_REQUEST, description = "The address or the token is not usable", body = ErrorBody),
     ),
 )]
-async fn connect_ticket_system(
+async fn connect_tag_source(
     State(state): State<AppState>,
     caller: Caller,
-    Json(body): Json<NewTicketSystem>,
-) -> Result<(StatusCode, Json<TicketSystemView>), ApiError> {
+    Json(body): Json<NewTagSource>,
+) -> Result<(StatusCode, Json<TagSourceView>), ApiError> {
     caller.require_session()?;
     require_org_manager(&state, &caller).await?;
     let site = body.site.trim().trim_end_matches('/').to_owned();
@@ -260,9 +263,9 @@ async fn connect_ticket_system(
     let sealed = secrets::seal(&state.config.secret_key, &stored)
         .context("could not seal the credentials")?;
     let id = sqlx::query_scalar!(
-        "INSERT INTO ticket_systems
+        r#"INSERT INTO tag_sources
              (organization_id, kind, site, sealed_credentials, key_hint, created_by, sync_requested_at)
-         VALUES ($1, $2, $3, $4, $5, $6, now()) RETURNING id",
+         VALUES ($1, $2, $3, $4, $5, $6, now()) RETURNING id AS "id!""#,
         caller.organization_id,
         body.kind.as_str(),
         site,
@@ -279,19 +282,19 @@ async fn connect_ticket_system(
     ))
 }
 
-/// Disconnect a ticket system. Org managers only. Its features stay, and
+/// Disconnect a tag source. Org managers only. Its features stay, and
 /// stop syncing.
 #[utoipa::path(
     delete,
-    path = "/ticket-systems/{id}",
+    path = "/tag-sources/{id}",
     tag = "integrations",
-    params(("id" = Uuid, Path, description = "The ticket system")),
+    params(("id" = Uuid, Path, description = "The tag source")),
     responses(
         (status = NO_CONTENT, description = "Disconnected"),
         (status = NOT_FOUND, body = ErrorBody),
     ),
 )]
-async fn disconnect_ticket_system(
+async fn disconnect_tag_source(
     State(state): State<AppState>,
     caller: Caller,
     Path(id): Path<Uuid>,
@@ -299,7 +302,7 @@ async fn disconnect_ticket_system(
     caller.require_session()?;
     require_org_manager(&state, &caller).await?;
     let deleted = sqlx::query!(
-        "DELETE FROM ticket_systems WHERE organization_id = $1 AND id = $2",
+        "DELETE FROM tag_sources WHERE organization_id = $1 AND id = $2",
         caller.organization_id,
         id
     )
@@ -311,22 +314,23 @@ async fn disconnect_ticket_system(
     Ok(StatusCode::NO_CONTENT)
 }
 
-/// The connection to a stored ticket system.
+/// The connection to a stored tag source.
 async fn connection(
     state: &AppState,
     organization_id: Uuid,
     id: Uuid,
 ) -> Result<Connection, ApiError> {
     let row = sqlx::query!(
-        "SELECT kind, site, sealed_credentials FROM ticket_systems
-         WHERE organization_id = $1 AND id = $2",
+        r#"SELECT kind AS "kind!", site AS "site!", sealed_credentials AS "sealed_credentials!"
+         FROM tag_sources
+         WHERE organization_id = $1 AND id = $2"#,
         organization_id,
         id
     )
     .fetch_optional(&state.db)
     .await?
     .ok_or(ApiError::NotFound)?;
-    let system = TicketSystem::from_name(&row.kind).ok_or(ApiError::NotFound)?;
+    let system = TagSourceKind::from_name(&row.kind).ok_or(ApiError::NotFound)?;
     open_connection(
         &state.config.secret_key,
         system,
@@ -338,7 +342,7 @@ async fn connection(
 
 fn open_connection(
     secret_key: &str,
-    system: TicketSystem,
+    system: TagSourceKind,
     base_url: String,
     sealed: &str,
 ) -> Result<Connection, secrets::SecretError> {
@@ -358,16 +362,16 @@ fn sync_error(error: SyncError) -> ApiError {
     }
 }
 
-/// The projects the ticket system shows the token, to map. Org managers
+/// The projects the tag source shows the token, to map. Org managers
 /// only.
 #[utoipa::path(
     get,
-    path = "/ticket-systems/{id}/projects",
+    path = "/tag-sources/{id}/projects",
     tag = "integrations",
-    params(("id" = Uuid, Path, description = "The ticket system")),
+    params(("id" = Uuid, Path, description = "The tag source")),
     responses(
         (status = OK, body = Vec<ExternalProject>),
-        (status = BAD_REQUEST, description = "The ticket system refused the token or could not be read", body = ErrorBody),
+        (status = BAD_REQUEST, description = "The tag source refused the token or could not be read", body = ErrorBody),
         (status = NOT_FOUND, body = ErrorBody),
     ),
 )]
@@ -410,12 +414,12 @@ fn checked_fields(fields: Option<&[String]>) -> Result<Vec<String>, ApiError> {
 /// replacing the earlier map. Org managers only. A sync starts right away.
 #[utoipa::path(
     put,
-    path = "/ticket-systems/{id}/mappings",
+    path = "/tag-sources/{id}/mappings",
     tag = "integrations",
-    params(("id" = Uuid, Path, description = "The ticket system")),
+    params(("id" = Uuid, Path, description = "The tag source")),
     request_body = Vec<Mapping>,
     responses(
-        (status = OK, body = TicketSystemView),
+        (status = OK, body = TagSourceView),
         (status = BAD_REQUEST, description = "A project is unknown or mapped twice", body = ErrorBody),
         (status = NOT_FOUND, body = ErrorBody),
     ),
@@ -425,7 +429,7 @@ async fn set_mappings(
     caller: Caller,
     Path(id): Path<Uuid>,
     Json(mappings): Json<Vec<Mapping>>,
-) -> Result<Json<TicketSystemView>, ApiError> {
+) -> Result<Json<TagSourceView>, ApiError> {
     caller.require_session()?;
     let person = caller.person()?;
     let organization_id = caller.organization_id;
@@ -433,7 +437,7 @@ async fn set_mappings(
     let fold = log.fold(OffsetDateTime::now_utc())?;
     access::require_org_manager(&fold, &person)?;
     let known = sqlx::query_scalar!(
-        "SELECT id FROM ticket_systems WHERE organization_id = $1 AND id = $2",
+        r#"SELECT id AS "id!" FROM tag_sources WHERE organization_id = $1 AND id = $2"#,
         organization_id,
         id
     )
@@ -447,7 +451,7 @@ async fn set_mappings(
     for mapping in &mappings {
         if mapping.external.trim().is_empty() {
             return Err(ApiError::BadRequest(
-                "Each mapping needs the ticket system's project.".to_owned(),
+                "Each mapping needs the tag source's project.".to_owned(),
             ));
         }
         if !externals.insert(mapping.external.trim().to_owned()) {
@@ -467,8 +471,8 @@ async fn set_mappings(
     let mut tx = state.db.begin().await?;
     let externals: Vec<String> = externals.into_iter().collect();
     sqlx::query!(
-        "DELETE FROM ticket_system_projects
-         WHERE ticket_system_id = $1 AND NOT (external_project = ANY($2))",
+        "DELETE FROM tag_source_projects
+         WHERE tag_source_id = $1 AND NOT (external_project = ANY($2))",
         id,
         &externals
     )
@@ -485,16 +489,16 @@ async fn set_mappings(
         let fields = checked_fields(mapping.fields.as_deref())?;
         // A project that changes starts its issues over.
         sqlx::query!(
-            "INSERT INTO ticket_system_projects
-                 (organization_id, ticket_system_id, external_project, external_name, project, fields)
+            "INSERT INTO tag_source_projects
+                 (organization_id, tag_source_id, external_project, external_name, project, fields)
              VALUES ($1, $2, $3, $4, $5, $6)
-             ON CONFLICT (ticket_system_id, external_project) DO UPDATE SET
+             ON CONFLICT (tag_source_id, external_project) DO UPDATE SET
                  external_name = EXCLUDED.external_name,
                  project = EXCLUDED.project,
                  fields = EXCLUDED.fields,
-                 synced_until = CASE WHEN ticket_system_projects.project = EXCLUDED.project
-                                      AND ticket_system_projects.fields = EXCLUDED.fields
-                                     THEN ticket_system_projects.synced_until END",
+                 synced_until = CASE WHEN tag_source_projects.project = EXCLUDED.project
+                                      AND tag_source_projects.fields = EXCLUDED.fields
+                                     THEN tag_source_projects.synced_until END",
             organization_id,
             id,
             external,
@@ -506,7 +510,7 @@ async fn set_mappings(
         .await?;
     }
     sqlx::query!(
-        "UPDATE ticket_systems SET sync_requested_at = now() WHERE id = $1",
+        "UPDATE tag_sources SET sync_requested_at = now() WHERE id = $1",
         id
     )
     .execute(&mut *tx)
@@ -516,15 +520,15 @@ async fn set_mappings(
     Ok(Json(view(&state.db, organization_id, id).await?))
 }
 
-/// Sync a ticket system now, without waiting for its 15 minutes. Org
+/// Sync a tag source now, without waiting for its 15 minutes. Org
 /// managers only.
 #[utoipa::path(
     post,
-    path = "/ticket-systems/{id}/sync",
+    path = "/tag-sources/{id}/sync",
     tag = "integrations",
-    params(("id" = Uuid, Path, description = "The ticket system")),
+    params(("id" = Uuid, Path, description = "The tag source")),
     responses(
-        (status = ACCEPTED, description = "The sync starts within a minute", body = TicketSystemView),
+        (status = ACCEPTED, description = "The sync starts within a minute", body = TagSourceView),
         (status = NOT_FOUND, body = ErrorBody),
     ),
 )]
@@ -532,11 +536,11 @@ async fn sync_now(
     State(state): State<AppState>,
     caller: Caller,
     Path(id): Path<Uuid>,
-) -> Result<(StatusCode, Json<TicketSystemView>), ApiError> {
+) -> Result<(StatusCode, Json<TagSourceView>), ApiError> {
     caller.require_session()?;
     require_org_manager(&state, &caller).await?;
     let asked = sqlx::query!(
-        "UPDATE ticket_systems SET sync_requested_at = now()
+        "UPDATE tag_sources SET sync_requested_at = now()
          WHERE organization_id = $1 AND id = $2",
         caller.organization_id,
         id
@@ -553,7 +557,7 @@ async fn sync_now(
     ))
 }
 
-/// Why one ticket system did not sync.
+/// Why one tag source did not sync.
 #[derive(Debug, thiserror::Error)]
 enum SyncFailure {
     #[error("{0}")]
@@ -567,8 +571,8 @@ enum SyncFailure {
 }
 
 impl SyncFailure {
-    /// Whether the failure is on the side of Token Controller or the ticket
-    /// system as a whole, rather than one organization's token or project.
+    /// Whether the failure is on the side of Token Controller or the tag
+    /// source as a whole, rather than one organization's token or project.
     const fn is_outage(&self) -> bool {
         match self {
             Self::Ticket(error) => matches!(
@@ -581,26 +585,27 @@ impl SyncFailure {
     }
 }
 
-/// The `ticket-sync` job: syncs each ticket system that is due, at most
+/// The `ticket-sync` job: syncs each tag source that is due, at most
 /// [`PER_RUN`] of them.
 ///
 /// # Errors
 ///
-/// Fails when the database fails, or when every ticket system it tried
+/// Fails when the database fails, or when every tag source it tried
 /// failed for a reason that is not one organization's own, so the status
 /// page shows the outage.
 pub async fn sync_due(state: AppState) -> anyhow::Result<String> {
     let client = super::http::client().context("could not build the HTTP client")?;
     let due = sqlx::query!(
-        r#"UPDATE ticket_systems SET last_sync_started_at = now()
+        r#"UPDATE tag_sources SET last_sync_started_at = now()
            WHERE id IN (
-               SELECT id FROM ticket_systems
+               SELECT id FROM tag_sources
                WHERE last_sync_started_at IS NULL
                   OR last_sync_started_at <= now() - make_interval(mins => $1)
                   OR sync_requested_at >= last_sync_started_at
                ORDER BY last_sync_started_at NULLS FIRST
                LIMIT $2)
-           RETURNING id, organization_id, kind, site, sealed_credentials,
+           RETURNING id AS "id!", organization_id AS "organization_id!", kind AS "kind!",
+                     site AS "site!", sealed_credentials AS "sealed_credentials!",
                      last_sync_started_at AS "started_at!""#,
         SYNC_EVERY_MINUTES,
         PER_RUN
@@ -611,7 +616,7 @@ pub async fn sync_due(state: AppState) -> anyhow::Result<String> {
     let mut features = 0_usize;
     let mut outages = Vec::new();
     for system in &due {
-        let result = match TicketSystem::from_name(&system.kind) {
+        let result = match TagSourceKind::from_name(&system.kind) {
             Some(kind) => {
                 sync_system(
                     &state,
@@ -631,7 +636,7 @@ pub async fn sync_due(state: AppState) -> anyhow::Result<String> {
         };
         let error = result.as_ref().err().map(ToString::to_string);
         sqlx::query!(
-            "UPDATE ticket_systems SET
+            "UPDATE tag_sources SET
                  last_sync_at = CASE WHEN $2::text IS NULL THEN now() ELSE last_sync_at END,
                  last_error = $2
              WHERE id = $1",
@@ -651,7 +656,7 @@ pub async fn sync_due(state: AppState) -> anyhow::Result<String> {
     }
     if !due.is_empty() && outages.len() == due.len() {
         anyhow::bail!(
-            "no ticket system could sync: {}",
+            "no tag source could sync: {}",
             outages
                 .into_iter()
                 .collect::<BTreeSet<_>>()
@@ -661,22 +666,22 @@ pub async fn sync_due(state: AppState) -> anyhow::Result<String> {
         );
     }
     Ok(format!(
-        "{synced} of {} ticket systems synced, {features} features written",
+        "{synced} of {} tag sources synced, {features} features written",
         due.len()
     ))
 }
 
-/// One ticket system the job syncs.
+/// One tag source the job syncs.
 struct SystemRow<'a> {
     id: Uuid,
     organization_id: Uuid,
-    kind: TicketSystem,
+    kind: TagSourceKind,
     site: String,
     sealed: &'a str,
     started_at: OffsetDateTime,
 }
 
-/// Syncs every mapped project of one ticket system. A project that fails
+/// Syncs every mapped project of one tag source. A project that fails
 /// does not stop the others; the first failure is returned.
 async fn sync_system(
     state: &AppState,
@@ -690,8 +695,10 @@ async fn sync_system(
         system.sealed,
     )?;
     let mappings = sqlx::query!(
-        "SELECT external_project, project, fields, synced_until FROM ticket_system_projects
-         WHERE ticket_system_id = $1 ORDER BY external_project",
+        r#"SELECT external_project AS "external_project!", project AS "project!",
+                fields AS "fields!", synced_until
+         FROM tag_source_projects
+         WHERE tag_source_id = $1 ORDER BY external_project"#,
         system.id
     )
     .fetch_all(&state.db)
@@ -726,9 +733,9 @@ async fn sync_system(
         written = written.saturating_add(count);
         // Issues that changed while this sync ran come again next time.
         sqlx::query!(
-            "UPDATE ticket_system_projects
+            "UPDATE tag_source_projects
              SET synced_until = $3::timestamptz - interval '5 minutes'
-             WHERE ticket_system_id = $1 AND external_project = $2",
+             WHERE tag_source_id = $1 AND external_project = $2",
             system.id,
             mapping.external_project,
             system.started_at
@@ -878,7 +885,7 @@ mod tests {
 
     fn issue(key: &str, closed: bool) -> SyncedTicket {
         SyncedTicket {
-            system: TicketSystem::Jira,
+            system: TagSourceKind::Jira,
             external_project: "KD".to_owned(),
             key: key.to_owned(),
             title: Some("Checkout redesign".to_owned()),

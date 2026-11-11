@@ -2,8 +2,8 @@ import { expect, test } from "@playwright/test";
 import { openFromMenu, signIn } from "./helpers";
 
 // Docs: Price table. Managed rows are read-only; an org manager adds a row
-// for a model the managed table lacks. Count errors and unknown models are listed.
-test("an org manager adds a price for an unknown model", async ({ page }) => {
+// for a model the managed table lacks. Count errors and messages not priced yet are listed.
+test("an org manager adds a price for a model not priced yet", async ({ page }) => {
   await signIn(page, "nadia");
   await openFromMenu(page, "Price table");
   const missing = page.getByRole("table", { name: "Messages without a cost" });

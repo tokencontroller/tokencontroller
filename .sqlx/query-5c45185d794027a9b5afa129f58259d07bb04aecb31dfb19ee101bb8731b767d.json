@@ -1,59 +1,59 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT ticket_system_id, external_project, external_name, project, fields\n         FROM ticket_system_projects\n         WHERE organization_id = $1\n         ORDER BY external_name, external_project",
+  "query": "SELECT tag_source_id AS \"tag_source_id!\", external_project AS \"external_project!\",\n                external_name AS \"external_name!\", project AS \"project!\", fields AS \"fields!\"\n         FROM tag_source_projects\n         WHERE organization_id = $1\n         ORDER BY external_name, external_project",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "ticket_system_id",
+        "name": "tag_source_id!",
         "type_info": "Uuid",
         "origin": {
           "Table": {
-            "table": "ticket_system_projects",
-            "name": "ticket_system_id"
+            "table": "tag_source_projects",
+            "name": "tag_source_id"
           }
         }
       },
       {
         "ordinal": 1,
-        "name": "external_project",
+        "name": "external_project!",
         "type_info": "Text",
         "origin": {
           "Table": {
-            "table": "ticket_system_projects",
+            "table": "tag_source_projects",
             "name": "external_project"
           }
         }
       },
       {
         "ordinal": 2,
-        "name": "external_name",
+        "name": "external_name!",
         "type_info": "Text",
         "origin": {
           "Table": {
-            "table": "ticket_system_projects",
+            "table": "tag_source_projects",
             "name": "external_name"
           }
         }
       },
       {
         "ordinal": 3,
-        "name": "project",
+        "name": "project!",
         "type_info": "Text",
         "origin": {
           "Table": {
-            "table": "ticket_system_projects",
+            "table": "tag_source_projects",
             "name": "project"
           }
         }
       },
       {
         "ordinal": 4,
-        "name": "fields",
+        "name": "fields!",
         "type_info": "TextArray",
         "origin": {
           "Table": {
-            "table": "ticket_system_projects",
+            "table": "tag_source_projects",
             "name": "fields"
           }
         }
@@ -65,12 +65,12 @@
       ]
     },
     "nullable": [
-      false,
-      false,
-      false,
-      false,
-      false
+      true,
+      true,
+      true,
+      true,
+      true
     ]
   },
-  "hash": "4a5bd0c86d5ddd45a1f80f1f5c49c51b4814913d6ee6f0e4774da159cb4cdb06"
+  "hash": "5c45185d794027a9b5afa129f58259d07bb04aecb31dfb19ee101bb8731b767d"
 }

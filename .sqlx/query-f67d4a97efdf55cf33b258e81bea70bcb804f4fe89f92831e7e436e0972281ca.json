@@ -1,59 +1,59 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE ticket_systems SET last_sync_started_at = now()\n           WHERE id IN (\n               SELECT id FROM ticket_systems\n               WHERE last_sync_started_at IS NULL\n                  OR last_sync_started_at <= now() - make_interval(mins => $1)\n                  OR sync_requested_at >= last_sync_started_at\n               ORDER BY last_sync_started_at NULLS FIRST\n               LIMIT $2)\n           RETURNING id, organization_id, kind, site, sealed_credentials,\n                     last_sync_started_at AS \"started_at!\"",
+  "query": "UPDATE tag_sources SET last_sync_started_at = now()\n           WHERE id IN (\n               SELECT id FROM tag_sources\n               WHERE last_sync_started_at IS NULL\n                  OR last_sync_started_at <= now() - make_interval(mins => $1)\n                  OR sync_requested_at >= last_sync_started_at\n               ORDER BY last_sync_started_at NULLS FIRST\n               LIMIT $2)\n           RETURNING id AS \"id!\", organization_id AS \"organization_id!\", kind AS \"kind!\",\n                     site AS \"site!\", sealed_credentials AS \"sealed_credentials!\",\n                     last_sync_started_at AS \"started_at!\"",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "id",
+        "name": "id!",
         "type_info": "Uuid",
         "origin": {
           "Table": {
-            "table": "ticket_systems",
+            "table": "tag_sources",
             "name": "id"
           }
         }
       },
       {
         "ordinal": 1,
-        "name": "organization_id",
+        "name": "organization_id!",
         "type_info": "Uuid",
         "origin": {
           "Table": {
-            "table": "ticket_systems",
+            "table": "tag_sources",
             "name": "organization_id"
           }
         }
       },
       {
         "ordinal": 2,
-        "name": "kind",
+        "name": "kind!",
         "type_info": "Text",
         "origin": {
           "Table": {
-            "table": "ticket_systems",
+            "table": "tag_sources",
             "name": "kind"
           }
         }
       },
       {
         "ordinal": 3,
-        "name": "site",
+        "name": "site!",
         "type_info": "Text",
         "origin": {
           "Table": {
-            "table": "ticket_systems",
+            "table": "tag_sources",
             "name": "site"
           }
         }
       },
       {
         "ordinal": 4,
-        "name": "sealed_credentials",
+        "name": "sealed_credentials!",
         "type_info": "Text",
         "origin": {
           "Table": {
-            "table": "ticket_systems",
+            "table": "tag_sources",
             "name": "sealed_credentials"
           }
         }
@@ -64,7 +64,7 @@
         "type_info": "Timestamptz",
         "origin": {
           "Table": {
-            "table": "ticket_systems",
+            "table": "tag_sources",
             "name": "last_sync_started_at"
           }
         }
@@ -77,13 +77,13 @@
       ]
     },
     "nullable": [
-      false,
-      false,
-      false,
-      false,
-      false,
+      true,
+      true,
+      true,
+      true,
+      true,
       true
     ]
   },
-  "hash": "ebbca123f57ba6225f21a4647f5c48f637e406adbe9ae26b2f71106fdd829460"
+  "hash": "f67d4a97efdf55cf33b258e81bea70bcb804f4fe89f92831e7e436e0972281ca"
 }

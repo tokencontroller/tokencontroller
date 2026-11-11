@@ -130,7 +130,7 @@ function Check({ row: r, title }: { row: Reconciliation; title: string }) {
             </>
           )}
         </div>
-        {beside || r.count_errors || r.unknown_models.length ? (
+        {beside || r.count_errors || r.not_priced_models.length ? (
           <ul className="mt-4 flex flex-col gap-1 border-t border-line pt-3 text-small">
             {Number(r.same_provider_no_contract) !== 0 ? (
               <li className="flex justify-between gap-3 text-exception">
@@ -144,10 +144,10 @@ function Check({ row: r, title }: { row: Reconciliation; title: string }) {
                 {money(r.contract_from_fallback)}
               </li>
             ) : null}
-            {r.count_errors || r.unknown_models.length ? (
+            {r.count_errors || r.not_priced_models.length ? (
               <li className="flex flex-wrap gap-1">
                 {r.count_errors ? <Badge tone="exception">{r.count_errors} count errors</Badge> : null}
-                {r.unknown_models.map((m) => (
+                {r.not_priced_models.map((m) => (
                   <Badge key={m} tone="exception">{m}</Badge>
                 ))}
               </li>

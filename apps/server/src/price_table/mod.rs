@@ -47,7 +47,8 @@ pub struct PriceRowView {
     pub id: String,
     pub provider: String,
     pub model: String,
-    /// `input`, `output`, `cache_read` or `cache_write`.
+    /// The token kind the price is for, such as `input`, `cache_read` or
+    /// `cache_write_1h`. Kinds are open names (ADR 0028).
     #[schema(value_type = String, example = "input")]
     pub kind: TokenKind,
     /// US dollars per million tokens, as a decimal string.

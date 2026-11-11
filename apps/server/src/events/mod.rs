@@ -1,4 +1,4 @@
-//! The event log (ADR 0022): the one door to an organization's state. Every
+//! The event log (ADR 0022): the one way in to an organization's state. Every
 //! write is an event appended here; every figure is the core crate's fold
 //! of the log as of a moment. Nothing is updated or deleted.
 //!
@@ -340,7 +340,7 @@ pub fn managed_row_event(price: &PriceRow, recorded_at: OffsetDateTime) -> Resul
 }
 
 /// A new event id: a short prefix naming the kind, such as `spl_`, and a
-/// random part. Doors that bring their own ids keep them.
+/// random part. Sources that bring their own ids keep them.
 #[must_use]
 pub fn new_id(prefix: &str) -> String {
     format!("{prefix}{}", Uuid::new_v4().simple())

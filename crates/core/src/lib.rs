@@ -10,7 +10,7 @@
 //!
 //! # Records
 //!
-//! Source records, added by anyone or any door, never changed: [`Message`],
+//! Source records, added by anyone or any source, never changed: [`Message`],
 //! [`Bill`], [`Estimate`], [`TagValueRecord`], [`Share`], [`PriceRow`],
 //! [`AttributeValue`] (with [`PersonAttribute`] to put one on a person).
 //! Assignments, each superseding an older one on the same target:
@@ -23,7 +23,8 @@
 //!
 //! 1. `C(e) = Σ_kind tokens_kind(e) × p(provider, model, kind, as of t(e))`:
 //!    [`PriceTable::cost`], [`State::message_costs`]. No counts is a count
-//!    error, an unknown model is labelled; neither is ever zero.
+//!    error, a message without a certain price is not priced yet; neither
+//!    is ever zero.
 //! 2. `T*(s)`: the tags of a split closed under defaults; a feature brings
 //!    its project, a project its client, the person their attributes, a
 //!    team its department: [`Values::close`], [`Line::tags`].

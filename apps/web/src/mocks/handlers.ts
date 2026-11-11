@@ -384,7 +384,7 @@ function reconciliationOf(db: Db, b: Db["bills"][number]) {
     contract_from_fallback: dec(fallback),
     a_message_is_wrong: kind === "flat" ? covered !== null && covered < 0 : unexplained < 0,
     count_errors: ids.size,
-    unknown_models: [...unknown],
+    not_priced_models: [...unknown],
     currency: "USD",
   };
 }
@@ -987,7 +987,7 @@ export const handlers = [
       total: dec(total),
       rows,
       count_errors: new Set(ls.filter((l) => l.costLabel === "count_error").map((l) => l.message.message_id)).size,
-      unknown_models: [...new Set(ls.filter((l) => l.costLabel === "not_priced_yet").map((l) => `${l.message.provider}/${l.message.model}`))],
+      not_priced_models: [...new Set(ls.filter((l) => l.costLabel === "not_priced_yet").map((l) => `${l.message.provider}/${l.message.model}`))],
       not_priced_yet: notPricedYet(ls.filter((l) => l.costLabel === "not_priced_yet").map((l) => l.message)),
       unpriced_kinds: [],
       ...contractParts(db, ls, total, q.share),
@@ -1077,35 +1077,35 @@ export const handlers = [
     db.tokens = db.tokens.filter((t) => t.id !== params.id);
     return new HttpResponse(null, { status: 204 });
   })),
-  http.get(`${API}/ticket-systems`, member(({ db }) => HttpResponse.json(db.ticketSystems))),
-  http.post(`${API}/ticket-systems`, member(async ({ db, request }) => {
+  http.get(`${API}/tag-sources`, member(({ db }) => HttpResponse.json(db.tagSources))),
+  http.post(`${API}/tag-sources`, member(async ({ db, request }) => {
     const body = (await request.json()) as { kind: "jira"; site: string; token: string; email?: string | null };
     if (!/^https:\/\/[a-z0-9-]+\.atlassian\.net\/?$/.test(body.site.trim())) return error(400, "bad_request", "The address is your Jira Cloud site, such as https://acme.atlassian.net.");
     if (!body.email?.trim()) return error(400, "bad_request", "Give the email of the Atlassian account the API token belongs to.");
     if (body.token.trim().length < 8) return error(400, "bad_request", "That does not look like an API token.");
     const system = { id: nextId(db, "tks"), kind: "jira" as const, site: body.site.trim().replace(/\/$/, ""), key_hint: `…${body.token.slice(-4)}`, status: "ok" as const, last_sync_at: null, message: null, mappings: [] };
-    db.ticketSystems.push(system);
+    db.tagSources.push(system);
     return HttpResponse.json(system, { status: 201 });
   }, "org_manager")),
-  http.delete(`${API}/ticket-systems/:id`, member(({ db, params }) => {
-    db.ticketSystems = db.ticketSystems.filter((t) => t.id !== params.id);
+  http.delete(`${API}/tag-sources/:id`, member(({ db, params }) => {
+    db.tagSources = db.tagSources.filter((t) => t.id !== params.id);
     return new HttpResponse(null, { status: 204 });
   }, "org_manager")),
-  http.get(`${API}/ticket-systems/:id/projects`, member(({ db, params }) => {
-    if (!db.ticketSystems.some((t) => t.id === params.id)) return error(404, "not_found", "No such ticket system.");
+  http.get(`${API}/tag-sources/:id/projects`, member(({ db, params }) => {
+    if (!db.tagSources.some((t) => t.id === params.id)) return error(404, "not_found", "No such tag source.");
     return HttpResponse.json([{ key: "KD", name: "Kestrel Delivery" }, { key: "OPS", name: "Operations" }]);
   }, "org_manager")),
-  http.put(`${API}/ticket-systems/:id/mappings`, member(async ({ db, params, request }) => {
-    const system = db.ticketSystems.find((t) => t.id === params.id);
-    if (!system) return error(404, "not_found", "No such ticket system.");
+  http.put(`${API}/tag-sources/:id/mappings`, member(async ({ db, params, request }) => {
+    const system = db.tagSources.find((t) => t.id === params.id);
+    if (!system) return error(404, "not_found", "No such tag source.");
     const mappings = (await request.json()) as TicketMapping[];
     for (const m of mappings) if (!db.tagValues.some((v) => v.name === "project" && v.key === m.project)) return error(400, "bad_request", `project: ${m.project} is not a tag value.`);
     system.mappings = mappings;
     return HttpResponse.json(system);
   }, "org_manager")),
-  http.post(`${API}/ticket-systems/:id/sync`, member(({ db, params }) => {
-    const system = db.ticketSystems.find((t) => t.id === params.id);
-    if (!system) return error(404, "not_found", "No such ticket system.");
+  http.post(`${API}/tag-sources/:id/sync`, member(({ db, params }) => {
+    const system = db.tagSources.find((t) => t.id === params.id);
+    if (!system) return error(404, "not_found", "No such tag source.");
     system.last_sync_at = now();
     for (const v of db.tagValues) if (v.name === "feature" && v.key.startsWith("KD-")) Object.assign(v, { source_id: `100${v.key.slice(3)}`, source_status: v.key === "KD-1" ? "done" : "in progress" });
     return HttpResponse.json(system, { status: 202 });
