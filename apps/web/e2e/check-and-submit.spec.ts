@@ -10,7 +10,7 @@ test("an agent manager checks her sessions, fixes one and submits", async ({ pag
   const table = page.getByRole("table", { name: "Sessions" });
   const label = table.locator("tr").filter({ hasText: "Returns portal: printable label" });
   await expect(label.getByText("no project").filter({ visible: true })).toBeVisible();
-  await expect(label.getByText("unknown model").filter({ visible: true })).toBeVisible();
+  await expect(label.getByText("not priced yet").filter({ visible: true })).toBeVisible();
   // The worked month's S2: 60 % KD-1, 40 % KD-2, submitted.
   const s2 = table.locator("tr").filter({ hasText: "Shared payment component" });
   await expect(s2.getByText("60 %").filter({ visible: true })).toBeVisible();
