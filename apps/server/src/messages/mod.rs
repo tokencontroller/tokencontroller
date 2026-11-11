@@ -539,7 +539,7 @@ async fn list_messages(
     Query(query): Query<MessagesQuery>,
 ) -> Result<Json<MessageList>, ApiError> {
     let filter = json::filter(query.filter.as_deref())?;
-    let window = crate::dates::range(query.from.as_deref(), query.to.as_deref())?;
+    let window = crate::dates::range_or_everything(query.from.as_deref(), query.to.as_deref())?;
     let log = Log::load(&state, member.organization_id).await?;
     let fold = log.fold(crate::dates::as_of(query.as_of.as_deref())?)?;
     let person = member.person()?;
@@ -564,7 +564,7 @@ async fn list_sessions(
     Query(query): Query<MessagesQuery>,
 ) -> Result<Json<SessionList>, ApiError> {
     let filter = json::filter(query.filter.as_deref())?;
-    let window = crate::dates::range(query.from.as_deref(), query.to.as_deref())?;
+    let window = crate::dates::range_or_everything(query.from.as_deref(), query.to.as_deref())?;
     let log = Log::load(&state, member.organization_id).await?;
     let fold = log.fold(crate::dates::as_of(query.as_of.as_deref())?)?;
     let person = member.person()?;
