@@ -135,8 +135,24 @@ pub fn new_bill(bill: &UploadedBill, recorded_by: TagValue) -> Result<NewBill, S
         }));
     }
     lines.extend(bill.lines.iter().map(line_json));
+    let contract = bill
+        .contract
+        .as_deref()
+        .map(crate::bills::contract_key)
+        .transpose()
+        .map_err(|error| error.to_string())?;
+    let contract_kind = bill
+        .contract_kind
+        .as_deref()
+        .map(crate::bills::contract_kind)
+        .transpose()
+        .map_err(|error| error.to_string())?;
     Ok(NewBill {
         provider: bill.provider.clone(),
+        contract,
+        contract_kind,
+        fee: bill.fee,
+        extra_usage: bill.extra_usage,
         range: bill.range,
         amount: bill.amount,
         exchange_rate,

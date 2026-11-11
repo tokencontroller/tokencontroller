@@ -567,6 +567,10 @@ pub(super) fn new_bill(
     })];
     lines.extend(bill.lines().iter().map(line_json));
     Ok(crate::bills::NewBill {
+        contract: None,
+        contract_kind: None,
+        fee: None,
+        extra_usage: None,
         provider: bill.provider_name().to_owned(),
         range,
         amount: bill.net(),

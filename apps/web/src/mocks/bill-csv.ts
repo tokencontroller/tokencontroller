@@ -141,7 +141,7 @@ export function parseBills(text: string): Read {
     }
     const key = `${provider} ${from} ${to}`;
     const first = seen.get(key);
-    if (first !== undefined) return problem(`This is a second bill for ${provider} from ${from} to ${to}; row ${String(first)} already is one. Give each bill once per provider and range.`, number);
+    if (first !== undefined) return problem(`This is a second bill for ${provider} from ${from} to ${to}; row ${String(first)} already is one. Give each bill once per provider, contract and range.`, number);
     seen.set(key, number);
     bills.push({ provider, from, to, amount: parseDec(amount), currency, exchange_rate, lines: 0 });
   }

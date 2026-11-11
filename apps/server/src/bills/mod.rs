@@ -21,7 +21,9 @@ use axum::http::StatusCode;
 use axum::response::Response;
 use serde::{Deserialize, Serialize};
 use time::{Date, OffsetDateTime};
-use tokencontroller_core::{Bill, Currency, DateRange, Event, Money, Record, TagValue};
+use tokencontroller_core::{
+    Bill, ContractKind, Currency, DateRange, Event, Money, Record, TagValue,
+};
 use utoipa::{IntoParams, ToSchema};
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
@@ -85,6 +87,17 @@ pub struct NewBill {
     /// Who charged, such as `anthropic`, `openai` or `cursor`: the same
     /// names messages carry.
     pub provider: String,
+    /// The contract the bill is for, such as `anthropic-api`. Left out, it
+    /// goes to the provider's only contract, else to one named after the
+    /// provider. A new key creates the contract.
+    pub contract: Option<TagValue>,
+    /// The kind of contract a new key creates; metered when left out.
+    pub contract_kind: Option<ContractKind>,
+    /// The fee part of a flat contract's bill, when the bill says it.
+    pub fee: Option<Money>,
+    /// The extra usage part of a flat contract's bill, when the bill says
+    /// it.
+    pub extra_usage: Option<Money>,
     /// The first and last day the bill covers.
     pub range: DateRange,
     /// What the provider charged for metered usage in the range, in the
@@ -116,6 +129,14 @@ pub enum BillError {
     Amount(#[from] AmountError),
     #[error("{0}")]
     Range(String),
+    #[error(
+        "{0:?} is not a contract key: use small letters, digits, - and _, such as anthropic-api"
+    )]
+    Contract(String),
+    #[error("{0:?} is not a contract kind: use metered or flat")]
+    ContractKind(String),
+    #[error("the fee and the extra usage are in the bill's currency and not above its amount")]
+    Parts,
 }
 
 impl From<BillError> for ApiError {
@@ -155,6 +176,16 @@ pub struct BillView {
     /// The bill event's id.
     pub id: String,
     pub provider: String,
+    /// The contract the bill is for: the one it names, else the one it
+    /// goes to.
+    #[schema(example = "anthropic-api")]
+    pub contract: String,
+    /// The kind of contract the bill named, when it named one.
+    pub contract_kind: Option<String>,
+    /// The fee part of a flat contract's bill, in `currency`.
+    pub fee: Option<String>,
+    /// The extra usage part of a flat contract's bill, in `currency`.
+    pub extra_usage: Option<String>,
     #[serde(with = "crate::dates::day")]
     #[schema(value_type = String, format = Date)]
     pub from: Date,
@@ -223,7 +254,51 @@ pub fn check(bill: &NewBill) -> Result<(), BillError> {
     if bill.amount.nanos().is_negative() {
         return Err(BillError::Negative);
     }
+    for part in [bill.fee, bill.extra_usage].into_iter().flatten() {
+        if part.currency() != bill.amount.currency()
+            || part.nanos().is_negative()
+            || part.nanos() > bill.amount.nanos()
+        {
+            return Err(BillError::Parts);
+        }
+    }
     Ok(())
+}
+
+/// The bill as the log holds it.
+fn core_bill(bill: &NewBill) -> Bill {
+    Bill {
+        provider: bill.provider.clone(),
+        contract: bill.contract.clone(),
+        contract_kind: bill.contract_kind,
+        range: bill.range,
+        amount: bill.amount,
+        fee: bill.fee,
+        extra_usage: bill.extra_usage,
+    }
+}
+
+/// A contract key as a bill names it.
+///
+/// # Errors
+///
+/// [`BillError::Contract`] for a key that is not a tag value.
+pub fn contract_key(text: &str) -> Result<TagValue, BillError> {
+    let text = text.trim();
+    TagValue::new(text).map_err(|_| BillError::Contract(text.to_owned()))
+}
+
+/// A contract kind as a bill names it: `metered` or `flat`.
+///
+/// # Errors
+///
+/// [`BillError::ContractKind`] for any other word.
+pub fn contract_kind(text: &str) -> Result<ContractKind, BillError> {
+    match text.trim() {
+        "metered" => Ok(ContractKind::Metered),
+        "flat" => Ok(ContractKind::Flat),
+        other => Err(BillError::ContractKind(other.to_owned())),
+    }
 }
 
 /// Whether a text is a provider name: up to 40 lower-case letters, digits
@@ -259,15 +334,24 @@ pub async fn record_bill(
     let reporting = crate::organizations::reporting_currency(&state.db, organization_id).await?;
     let (exchange_rate, given) = rate_for(state, &bill, reporting).await?;
 
+    // The fold names each bill's contract, so the bill in force is the one
+    // for the contract this bill goes to.
+    let new = core_bill(&bill);
+    let contract = fold.contract_of_bill(&new);
     let in_force = fold
         .bills()
         .find(|recorded| {
-            recorded.value.provider == bill.provider && recorded.value.range == bill.range
+            recorded.value.provider == bill.provider
+                && recorded.value.range == bill.range
+                && fold.contract_of_bill(&recorded.value) == contract
         })
         .cloned();
     if let Some(current) = &in_force {
         let details = details_of(state, organization_id, current.id.as_str()).await?;
-        let same = current.value.amount == bill.amount
+        let same = current.value.amount == new.amount
+            && current.value.fee == new.fee
+            && current.value.extra_usage == new.extra_usage
+            && (new.contract_kind.is_none() || current.value.contract_kind == new.contract_kind)
             && details
                 .as_ref()
                 .is_some_and(|details| details.lines == bill.lines)
@@ -297,16 +381,8 @@ pub async fn record_bill(
         }
     }
 
-    let mut event = Event::new(
-        &events::new_id(prefix::BILL),
-        now,
-        Record::Bill(Bill::of_provider(
-            bill.provider.clone(),
-            bill.range,
-            bill.amount,
-        )),
-    )
-    .map_err(|error| ApiError::Internal(error.into()))?;
+    let mut event = Event::new(&events::new_id(prefix::BILL), now, Record::Bill(new))
+        .map_err(|error| ApiError::Internal(error.into()))?;
     if let Some(person) = &bill.recorded_by {
         event = event.by(person.clone());
     }
@@ -437,17 +513,18 @@ async fn reconcile(
     let Ok(rate) = rate else {
         return Ok(None);
     };
-    let converted = rate
-        .convert(bill.amount)
-        .map_err(|error| ApiError::Internal(error.into()))?;
+    let convert = |money: Money| {
+        rate.convert(money)
+            .map_err(|error| ApiError::Internal(error.into()))
+    };
     let in_core = Bill {
         provider: bill.provider.clone(),
         range: bill.range,
-        amount: converted,
-        contract: None,
-        contract_kind: None,
-        fee: None,
-        extra_usage: None,
+        amount: convert(bill.amount)?,
+        contract: bill.contract.clone(),
+        contract_kind: bill.contract_kind,
+        fee: bill.fee.map(convert).transpose()?,
+        extra_usage: bill.extra_usage.map(convert).transpose()?,
     };
     let messages = fold
         .provider_cost(&bill.provider, bill.range)
@@ -487,6 +564,7 @@ fn reversed_by(log: &Log, id: &str, as_of: OffsetDateTime) -> Option<String> {
 fn view(
     event: &Event,
     bill: &Bill,
+    contract: String,
     details: Option<&Details>,
     reversed_by: Option<String>,
     reconciliation: Option<ReconciliationView>,
@@ -494,6 +572,10 @@ fn view(
     BillView {
         id: event.id.as_str().to_owned(),
         provider: bill.provider.clone(),
+        contract,
+        contract_kind: bill.contract_kind.map(|kind| kind.as_str().to_owned()),
+        fee: bill.fee.map(format_amount),
+        extra_usage: bill.extra_usage.map(format_amount),
         from: bill.range.from,
         to: bill.range.to,
         amount: format_amount(bill.amount),
@@ -549,6 +631,7 @@ pub async fn bills(
         views.push(view(
             event,
             bill,
+            fold.contract_of_bill(bill).as_str().to_owned(),
             details.get(event.id.as_str()),
             reversed,
             reconciliation,
@@ -587,6 +670,16 @@ pub struct BillInput {
     /// Who charged, such as `anthropic` or `openai`.
     #[schema(example = "anthropic")]
     pub provider: String,
+    /// The contract the bill is for, such as `anthropic-api`. Left out, it
+    /// goes to the provider's only contract.
+    #[schema(example = "anthropic-api")]
+    pub contract: Option<String>,
+    /// `metered` or `flat`: the kind of contract a new key creates.
+    pub contract_kind: Option<String>,
+    /// The fee part of a flat contract's bill, in `currency`.
+    pub fee: Option<String>,
+    /// The extra usage part of a flat contract's bill, in `currency`.
+    pub extra_usage: Option<String>,
     /// The first day the bill covers, `YYYY-MM-DD`.
     #[schema(example = "2026-03-01")]
     pub from: String,
@@ -627,8 +720,21 @@ impl BillInput {
             .as_deref()
             .map(RateNumber::parse)
             .transpose()?;
+        let part = |text: Option<&str>| {
+            text.map(|text| parse_amount(text, currency))
+                .transpose()
+                .map_err(BillError::from)
+        };
         Ok(NewBill {
             provider: self.provider.trim().to_owned(),
+            contract: self.contract.as_deref().map(contract_key).transpose()?,
+            contract_kind: self
+                .contract_kind
+                .as_deref()
+                .map(contract_kind)
+                .transpose()?,
+            fee: part(self.fee.as_deref())?,
+            extra_usage: part(self.extra_usage.as_deref())?,
             range,
             amount,
             exchange_rate,
@@ -919,6 +1025,10 @@ mod tests {
 
     fn bill(amount: &str) -> NewBill {
         NewBill {
+            contract: None,
+            contract_kind: None,
+            fee: None,
+            extra_usage: None,
             provider: "anthropic".to_owned(),
             range: DateRange::new(date!(2026 - 03 - 01), date!(2026 - 03 - 31)).unwrap(),
             amount: usd(amount),
@@ -953,6 +1063,10 @@ mod tests {
             exchange_rate: Some("0.9".to_owned()),
             typed_in: true,
             lines: Vec::new(),
+            contract: None,
+            contract_kind: None,
+            fee: None,
+            extra_usage: None,
         };
         let new = input
             .into_new_bill(TagValue::new("mara@example.com").unwrap())
@@ -971,10 +1085,64 @@ mod tests {
             exchange_rate: None,
             typed_in: false,
             lines: Vec::new(),
+            contract: None,
+            contract_kind: None,
+            fee: None,
+            extra_usage: None,
         };
         assert!(matches!(
             backwards.into_new_bill(TagValue::new("mara@example.com").unwrap()),
             Err(BillError::Range(_))
+        ));
+    }
+
+    #[test]
+    fn a_bill_names_its_contract_and_the_parts_of_a_flat_one() {
+        let input = BillInput {
+            provider: "anthropic".to_owned(),
+            from: "2026-03-01".to_owned(),
+            to: "2026-03-31".to_owned(),
+            amount: "150".to_owned(),
+            currency: "USD".to_owned(),
+            exchange_rate: None,
+            typed_in: false,
+            lines: Vec::new(),
+            contract: Some(" anthropic-max ".to_owned()),
+            contract_kind: Some("flat".to_owned()),
+            fee: Some("100".to_owned()),
+            extra_usage: Some("50".to_owned()),
+        };
+        let mara = TagValue::new("mara@example.com").unwrap();
+        let new = input.clone().into_new_bill(mara.clone()).unwrap();
+        assert_eq!(
+            new.contract.as_ref().map(TagValue::as_str),
+            Some("anthropic-max")
+        );
+        assert_eq!(new.contract_kind, Some(ContractKind::Flat));
+        assert_eq!(new.fee, Some(usd("100")));
+        assert_eq!(new.extra_usage, Some(usd("50")));
+        assert_eq!(check(&new), Ok(()));
+        let mut too_big = new.clone();
+        too_big.fee = Some(usd("151"));
+        assert_eq!(check(&too_big), Err(BillError::Parts));
+        let mut negative = new;
+        negative.extra_usage = Some(usd("-1"));
+        assert_eq!(check(&negative), Err(BillError::Parts));
+        let odd_kind = BillInput {
+            contract_kind: Some("monthly".to_owned()),
+            ..input.clone()
+        };
+        assert!(matches!(
+            odd_kind.into_new_bill(mara.clone()),
+            Err(BillError::ContractKind(_))
+        ));
+        let odd_key = BillInput {
+            contract: Some("   ".to_owned()),
+            ..input
+        };
+        assert!(matches!(
+            odd_key.into_new_bill(mara),
+            Err(BillError::Contract(_))
         ));
     }
 

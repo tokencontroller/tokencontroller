@@ -4896,6 +4896,21 @@
             "type": "string",
             "example": "1234.56"
           },
+          "contract": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The contract the bill is for, such as `anthropic-api`. Left out, it\ngoes to the provider's only contract.",
+            "example": "anthropic-api"
+          },
+          "contract_kind": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`metered` or `flat`: the kind of contract a new key creates."
+          },
           "currency": {
             "type": "string",
             "example": "USD"
@@ -4907,6 +4922,20 @@
             ],
             "description": "To the organization's reporting currency, at the bill's last day.\nLeft out, Token Controller fills it in.",
             "example": "0.9214"
+          },
+          "extra_usage": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The extra usage part of a flat contract's bill, in `currency`."
+          },
+          "fee": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The fee part of a flat contract's bill, in `currency`."
           },
           "from": {
             "type": "string",
@@ -4951,6 +4980,7 @@
         "required": [
           "id",
           "provider",
+          "contract",
           "from",
           "to",
           "amount",
@@ -4965,6 +4995,18 @@
           "amount": {
             "type": "string",
             "example": "1234.56"
+          },
+          "contract": {
+            "type": "string",
+            "description": "The contract the bill is for: the one it names, else the one it\ngoes to.",
+            "example": "anthropic-api"
+          },
+          "contract_kind": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The kind of contract the bill named, when it named one."
           },
           "currency": {
             "type": "string",
@@ -4981,6 +5023,20 @@
           "exchange_rate_given": {
             "type": "boolean",
             "description": "Whether the rate came with the bill, rather than from the reference\nrates."
+          },
+          "extra_usage": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The extra usage part of a flat contract's bill, in `currency`."
+          },
+          "fee": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The fee part of a flat contract's bill, in `currency`."
           },
           "final": {
             "type": "boolean",

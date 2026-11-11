@@ -289,7 +289,7 @@ function reconciliationOf(db: Db, b: Db["bills"][number]) {
 }
 
 function billView(db: Db, b: Db["bills"][number]) {
-  return { ...b, amount: dec(b.amount), lines: [], exchange_rate: null, exchange_rate_given: false, reversed_by: null, reconciliation: reconciliationOf(db, b) };
+  return { ...b, contract: b.provider, contract_kind: null, fee: null, extra_usage: null, amount: dec(b.amount), lines: [], exchange_rate: null, exchange_rate_given: false, reversed_by: null, reconciliation: reconciliationOf(db, b) };
 }
 
 function forecastPast(w: Window): Window[] {
