@@ -1,23 +1,26 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useState, type ReactNode, type SubmitEvent } from "react";
-import type { NewRule, Session } from "@/api/contract";
+import type { Contract, ContractKind, NewRule, Session } from "@/api/contract";
 import { api } from "@/api/endpoints";
 import { Amount } from "@/components/controls";
 import { Badge, LabelBadge, StatusBadge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { CheckField } from "@/components/ui/checkbox";
 import { Dialog } from "@/components/ui/dialog";
-import { ErrorBox, Loading, Note, PageHeader, Section } from "@/components/ui/display";
+import { ErrorBox, Hint, Loading, Note, PageHeader, Section } from "@/components/ui/display";
 import { Field, FormError, Input, Select } from "@/components/ui/form";
 import { DataTable } from "@/components/ui/table";
 import { TagRow, TagValueList } from "@/components/ui/tag";
 import { notify } from "@/components/ui/toast";
 import { formatDay, formatFraction, formatTime } from "@/lib/format";
 import { refreshAll, useMe, usePersonName, useTags } from "@/lib/queries";
+import { fromDecimal, sum, toDecimal } from "@/lib/money";
 import { hasRole } from "@/lib/roles";
 
 // Docs: Check and submit. Every session since the last submit, how it was
 // split and why; fix the exceptions with a split, remember it as a rule, submit.
+// Sessions with messages under no contract, or from an unknown provider, are
+// asked about once, per agent, and the answer can be remembered as a rule.
 export function SessionsPage(): ReactNode {
   const me = useMe();
   const [everyone, setEveryone] = useState(false);
@@ -39,7 +42,6 @@ export function SessionsPage(): ReactNode {
     <>
       <PageHeader
         title="Check and submit"
-        lead="Your sessions and how each was split. Fix what a rule got wrong, then submit everything since your last submit."
         actions={
           <Button variant="primary" onClick={() => submit.mutate()} disabled={submit.isPending || !open.length}>
             Submit {open.length ? `${String(open.length)} sessions` : ""}
@@ -53,6 +55,7 @@ export function SessionsPage(): ReactNode {
           <CheckField checked={everyone} onCheckedChange={setEveryone} label="Everyone I may view" />
         </div>
       ) : null}
+      <ContractQuestion sessions={open} />
       <Section title="Sessions">
         {sessions.error ? <ErrorBox error={sessions.error} /> : null}
         {!sessions.data ? (
@@ -96,6 +99,18 @@ export function SessionsPage(): ReactNode {
                   </span>
                 ),
               },
+              {
+                key: "contract",
+                header: "Contract",
+                cell: (s) => (
+                  <span className="flex flex-wrap gap-1">
+                    {s.contracts.map((c) => <Badge key={c}>{c}</Badge>)}
+                    {s.no_contract ? <Badge tone="exception">no contract</Badge> : null}
+                    {s.provider_unknown ? <Badge tone="exception">provider unknown</Badge> : null}
+                  </span>
+                ),
+                csv: (s) => s.contracts.join(" "),
+              },
               { key: "by", header: "By", wide: true, cell: (s) => (s.assigned_by === "default" ? "no rule matched" : s.assigned_by) },
               { key: "status", header: "Status", cell: (s) => <StatusBadge status={s.submitted} /> },
               { key: "fix", header: "", cell: (s) => <Button size="sm" onClick={() => setEditing(s)} aria-label={`Split ${s.summary ?? s.session_id}`}>Split</Button> },
@@ -105,6 +120,111 @@ export function SessionsPage(): ReactNode {
       </Section>
       {editing ? <SplitDialog session={editing} onClose={() => setEditing(null)} /> : null}
     </>
+  );
+}
+
+/** The agent's name for people, such as Claude Code for `claude-code`. */
+const agentName: Record<string, string> = { "claude-code": "Claude Code", codex: "Codex", "github-action": "GitHub Action", cursor: "Cursor", "gemini-cli": "Gemini CLI" };
+
+/** A contract rule for one agent, for "remember". */
+function contractRule(agent: string, contract: string): NewRule {
+  const escaped = agent.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return { name: `${agentName[agent] ?? agent} is on ${contract}`, signal: "agent_harness", pattern: `^${escaped}$`, tag_name: "contract", key: contract };
+}
+
+/**
+ * Asked once: the open sessions with messages under no contract or from an
+ * unknown provider, one row per agent. The answer goes on those sessions
+ * by hand, and may be remembered as a rule for the agent.
+ */
+function ContractQuestion({ sessions }: { sessions: Session[] }) {
+  const contracts = useQuery({ queryKey: ["contracts"], queryFn: api.contracts });
+  const asked = sessions.filter((s) => s.no_contract || s.provider_unknown);
+  const agents = [...new Set(asked.map((s) => s.agent_harness))].sort();
+  if (!asked.length) return null;
+  return (
+    <Section
+      title="Which contract?"
+      hint="Some messages came under no contract, or without their provider. Pick the contract they were paid under; it goes on every message of these sessions."
+    >
+      <ul className="-mx-5 flex flex-col">
+        {agents.map((agent) => (
+          <ContractAnswer key={agent} agent={agent} sessions={asked.filter((s) => s.agent_harness === agent)} contracts={contracts.data ?? []} />
+        ))}
+      </ul>
+    </Section>
+  );
+}
+
+const NEW_CONTRACT = "__new";
+
+function ContractAnswer({ agent, sessions, contracts }: { agent: string; sessions: Session[]; contracts: Contract[] }) {
+  const [contract, setContract] = useState(contracts[0]?.key ?? NEW_CONTRACT);
+  const [key, setKey] = useState("");
+  const [provider, setProvider] = useState("");
+  const [kind, setKind] = useState<ContractKind>("metered");
+  const [remember, setRemember] = useState(true);
+  const chosen = contracts.some((c) => c.key === contract) ? contract : NEW_CONTRACT;
+  const name = agentName[agent] ?? agent;
+  const cost = toDecimal(sum(sessions.map((s) => fromDecimal(s.cost, "USD")), "USD"));
+  const save = useMutation({
+    mutationFn: async () => {
+      let target = chosen;
+      if (chosen === NEW_CONTRACT) {
+        await api.addTagValue("contract", { key: key.trim(), contract: { provider: provider.trim(), kind } });
+        target = key.trim();
+      }
+      await api.assignContract(target, sessions.map((s) => s.session_id));
+      if (remember) {
+        const mine = await api.myRules();
+        await api.setMyRules([...mine.map((r) => ({ name: r.name, signal: r.signal, pattern: r.pattern, tag_name: r.tag_name, key: r.key ?? null })), contractRule(agent, target)]);
+      }
+      return target;
+    },
+    onSuccess: async (target) => {
+      await refreshAll();
+      notify(`${name}: ${target}`, remember ? "And remembered as your rule." : undefined);
+    },
+  });
+  return (
+    <li className="flex flex-col gap-3 border-t border-line px-5 py-3 first:border-t-0">
+      <form
+        className="flex flex-wrap items-end gap-3"
+        onSubmit={(e) => {
+          e.preventDefault();
+          save.mutate();
+        }}
+      >
+        <div className="min-w-40 flex-1">
+          <div className="text-body font-medium">{name}</div>
+          <div className="text-small text-muted">
+            {sessions.length === 1 ? "1 session" : `${String(sessions.length)} sessions`} · <Amount value={cost} />
+          </div>
+        </div>
+        <Field label={`Contract for ${name}`} className="w-56">
+          <Select value={chosen} onChange={(e) => setContract(e.target.value)}>
+            {contracts.map((c) => <option key={c.key} value={c.key}>{c.title ?? c.key}</option>)}
+            <option value={NEW_CONTRACT}>A new contract</option>
+          </Select>
+        </Field>
+        {chosen === NEW_CONTRACT ? (
+          <>
+            <Field label="Contract key" className="w-40"><Input value={key} placeholder="anthropic-api" onChange={(e) => setKey(e.target.value)} /></Field>
+            <Field label="Provider" className="w-32"><Input value={provider} placeholder="anthropic" onChange={(e) => setProvider(e.target.value)} /></Field>
+            <Field label="Kind" className="w-28">
+              <Select value={kind} onChange={(e) => setKind(e.target.value as ContractKind)}>
+                <option value="metered">metered</option>
+                <option value="flat">flat</option>
+              </Select>
+            </Field>
+          </>
+        ) : null}
+        <CheckField checked={remember} onCheckedChange={setRemember} label="Remember" />
+        <Hint label="About remember">A rule of yours: every {name} session goes under this contract, earlier ones too.</Hint>
+        <Button type="submit" size="sm" disabled={save.isPending || (chosen === NEW_CONTRACT && (!key.trim() || !provider.trim()))}>Set</Button>
+      </form>
+      <FormError error={save.error} />
+    </li>
   );
 }
 

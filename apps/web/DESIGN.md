@@ -76,7 +76,7 @@ Cards run to the screen's edges, so tables get the width. Columns that matter le
 
 ## Open work
 
-Moved to the system: overview, reports, settings. Every other screen still uses older patterns (lead sentences, open add-forms, ghost buttons for removing) and moves in the data model rebuild: screens it touches with that work, the rest after its release. Each screen's diagnosis and word budget is in the design diagnosis. These shared pieces are still to make, at the latest with the first screen that needs them:
+Moved to the system: overview, reports, settings, and with the contracts of the data model rebuild bills (one check card per bill), rules (list cards, dialog), the price table (problems first, one row per model, dialog) and check and submit (the contract question card; its table still waits for the Open and Submitted tabs). Every other screen still uses older patterns (lead sentences, open add-forms, ghost buttons for removing) and moves in the data model rebuild: screens it touches with that work, the rest after its release. Each screen's diagnosis and word budget is in the design diagnosis. These shared pieces are still to make, at the latest with the first screen that needs them:
 
 - A date range button in place of the browser's date inputs (reports, plans).
 - On a phone, report filters folded into one summary row that opens them.

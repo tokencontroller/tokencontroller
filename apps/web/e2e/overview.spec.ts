@@ -6,7 +6,11 @@ import { signIn } from "./helpers";
 test("the org manager's overview is the worked month", async ({ page }) => {
   await signIn(page, "nadia");
   await expect(page.getByText("$950.00").first()).toBeVisible();
-  await expect(page.getByText("$1,000.00")).toBeVisible();
+  // Three checks, one per contract; 400 of the 950 ran on the Claude Team plan.
+  const checks = page.getByRole("list", { name: "Checks" });
+  await expect(checks.getByText("$270.00")).toBeVisible();
+  await expect(checks.getByText("$250.00")).toBeVisible();
+  await expect(page.getByText("On a plan $400.00")).toBeVisible();
   await expect(page.getByText("−$567.50").first()).toBeVisible();
 });
 

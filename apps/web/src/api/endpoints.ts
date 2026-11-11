@@ -196,6 +196,9 @@ export const api = {
   disconnectBill: (id: string) => ok(typed.DELETE("/api/v1/bill-connections/{id}", path(id))),
   pullBills: (id: string) => ok(typed.POST("/api/v1/bill-connections/{id}/pull", path(id))),
   reconciliation: () => json(typed.GET("/api/v1/reconciliation")),
+  contracts: () => ok(typed.GET("/api/v1/contracts")),
+  /** Sets one contract by hand on whole sessions; it wins over every rule. */
+  assignContract: (contract: string, sessions: string[]) => ok(typed.POST("/api/v1/contract-assignments", { body: { contract, sessions } })),
   // A CSV bill file: what it holds before anything is saved, then the upload
   previewBillCsv: (file: BillCsvFile, text: string) => ok(typed.POST("/api/v1/bills/csv/preview", { ...csvBody(file, text) })),
   uploadBillCsv: (file: BillCsvFile, text: string) => ok(typed.POST("/api/v1/bills/csv", { ...csvBody(file, text) })),

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { costOf, dec, lines, planOf, visibleLines } from "./fold";
+import { costOf, dec, lines, planOf, sessionView, visibleLines } from "./fold";
 import { createDb, emails } from "./seed";
 
 // The mocks answer the worked month of the docs (How it works, A worked
@@ -31,5 +31,20 @@ describe("the worked month in the mocks", () => {
     expect(dec(planOf(db, { project: "shop" }, march) ?? 0)).toBe("232.50");
     expect(dec(planOf(db, { feature: "KD-1" }, march) ?? 0)).toBe("500.00");
     expect(dec(planOf(db, { person: emails.mara }, march) ?? 0)).toBe("139.50");
+  });
+
+  test("each session's contract, as the docs find it", () => {
+    const byContract = (key: string | null) => dec(costOf(lines(db).filter((l) => l.day <= march.to && (l.contract?.key ?? null) === key)));
+    expect(byContract("claude-team")).toBe("400.00");
+    expect(byContract("openai-api")).toBe("300.00");
+    expect(byContract("anthropic-api")).toBe("250.00");
+    const how = Object.fromEntries(lines(db).filter((l) => l.day <= march.to).map((l) => [l.session.session_id, l.contract?.by]));
+    expect(how).toEqual({ "seed-s1": "rule", "seed-s2": "fallback", "seed-s3": "rule", "seed-s4": "hand" });
+  });
+
+  test("open April sessions on Anthropic have no contract yet", () => {
+    const april = db.sessions.filter((s) => s.started_at >= "2026-04-01").map((s) => sessionView(db, s));
+    expect(april.every((s) => s.contracts.length === 0)).toBe(true);
+    expect(april.map((s) => s.no_contract)).toEqual([2, 1, 1]);
   });
 });

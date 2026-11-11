@@ -55,8 +55,12 @@ export function CutoffPage(): ReactNode {
         <ul className="mb-4 flex max-w-2xl flex-col gap-2 text-sm">
           {inRange.map((r) => (
             <li key={r.bill_id} className={r.a_message_is_wrong ? "text-exception" : ""}>
-              {r.provider} bill {formatRange(r.from, r.to)}: what no message explains <Amount value={r.unexplained} />
-              {r.a_message_is_wrong ? ", negative: a message is wrong." : ", zero or positive."}
+              {r.contract} bill {formatRange(r.from, r.to)}:{" "}
+              {r.contract_kind === "flat" ? (
+                <>covered <Amount value={r.covered ?? null} />{r.a_message_is_wrong ? ", negative: a message is wrong." : "."}</>
+              ) : (
+                <>what no message explains <Amount value={r.unexplained} />{r.a_message_is_wrong ? ", negative: a message is wrong." : ", zero or positive."}</>
+              )}
             </li>
           ))}
           {!inRange.length ? <li className="text-muted">No bill ends between the cutoff and this day.</li> : null}
