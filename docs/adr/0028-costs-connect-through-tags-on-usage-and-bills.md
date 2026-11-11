@@ -10,7 +10,7 @@ Usage and bills come in on their own, in any order, with no tags. Tags go on bot
 
 **Records have open kinds.** A received record with token counts makes a message. Every other one makes an activity with a kind name, its session, its time and its signals: tool runs and counters such as commits or pull requests today, something else tomorrow. A new kind needs no change to the model. No formula reads activities yet.
 
-**A message is a measurement.** Its own fields are person, agent, model, time and tokens by kind, plus the provider when the sender knows it. Everything else that came with it is a signal, an open list of names and values, under the key `signals` in the message format. A signal named like a tag, such as `project`, is the sender's own assignment: it runs first, wins over the organization's rules and creates the tag value when it is new. Splits sent with a session stay as they are.
+**A message is a measurement.** Its own fields are person, agent, model, time and tokens by kind, plus the provider when the sender knows it. Everything else that came with it is a signal, an open list of names and values, under the key `signals` in the message format. A signal named like a tag, such as `project`, is the sender's own assignment: it runs first, wins over the organization's rules and counts under that tag value at once, even a new one; a new value is listed until someone with assign records it. Splits sent with a session stay as they are.
 
 **Model and provider are two things.** The provider is never guessed from the model name. A collector passes on the provider the agent reports, a sender who knows it sends it, and the contract's provider wins.
 
