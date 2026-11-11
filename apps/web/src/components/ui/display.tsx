@@ -5,7 +5,7 @@ import { useEffect, type ReactNode } from "react";
 import { additions } from "@/lib/additions";
 
 /** An amount, or a share of a total in basis points. `null` shows why there is none. */
-export function MoneyText({ value, signed = false, share, missing = "unknown model" }: { value: Money | null; signed?: boolean; share?: number | undefined; missing?: string }) {
+export function MoneyText({ value, signed = false, share, missing = "not priced yet" }: { value: Money | null; signed?: boolean; share?: number | undefined; missing?: string }) {
   if (share !== undefined) return <span className="num">{formatShare(share)}</span>;
   if (value === null) return <span className="num text-exception">{missing}</span>;
   return <span className="num">{formatMoney(value, { signed })}</span>;

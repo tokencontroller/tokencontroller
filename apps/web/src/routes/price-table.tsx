@@ -67,7 +67,7 @@ export function PriceTablePage(): ReactNode {
         <FormError error={remove.error} />
       </Section>
       <AddRow />
-      <Section title="Count errors and unknown models" lead="These messages have no cost, never zero. Reconciliation shows them in what the bill has that no message explains, until the counts or the row arrive.">
+      <Section title="Count errors and messages not priced yet" lead="These messages have no cost, never zero. Reconciliation shows them in what the bill has that no message explains, until the counts or the row arrive.">
         {!messages.data ? (
           <Loading />
         ) : missing.length ? (
@@ -89,7 +89,7 @@ export function PriceTablePage(): ReactNode {
                   return counts ? <span className="num">{formatTokens(Object.values(counts).reduce((a, b) => a + b, 0))}</span> : "none";
                 },
               },
-              { key: "why", header: "Shown as", cell: (m) => <Badge tone="exception">{m.cost_label === "count_error" ? "count error" : "unknown model"}</Badge> },
+              { key: "why", header: "Shown as", cell: (m) => <Badge tone="exception">{m.cost_label === "count_error" ? "count error" : "not priced yet"}</Badge> },
             ]}
           />
         ) : (
