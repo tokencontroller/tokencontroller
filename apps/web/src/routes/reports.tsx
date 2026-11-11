@@ -113,7 +113,7 @@ function CostTab({ query }: { query: ReportQuery }) {
         <div className="px-5 [&>*]:mb-3"><Note tone="exception">
           Not in the total: {data.count_errors ? `${String(data.count_errors)} count errors` : ""}
           {data.count_errors && data.unknown_models.length ? "; " : ""}
-          {data.unknown_models.length ? `unknown models ${data.unknown_models.join(", ")}` : ""}.
+          {data.unknown_models.length ? `not priced yet: ${data.unknown_models.join(", ")}` : ""}.
         </Note></div>
       ) : null}
       <DataTable

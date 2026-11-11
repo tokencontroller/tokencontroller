@@ -11,13 +11,13 @@ publish.workspace = true
 [dependencies]
 regex.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 thiserror.workspace = true
 time = { workspace = true, features = ["serde-human-readable"] }
 
 [dev-dependencies]
 csv.workspace = true
 proptest.workspace = true
-serde_json.workspace = true
 time = { workspace = true, features = ["macros"] }
 
 [lints]

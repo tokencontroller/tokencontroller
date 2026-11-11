@@ -130,6 +130,7 @@ impl Signals {
             prompt_keys: self.keys.clone(),
             config: self.config.clone(),
             resource: BTreeMap::new(),
+            other: BTreeMap::new(),
         }
     }
 }

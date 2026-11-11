@@ -45,7 +45,7 @@ To send several token entries in one call, send a list of up to 1,000. Either al
 }
 ```
 
-`cost` is `null` with the reason `unknown_model` until the price table has the model, or `count_error` when counts are missing. Token Controller accepts every token entry and fits the pieces together afterwards:
+`cost` is `null` with the reason `not_priced_yet` until the price is certain, or `count_error` when counts are missing. Token Controller accepts every token entry and fits the pieces together afterwards:
 
 - A tag key that names no tag value yet is kept on the message, and `unknown_tags` names it. Someone with assign creates the value or reverses the tag.
 - A token entry for a message Token Controller already has, by session id and message id, is the same record, counted once.

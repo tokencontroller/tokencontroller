@@ -283,7 +283,7 @@ function reconciliationOf(db: Db, b: Db["bills"][number]) {
   const unknown = new Set<string>();
   for (const l of ls) {
     if (l.costLabel === "count_error") ids.add(l.message.message_id);
-    if (l.costLabel === "unknown_model") unknown.add(`${l.message.provider}/${l.message.model}`);
+    if (l.costLabel === "not_priced_yet") unknown.add(`${l.message.provider}/${l.message.model}`);
   }
   return { bill: dec(b.amount), messages: dec(messages), unexplained: dec(unexplained), a_message_is_wrong: unexplained < 0, count_errors: ids.size, unknown_models: [...unknown], currency: "USD" };
 }
@@ -555,6 +555,9 @@ export const handlers = [
             person: s.person,
             provider: m.provider,
             model: m.model,
+            contract: null,
+            contract_by: null,
+            on_a_plan: false,
             at: m.at,
             agent_harness: s.agent_harness,
             agent_name: s.agent_name,
@@ -829,7 +832,10 @@ export const handlers = [
       total: dec(total),
       rows,
       count_errors: new Set(ls.filter((l) => l.costLabel === "count_error").map((l) => l.message.message_id)).size,
-      unknown_models: [...new Set(ls.filter((l) => l.costLabel === "unknown_model").map((l) => `${l.message.provider}/${l.message.model}`))],
+      unknown_models: [...new Set(ls.filter((l) => l.costLabel === "not_priced_yet").map((l) => `${l.message.provider}/${l.message.model}`))],
+      not_priced_yet: notPricedYet(ls.filter((l) => l.costLabel === "not_priced_yet").map((l) => l.message)),
+      unpriced_kinds: [],
+      on_a_plan: q.share ? "0" : dec(0),
     };
     return HttpResponse.json(report);
   })),
@@ -967,4 +973,12 @@ function ruleProblem(db: Db, rule: NewRule): string | null {
   if (!db.tagNames.some((n) => n.name === rule.tag_name)) return `${rule.tag_name} is not a tag name.`;
   if (rule.key && !db.tagValues.some((v) => v.name === rule.tag_name && v.key === rule.key)) return `${rule.tag_name}: ${rule.key} is not a tag value.`;
   return null;
+}
+
+/** The messages of a report not priced yet, with their tokens by kind. */
+function notPricedYet(messages: { message_id: string; tokens: object | null }[]): { messages: number; tokens: Record<string, number> } {
+  const seen = new Map(messages.map((m) => [m.message_id, m]));
+  const tokens: Record<string, number> = {};
+  for (const m of seen.values()) for (const [kind, count] of Object.entries(m.tokens ?? {}) as [string, number][]) if (count) tokens[kind] = (tokens[kind] ?? 0) + count;
+  return { messages: seen.size, tokens };
 }

@@ -153,8 +153,12 @@ impl fmt::Display for ModelRef {
 
 /// Signals around a message. Signals are not tags: a rule turns them into a
 /// split. Prompts never leave the machine; only keys found in them do.
+///
+/// Signals are an open list (ADR 0028). A name this version has no field
+/// for is kept in [`Signals::other`] as it was recorded, so a log written
+/// by a later version still reads.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default, deny_unknown_fields)]
+#[serde(default)]
 pub struct Signals {
     pub branch: Option<String>,
     pub working_directory: Option<String>,
@@ -171,11 +175,15 @@ pub struct Signals {
     pub config: BTreeMap<String, String>,
     /// Telemetry resource attributes, by name.
     pub resource: BTreeMap<String, String>,
+    /// Every other signal, by name, as it was recorded.
+    #[serde(flatten)]
+    pub other: BTreeMap<String, serde_json::Value>,
 }
 
-/// Facts about the session a message belongs to. All optional.
+/// Facts about the session a message belongs to. All optional. A fact
+/// this version does not know, written by a later one, is passed over.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default, deny_unknown_fields)]
+#[serde(default)]
 pub struct SessionFacts {
     pub turns: Option<u64>,
     pub tool_calls: Option<u64>,
@@ -408,7 +416,54 @@ mod tests {
         assert_eq!(read.signals.resource.get("service.name").unwrap(), "bot");
         assert_eq!(read.session.turns, Some(3));
         assert_eq!(read.session.summary.as_deref(), Some("fixed it"));
-        assert!(serde_json::from_str::<Signals>(r#"{"prompt": "secret"}"#).is_err());
-        assert!(serde_json::from_str::<SessionFacts>(r#"{"prompt": "secret"}"#).is_err());
+        assert!(read.signals.other.is_empty());
+    }
+
+    #[test]
+    fn a_log_written_by_a_later_version_still_reads() {
+        // Signals are open: a name with no field is kept as recorded and
+        // written back the same way.
+        let json = r#"{"branch": "main", "anthropic.provider": "claude.ai", "seats": 3}"#;
+        let signals: Signals = serde_json::from_str(json).unwrap();
+        assert_eq!(signals.branch.as_deref(), Some("main"));
+        assert_eq!(
+            signals.other.get("anthropic.provider"),
+            Some(&serde_json::json!("claude.ai"))
+        );
+        assert_eq!(signals.other.get("seats"), Some(&serde_json::json!(3)));
+        let again: Signals =
+            serde_json::from_str(&serde_json::to_string(&signals).unwrap()).unwrap();
+        assert_eq!(again, signals);
+        assert_eq!(
+            serde_json::to_string(&Signals::default()).unwrap(),
+            r#"{"branch":null,"working_directory":null,"repository":null,"pull_request":null,"pull_request_title":null,"subagent_type":null,"prompt_keys":[],"config":{},"resource":{}}"#
+        );
+        // A session fact this version does not know is passed over.
+        let facts: SessionFacts = serde_json::from_str(r#"{"turns": 2, "pauses": 4}"#).unwrap();
+        assert_eq!(facts.turns, Some(2));
+        // A message with no provider, a token kind beyond the four and
+        // fields of a later version reads.
+        let message: Message = serde_json::from_str(
+            r#"{
+                "session_id": "s1", "message_id": "m1", "person": "mara",
+                "at": "2026-10-05T09:12:00Z", "agent_harness": "codex",
+                "model": {"model": "gpt-5-codex"},
+                "tokens": {"input": 10, "cache_write_1h": 4, "reasoning": 7},
+                "received": "rcv_1",
+                "signals": {"auth_type": "api_key"}
+            }"#,
+        )
+        .unwrap();
+        assert_eq!(message.model.provider, None);
+        let tokens = message.tokens.unwrap();
+        assert_eq!(tokens.get(&crate::tokens::TokenKind::CACHE_WRITE_1H), 4);
+        assert_eq!(
+            tokens.get(&crate::tokens::TokenKind::new("reasoning").unwrap()),
+            7
+        );
+        assert_eq!(
+            message.signals.other.get("auth_type"),
+            Some(&serde_json::json!("api_key"))
+        );
     }
 }

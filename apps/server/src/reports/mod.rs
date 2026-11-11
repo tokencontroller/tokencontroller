@@ -118,8 +118,25 @@ pub struct CostReport {
     /// Messages in the filter and range with no counts; their cost is not
     /// in the total.
     pub count_errors: usize,
-    /// Models in the filter and range with no price row.
+    /// The models of the messages not priced yet.
     pub unknown_models: Vec<String>,
+    /// Messages in the filter and range not priced yet, with their token
+    /// counts: their cost is not in the total.
+    pub not_priced_yet: NotPricedYet,
+    /// Token kinds with tokens and no price row, left out of the total
+    /// while the rest of each message is priced.
+    pub unpriced_kinds: Vec<String>,
+    /// The part of the total under a flat contract, paid by its fee: "on
+    /// a plan". The rest is under metered contracts or none.
+    pub on_a_plan: String,
+}
+
+/// The messages of a report that are not priced yet, never a silent zero.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, ToSchema)]
+pub struct NotPricedYet {
+    pub messages: usize,
+    /// Their tokens by kind.
+    pub tokens: BTreeMap<String, u64>,
 }
 
 /// One row of the deviation report.
@@ -571,7 +588,33 @@ pub async fn cost(
             .iter()
             .map(ToString::to_string)
             .collect(),
+        not_priced_yet: not_priced_yet(&cost),
+        unpriced_kinds: cost
+            .unpriced_kinds
+            .iter()
+            .map(ToString::to_string)
+            .collect(),
+        on_a_plan: if setup.share {
+            share_text(cost.on_a_plan.nanos(), total.nanos())
+        } else {
+            setup.money(cost.on_a_plan)?
+        },
     })
+}
+
+/// The messages not priced yet and their tokens added up by kind.
+fn not_priced_yet(cost: &tokencontroller_core::Cost) -> NotPricedYet {
+    let mut tokens: BTreeMap<String, u64> = BTreeMap::new();
+    for counts in cost.not_priced.values() {
+        for (kind, count) in counts.iter() {
+            let sum = tokens.entry(kind.to_string()).or_default();
+            *sum = sum.saturating_add(count);
+        }
+    }
+    NotPricedYet {
+        messages: cost.not_priced.len(),
+        tokens,
+    }
 }
 
 /// Plan, cost and deviation per value of the grouping, with labels from
