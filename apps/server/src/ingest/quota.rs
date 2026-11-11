@@ -25,14 +25,37 @@ pub(super) async fn limit(
         .await
 }
 
+/// [`limit`], or none when `exempt`, as for a re-read of stored records.
+///
+/// # Errors
+///
+/// Whatever the hook fails with.
+pub(super) async fn limit_unless(
+    state: &AppState,
+    organization_id: Uuid,
+    exempt: bool,
+) -> Result<Option<DailyMessageLimit>, ApiError> {
+    if exempt {
+        return Ok(None);
+    }
+    limit(state, organization_id).await
+}
+
 /// How many messages the organization added since 00:00 UTC. A message
 /// event that supersedes the earlier record of the same call is not a new
-/// message, so it does not count.
+/// message, so it does not count. Nor does one a re-read made from a
+/// record received before today.
 async fn messages_today(db: &sqlx::PgPool, organization_id: Uuid) -> Result<i64, ApiError> {
     Ok(sqlx::query_scalar!(
         r#"SELECT count(*) AS "count!" FROM events
            WHERE organization_id = $1 AND kind = 'message' AND supersedes IS NULL
-             AND recorded_at >= date_trunc('day', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'"#,
+             AND recorded_at >= date_trunc('day', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'
+             AND NOT EXISTS (
+                 SELECT 1 FROM received_records r
+                 WHERE r.organization_id = events.organization_id
+                   AND r.id = events.payload->'message'->>'received'
+                   AND r.received_at < date_trunc('day', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'
+             )"#,
         organization_id
     )
     .fetch_one(db)

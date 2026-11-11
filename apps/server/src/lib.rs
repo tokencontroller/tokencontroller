@@ -204,6 +204,32 @@ pub async fn sign_in_link(email: &str) -> anyhow::Result<String> {
     Ok(link)
 }
 
+/// Reads an organization's stored telemetry again with this version of
+/// the reader, after a release that reads more of it. Needs the same
+/// settings as the service.
+///
+/// # Errors
+///
+/// Fails if the configuration is incomplete, the id is not a uuid,
+/// Postgres cannot be reached, or the re-read fails.
+pub async fn reread(organization: &str) -> anyhow::Result<ingest::received::Reread> {
+    let organization_id: uuid::Uuid = organization
+        .parse()
+        .context("the organization id is not a uuid")?;
+    let config = Config::from_env()?;
+    let db = connect_and_migrate(&config.database_url).await?;
+    let state = AppState::new(
+        db.clone(),
+        config,
+        Arc::new(tokencontroller_core::NoExtension),
+    );
+    let done = ingest::received::reread(&state, organization_id)
+        .await
+        .map_err(|error| anyhow::anyhow!("{error}"))?;
+    db.close().await;
+    Ok(done)
+}
+
 async fn connect_and_migrate(database_url: &str) -> anyhow::Result<PgPool> {
     let db = connect(database_url).await?;
     MIGRATOR

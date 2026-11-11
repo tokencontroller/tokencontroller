@@ -1185,6 +1185,70 @@ async fn a_second_bill_for_the_range_supersedes_the_first(pool: PgPool) {
 }
 
 #[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
+async fn a_bill_for_another_contract_stands_beside_the_providers_bill(pool: PgPool) {
+    let k = Kestrel::load(&pool).await.unwrap();
+    let result: TestResult<()> = async {
+        let bill = k
+            .post(
+                &k.nadia,
+                "/bills",
+                json!({
+                    "provider": "anthropic", "contract": "anthropic-max", "contract_kind": "flat",
+                    "from": "2026-03-01", "to": "2026-03-31",
+                    "amount": "120.00", "fee": "100.00", "extra_usage": "20.00", "currency": "USD"
+                }),
+            )
+            .await?
+            .ok(StatusCode::CREATED)?;
+        assert_eq!(text(&bill, "contract"), "anthropic-max");
+        assert_eq!(text(&bill, "contract_kind"), "flat");
+        assert_eq!(text(&bill, "fee"), "100.00");
+        assert_eq!(text(&bill, "extra_usage"), "20.00");
+        // The provider's own bill for March stays in force beside it.
+        let all = k
+            .get(&k.nadia, &format!("/bills?{MARCH}&reversed=true"))
+            .await?
+            .ok(StatusCode::OK)?;
+        assert_eq!(count(&all), 2);
+        assert!(
+            all.as_array()
+                .unwrap()
+                .iter()
+                .all(|bill| bill["reversed_by"].is_null())
+        );
+        // The same figures again store nothing.
+        let again = k
+            .post(
+                &k.nadia,
+                "/bills",
+                json!({
+                    "provider": "anthropic", "contract": "anthropic-max", "contract_kind": "flat",
+                    "from": "2026-03-01", "to": "2026-03-31",
+                    "amount": "120.00", "fee": "100.00", "extra_usage": "20.00", "currency": "USD"
+                }),
+            )
+            .await?;
+        assert_eq!(again.status, StatusCode::OK, "{}", again.text);
+        // A fee above the amount is refused.
+        let odd = k
+            .post(
+                &k.nadia,
+                "/bills",
+                json!({
+                    "provider": "anthropic", "contract": "anthropic-max",
+                    "from": "2026-04-01", "to": "2026-04-30",
+                    "amount": "10.00", "fee": "100.00", "currency": "USD"
+                }),
+            )
+            .await?;
+        assert_eq!(odd.status, StatusCode::BAD_REQUEST, "{}", odd.text);
+        Ok(())
+    }
+    .await;
+    result.unwrap();
+}
+
+#[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
 async fn a_bill_smaller_than_its_messages_says_a_message_is_wrong(pool: PgPool) {
     let k = Kestrel::load(&pool).await.unwrap();
     let result: TestResult<()> = async {

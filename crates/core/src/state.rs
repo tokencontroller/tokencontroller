@@ -479,8 +479,9 @@ impl State {
     }
 
     /// The contract a bill is for: the one it names; else, for a bill read
-    /// in this fold, the one it went to; else its provider's only contract;
-    /// else a contract named after the provider.
+    /// in this fold, the one it went to; else its provider's only contract
+    /// of the bill's kind (metered when it names none); else a contract
+    /// named after the provider.
     #[must_use]
     pub fn contract_of_bill(&self, bill: &Bill) -> TagValue {
         if let Some(contract) = &bill.contract {
@@ -494,10 +495,14 @@ impl State {
         {
             return contract.clone();
         }
+        // A bill that names no contract goes to its provider's only
+        // contract of its kind, so a plan's bill never takes in the
+        // metered bills sent before contracts.
+        let kind = bill.contract_kind.unwrap_or(ContractKind::Metered);
         let mut own = self
             .contracts
             .iter()
-            .filter(|(_, terms)| terms.provider == bill.provider);
+            .filter(|(_, terms)| terms.provider == bill.provider && terms.kind == kind);
         if let (Some((only, _)), None) = (own.next(), own.next()) {
             return only.clone();
         }
@@ -2984,6 +2989,34 @@ mod tests {
         // named after its provider, and asking again gives the same.
         assert_eq!(state.contract_of_bill(&unnamed), key("anthropic"));
         assert_eq!(state.contracts().len(), 4);
+    }
+
+    #[test]
+    fn a_plans_bill_does_not_take_in_the_metered_bills_that_name_no_contract() {
+        let march = date!(2026 - 03 - 01);
+        let unnamed = contract_bill("anthropic", None, march, "50");
+        let mut plan = contract_bill("anthropic", Some("anthropic-max"), march, "100");
+        plan.contract_kind = Some(ContractKind::Flat);
+        let events = [
+            event("b0", APRIL, Record::Bill(unnamed.clone())),
+            event(
+                "b1",
+                APRIL.saturating_add(Duration::seconds(1)),
+                Record::Bill(plan),
+            ),
+        ];
+        let state = State::fold(
+            &events,
+            APRIL.saturating_add(Duration::hours(1)),
+            Currency::USD,
+        )
+        .unwrap();
+        assert_eq!(state.contract_of_bill(&unnamed), key("anthropic"));
+        assert_eq!(state.contracts().len(), 2);
+        // A flat bill that names none goes to the only flat contract.
+        let mut flat = contract_bill("anthropic", None, date!(2026 - 04 - 01), "100");
+        flat.contract_kind = Some(ContractKind::Flat);
+        assert_eq!(state.contract_of_bill(&flat), key("anthropic-max"));
     }
 
     #[test]

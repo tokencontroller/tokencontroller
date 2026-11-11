@@ -23,7 +23,7 @@ import { refreshAll } from "@/lib/queries";
 type Kind = "" | BillCloud;
 
 const kinds: { value: Kind; label: string; hint: string }[] = [
-  { value: "", label: "Bills in the bill schema's columns", hint: "A header naming provider, from, to, amount and currency, optionally exchange_rate, then one row per bill." },
+  { value: "", label: "Bills in the bill schema's columns", hint: "A header naming provider, from, to, amount and currency, optionally exchange_rate, contract, contract_kind, fee and extra_usage, then one row per bill." },
   { value: "bedrock", label: "AWS Cost and Usage Report, for Bedrock", hint: "The report as AWS exports it. Amazon Bedrock usage inside the month is the bill." },
   { value: "vertex", label: "Google Cloud billing export, for Vertex AI", hint: "The cost table download or a BigQuery export saved as CSV. Vertex AI usage inside the month is the bill." },
   { value: "foundry", label: "Azure cost export, for Foundry", hint: "The export from Cost Management. Foundry usage inside the month is the bill." },

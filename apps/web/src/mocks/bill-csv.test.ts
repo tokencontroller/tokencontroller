@@ -26,7 +26,7 @@ test("names the first problem with its row and column", () => {
   expect(parseBills("provider,from,to,amount,currency,note\n").problem?.message).toMatch(/not part of the bill schema/);
   expect(parseBills("provider,from,to,amount,currency\na,2026-03-31,2026-03-01,1,USD\n").problem).toEqual({ row: 2, column: "to", message: "The bill ends on 2026-03-01, before it starts on 2026-03-31." });
   const twice = parseBills("provider,from,to,amount,currency\na,2026-03-01,2026-03-31,1,USD\na,2026-03-01,2026-03-31,2,USD\n");
-  expect(twice.problem).toEqual({ row: 3, column: null, message: "This is a second bill for a from 2026-03-01 to 2026-03-31; row 2 already is one. Give each bill once per provider and range." });
+  expect(twice.problem).toEqual({ row: 3, column: null, message: "This is a second bill for a from 2026-03-01 to 2026-03-31; row 2 already is one. Give each bill once per provider, contract and range." });
 });
 
 test("sums a cloud's export into one month's bill", () => {

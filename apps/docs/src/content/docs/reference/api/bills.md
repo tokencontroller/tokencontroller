@@ -34,12 +34,16 @@ Authorization: Bearer tc_svc_…
 }
 ```
 
-`201 Created` when the figures differ from the bill in force for that provider and range: a bill event is written and the earlier bill is reversed. `200 OK` with the unchanged bill when the same figures are already stored. The answer is the bill as `GET /bills` shows it:
+`201 Created` when the figures differ from the bill in force for that provider, contract and range: a bill event is written and the earlier bill is reversed. `200 OK` with the unchanged bill when the same figures are already stored. The answer is the bill as `GET /bills` shows it:
 
 ```json
 {
   "id": "bil_9d2f…",
   "provider": "anthropic",
+  "contract": "anthropic",
+  "contract_kind": null,
+  "fee": null,
+  "extra_usage": null,
   "from": "2026-03-01",
   "to": "2026-03-31",
   "amount": "1000.00",
@@ -64,7 +68,7 @@ Authorization: Bearer tc_svc_…
 }
 ```
 
-`source` is `api`, `csv`, `manual` or `pulled`. `exchange_rate` is to the organization's reporting currency at the bill's last day, filled in when left out, and `null` until a rate for that day is known. `final` says whether the provider will no longer change the figures: a bill sent, uploaded or typed in is final; a pulled bill can come in before it is.
+`contract` is the contract the bill is for: the one it named, else the one it went to. `contract_kind`, `fee` and `extra_usage` are what the bill named, or `null`. `source` is `api`, `csv`, `manual` or `pulled`. `exchange_rate` is to the organization's reporting currency at the bill's last day, filled in when left out, and `null` until a rate for that day is known. `final` says whether the provider will no longer change the figures: a bill sent, uploaded or typed in is final; a pulled bill can come in before it is.
 
 ## Read bills {#read}
 

@@ -76,6 +76,14 @@ pub struct UploadedBill {
     pub charging: Option<Charging>,
     /// The lines of a cloud export; empty for our own format.
     pub lines: Vec<BillLine>,
+    /// The contract the bill is for, as the file names it.
+    pub contract: Option<String>,
+    /// `metered` or `flat`, as the file names it.
+    pub contract_kind: Option<String>,
+    /// The fee part of a flat contract's bill.
+    pub fee: Option<Money>,
+    /// The extra usage part of a flat contract's bill.
+    pub extra_usage: Option<Money>,
 }
 
 impl UploadedBill {
@@ -97,6 +105,10 @@ impl UploadedBill {
             exchange_rate: bill.exchange_rate(),
             charging: Some(bill.cost_source()),
             lines: bill.lines().to_vec(),
+            contract: None,
+            contract_kind: None,
+            fee: None,
+            extra_usage: None,
         })
     }
 
@@ -108,8 +120,14 @@ impl UploadedBill {
 
 /// The columns of our own format, as the bill schema names them.
 const REQUIRED: [&str; 5] = ["provider", "from", "to", "amount", "currency"];
-const OPTIONAL: [&str; 1] = ["exchange_rate"];
-const SCHEMA: &str = "provider, from, to, amount and currency, and optionally exchange_rate";
+const OPTIONAL: [&str; 5] = [
+    "exchange_rate",
+    "contract",
+    "contract_kind",
+    "fee",
+    "extra_usage",
+];
+const SCHEMA: &str = "provider, from, to, amount and currency, and optionally exchange_rate, contract, contract_kind, fee and extra_usage";
 
 /// Where each column of our own format is.
 struct BillColumns {
@@ -119,6 +137,10 @@ struct BillColumns {
     amount: Column,
     currency: Column,
     exchange_rate: Option<Column>,
+    contract: Option<Column>,
+    contract_kind: Option<Column>,
+    fee: Option<Column>,
+    extra_usage: Option<Column>,
 }
 
 /// Reads bills in our own format: a header naming the fields of the bill
@@ -145,7 +167,7 @@ pub fn parse_bills(text: &str) -> Result<Vec<UploadedBill>, CsvBillError> {
     let columns = bill_columns(&header)?;
 
     let mut bills = Vec::new();
-    let mut seen: BTreeMap<(String, Date, Date), u64> = BTreeMap::new();
+    let mut seen: BTreeMap<(String, Option<String>, Date, Date), u64> = BTreeMap::new();
     for row in sheet {
         let (number, record) = row?;
         let extra = record
@@ -163,14 +185,19 @@ pub fn parse_bills(text: &str) -> Result<Vec<UploadedBill>, CsvBillError> {
             ));
         }
         let bill = read_bill(&columns, number, &record, decimal_comma)?;
-        let key = (bill.provider.clone(), bill.range.from, bill.range.to);
+        let key = (
+            bill.provider.clone(),
+            bill.contract.clone(),
+            bill.range.from,
+            bill.range.to,
+        );
         if let Some(first_row) = seen.insert(key, number) {
             return Err(CsvBillError::at(
                 number,
                 None,
                 format!(
                     "This is a second bill for {} from {} to {}; row {first_row} already is \
-                     one. Give each bill once per provider and range.",
+                     one. Give each bill once per provider, contract and range.",
                     bill.provider, bill.range.from, bill.range.to
                 ),
             ));
@@ -233,6 +260,10 @@ fn bill_columns(header: &Header) -> Result<BillColumns, CsvBillError> {
         amount: required("amount")?,
         currency: required("currency")?,
         exchange_rate: header.find(&["exchange_rate"]),
+        contract: header.find(&["contract"]),
+        contract_kind: header.find(&["contract_kind"]),
+        fee: header.find(&["fee"]),
+        extra_usage: header.find(&["extra_usage"]),
     })
 }
 
@@ -312,6 +343,29 @@ fn read_bill(
         _ => None,
     };
 
+    let text_of = |column: Option<&Column>| {
+        column
+            .map(&value)
+            .filter(|text| !text.is_empty())
+            .map(str::to_owned)
+    };
+    let part = |column: Option<&Column>| match column {
+        Some(column) if !value(column).is_empty() => {
+            let text = value(column);
+            read_amount(text, currency, decimal_comma)
+                .ok()
+                .filter(|part| !part.nanos().is_negative())
+                .map(Some)
+                .ok_or_else(|| {
+                    problem(
+                        column,
+                        format!("{text:?} is not an amount. Write a plain number such as 20.00, or leave it empty."),
+                    )
+                })
+        }
+        _ => Ok(None),
+    };
+
     Ok(UploadedBill {
         provider,
         range,
@@ -319,6 +373,10 @@ fn read_bill(
         exchange_rate,
         charging: None,
         lines: Vec::new(),
+        contract: text_of(columns.contract.as_ref()),
+        contract_kind: text_of(columns.contract_kind.as_ref()),
+        fee: part(columns.fee.as_ref())?,
+        extra_usage: part(columns.extra_usage.as_ref())?,
     })
 }
 
@@ -412,11 +470,34 @@ mod tests {
     }
 
     #[test]
+    fn a_bill_row_may_name_its_contract_and_the_parts_of_a_flat_one() {
+        let bills = parse_bills(
+            "provider,contract,contract_kind,from,to,amount,fee,extra_usage,currency\n\
+             anthropic,anthropic-max,flat,2026-03-01,2026-03-31,120,100,20,USD\n\
+             anthropic,,,2026-03-01,2026-03-31,950,,,USD\n",
+        )
+        .unwrap();
+        assert_eq!(bills.len(), 2);
+        assert_eq!(bills[0].contract.as_deref(), Some("anthropic-max"));
+        assert_eq!(bills[0].contract_kind.as_deref(), Some("flat"));
+        assert_eq!(bills[0].fee.map(Money::nanos), Some(100_000_000_000));
+        assert_eq!(bills[0].extra_usage.map(Money::nanos), Some(20_000_000_000));
+        assert_eq!(bills[1].contract, None);
+        assert_eq!(bills[1].fee, None);
+        let odd = parse_bills(
+            "provider,from,to,amount,fee,currency\nanthropic,2026-03-01,2026-03-31,120,lots,USD\n",
+        )
+        .unwrap_err();
+        assert_eq!(odd.column.as_deref(), Some("fee"));
+    }
+
+    #[test]
     fn the_header_must_name_the_bill_schema() {
         assert_eq!(
             error(""),
             "The file is empty. It needs a header row naming provider, from, to, amount and \
-             currency, and optionally exchange_rate, then one row per bill."
+             currency, and optionally exchange_rate, contract, contract_kind, fee and \
+             extra_usage, then one row per bill."
         );
         assert_eq!(
             error(HEADER),
@@ -425,12 +506,14 @@ mod tests {
         assert_eq!(
             error("provider,from,to,currency\nopenai,2026-03-01,2026-03-31,USD\n"),
             "The header has no amount column. A bill needs the columns provider, from, to, \
-             amount and currency, and optionally exchange_rate."
+             amount and currency, and optionally exchange_rate, contract, contract_kind, fee and \
+             extra_usage."
         );
         assert_eq!(
             error("provider,from,to,amount,currency,notes\n"),
             "The header has a column \"notes\" that is not part of the bill schema. Use \
-             provider, from, to, amount and currency, and optionally exchange_rate."
+             provider, from, to, amount and currency, and optionally exchange_rate, contract, \
+             contract_kind, fee and extra_usage."
         );
         assert_eq!(
             error("provider,from,to,amount,currency,amount\n"),
@@ -505,7 +588,7 @@ mod tests {
         assert_eq!(
             error(text),
             "Row 5: This is a second bill for openai from 2026-03-01 to 2026-03-31; row 2 \
-             already is one. Give each bill once per provider and range."
+             already is one. Give each bill once per provider, contract and range."
         );
     }
 

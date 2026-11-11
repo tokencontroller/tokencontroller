@@ -684,3 +684,45 @@ async fn a_daily_message_limit_refuses_the_batch_that_would_pass_it(pool: PgPool
         .unwrap();
     assert_eq!(stored.new_messages, 5);
 }
+
+#[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
+async fn what_a_reread_adds_from_an_earlier_record_leaves_todays_limit_alone(pool: PgPool) {
+    let mut kestrel = kestrel(&pool).await.unwrap();
+    kestrel.state = kestrel.state.clone().with_hooks(Arc::new(ThreeADay));
+    let at = datetime!(2026-10-05 09:00 UTC);
+    sqlx::query(
+        "INSERT INTO received_records (id, organization_id, endpoint, content_type, body, bytes, received_at, delete_after)
+         VALUES ('rcv_yesterday', $1, 'otlp-logs', 'application/json', '\\x7b7d', 2, now() - interval '1 day', now() + interval '399 days')",
+    )
+    .bind(kestrel.organization_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+    // Five calls read again from yesterday's record: more than the limit,
+    // and none of them counts against today.
+    let reread = store::store_received_telemetry(
+        &kestrel.state,
+        kestrel.organization_id,
+        &kestrel.mara,
+        store::Telemetry {
+            messages: (1..=5)
+                .map(|n| call("s9", &format!("m{n}"), at, 10))
+                .collect(),
+            received: Some("rcv_yesterday".to_owned()),
+            reread: true,
+            ..store::Telemetry::default()
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(reread.new_messages, 5);
+    let live = store::store_telemetry(
+        &kestrel.state,
+        kestrel.organization_id,
+        &kestrel.mara,
+        vec![call("s9", "m6", at, 10), call("s9", "m7", at, 10)],
+    )
+    .await
+    .unwrap();
+    assert_eq!(live.new_messages, 2);
+}
