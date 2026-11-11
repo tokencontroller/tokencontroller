@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# The web app's live journeys (apps/web/e2e/live): start the image with the
+# self-hosting compose file, load the example organization, and run the
+# journeys against the real service instead of the mock. The mock answers
+# whatever the web app asks; only the service can refuse it.
+# Usage: scripts/live-journeys [image]   (default: tokencontroller:ci)
+# Needs Docker, pnpm with apps/web installed, and Chromium for Playwright.
+set -euo pipefail
+
+export TC_IMAGE="${1:-tokencontroller:ci}"
+root="$(cd "$(dirname "$0")/.." && pwd)"
+compose=(docker compose -p tc-live -f "$root/compose.yaml" -f "$root/.github/compose.ci.yaml")
+
+cleanup() {
+  status=$?
+  if [ "$status" -ne 0 ]; then
+    echo "--- service logs ---"
+    "${compose[@]}" logs --no-color tokencontroller || true
+  fi
+  "${compose[@]}" down -v --remove-orphans >/dev/null 2>&1 || true
+  exit "$status"
+}
+trap cleanup EXIT
+
+"${compose[@]}" up -d --pull missing --quiet-pull
+
+for attempt in $(seq 1 60); do
+  if curl -fsS http://localhost:8080/api/v1/health 2>/dev/null | grep -q '"database":"ok"'; then
+    echo "service up after ${attempt} tries"
+    break
+  fi
+  if [ "$attempt" -eq 60 ]; then
+    echo "the service did not answer on /api/v1/health within two minutes" >&2
+    exit 1
+  fi
+  sleep 2
+done
+
+"${compose[@]}" run --rm --no-deps -T tokencontroller seed
+
+cd "$root/apps/web"
+TC_WEB_URL=http://localhost:8080 \
+TC_SIGN_IN_LINK_CMD="${compose[*]} run --rm --no-deps -T tokencontroller sign-in-link {email}" \
+  pnpm exec playwright test --project=live --reporter=line

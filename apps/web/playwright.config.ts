@@ -19,8 +19,10 @@ export default defineConfig({
     ...(executablePath ? { launchOptions: { executablePath } } : {}),
   },
   projects: [
-    { name: "desktop", testIgnore: /screenshots/, use: { ...devices["Desktop Chrome"], viewport: { width: 1360, height: 900 } } },
-    { name: "phone", testIgnore: /screenshots/, use: { ...devices["Pixel 7"] } },
+    { name: "desktop", testIgnore: /screenshots|live/, use: { ...devices["Desktop Chrome"], viewport: { width: 1360, height: 900 } } },
+    { name: "phone", testIgnore: /screenshots|live/, use: { ...devices["Pixel 7"] } },
+    // Against the real service with seed data (TC_WEB_URL, TC_SIGN_IN_LINK_CMD): scripts/live-journeys.
+    { name: "live", testMatch: /live\//, use: { ...devices["Desktop Chrome"], viewport: { width: 1360, height: 900 } } },
     // Screenshots of the main screens for people who do not run the app.
     { name: "screenshots", testMatch: /screenshots/, use: { ...devices["Desktop Chrome"], viewport: { width: 1360, height: 900 } } },
   ],
