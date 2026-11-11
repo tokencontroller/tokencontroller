@@ -22,6 +22,7 @@ export function DataTable<Row>({
   rowKey,
   csvName,
   totals,
+  csvAfter,
   empty,
   onRowClick,
   rowClassName,
@@ -35,6 +36,8 @@ export function DataTable<Row>({
   csvName?: string;
   /** A total row under a double rule: a label and values by column key. Also the last CSV row. */
   totals?: { label: string; values: Partial<Record<string, ReactNode>>; csv?: Partial<Record<string, string | number>> };
+  /** Lines the CSV holds after the total, as a label and values by column key. */
+  csvAfter?: { label: string; values: Partial<Record<string, string | number>> }[];
   empty?: ReactNode;
   onRowClick?: ((row: Row) => void) | undefined;
   rowClassName?: (row: Row) => string;
@@ -50,6 +53,7 @@ export function DataTable<Row>({
       [
         ...rows.map((row) => exportable.map((c) => c.csv?.(row) ?? null)),
         ...(totals ? [exportable.map((c, i) => (i === 0 ? totals.label : (totals.csv?.[c.key] ?? null)))] : []),
+        ...(csvAfter ?? []).map((line) => exportable.map((c, i) => (i === 0 ? line.label : (line.values[c.key] ?? null)))),
       ],
     );
     downloadFile(csvName, csv);

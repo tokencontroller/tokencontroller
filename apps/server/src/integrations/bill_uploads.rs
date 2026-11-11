@@ -20,7 +20,7 @@ use super::bills::BillMonth;
 use super::bills::csv::{self, Cloud, CsvBillError, UploadedBill};
 use crate::AppState;
 use crate::bills::amount::{RateNumber, format_amount};
-use crate::bills::{BillSource, BillView, NewBill, record_bill};
+use crate::bills::{BillSource, BillView, NewBill, Standing, record_bill, standing_of};
 use crate::error::{ApiError, ErrorBody};
 use crate::events::{Log, access};
 use crate::sign_in::{Caller, CredentialKind};
@@ -62,6 +62,25 @@ pub struct BillCsvBill {
     pub exchange_rate: Option<String>,
     /// How many lines a cloud's export was summed from.
     pub lines: usize,
+    /// The contract the bill goes to: the one the file names, else the
+    /// provider's only contract of its kind.
+    #[schema(example = "anthropic-api")]
+    pub contract: String,
+    /// The bill in force for the same provider, contract and range, which
+    /// this one restates; `null` for a new bill.
+    pub in_force: Option<BillCsvInForce>,
+}
+
+/// The bill a file's bill would restate.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, ToSchema)]
+pub struct BillCsvInForce {
+    #[schema(example = "1000.00")]
+    pub amount: String,
+    #[schema(example = "USD")]
+    pub currency: String,
+    /// Whether the file's bill has the same figures, so uploading it
+    /// changes nothing.
+    pub same: bool,
 }
 
 /// What is wrong with the file, and where.
@@ -181,7 +200,7 @@ fn checked(uploaded: &[UploadedBill], person: &TagValue) -> Result<Vec<NewBill>,
         .collect()
 }
 
-fn shown(bill: &UploadedBill) -> BillCsvBill {
+fn shown(bill: &UploadedBill, standing: &Standing) -> BillCsvBill {
     BillCsvBill {
         provider: bill.provider.clone(),
         from: bill.range.from,
@@ -190,6 +209,12 @@ fn shown(bill: &UploadedBill) -> BillCsvBill {
         currency: bill.currency().code(),
         exchange_rate: bill.exchange_rate.map(|rate| rate.normalize().to_string()),
         lines: bill.lines.len(),
+        contract: standing.contract.as_str().to_owned(),
+        in_force: standing.in_force.as_ref().map(|current| BillCsvInForce {
+            amount: format_amount(current.value.amount),
+            currency: current.value.amount.currency().code(),
+            same: standing.same,
+        }),
     }
 }
 
@@ -223,7 +248,7 @@ async fn preview_bill_csv(
 ) -> Result<Json<BillCsvPreview>, ApiError> {
     let person = allowed(&state, &caller).await?;
     let read = read(&query, &body).and_then(|bills| match checked(&bills, &person) {
-        Ok(_) => Ok(bills),
+        Ok(new) => Ok((bills, new)),
         Err(message) => Err(CsvBillError {
             row: None,
             column: None,
@@ -231,10 +256,20 @@ async fn preview_bill_csv(
         }),
     });
     Ok(Json(match read {
-        Ok(bills) => BillCsvPreview {
-            bills: bills.iter().map(shown).collect(),
-            problem: None,
-        },
+        Ok((bills, new)) => {
+            let fold = Log::load(&state, caller.organization_id)
+                .await?
+                .fold(OffsetDateTime::now_utc())?;
+            let mut shown_bills = Vec::with_capacity(bills.len());
+            for (bill, new) in bills.iter().zip(&new) {
+                let standing = standing_of(&state, caller.organization_id, &fold, new).await?;
+                shown_bills.push(shown(bill, &standing));
+            }
+            BillCsvPreview {
+                bills: shown_bills,
+                problem: None,
+            }
+        }
         Err(error) => BillCsvPreview {
             bills: Vec::new(),
             problem: Some(BillCsvProblem {

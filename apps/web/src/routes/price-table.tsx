@@ -77,7 +77,7 @@ export function PriceTablePage(): ReactNode {
             columns={[
               { key: "at", header: "When", cell: (m) => formatDateTime(m.at) },
               { key: "person", header: "Person", wide: true, cell: (m) => personName(m.person) },
-              { key: "model", header: "Model", cell: (m) => <span className="font-mono text-caption">{m.provider}/{m.model}</span> },
+              { key: "model", header: "Model", cell: (m) => <span className="font-mono text-caption">{m.provider ? `${m.provider}/${m.model}` : m.model}</span> },
               {
                 key: "tokens",
                 header: "Tokens",

@@ -129,7 +129,7 @@ export function SessionsPage(): ReactNode {
                 ),
                 csv: (s) => s.contracts.join(" "),
               },
-              { key: "by", header: "By", wide: true, cell: (s) => (s.assigned_by === "default" ? "no rule matched" : s.assigned_by) },
+              { key: "by", header: "By", wide: true, cell: byText, csv: byText },
               { key: "status", header: "Status", cell: (s) => <StatusBadge status={s.submitted} /> },
               { key: "fix", header: "", align: "right", cell: (s) => <Button size="sm" onClick={() => setEditing(s)} aria-label={`Split ${s.summary ?? s.session_id}`}>Split</Button> },
             ]}
@@ -139,6 +139,16 @@ export function SessionsPage(): ReactNode {
       {editing ? <SplitDialog session={editing} onClose={() => setEditing(null)} /> : null}
     </>
   );
+}
+
+/** How a contract was found, in the docs' words. */
+const contractByText: Record<string, string> = { hand: "hand", sender: "sender", rule: "rule", project_default: "project default", fallback: "only contract" };
+
+/** How a session got its split and its contract: "no rule matched" only when neither came from anything. */
+function byText(s: Session): string {
+  const split = s.assigned_by === "default" ? null : `split by ${s.assigned_by}`;
+  const contract = s.contract_by.length ? `contract by ${s.contract_by.map((b) => contractByText[b] ?? b).join(", ")}` : null;
+  return [split, contract].filter(Boolean).join(" · ") || "no rule matched";
 }
 
 /** The agent's name for people, such as Claude Code for `claude-code`. */
@@ -165,11 +175,17 @@ function ContractQuestion({ sessions }: { sessions: Session[] }) {
       title="Which contract?"
       hint="Some messages came under no contract, or without their provider. Pick the contract they were paid under; it goes on every message of these sessions."
     >
-      <ul className="-mx-5 flex flex-col">
-        {agents.map((agent) => (
-          <ContractAnswer key={agent} agent={agent} sessions={asked.filter((s) => s.agent_harness === agent)} contracts={contracts.data ?? []} />
-        ))}
-      </ul>
+      {contracts.error ? <ErrorBox error={contracts.error} /> : null}
+      {/* Wait for the contracts, so the choice never starts on "A new contract" while they load. */}
+      {!contracts.data ? (
+        contracts.error ? null : <Loading />
+      ) : (
+        <ul className="-mx-5 flex flex-col">
+          {agents.map((agent) => (
+            <ContractAnswer key={agent} agent={agent} sessions={asked.filter((s) => s.agent_harness === agent)} contracts={contracts.data} />
+          ))}
+        </ul>
+      )}
     </Section>
   );
 }
@@ -177,12 +193,13 @@ function ContractQuestion({ sessions }: { sessions: Session[] }) {
 const NEW_CONTRACT = "__new";
 
 function ContractAnswer({ agent, sessions, contracts }: { agent: string; sessions: Session[]; contracts: Contract[] }) {
-  const [contract, setContract] = useState(contracts[0]?.key ?? NEW_CONTRACT);
+  // Empty until picked: the first contract on record, else a new one.
+  const [contract, setContract] = useState("");
   const [key, setKey] = useState("");
   const [provider, setProvider] = useState("");
   const [kind, setKind] = useState<ContractKind>("metered");
   const [remember, setRemember] = useState(true);
-  const chosen = contracts.some((c) => c.key === contract) ? contract : NEW_CONTRACT;
+  const chosen = contracts.some((c) => c.key === contract) || contract === NEW_CONTRACT ? contract : (contracts[0]?.key ?? NEW_CONTRACT);
   const name = agentName[agent] ?? agent;
   const cost = toDecimal(sum(sessions.map((s) => fromDecimal(s.cost, "USD")), "USD"));
   const save = useMutation({

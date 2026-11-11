@@ -102,7 +102,7 @@ Send the file as the body with `Content-Type: text/csv`. Without a query, the co
 }
 ```
 
-The preview shows the bills the file holds, with `lines`, how many lines of a cloud's export were summed. When something is wrong, `problem` has its `row` (the header is line 1), `column` and `message`, and `bills` is empty. `POST /bills/csv` answers `201` with `bills`, each as it now stands, and `changed`, how many became a new bill event; the rest were already stored with the same figures. A file with a problem saves nothing and gets `400`.
+The preview shows the bills the file holds, with `lines`, how many lines of a cloud's export were summed, `contract`, the contract each bill goes to, and `in_force`, the bill it would restate under that contract (`amount`, `currency`, and `same` when the figures are the same), or `null` for a new bill. When something is wrong, `problem` has its `row` (the header is line 1), `column` and `message`, and `bills` is empty. `POST /bills/csv` answers `201` with `bills`, each as it now stands, and `changed`, how many became a new bill event; the rest were already stored with the same figures. A file with a problem saves nothing and gets `400`.
 
 ## Reconciliation {#reconciliation}
 

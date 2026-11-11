@@ -77,18 +77,50 @@ export function PlansPage(): ReactNode {
   );
 }
 
-/** The plans in force against their cost: what the eye should land on first. */
+/**
+ * The plans in force against their cost: what the eye should land on first.
+ * Plans on different tag names overlap (a feature's cost is inside its
+ * project's), so they are added up only within one set of names, one figure
+ * per set.
+ */
 function PlanFigures({ estimates }: { estimates: Estimate[] }) {
   const plans = estimates.filter((e) => e.accepted);
   const currency = plans[0]?.currency;
   if (!currency) return null;
-  const total = (pick: (e: Estimate) => string | null | undefined) => sum(plans.map((e) => fromDecimal(pick(e) ?? "0", currency)), currency);
-  const deviation = total((e) => e.deviation);
+  const byNames = new Map<string, Estimate[]>();
+  for (const e of plans) {
+    const names = Object.keys(e.tags).sort().join(" and ") || "no tag";
+    byNames.set(names, [...(byNames.get(names) ?? []), e]);
+  }
+  const total = (of: Estimate[], pick: (e: Estimate) => string | null | undefined) => sum(of.map((e) => fromDecimal(pick(e) ?? "0", currency)), currency);
+  const count = (of: Estimate[]) => `${String(of.length)} ${of.length === 1 ? "plan" : "plans"}`;
+  const groups = [...byNames.entries()].sort(([a], [b]) => a.localeCompare(b));
+  const only = groups.length === 1 ? groups[0] : undefined;
+  if (only) {
+    const [, of] = only;
+    const deviation = total(of, (e) => e.deviation);
+    return (
+      <KpiRow>
+        <Kpi hero label="Deviation" value={<MoneyText value={deviation} signed />} tone={nanosOf(deviation) < 0n ? "exception" : "posted"} note="plan minus cost" />
+        <Kpi label="Planned" value={<MoneyText value={total(of, (e) => e.amount)} />} note={count(of)} />
+        <Kpi label="Cost" value={<MoneyText value={total(of, (e) => e.cost)} />} />
+      </KpiRow>
+    );
+  }
   return (
     <KpiRow>
-      <Kpi hero label="Deviation" value={<MoneyText value={deviation} signed />} tone={nanosOf(deviation) < 0n ? "exception" : "posted"} note="plan minus cost" />
-      <Kpi label="Planned" value={<MoneyText value={total((e) => e.amount)} />} note={`${String(plans.length)} ${plans.length === 1 ? "plan" : "plans"}`} />
-      <Kpi label="Cost" value={<MoneyText value={total((e) => e.cost)} />} />
+      {groups.map(([names, of]) => {
+        const deviation = total(of, (e) => e.deviation);
+        return (
+          <Kpi
+            key={names}
+            label={`Deviation, plans on ${names}`}
+            value={<MoneyText value={deviation} signed />}
+            tone={nanosOf(deviation) < 0n ? "exception" : "posted"}
+            note={<>{count(of)}: planned <MoneyText value={total(of, (e) => e.amount)} />, cost <MoneyText value={total(of, (e) => e.cost)} /></>}
+          />
+        );
+      })}
     </KpiRow>
   );
 }

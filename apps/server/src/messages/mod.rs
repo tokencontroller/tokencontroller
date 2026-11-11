@@ -143,6 +143,9 @@ pub struct SessionView {
     pub unknown_models: Vec<String>,
     /// The contracts of the session's messages.
     pub contracts: Vec<String>,
+    /// How those contracts were set, each way once: `hand`, `sender`,
+    /// `rule`, `project_default` or `fallback`.
+    pub contract_by: Vec<&'static str>,
     /// Messages with no contract: the review list asks which contract they
     /// are under.
     pub no_contract: usize,
@@ -414,6 +417,11 @@ fn count_message(
         if !session.contracts.contains(&contract) {
             session.contracts.push(contract);
         }
+        if let Some(by) = line.contract_by.map(contract_by)
+            && !session.contract_by.contains(&by)
+        {
+            session.contract_by.push(by);
+        }
     } else {
         session.no_contract = session.no_contract.saturating_add(1);
         if line.model.provider.is_none() {
@@ -470,6 +478,7 @@ pub fn session_views(
                 count_errors: 0,
                 unknown_models: Vec::new(),
                 contracts: Vec::new(),
+                contract_by: Vec::new(),
                 no_contract: 0,
                 provider_unknown: 0,
                 parts: Vec::new(),

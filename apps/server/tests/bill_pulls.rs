@@ -596,6 +596,7 @@ async fn a_csv_bill_file_is_previewed_then_uploaded(pool: PgPool) {
         "provider names are lower case"
     );
     assert_eq!(shown[2]["currency"], "EUR");
+    assert_eq!(shown[0]["in_force"], Value::Null, "nothing to restate yet");
     let saved: i64 = sqlx::query_scalar("SELECT count(*) FROM events WHERE kind = 'bill'")
         .fetch_one(&pool)
         .await
@@ -696,6 +697,28 @@ async fn a_csv_bill_file_is_previewed_then_uploaded(pool: PgPool) {
     assert_eq!(march.len(), 2, "{march:?}");
     let restated = "provider,from,to,amount,currency,exchange_rate\n\
                     openai,2026-03-01,2026-03-31,1300,USD,0.92\n";
+    // The preview says so, under the contract the bill goes to; a bill for
+    // another contract of the same provider and range restates nothing.
+    let with_plan = "provider,contract,contract_kind,from,to,amount,fee,currency,exchange_rate\n\
+                     openai,openai,,2026-03-01,2026-03-31,1300,,USD,0.92\n\
+                     openai,chatgpt-team,flat,2026-03-01,2026-03-31,60,60,USD,0.92\n";
+    let previewed = send(
+        &kestrel.app,
+        Method::POST,
+        "/api/v1/bills/csv/preview",
+        &kestrel.org_manager,
+        Some(csv_body(with_plan)),
+    )
+    .await
+    .unwrap();
+    assert_eq!(previewed.json["problem"], Value::Null, "{}", previewed.json);
+    let first = &previewed.json["bills"][0];
+    assert_eq!(first["contract"], "openai", "{}", previewed.json);
+    assert_eq!(first["in_force"]["amount"], "1234.56", "{}", previewed.json);
+    assert_eq!(first["in_force"]["same"], false);
+    let flat = &previewed.json["bills"][1];
+    assert_eq!(flat["contract"], "chatgpt-team");
+    assert_eq!(flat["in_force"], Value::Null, "{}", previewed.json);
     let changed = send(
         &kestrel.app,
         Method::POST,

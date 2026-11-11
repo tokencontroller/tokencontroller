@@ -20,7 +20,7 @@ In the web app, the cost report, the deviation report and the price table downlo
 | `GET /bills`, `/bills/{id}` | Each bill with the cost of its messages and what no message explains |
 | `GET /reconciliation` | The [check](/account/bills#reconciliation) of each bill under its contract: bill, messages, unexplained, fee, extra usage, covered by the plan, and the two lines beside it, `same_provider_no_contract` and `contract_from_fallback` |
 
-A cost report's CSV holds its rows only. The [on a plan](/report/reports#on-a-plan) subtotals and the [not priced yet](/report/reports#not-priced) line come with the reporting API's JSON. Without a service, `tc export --csv` writes every message from the [CLI](/collect/cli).
+A cost report's CSV holds its rows, then the total, the [on a plan](/report/reports#on-a-plan) subtotals (`on a plan`, `metered`, `no contract`) and the [not priced yet](/report/reports#not-priced) line with its number of messages. The reporting API's JSON holds the same figures. Without a service, `tc export --csv` writes every message from the [CLI](/collect/cli).
 
 ## Reporting API {#reporting-api}
 

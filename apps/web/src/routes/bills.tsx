@@ -58,8 +58,35 @@ export function BillsPage(): ReactNode {
           <Empty title="No bills yet." action={<Button size="sm" onClick={() => setAdding(true)}>Add a bill</Button>} />
         </Section>
       )}
+      <Contracts contracts={contracts.data} error={contracts.error} />
       <Connections />
     </>
+  );
+}
+
+/** Every contract of the organization: from its bills, its values of `contract` and its rules. */
+function Contracts({ contracts, error }: { contracts: Contract[] | undefined; error: Error | null }) {
+  return (
+    <Section title="Contracts" flush hint="Each bill and each message is under one contract. A new contract comes with a bill, a value of contract under Tags, or a rule.">
+      {error ? <div className="px-5 pb-5"><ErrorBox error={error} /></div> : null}
+      {!contracts ? (
+        error ? null : <div className="px-5 pb-5"><Loading /></div>
+      ) : (
+        <DataTable
+          caption="Contracts"
+          stack
+          rows={contracts}
+          rowKey={(c) => c.key}
+          empty="No contracts yet. The first bill brings one."
+          columns={[
+            { key: "key", header: "Contract", cell: (c) => <span className="inline-flex flex-col items-end sm:items-start"><span className="font-medium">{c.title ?? c.key}</span>{c.title ? <span className="font-mono text-caption text-muted">{c.key}</span> : null}</span> },
+            { key: "provider", header: "Provider", cell: (c) => c.provider },
+            { key: "kind", header: "Kind", cell: (c) => <Badge tone={c.kind === "flat" ? "accent" : "neutral"}>{c.kind === "flat" ? "on a plan" : "metered"}</Badge> },
+            { key: "fee", header: "Fee per month", align: "right", cell: (c) => (c.kind === "flat" ? (c.fee ? <Amount value={c.fee} /> : <span className="text-muted">not known</span>) : null) },
+          ]}
+        />
+      )}
+    </Section>
   );
 }
 

@@ -22,6 +22,7 @@ const groupings = [
   { value: "project", label: "Project" },
   { value: "feature", label: "Feature" },
   { value: "client", label: "Client" },
+  { value: "contract", label: "Contract" },
   { value: "team", label: "Team" },
   { value: "department", label: "Department" },
   { value: "agent_harness", label: "Agent harness" },
@@ -126,6 +127,12 @@ function CostTab({ query }: { query: ReportQuery }) {
         rowKey={(r) => r.key ?? "none"}
         empty="No cost in this filter and range."
         totals={{ label: "Total", values: { amount: <Amount value={data.total} currency={data.currency} /> }, csv: { amount: data.total } }}
+        csvAfter={[
+          { label: "On a plan", values: { amount: data.on_a_plan } },
+          { label: "Metered", values: { amount: data.metered } },
+          { label: "No contract", values: { amount: data.no_contract } },
+          { label: "Not priced yet", values: { messages: data.not_priced_yet.messages } },
+        ]}
         columns={[
           { key: "key", header: groupLabel(query.by), cell: (r) => keyText(r.key), csv: (r) => r.key ?? "" },
           { key: "bar", header: "", wide: true, cell: (r) => <RowBar share={Number(r.share) * 10_000} /> },

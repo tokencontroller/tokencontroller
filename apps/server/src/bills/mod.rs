@@ -355,34 +355,13 @@ pub async fn record_bill(
     let log = Log::load(state, organization_id).await?;
     let now = OffsetDateTime::now_utc();
     let fold = log.fold(now)?;
-    let reporting = crate::organizations::reporting_currency(&state.db, organization_id).await?;
-    let (exchange_rate, given) = rate_for(state, &bill, reporting).await?;
-
-    // The fold names each bill's contract, so the bill in force is the one
-    // for the contract this bill goes to.
+    let standing = standing_of(state, organization_id, &fold, &bill).await?;
+    let (exchange_rate, given) = (standing.exchange_rate, standing.given);
     let new = core_bill(&bill);
-    let contract = fold.contract_of_bill(&new);
-    let in_force = fold
-        .bills()
-        .find(|recorded| {
-            recorded.value.provider == bill.provider
-                && recorded.value.range == bill.range
-                && fold.contract_of_bill(&recorded.value) == contract
-        })
-        .cloned();
+    let in_force = standing.in_force;
     if let Some(current) = &in_force {
-        let details = details_of(state, organization_id, current.id.as_str()).await?;
-        let same = current.value.amount == new.amount
-            && current.value.fee == new.fee
-            && current.value.extra_usage == new.extra_usage
-            && (new.contract_kind.is_none() || current.value.contract_kind == new.contract_kind)
-            && details
-                .as_ref()
-                .is_some_and(|details| details.lines == bill.lines)
-            && (!given
-                || details
-                    .as_ref()
-                    .is_some_and(|details| details.exchange_rate == exchange_rate));
+        let details = standing.details;
+        let same = standing.same;
         if same {
             let now_final =
                 bill.is_final && details.as_ref().is_some_and(|details| !details.is_final);
@@ -450,6 +429,75 @@ pub async fn record_bill(
         bill: view,
         changed: true,
     }))
+}
+
+/// How a new bill stands against the bill in force for the contract it
+/// goes to.
+pub struct Standing {
+    /// The contract the bill goes to.
+    pub contract: TagValue,
+    /// The bill in force for the same provider, contract and range.
+    pub in_force: Option<tokencontroller_core::Recorded<Bill>>,
+    /// Whether the new bill has the same figures, so storing it changes
+    /// nothing.
+    pub same: bool,
+    details: Option<Details>,
+    exchange_rate: Option<RateNumber>,
+    given: bool,
+}
+
+/// The bill in force for the contract `bill` goes to, and whether `bill`
+/// has its figures. [`record_bill`] and the CSV preview both read it, so
+/// the preview says what the upload will do.
+///
+/// # Errors
+///
+/// Whatever reading the database fails with.
+pub async fn standing_of(
+    state: &AppState,
+    organization_id: Uuid,
+    fold: &tokencontroller_core::State,
+    bill: &NewBill,
+) -> Result<Standing, ApiError> {
+    let reporting = crate::organizations::reporting_currency(&state.db, organization_id).await?;
+    let (exchange_rate, given) = rate_for(state, bill, reporting).await?;
+    // The fold names each bill's contract, so the bill in force is the one
+    // for the contract this bill goes to.
+    let new = core_bill(bill);
+    let contract = fold.contract_of_bill(&new);
+    let in_force = fold
+        .bills()
+        .find(|recorded| {
+            recorded.value.provider == bill.provider
+                && recorded.value.range == bill.range
+                && fold.contract_of_bill(&recorded.value) == contract
+        })
+        .cloned();
+    let details = match &in_force {
+        Some(current) => details_of(state, organization_id, current.id.as_str()).await?,
+        None => None,
+    };
+    let same = in_force.as_ref().is_some_and(|current| {
+        current.value.amount == new.amount
+            && current.value.fee == new.fee
+            && current.value.extra_usage == new.extra_usage
+            && (new.contract_kind.is_none() || current.value.contract_kind == new.contract_kind)
+            && details
+                .as_ref()
+                .is_some_and(|details| details.lines == bill.lines)
+            && (!given
+                || details
+                    .as_ref()
+                    .is_some_and(|details| details.exchange_rate == exchange_rate))
+    });
+    Ok(Standing {
+        contract,
+        in_force,
+        same,
+        details,
+        exchange_rate,
+        given,
+    })
 }
 
 /// The bill's rate to the reporting currency, and whether it came with the

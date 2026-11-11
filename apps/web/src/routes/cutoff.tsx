@@ -36,7 +36,7 @@ export function CutoffPage(): ReactNode {
   });
   const inRange = reconciliation.data?.filter((r) => r.to <= target && r.to > (current ?? "")) ?? [];
   const pending = submissions.data?.filter((s) => s.status !== "approved" && s.to <= target) ?? [];
-  const orgOverhead = overhead.data?.rows.find((r) => r.key === "organization_overhead")?.amount ?? "0.00";
+  const orgOverhead = overhead.data?.rows.find((r) => r.key === "organization overhead")?.amount ?? "0.00";
   const checks: { key: string; ok: boolean; text: ReactNode }[] = [
     ...inRange.map((r) => ({
       key: r.bill_id,

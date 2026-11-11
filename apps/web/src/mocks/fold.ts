@@ -185,7 +185,7 @@ export interface Window {
 }
 
 export function visibleLines(db: Db, me: Member, filter: Tags, w: Window, approved = false): Line[] {
-  return lines(db).filter((l) => l.day >= w.from && l.day <= w.to && contains(l.tags, filter) && canSee(db, me, l.tags) && (!approved || submittedOf(db, l.session) === "approved"));
+  return lines(db).filter((l) => l.day >= w.from && l.day <= w.to && contains(l.contract ? { ...l.tags, contract: l.contract.key } : l.tags, filter) && canSee(db, me, l.tags) && (!approved || submittedOf(db, l.session) === "approved"));
 }
 
 /** C(F, w) over lines with a cost. */
@@ -249,8 +249,9 @@ export function sessionView(db: Db, s: MockSession): Session {
     messages: s.messages.length,
     cost: dec(total),
     count_errors: costs.filter((c) => c.label === "count_error").length,
-    unknown_models: [...new Set(s.messages.filter((_, i) => costs[i]?.label === "not_priced_yet").map((m) => `${m.provider}/${m.model}`))],
+    unknown_models: [...new Set(s.messages.filter((_, i) => costs[i]?.label === "not_priced_yet").map((m) => (m.provider ? `${m.provider}/${m.model}` : m.model)))],
     contracts: [...new Set(s.messages.flatMap((m) => contractOf(db, s, m)?.key ?? []))],
+    contract_by: [...new Set(s.messages.flatMap((m) => contractOf(db, s, m)?.by ?? []))],
     no_contract: s.messages.filter((m) => m.provider && !contractOf(db, s, m)).length,
     provider_unknown: s.messages.filter((m) => !m.provider).length,
     assigned_by: split.by,
