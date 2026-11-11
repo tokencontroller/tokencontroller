@@ -139,7 +139,7 @@ async fn assign_contract(
         )));
     }
     let person = member.person()?;
-    let mut written = Vec::with_capacity(request.sessions.len());
+    let mut written = Vec::new();
     for session in &request.sessions {
         let session_id = SessionId::new(session.trim())
             .map_err(|error| ApiError::BadRequest(error.to_string()))?;
