@@ -15,6 +15,29 @@ export interface SessionRecord {
   feature?: string
   /** Every tag but the feature the person set by hand this session. */
   tags?: Record<string, string>
+  /**
+   * How the session was signed in when it started (`sign_in`,
+   * `organization.id`), recorded once at session start so a later sign-in
+   * never lands on an earlier session.
+   */
+  signals?: Record<string, string>
+}
+
+/**
+ * The sign-in signals from what Claude Code answers about the session's
+ * identity: `sign_in` is its kind, and `organization.id` only where Claude
+ * Code names the organization. A refusal gives none.
+ */
+export function signInSignals(identity: {
+  kind?: string | undefined
+  organizationId?: string | undefined
+  deny?: string | undefined
+}): Record<string, string> {
+  if (identity.deny !== undefined || identity.kind === undefined) return {}
+  const kind = identity.kind.trim()
+  if (kind === '' || kind === 'none') return {}
+  const organization = identity.organizationId?.trim()
+  return organization ? { sign_in: kind, 'organization.id': organization } : { sign_in: kind }
 }
 
 export interface Facts {
@@ -39,6 +62,7 @@ export function sessionRecord(
   summary: string | null,
   facts: Facts,
   handTags: Readonly<Record<string, string>>,
+  signIn: Readonly<Record<string, string>> | null = null,
 ): SessionRecord {
   const { feature, ...tags } = handTags
   const hasFacts = facts.turns > 0 || facts.subagents > 0
@@ -57,6 +81,7 @@ export function sessionRecord(
       : {}),
     ...(feature === undefined ? {} : { feature }),
     ...(Object.keys(tags).length === 0 ? {} : { tags }),
+    ...(signIn === null || Object.keys(signIn).length === 0 ? {} : { signals: { ...signIn } }),
   }
 }
 

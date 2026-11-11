@@ -21,7 +21,7 @@ use std::path::PathBuf;
 use serde::Deserialize;
 use serde_json::Value;
 
-use super::{FileContents, Message, Prompt, home_dir, timestamp_ms};
+use super::{FileContents, Message, PROVIDER, Prompt, home_dir, provider_name, timestamp_ms};
 use crate::repo::name_from_url;
 use crate::tokens::Tokens;
 
@@ -128,7 +128,26 @@ pub fn parse(text: &str) -> FileContents {
             continue;
         };
         match line.kind.as_deref() {
-            Some("session_meta") => read_meta(payload, &mut state),
+            Some("session_meta") => {
+                read_meta(payload, &mut state);
+                // The provider Codex reports, such as `openai`; the first
+                // meta names this file's session.
+                if let (Some(session_id), Some(provider)) = (
+                    state.session_id.clone(),
+                    payload
+                        .get("model_provider")
+                        .and_then(Value::as_str)
+                        .and_then(provider_name),
+                ) && !contents
+                    .signals
+                    .iter()
+                    .any(|(session, name, _)| *session == session_id && name == PROVIDER)
+                {
+                    contents
+                        .signals
+                        .push((session_id, PROVIDER.to_owned(), provider));
+                }
+            }
             Some("turn_context") => {
                 if let Some(model) = payload.get("model").and_then(Value::as_str) {
                     state.model = Some(model.to_owned());
@@ -365,6 +384,18 @@ mod tests {
         assert_eq!(contents.messages.len(), 1);
         assert_eq!(contents.messages.first().unwrap().tokens.input, 50);
         assert!(contents.prompts.is_empty());
+    }
+
+    #[test]
+    fn the_provider_codex_reports_is_read_from_the_first_meta() {
+        let meta = r#"{"timestamp":"2026-10-11T09:00:00Z","type":"session_meta","payload":{"id":"c1","model_provider":"OpenAI"}}"#;
+        let parent = r#"{"timestamp":"2026-10-11T09:00:00Z","type":"session_meta","payload":{"id":"p1","model_provider":"azure"}}"#;
+        let contents = parse(&[meta, parent].join("\n"));
+        assert_eq!(
+            contents.signals,
+            [("c1".to_owned(), PROVIDER.to_owned(), "openai".to_owned())]
+        );
+        assert!(parse(META).signals.is_empty());
     }
 
     #[test]

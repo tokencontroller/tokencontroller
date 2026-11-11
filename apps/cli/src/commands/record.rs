@@ -40,6 +40,23 @@ pub struct Record {
     pub pull_request: Option<serde_json::Value>,
     #[serde(default)]
     pub pull_request_title: Option<String>,
+    /// Signals the tool knows about the session, such as the sign-in at
+    /// session start (`sign_in`, `organization.id`). The first value of a
+    /// name stays. Short values only: never prompt text.
+    #[serde(default)]
+    pub signals: BTreeMap<String, serde_json::Value>,
+}
+
+/// The longest signal value `tc record` keeps.
+const MAX_SIGNAL_LEN: usize = 200;
+
+/// A signal name as the service takes it: letters, digits, `.`, `_`, `-`.
+fn is_signal_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 64
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
 }
 
 /// The records in the input: one JSON object, an array of them, or one
@@ -186,12 +203,50 @@ fn keep(app: &App<'_>, record: Record) -> Recorded {
             .pull_request_title
             .filter(|title| !title.trim().is_empty()),
         facts: record.facts,
+        signals: signals(record.signals),
     }
+}
+
+/// The recorded signals that are kept: named as the service takes them,
+/// and short. Text and numbers are kept as text.
+fn signals(given: BTreeMap<String, serde_json::Value>) -> BTreeMap<String, String> {
+    given
+        .into_iter()
+        .filter(|(name, _)| is_signal_name(name))
+        .filter_map(|(name, value)| {
+            let text = match value {
+                serde_json::Value::String(text) => text.trim().to_owned(),
+                serde_json::Value::Number(number) => number.to_string(),
+                serde_json::Value::Bool(flag) => flag.to_string(),
+                _ => return None,
+            };
+            (!text.is_empty() && text.chars().count() <= MAX_SIGNAL_LEN).then_some((name, text))
+        })
+        .collect()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_short_named_signals_are_kept() {
+        let (found, _) = records(
+            r#"{"session_id":"s1","signals":{"sign_in":"claude.ai","organization.id":" org-1 ","seats":3,"bad name":"x","prompt":{"text":"no"},"long":"LONG"}}"#
+                .replace("LONG", &"x".repeat(201))
+                .as_str(),
+        )
+        .unwrap();
+        let kept = signals(found.into_iter().next().unwrap().signals);
+        assert_eq!(
+            kept,
+            BTreeMap::from([
+                ("organization.id".to_owned(), "org-1".to_owned()),
+                ("seats".to_owned(), "3".to_owned()),
+                ("sign_in".to_owned(), "claude.ai".to_owned()),
+            ])
+        );
+    }
 
     #[test]
     fn one_object_an_array_or_one_object_per_line_is_read() {

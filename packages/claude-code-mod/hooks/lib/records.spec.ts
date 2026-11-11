@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { countTurn, NO_FACTS, parseCommand, sessionRecord } from './records.ts'
+import { countTurn, NO_FACTS, parseCommand, sessionRecord, signInSignals } from './records.ts'
 
 test('a session record carries the summary, the facts and the tags set by hand', () => {
   const facts = countTurn(countTurn(NO_FACTS, 4000, false), 1500, true)
@@ -26,6 +26,25 @@ test('a session record leaves out what is not known yet', () => {
     agent_harness: 'claude-code',
     session_id: 's',
     tags: { team: 'web' },
+  })
+})
+
+test('the sign-in at session start goes on the record as signals', () => {
+  assert.deepEqual(signInSignals({ kind: 'claude.ai', organizationId: 'org-1' }), {
+    sign_in: 'claude.ai',
+    'organization.id': 'org-1',
+  })
+  assert.deepEqual(signInSignals({ kind: 'api-key' }), { sign_in: 'api-key' })
+  assert.deepEqual(signInSignals({ kind: 'none' }), {})
+  assert.deepEqual(signInSignals({ deny: 'not installed by managed settings' }), {})
+  assert.deepEqual(sessionRecord('s', null, NO_FACTS, {}, { sign_in: 'bedrock' }), {
+    agent_harness: 'claude-code',
+    session_id: 's',
+    signals: { sign_in: 'bedrock' },
+  })
+  assert.deepEqual(sessionRecord('s', null, NO_FACTS, {}, {}), {
+    agent_harness: 'claude-code',
+    session_id: 's',
   })
 })
 

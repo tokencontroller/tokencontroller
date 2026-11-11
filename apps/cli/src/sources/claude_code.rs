@@ -18,7 +18,9 @@ use std::path::{Path, PathBuf};
 use serde::Deserialize;
 use serde_json::Value;
 
-use super::{FileContents, Message, Prompt, cost_nanos, home_dir, timestamp_ms};
+use super::{
+    FileContents, Message, Prompt, SIGNED_IN_ORGANIZATION, cost_nanos, home_dir, timestamp_ms,
+};
 use crate::tokens::Tokens;
 
 /// The folders Claude Code keeps its transcripts in: every folder named in
@@ -78,6 +80,18 @@ struct Line {
     #[serde(rename = "customTitle")]
     custom_title: Option<String>,
     summary: Option<String>,
+    attachment: Option<Attachment>,
+}
+
+/// An attachment line. Claude Code writes `credential_org` at session
+/// start when signed in with a claude.ai or Console account, and nothing
+/// with an API key.
+#[derive(Deserialize)]
+struct Attachment {
+    #[serde(rename = "type")]
+    kind: Option<String>,
+    #[serde(rename = "organizationUuid")]
+    organization_uuid: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -181,6 +195,26 @@ pub fn parse(text: &str) -> FileContents {
                         at_ms,
                         text,
                     });
+                }
+            }
+            Some("attachment") => {
+                // Only the sign-in at session start: a later change of
+                // account says nothing about the calls before it.
+                if let Some(Attachment {
+                    kind: Some(kind),
+                    organization_uuid: Some(organization),
+                }) = &line.attachment
+                    && kind == "credential_org"
+                    && !organization.trim().is_empty()
+                    && !contents.signals.iter().any(|(session, name, _)| {
+                        *session == session_id && name == SIGNED_IN_ORGANIZATION
+                    })
+                {
+                    contents.signals.push((
+                        session_id,
+                        SIGNED_IN_ORGANIZATION.to_owned(),
+                        organization.trim().to_owned(),
+                    ));
                 }
             }
             Some("ai-title" | "custom-title" | "summary") => {
@@ -474,6 +508,26 @@ mod tests {
         assert_eq!(
             contents.titles,
             [("s1".to_owned(), "Fix checkout redirect loop".to_owned())]
+        );
+    }
+
+    #[test]
+    fn the_sign_in_at_session_start_is_read_and_a_later_one_is_not() {
+        let text = [
+            r#"{"type":"attachment","sessionId":"s1","attachment":{"type":"context_sections","sections":[]}}"#,
+            r#"{"type":"attachment","sessionId":"s1","attachment":{"type":"credential_org","organizationUuid":"85249816-e7ce-4406"}}"#,
+            r#"{"type":"attachment","sessionId":"s1","attachment":{"type":"credential_org","organizationUuid":"other-org"}}"#,
+            r#"{"type":"attachment","sessionId":"s2","attachment":{"type":"credential_org","organizationUuid":"  "}}"#,
+        ]
+        .join("\n");
+        let contents = parse(&text);
+        assert_eq!(
+            contents.signals,
+            [(
+                "s1".to_owned(),
+                SIGNED_IN_ORGANIZATION.to_owned(),
+                "85249816-e7ce-4406".to_owned()
+            )]
         );
     }
 
