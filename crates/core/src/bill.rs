@@ -20,8 +20,9 @@ pub struct Bill {
     /// Who charged, such as `anthropic`. It is the contract's provider.
     pub provider: String,
     /// The contract the bill is for, such as `anthropic-api`. A bill
-    /// without one goes to the provider's only contract, else to a
-    /// contract named after the provider. A new key creates the contract.
+    /// without one goes to the provider's only contract of its kind,
+    /// else to a contract named after the provider. A new key creates the
+    /// contract.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub contract: Option<TagValue>,
     /// The kind of a contract this bill creates. Metered when left out.

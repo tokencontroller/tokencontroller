@@ -117,7 +117,7 @@ CREATE TABLE events (
 ";
 
 /// A Claude Code call takes its API request id, the id telemetry sends for
-/// the same call, so the service counts the two doors once (ADR 0018).
+/// the same call, so the service counts the two routes once (ADR 0018).
 /// Advisor calls keep their `:advisor:n` suffix.
 const SCHEMA_V3: &str = "
 UPDATE messages SET message_id = request_id

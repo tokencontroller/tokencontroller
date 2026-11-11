@@ -6,7 +6,7 @@
 //! - Claude Code writes one line per content block of a response, each with
 //!   the full usage. A response is counted once, by its message ID.
 //! - A call's id in Token Controller is its API request ID (`req_…`), the
-//!   id Claude Code's telemetry sends for the same call, so the two doors
+//!   id Claude Code's telemetry sends for the same call, so the two routes
 //!   join (ADR 0018). A line without one keeps the message ID.
 //! - A side conversation can replay a parent response under a new request ID;
 //!   the main copy wins over the `isSidechain` copy.
@@ -250,7 +250,7 @@ fn read_assistant(line: &Line, session_id: &str, messages: &mut Vec<Message>) {
         return;
     }
     let key = message_key(session_id, message_id, line.request_id.as_deref(), at_ms);
-    // The id both doors share. Claude Code's telemetry names a call by its
+    // The id both routes share. Claude Code's telemetry names a call by its
     // API request id, so the call takes that id here too; the response id
     // stays the key that makes copies count once.
     let id = line

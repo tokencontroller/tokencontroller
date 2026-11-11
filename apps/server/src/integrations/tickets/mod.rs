@@ -18,14 +18,14 @@ use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 use utoipa::ToSchema;
 
-/// The ticket systems tickets sync from.
+/// The kinds of tag source features sync from: Jira Cloud today.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, ToSchema)]
-pub enum TicketSystem {
+pub enum TagSourceKind {
     #[serde(rename = "jira")]
     Jira,
 }
 
-impl TicketSystem {
+impl TagSourceKind {
     /// How the API and the database write it: `jira`.
     #[must_use]
     pub const fn as_str(self) -> &'static str {
@@ -86,7 +86,7 @@ impl TicketSystem {
     }
 }
 
-/// How Token Controller signs in to a ticket system.
+/// How Token Controller signs in to a tag source.
 #[derive(Clone, PartialEq, Eq)]
 pub enum Credentials {
     /// Jira Cloud: the Atlassian account's email and an API token.
@@ -105,16 +105,16 @@ impl fmt::Debug for Credentials {
     }
 }
 
-/// One connected ticket system.
+/// One connected tag source.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Connection {
-    pub system: TicketSystem,
+    pub system: TagSourceKind,
     /// The Jira Cloud site (`https://acme.atlassian.net`).
     pub base_url: String,
     pub credentials: Credentials,
 }
 
-/// A project in a ticket system, to map onto a project tag value.
+/// A project in a tag source, to map onto a project tag value.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct ExternalProject {
     /// What [`fetch_updated`] takes: the Jira Cloud project key (`KD`).
@@ -126,10 +126,10 @@ pub struct ExternalProject {
 /// The longest description kept, in characters.
 pub const MAX_DESCRIPTION_CHARS: usize = 4_000;
 
-/// One ticket as its ticket system has it now.
+/// One ticket as its tag source has it now.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SyncedTicket {
-    pub system: TicketSystem,
+    pub system: TagSourceKind,
     /// The [`ExternalProject::key`] it was fetched for.
     pub external_project: String,
     /// The ticket key people write in branches and prompts: `KD-214`.
@@ -160,16 +160,16 @@ pub enum SyncError {
     #[error("{0}")]
     NotFound(String),
     /// Too many requests; try again after `retry_after`, when known.
-    #[error("the ticket system limits requests for now; try again later")]
+    #[error("the tag source limits requests for now; try again later")]
     RateLimited { retry_after: Option<Duration> },
     /// Any other error answer.
-    #[error("the ticket system answered {status}: {message}")]
+    #[error("the tag source answered {status}: {message}")]
     Provider { status: u16, message: String },
     /// An answer in a shape this code does not know.
-    #[error("the ticket system's answer could not be read: {0}")]
+    #[error("the tag source's answer could not be read: {0}")]
     Format(String),
     /// The system could not be reached.
-    #[error("the ticket system could not be reached: {0}")]
+    #[error("the tag source could not be reached: {0}")]
     Network(String),
 }
 
@@ -183,7 +183,7 @@ pub async fn list_projects(
     connection: &Connection,
 ) -> Result<Vec<ExternalProject>, SyncError> {
     match connection.system {
-        TicketSystem::Jira => jira::list_projects(client, connection).await,
+        TagSourceKind::Jira => jira::list_projects(client, connection).await,
     }
 }
 
@@ -204,7 +204,7 @@ pub async fn fetch_updated(
     since: Option<OffsetDateTime>,
 ) -> Result<Vec<SyncedTicket>, SyncError> {
     match connection.system {
-        TicketSystem::Jira => {
+        TagSourceKind::Jira => {
             jira::fetch_updated(client, connection, external_project, since).await
         }
     }
@@ -216,19 +216,19 @@ mod tests {
 
     #[test]
     fn systems_have_stable_names() {
-        let names = serde_json::to_string(&[TicketSystem::Jira]).unwrap();
+        let names = serde_json::to_string(&[TagSourceKind::Jira]).unwrap();
         assert_eq!(names, r#"["jira"]"#);
-        let back: TicketSystem = serde_json::from_str(r#""jira""#).unwrap();
-        assert_eq!(back, TicketSystem::Jira);
-        assert_eq!(TicketSystem::from_name("jira"), Some(TicketSystem::Jira));
-        assert_eq!(TicketSystem::from_name("azure_devops"), None);
-        assert_eq!(TicketSystem::Jira.name(), "Jira Cloud");
+        let back: TagSourceKind = serde_json::from_str(r#""jira""#).unwrap();
+        assert_eq!(back, TagSourceKind::Jira);
+        assert_eq!(TagSourceKind::from_name("jira"), Some(TagSourceKind::Jira));
+        assert_eq!(TagSourceKind::from_name("azure_devops"), None);
+        assert_eq!(TagSourceKind::Jira.name(), "Jira Cloud");
     }
 
     #[test]
     fn debug_output_hides_credentials() {
         let connection = Connection {
-            system: TicketSystem::Jira,
+            system: TagSourceKind::Jira,
             base_url: "https://acme.atlassian.net".to_owned(),
             credentials: Credentials::EmailAndToken {
                 email: "dev@acme.example".to_owned(),
@@ -243,7 +243,7 @@ mod tests {
 
     #[test]
     fn only_the_systems_own_hosts_are_accepted() {
-        let jira = TicketSystem::Jira;
+        let jira = TagSourceKind::Jira;
         assert_eq!(jira.check_base_url("https://acme.atlassian.net"), Ok(()));
         assert_eq!(jira.check_base_url("https://acme.atlassian.net/"), Ok(()));
         for url in [

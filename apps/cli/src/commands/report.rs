@@ -121,7 +121,7 @@ pub fn run(
                 "rows": rows,
                 "total": decimal(total),
                 "count_errors": cost.count_errors.len(),
-                "unknown_models": cost.not_priced_models.iter().map(ToString::to_string).collect::<Vec<_>>(),
+                "not_priced_models": cost.not_priced_models.iter().map(ToString::to_string).collect::<Vec<_>>(),
             }),
         );
     }

@@ -1,4 +1,4 @@
-//! Keys for outside systems (bill sources and ticket systems), sealed with a
+//! Keys for outside systems (bill sources and tag sources), sealed with a
 //! key derived from `TC_SECRET_KEY` before they are stored, so a copy of the
 //! database alone does not give them away.
 

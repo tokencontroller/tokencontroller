@@ -207,7 +207,7 @@ pub struct Message {
     /// token the agent ran with.
     pub person: crate::tags::TagValue,
     pub model: ModelRef,
-    /// Token counts by kind. `None` when the door gave no counts: the
+    /// Token counts by kind. `None` when the source gave no counts: the
     /// message has no cost and shows as a count error, never as zero.
     #[serde(default)]
     pub tokens: Option<TokenCounts>,

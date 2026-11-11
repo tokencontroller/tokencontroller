@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE tag_sources SET\n                 last_sync_at = CASE WHEN $2::text IS NULL THEN now() ELSE last_sync_at END,\n                 last_error = $2\n             WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "9e6463b653a181fccd236d3b656d044575422eaf97699f61d9c604586bd5cc24"
+}

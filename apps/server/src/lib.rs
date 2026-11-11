@@ -2,7 +2,7 @@
 //! receives telemetry, runs the background jobs and serves the web app, with
 //! all state in one Postgres database. The organization's state is an
 //! append-only event log (ADR 0022) that the core crate folds into every
-//! figure; the [`events`] module is the one door to it.
+//! figure; the [`events`] module is the one way in to it.
 //!
 //! The Enterprise plan build links this library and passes its own
 //! [`Extension`] to [`serve_with`], with its own routes; the open build

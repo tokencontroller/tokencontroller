@@ -630,7 +630,7 @@ fn without_prices_there_is_no_cost_and_never_zero() {
     let review = machine.json(&["review", "--json"]).unwrap();
     let claude = &by_harness(&review)["claude-code"];
     assert_eq!(claude["cost"], Value::Null);
-    assert_eq!(claude["unknown_models"], json!(["claude-sonnet-4-5"]));
+    assert_eq!(claude["not_priced_models"], json!(["claude-sonnet-4-5"]));
     // The split still stands: the rule reads signals, not prices.
     assert_eq!(claude["splits"][0]["tags"]["feature"], "KD-214");
     let table = machine.tc(&["review"]).unwrap();
@@ -639,7 +639,10 @@ fn without_prices_there_is_no_cost_and_never_zero() {
         .json(&["report", "--since", "2026-10-01", "--json"])
         .unwrap();
     assert_eq!(report["total"], "0.00");
-    assert_eq!(report["unknown_models"].as_array().map(Vec::len), Some(2));
+    assert_eq!(
+        report["not_priced_models"].as_array().map(Vec::len),
+        Some(2)
+    );
     let said = machine.tc(&["report", "--since", "2026-10-01"]).unwrap();
     assert!(said.contains("No price for"), "{said}");
 }

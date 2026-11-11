@@ -11,7 +11,7 @@ pub mod bills;
 pub mod decimal;
 pub mod http;
 pub mod secrets;
-pub mod ticket_systems;
+pub mod tag_sources;
 pub mod tickets;
 
 use serde::Serialize;
@@ -24,7 +24,7 @@ use crate::AppState;
 #[must_use]
 pub fn routes() -> OpenApiRouter<AppState> {
     OpenApiRouter::new()
-        .merge(ticket_systems::routes())
+        .merge(tag_sources::routes())
         .merge(bill_connections::routes())
         .merge(bill_uploads::routes())
 }

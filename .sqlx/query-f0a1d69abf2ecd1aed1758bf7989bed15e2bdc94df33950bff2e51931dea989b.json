@@ -1,37 +1,37 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT kind, site, sealed_credentials FROM ticket_systems\n         WHERE organization_id = $1 AND id = $2",
+  "query": "SELECT kind AS \"kind!\", site AS \"site!\", sealed_credentials AS \"sealed_credentials!\"\n         FROM tag_sources\n         WHERE organization_id = $1 AND id = $2",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "kind",
+        "name": "kind!",
         "type_info": "Text",
         "origin": {
           "Table": {
-            "table": "ticket_systems",
+            "table": "tag_sources",
             "name": "kind"
           }
         }
       },
       {
         "ordinal": 1,
-        "name": "site",
+        "name": "site!",
         "type_info": "Text",
         "origin": {
           "Table": {
-            "table": "ticket_systems",
+            "table": "tag_sources",
             "name": "site"
           }
         }
       },
       {
         "ordinal": 2,
-        "name": "sealed_credentials",
+        "name": "sealed_credentials!",
         "type_info": "Text",
         "origin": {
           "Table": {
-            "table": "ticket_systems",
+            "table": "tag_sources",
             "name": "sealed_credentials"
           }
         }
@@ -44,10 +44,10 @@
       ]
     },
     "nullable": [
-      false,
-      false,
-      false
+      true,
+      true,
+      true
     ]
   },
-  "hash": "aeca14d1bca02448bb80482248ddec703087be436098508a9f0db0514bf5991f"
+  "hash": "f0a1d69abf2ecd1aed1758bf7989bed15e2bdc94df33950bff2e51931dea989b"
 }

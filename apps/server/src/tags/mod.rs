@@ -94,9 +94,9 @@ pub struct TagValueView {
     pub key: String,
     pub title: Option<String>,
     pub description: Option<String>,
-    /// The id in the ticket system that owns it, such as a Jira issue id.
+    /// The id in the tag source that owns it, such as a Jira issue id.
     pub source_id: Option<String>,
-    /// The status in the ticket system, such as `done`.
+    /// The status in the tag source, such as `done`.
     pub source_status: Option<String>,
     /// The tags this value brings with it, such as `{"project": "shop"}`.
     #[schema(value_type = TagsSchema)]

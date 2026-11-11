@@ -71,7 +71,7 @@ test('dates read as words', () => {
   assert.equal(dateName('Q3'), 'Q3')
 })
 
-test('the session feature comes from its check list row, split or not', () => {
+test('the session feature comes from its review list row, split or not', () => {
   const rows: ReviewRow[] = [
     ROW,
     { ...ROW, number: 2, sessionId: 'b', splits: [{ fraction: 1, tags: {} }] },

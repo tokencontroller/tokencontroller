@@ -447,8 +447,9 @@ impl State {
 
     /// The contracts that tag value records and bills bring. A bill creates
     /// its contract when no contract of that key exists. A bill that names
-    /// none goes to its provider's only contract, else to one named after
-    /// the provider. Bills that name their contract are read first.
+    /// none goes to its provider's only contract of its kind, else to one
+    /// named after the provider. Bills that name their contract are read
+    /// first.
     fn contracts_of_records_and_bills(&mut self) {
         for record in self.values.tag_values() {
             if record.name == TagName::contract()
@@ -2144,7 +2145,7 @@ mod tests {
     }
 
     #[test]
-    fn a_count_error_and_an_unknown_model_are_flagged_never_zero() {
+    fn a_count_error_and_a_message_not_priced_yet_are_flagged_never_zero() {
         let mut events = worked_month();
         let mut no_counts = message("S5", "1", "tom", datetime!(2026-03-13 10:00 UTC), 1);
         no_counts.tokens = None;

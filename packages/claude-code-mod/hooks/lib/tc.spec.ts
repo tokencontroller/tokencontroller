@@ -70,7 +70,7 @@ test('an unconnected or unreadable status reads as local with nothing known', ()
   assert.equal(readStatus({ asked_to_submit: { asked_by: 'Nadia' } }).askedToSubmit, null)
 })
 
-test('reads the check list', () => {
+test('reads the review list', () => {
   assert.deepEqual(readReview({ sessions: [SESSION, { cost: '1' }] }), [
     {
       number: 5,

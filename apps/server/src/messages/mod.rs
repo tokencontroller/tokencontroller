@@ -140,7 +140,7 @@ pub struct SessionView {
     /// The cost of every priced message, in US dollars.
     pub cost: String,
     pub count_errors: usize,
-    pub unknown_models: Vec<String>,
+    pub not_priced_models: Vec<String>,
     /// The contracts of the session's messages.
     pub contracts: Vec<String>,
     /// How those contracts were set, each way once: `hand`, `sender`,
@@ -407,8 +407,8 @@ fn count_message(
         CostLabel::CountError => session.count_errors = session.count_errors.saturating_add(1),
         CostLabel::NotPricedYet => {
             let model = message.model.to_string();
-            if !session.unknown_models.contains(&model) {
-                session.unknown_models.push(model);
+            if !session.not_priced_models.contains(&model) {
+                session.not_priced_models.push(model);
             }
         }
     }
@@ -476,7 +476,7 @@ pub fn session_views(
                 messages: 0,
                 cost: String::new(),
                 count_errors: 0,
-                unknown_models: Vec::new(),
+                not_priced_models: Vec::new(),
                 contracts: Vec::new(),
                 contract_by: Vec::new(),
                 no_contract: 0,

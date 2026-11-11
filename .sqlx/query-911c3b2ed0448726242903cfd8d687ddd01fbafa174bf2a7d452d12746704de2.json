@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE tag_source_projects\n             SET synced_until = $3::timestamptz - interval '5 minutes'\n             WHERE tag_source_id = $1 AND external_project = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "911c3b2ed0448726242903cfd8d687ddd01fbafa174bf2a7d452d12746704de2"
+}

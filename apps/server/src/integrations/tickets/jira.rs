@@ -11,7 +11,7 @@ use time::macros::format_description;
 use time::{OffsetDateTime, UtcOffset};
 
 use super::transport::{endpoint, send};
-use super::{Connection, ExternalProject, SyncError, SyncedTicket, TicketSystem, text};
+use super::{Connection, ExternalProject, SyncError, SyncedTicket, TagSourceKind, text};
 
 const PAGE_SIZE: usize = 100;
 const FIELDS: [&str; 6] = [
@@ -238,7 +238,7 @@ fn ticket(connection: &Connection, project: &str, issue: Issue) -> Result<Synced
         )
     });
     Ok(SyncedTicket {
-        system: TicketSystem::Jira,
+        system: TagSourceKind::Jira,
         external_project: project.to_owned(),
         url: endpoint(connection, &["browse", &issue.key])
             .ok()
@@ -287,7 +287,7 @@ mod tests {
 
     fn connection(server: &MockServer) -> Connection {
         Connection {
-            system: TicketSystem::Jira,
+            system: TagSourceKind::Jira,
             base_url: server.uri(),
             credentials: Credentials::EmailAndToken {
                 email: "dev@acme.example".to_owned(),
@@ -333,7 +333,7 @@ mod tests {
         let keys: Vec<&str> = tickets.iter().map(|ticket| ticket.key.as_str()).collect();
         assert_eq!(keys, ["KD-214", "KD-215", "KD-216"]);
         let first = &tickets[0];
-        assert_eq!(first.system, TicketSystem::Jira);
+        assert_eq!(first.system, TagSourceKind::Jira);
         assert_eq!(first.external_project, "KD");
         assert_eq!(
             first.title.as_deref(),
@@ -517,7 +517,7 @@ mod tests {
             refused,
             SyncError::Unauthorized(
                 "Jira Cloud did not accept the account email and API token. \
-                 Check it under Settings, Ticket systems."
+                 Check it under Tags, Jira."
                     .to_owned()
             )
         );

@@ -37,7 +37,7 @@ Besides `total` and `rows`, the cost report carries:
 | --- | --- |
 | `on_a_plan`, `metered`, `no_contract` | The total split by the kind of contract its messages ran under. `on_a_plan` is the part already paid by a flat contract's fee. |
 | `not_priced_yet` | The messages not priced yet, with their token counts by kind. Their cost is not in the total. |
-| `unknown_models` | The models of those messages, as `provider/model`. |
+| `not_priced_models` | The models of those messages, as `provider/model`. |
 | `unpriced_kinds` | Token kinds with tokens and no price row, left out while the rest of each message is priced. |
 | `count_errors` | Messages with no token counts. |
 

@@ -111,11 +111,11 @@ function CostTab({ query }: { query: ReportQuery }) {
         <AsOf at={data.as_of} />
       </div>
       <ContractParts report={data} />
-      {data.count_errors || data.unknown_models.length ? (
+      {data.count_errors || data.not_priced_models.length ? (
         <div className="px-5 [&>*]:mb-3"><Note tone="exception">
           Not in the total: {data.count_errors ? `${String(data.count_errors)} count errors` : ""}
-          {data.count_errors && data.unknown_models.length ? "; " : ""}
-          {data.unknown_models.length ? `not priced yet: ${data.unknown_models.join(", ")}` : ""}
+          {data.count_errors && data.not_priced_models.length ? "; " : ""}
+          {data.not_priced_models.length ? `not priced yet: ${data.not_priced_models.join(", ")}` : ""}
           {data.not_priced_yet.messages ? ` (${notPricedText(data.not_priced_yet)})` : ""}.
         </Note></div>
       ) : null}

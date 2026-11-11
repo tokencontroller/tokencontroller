@@ -4061,6 +4061,262 @@
         }
       }
     },
+    "/api/v1/tag-sources": {
+      "get": {
+        "tags": [
+          "integrations"
+        ],
+        "summary": "The tag sources the organization connected.",
+        "operationId": "list_tag_sources",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TagSourceView"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "integrations"
+        ],
+        "summary": "Connect a tag source with an API token. Org managers only. The first\nsync starts right away; whoever connects a tag source answers for\nthat data flow.",
+        "operationId": "connect_tag_source",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewTagSource"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TagSourceView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The address or the token is not usable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tag-sources/{id}": {
+      "delete": {
+        "tags": [
+          "integrations"
+        ],
+        "summary": "Disconnect a tag source. Org managers only. Its features stay, and\nstop syncing.",
+        "operationId": "disconnect_tag_source",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The tag source",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Disconnected"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tag-sources/{id}/mappings": {
+      "put": {
+        "tags": [
+          "integrations"
+        ],
+        "summary": "Set the sync map: which Jira projects feed which project tag values,\nreplacing the earlier map. Org managers only. A sync starts right away.",
+        "operationId": "set_mappings",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The tag source",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/Mapping"
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TagSourceView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A project is unknown or mapped twice",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tag-sources/{id}/projects": {
+      "get": {
+        "tags": [
+          "integrations"
+        ],
+        "summary": "The projects the tag source shows the token, to map. Org managers\nonly.",
+        "operationId": "external_projects",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The tag source",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ExternalProject"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The tag source refused the token or could not be read",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tag-sources/{id}/sync": {
+      "post": {
+        "tags": [
+          "integrations"
+        ],
+        "summary": "Sync a tag source now, without waiting for its 15 minutes. Org\nmanagers only.",
+        "operationId": "sync_now",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The tag source",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "The sync starts within a minute",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TagSourceView"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/tags": {
       "get": {
         "tags": [
@@ -4239,262 +4495,6 @@
           },
           "404": {
             "description": "No such tag name",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/ticket-systems": {
-      "get": {
-        "tags": [
-          "integrations"
-        ],
-        "summary": "The ticket systems the organization connected.",
-        "operationId": "list_ticket_systems",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/TicketSystemView"
-                  }
-                }
-              }
-            }
-          }
-        }
-      },
-      "post": {
-        "tags": [
-          "integrations"
-        ],
-        "summary": "Connect a ticket system with an API token. Org managers only. The first\nsync starts right away; whoever connects a ticket system answers for\nthat data flow.",
-        "operationId": "connect_ticket_system",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/NewTicketSystem"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TicketSystemView"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "The address or the token is not usable",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/ticket-systems/{id}": {
-      "delete": {
-        "tags": [
-          "integrations"
-        ],
-        "summary": "Disconnect a ticket system. Org managers only. Its features stay, and\nstop syncing.",
-        "operationId": "disconnect_ticket_system",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "description": "The ticket system",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "Disconnected"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/ticket-systems/{id}/mappings": {
-      "put": {
-        "tags": [
-          "integrations"
-        ],
-        "summary": "Set the sync map: which Jira projects feed which project tag values,\nreplacing the earlier map. Org managers only. A sync starts right away.",
-        "operationId": "set_mappings",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "description": "The ticket system",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "array",
-                "items": {
-                  "$ref": "#/components/schemas/Mapping"
-                }
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TicketSystemView"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "A project is unknown or mapped twice",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/ticket-systems/{id}/projects": {
-      "get": {
-        "tags": [
-          "integrations"
-        ],
-        "summary": "The projects the ticket system shows the token, to map. Org managers\nonly.",
-        "operationId": "external_projects",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "description": "The ticket system",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/ExternalProject"
-                  }
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "The ticket system refused the token or could not be read",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/ticket-systems/{id}/sync": {
-      "post": {
-        "tags": [
-          "integrations"
-        ],
-        "summary": "Sync a ticket system now, without waiting for its 15 minutes. Org\nmanagers only.",
-        "operationId": "sync_now",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "description": "The ticket system",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "responses": {
-          "202": {
-            "description": "The sync starts within a minute",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TicketSystemView"
-                }
-              }
-            }
-          },
-          "404": {
             "content": {
               "application/json": {
                 "schema": {
@@ -5439,7 +5439,7 @@
           "total",
           "rows",
           "count_errors",
-          "unknown_models",
+          "not_priced_models",
           "not_priced_yet",
           "unpriced_kinds",
           "on_a_plan",
@@ -5487,6 +5487,13 @@
             "type": "string",
             "description": "The part of the total with no contract yet."
           },
+          "not_priced_models": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The models of the messages not priced yet."
+          },
           "not_priced_yet": {
             "$ref": "#/components/schemas/NotPricedYet",
             "description": "Messages in the filter and range not priced yet, with their token\ncounts: their cost is not in the total."
@@ -5508,13 +5515,6 @@
           "total": {
             "type": "string",
             "example": "950.00"
-          },
-          "unknown_models": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "description": "The models of the messages not priced yet."
           },
           "unpriced_kinds": {
             "type": "array",
@@ -5955,7 +5955,7 @@
       },
       "ExternalProject": {
         "type": "object",
-        "description": "A project in a ticket system, to map onto a project tag value.",
+        "description": "A project in a tag source, to map onto a project tag value.",
         "required": [
           "key",
           "name"
@@ -6289,7 +6289,7 @@
         "properties": {
           "external": {
             "type": "string",
-            "description": "The Jira project key, as `GET /ticket-systems/{id}/projects` lists\nthem."
+            "description": "The Jira project key, as `GET /tag-sources/{id}/projects` lists\nthem."
           },
           "external_name": {
             "type": [
@@ -7221,6 +7221,35 @@
           }
         }
       },
+      "NewTagSource": {
+        "type": "object",
+        "description": "A tag source to connect.",
+        "required": [
+          "kind",
+          "site",
+          "token"
+        ],
+        "properties": {
+          "email": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The email of the Atlassian account the token belongs to. Jira Cloud\nsigns in with both."
+          },
+          "kind": {
+            "$ref": "#/components/schemas/TagSourceKind"
+          },
+          "site": {
+            "type": "string",
+            "description": "The Jira Cloud site, such as `https://acme.atlassian.net`."
+          },
+          "token": {
+            "type": "string",
+            "description": "An API token from the tag source."
+          }
+        }
+      },
       "NewTagValue": {
         "type": "object",
         "description": "A new tag value, or a change to one: a record with the same name and\nkey supersedes the earlier one.",
@@ -7272,35 +7301,6 @@
               "string",
               "null"
             ]
-          }
-        }
-      },
-      "NewTicketSystem": {
-        "type": "object",
-        "description": "A ticket system to connect.",
-        "required": [
-          "kind",
-          "site",
-          "token"
-        ],
-        "properties": {
-          "email": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "The email of the Atlassian account the token belongs to. Jira Cloud\nsigns in with both."
-          },
-          "kind": {
-            "$ref": "#/components/schemas/TicketSystem"
-          },
-          "site": {
-            "type": "string",
-            "description": "The Jira Cloud site, such as `https://acme.atlassian.net`."
-          },
-          "token": {
-            "type": "string",
-            "description": "An API token from the ticket system."
           }
         }
       },
@@ -7746,7 +7746,7 @@
           },
           "kind": {
             "type": "string",
-            "description": "`input`, `output`, `cache_read` or `cache_write`.",
+            "description": "The token kind the price is for, such as `input`, `cache_read` or\n`cache_write_1h`. Kinds are open names (ADR 0028).",
             "example": "input"
           },
           "model": {
@@ -7914,7 +7914,7 @@
           "contract_from_fallback",
           "a_message_is_wrong",
           "count_errors",
-          "unknown_models"
+          "not_priced_models"
         ],
         "properties": {
           "a_message_is_wrong": {
@@ -7975,6 +7975,13 @@
             "description": "The cost of the messages with the bill's contract in the range.",
             "example": "950.00"
           },
+          "not_priced_models": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Models in the range with no price row, as `provider/model`."
+          },
           "same_provider_no_contract": {
             "type": "string",
             "description": "Messages of the bill's provider in its range that have no contract.",
@@ -7984,13 +7991,6 @@
             "type": "string",
             "description": "Metered: what the bill has that no message explains; negative means\na message is wrong. Flat: what the bill has besides its fee and\nextra usage, zero when the parts add up.",
             "example": "50.00"
-          },
-          "unknown_models": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "description": "Models in the range with no price row, as `provider/model`."
           }
         }
       },
@@ -8234,7 +8234,7 @@
           "messages",
           "cost",
           "count_errors",
-          "unknown_models",
+          "not_priced_models",
           "contracts",
           "contract_by",
           "no_contract",
@@ -8296,6 +8296,12 @@
             "description": "Messages with no contract: the review list asks which contract they\nare under.",
             "minimum": 0
           },
+          "not_priced_models": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
           "parts": {
             "type": "array",
             "items": {
@@ -8329,12 +8335,6 @@
               "string",
               "null"
             ]
-          },
-          "unknown_models": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
           }
         }
       },
@@ -8764,6 +8764,67 @@
           }
         }
       },
+      "TagSourceKind": {
+        "type": "string",
+        "description": "The kinds of tag source features sync from: Jira Cloud today.",
+        "enum": [
+          "jira"
+        ]
+      },
+      "TagSourceView": {
+        "type": "object",
+        "description": "A connected tag source, as the web app shows it. The token is never\nsent back.",
+        "required": [
+          "id",
+          "kind",
+          "site",
+          "key_hint",
+          "mappings",
+          "status"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "key_hint": {
+            "type": "string",
+            "description": "The token's last characters, to tell tokens apart."
+          },
+          "kind": {
+            "$ref": "#/components/schemas/TagSourceKind"
+          },
+          "last_sync_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "When the last sync succeeded."
+          },
+          "mappings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Mapping"
+            },
+            "description": "The sync map: which of its projects feed which project tag value."
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why the last sync failed."
+          },
+          "site": {
+            "type": "string",
+            "description": "The Jira Cloud site."
+          },
+          "status": {
+            "$ref": "#/components/schemas/ConnectionStatus"
+          }
+        }
+      },
       "TagValueView": {
         "type": "object",
         "description": "One tag value as the API shows it.",
@@ -8816,14 +8877,14 @@
               "string",
               "null"
             ],
-            "description": "The id in the ticket system that owns it, such as a Jira issue id."
+            "description": "The id in the tag source that owns it, such as a Jira issue id."
           },
           "source_status": {
             "type": [
               "string",
               "null"
             ],
-            "description": "The status in the ticket system, such as `done`."
+            "description": "The status in the tag source, such as `done`."
           },
           "title": {
             "type": [
@@ -8845,67 +8906,6 @@
         "example": {
           "feature": "KD-214",
           "project": "shop"
-        }
-      },
-      "TicketSystem": {
-        "type": "string",
-        "description": "The ticket systems tickets sync from.",
-        "enum": [
-          "jira"
-        ]
-      },
-      "TicketSystemView": {
-        "type": "object",
-        "description": "A connected ticket system, as the web app shows it. The token is never\nsent back.",
-        "required": [
-          "id",
-          "kind",
-          "site",
-          "key_hint",
-          "mappings",
-          "status"
-        ],
-        "properties": {
-          "id": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "key_hint": {
-            "type": "string",
-            "description": "The token's last characters, to tell tokens apart."
-          },
-          "kind": {
-            "$ref": "#/components/schemas/TicketSystem"
-          },
-          "last_sync_at": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "format": "date-time",
-            "description": "When the last sync succeeded."
-          },
-          "mappings": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/Mapping"
-            },
-            "description": "The sync map: which of its projects feed which project tag value."
-          },
-          "message": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Why the last sync failed."
-          },
-          "site": {
-            "type": "string",
-            "description": "The Jira Cloud site."
-          },
-          "status": {
-            "$ref": "#/components/schemas/ConnectionStatus"
-          }
         }
       },
       "TokenEntries": {

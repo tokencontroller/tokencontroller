@@ -1,4 +1,4 @@
-//! The daily message limit of one organization. The doors take every
+//! The daily message limit of one organization. The usage endpoints take every
 //! message (ADR 0022: accept everything, reconcile later); the one
 //! exception is a service that many organizations share, where the build's
 //! hooks can set a limit per organization so one of them cannot fill the

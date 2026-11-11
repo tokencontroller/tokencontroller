@@ -29,7 +29,7 @@ use crate::values::{AttributeValue, PersonAttribute, TagValueRecord};
 #[error("{0:?} is not an event id: use 1 to 200 characters without spaces at either end")]
 pub struct EventIdError(pub String);
 
-/// The id of one event in the log, given by the door that recorded it.
+/// The id of one event in the log, given by the source that recorded it.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(try_from = "String", into = "String")]
 pub struct EventId(String);

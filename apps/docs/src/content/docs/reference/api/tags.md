@@ -19,7 +19,7 @@ Tags say what work was for; attributes say who the person is. Both are records w
 | `POST /rules` | Add an organization rule. | Assign on the tag it sets, in the web app |
 | `GET /me/rules`, `PUT /me/rules` | Your own rules; replace them. | Anyone, for themselves |
 | `GET /me/context` | What a local tool needs to split sessions like the service does. | Anyone, for themselves |
-| `/ticket-systems` | Connect Jira as a tag source, set the sync map, sync now. | Org manager, in the web app |
+| `/tag-sources` | Connect Jira as a tag source, set the sync map, sync now. | Org manager, in the web app |
 
 ## Tag names and values {#tags}
 
@@ -165,17 +165,17 @@ The worked month has two rules on `contract` at order 10: `organization.id` matc
 
 `rules` are the organization's and your own in order, `names` every tag and attribute name, `tag_values` the values you may view, `attributes` yours today, `price_table` the [rows in force](/reference/api/organization#price-table).
 
-## Jira {#ticket-systems}
+## Jira {#tag-sources}
 
-An org manager connects Jira Cloud in the web app as a tag source; its issues become features with their project as default, synced every 15 minutes. The paths keep the name `ticket-systems`. The token is never sent back.
+An org manager connects Jira Cloud in the web app as a tag source; its issues become features with their project as default, synced every 15 minutes. The token is never sent back.
 
 | Endpoint | What it does |
 | --- | --- |
-| `GET /ticket-systems` | The connections, each with `id`, `kind`, `site`, `key_hint`, `mappings`, `last_sync_at`, `status` (`ok` or `failing`) and `message`. |
-| `POST /ticket-systems` | `{"kind": "jira", "site": "https://acme.atlassian.net", "email": "…", "token": "…"}`. The first sync starts right away. `400` when the address or the token is not usable. |
-| `GET /ticket-systems/{id}/projects` | The Jira projects the token can see, as `key` and `name`, to map. |
-| `PUT /ticket-systems/{id}/mappings` | The sync map, replacing the earlier one: a list of `{"external": "KD", "project": "shop", "fields": ["title", "description", "type", "status", "parent", "assignee"]}`. `fields` left out copies all of them. `400` for an unknown project or one mapped twice. |
-| `POST /ticket-systems/{id}/sync` | Sync now. `202`: it starts within a minute. |
-| `DELETE /ticket-systems/{id}` | Disconnect. Its features stay and stop syncing. `204`. |
+| `GET /tag-sources` | The connections, each with `id`, `kind`, `site`, `key_hint`, `mappings`, `last_sync_at`, `status` (`ok` or `failing`) and `message`. |
+| `POST /tag-sources` | `{"kind": "jira", "site": "https://acme.atlassian.net", "email": "…", "token": "…"}`. The first sync starts right away. `400` when the address or the token is not usable. |
+| `GET /tag-sources/{id}/projects` | The Jira projects the token can see, as `key` and `name`, to map. |
+| `PUT /tag-sources/{id}/mappings` | The sync map, replacing the earlier one: a list of `{"external": "KD", "project": "shop", "fields": ["title", "description", "type", "status", "parent", "assignee"]}`. `fields` left out copies all of them. `400` for an unknown project or one mapped twice. |
+| `POST /tag-sources/{id}/sync` | Sync now. `202`: it starts within a minute. |
+| `DELETE /tag-sources/{id}` | Disconnect. Its features stay and stop syncing. `204`. |
 
 See [Jira](/account/tags#jira).

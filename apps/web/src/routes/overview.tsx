@@ -49,10 +49,10 @@ export function OverviewPage(): ReactNode {
             <Kpi label="Project overhead" value={<Amount value={lineOf("project overhead")} currency={cost.data.currency} />} note="On a project, no feature" />
             <Kpi label="Organization overhead" value={<Amount value={lineOf("organization overhead")} currency={cost.data.currency} />} note="On no project" tone={Number(lineOf("organization overhead")) > 0 ? "exception" : undefined} />
           </KpiRow>
-          {cost.data.count_errors || cost.data.unknown_models.length ? (
+          {cost.data.count_errors || cost.data.not_priced_models.length ? (
             <Note tone="exception">
               {cost.data.count_errors ? `${String(cost.data.count_errors)} messages came without token counts (count errors). ` : ""}
-              {cost.data.unknown_models.length ? `Not priced yet: ${cost.data.unknown_models.join(", ")}.` : ""} Their cost is not in these figures.
+              {cost.data.not_priced_models.length ? `Not priced yet: ${cost.data.not_priced_models.join(", ")}.` : ""} Their cost is not in these figures.
             </Note>
           ) : null}
         </>

@@ -121,7 +121,7 @@ pub struct CostReport {
     /// in the total.
     pub count_errors: usize,
     /// The models of the messages not priced yet.
-    pub unknown_models: Vec<String>,
+    pub not_priced_models: Vec<String>,
     /// Messages in the filter and range not priced yet, with their token
     /// counts: their cost is not in the total.
     pub not_priced_yet: NotPricedYet,
@@ -632,7 +632,7 @@ pub async fn cost(
         total: setup.money(total)?,
         rows,
         count_errors: cost.count_errors.len(),
-        unknown_models: cost
+        not_priced_models: cost
             .not_priced_models
             .iter()
             .map(ToString::to_string)

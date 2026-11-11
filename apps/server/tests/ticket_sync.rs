@@ -1,4 +1,4 @@
-//! Ticket systems over HTTP and the ticket sync job, against a real Postgres
+//! Tag sources over HTTP and the ticket sync job, against a real Postgres
 //! database and recorded Jira Cloud answers. Synced issues become feature
 //! tag values in the event log, with the mapped project as their default.
 
@@ -11,8 +11,8 @@ use http_body_util::BodyExt as _;
 use serde_json::{Value, json};
 use sqlx::PgPool;
 use tokencontroller_core::NoExtension;
-use tokencontroller_server::integrations::ticket_systems;
-use tokencontroller_server::integrations::{secrets, tickets::TicketSystem};
+use tokencontroller_server::integrations::tag_sources;
+use tokencontroller_server::integrations::{secrets, tickets::TagSourceKind};
 use tokencontroller_server::jobs::{self, Attempt};
 use tokencontroller_server::sign_in::secret;
 use tokencontroller_server::{AppState, Config, router};
@@ -197,11 +197,11 @@ async fn jira_at(kestrel: &Kestrel, server: &MockServer) -> TestResult<Uuid> {
         &json!({ "email": "dev@acme.example", "token": "ATATT3xFfGF0-test" }).to_string(),
     )?;
     let id: Uuid = sqlx::query_scalar(
-        "INSERT INTO ticket_systems (organization_id, kind, site, sealed_credentials, key_hint)
+        "INSERT INTO tag_sources (organization_id, kind, site, sealed_credentials, key_hint)
          VALUES ($1, $2, $3, $4, '…test') RETURNING id",
     )
     .bind(kestrel.organization_id)
-    .bind(TicketSystem::Jira.as_str())
+    .bind(TagSourceKind::Jira.as_str())
     .bind(server.uri())
     .bind(sealed)
     .fetch_one(&kestrel.state.db)
@@ -231,13 +231,13 @@ async fn mock_search(server: &MockServer) {
 }
 
 #[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
-async fn an_org_manager_connects_a_ticket_system(pool: PgPool) {
+async fn an_org_manager_connects_a_tag_source(pool: PgPool) {
     let kestrel = kestrel(&pool).await.unwrap();
     let connect = async |session: &str, body: Value| {
         send(
             &kestrel.app,
             Method::POST,
-            "/api/v1/ticket-systems",
+            "/api/v1/tag-sources",
             session,
             Some(body),
         )
@@ -275,7 +275,7 @@ async fn an_org_manager_connects_a_ticket_system(pool: PgPool) {
         !connected.json.to_string().contains("ATATT3xFfGF0-secret"),
         "the token is never sent back"
     );
-    let stored: String = sqlx::query_scalar("SELECT sealed_credentials FROM ticket_systems")
+    let stored: String = sqlx::query_scalar("SELECT sealed_credentials FROM tag_sources")
         .fetch_one(&pool)
         .await
         .unwrap();
@@ -294,7 +294,7 @@ async fn an_org_manager_connects_a_ticket_system(pool: PgPool) {
     let mapped = send(
         &kestrel.app,
         Method::PUT,
-        &format!("/api/v1/ticket-systems/{id}/mappings"),
+        &format!("/api/v1/tag-sources/{id}/mappings"),
         &kestrel.org_manager,
         Some(json!([{ "external": "KD", "external_name": "Kestrel storefront", "project": "storefront" }])),
     )
@@ -321,7 +321,7 @@ async fn an_org_manager_connects_a_ticket_system(pool: PgPool) {
     let unknown = send(
         &kestrel.app,
         Method::PUT,
-        &format!("/api/v1/ticket-systems/{id}/mappings"),
+        &format!("/api/v1/tag-sources/{id}/mappings"),
         &kestrel.org_manager,
         Some(json!([{ "external": "OPS", "project": "operations" }])),
     )
@@ -332,7 +332,7 @@ async fn an_org_manager_connects_a_ticket_system(pool: PgPool) {
     let listed = send(
         &kestrel.app,
         Method::GET,
-        "/api/v1/ticket-systems",
+        "/api/v1/tag-sources",
         &kestrel.agent_manager,
         None,
     )
@@ -344,7 +344,7 @@ async fn an_org_manager_connects_a_ticket_system(pool: PgPool) {
     let sync = send(
         &kestrel.app,
         Method::POST,
-        &format!("/api/v1/ticket-systems/{id}/sync"),
+        &format!("/api/v1/tag-sources/{id}/sync"),
         &kestrel.org_manager,
         None,
     )
@@ -354,7 +354,7 @@ async fn an_org_manager_connects_a_ticket_system(pool: PgPool) {
     let gone = send(
         &kestrel.app,
         Method::DELETE,
-        &format!("/api/v1/ticket-systems/{id}"),
+        &format!("/api/v1/tag-sources/{id}"),
         &kestrel.org_manager,
         None,
     )
@@ -364,7 +364,7 @@ async fn an_org_manager_connects_a_ticket_system(pool: PgPool) {
     let again = send(
         &kestrel.app,
         Method::DELETE,
-        &format!("/api/v1/ticket-systems/{id}"),
+        &format!("/api/v1/tag-sources/{id}"),
         &kestrel.org_manager,
         None,
     )
@@ -382,7 +382,7 @@ async fn the_sync_writes_features_with_parents_and_assignees(pool: PgPool) {
     let mapped = send(
         &kestrel.app,
         Method::PUT,
-        &format!("/api/v1/ticket-systems/{id}/mappings"),
+        &format!("/api/v1/tag-sources/{id}/mappings"),
         &kestrel.org_manager,
         Some(json!([{ "external": "KD", "project": "storefront" }])),
     )
@@ -412,10 +412,8 @@ async fn the_sync_writes_features_with_parents_and_assignees(pool: PgPool) {
     assert_eq!(answer.status, StatusCode::CREATED, "{}", answer.json);
     assert_eq!(answer.json["unknown_tags"], json!(["feature: KD-215"]));
 
-    let note = ticket_systems::sync_due(kestrel.state.clone())
-        .await
-        .unwrap();
-    assert_eq!(note, "1 of 1 ticket systems synced, 3 features written");
+    let note = tag_sources::sync_due(kestrel.state.clone()).await.unwrap();
+    assert_eq!(note, "1 of 1 tag sources synced, 3 features written");
 
     let synced = features(&kestrel).await.unwrap();
     assert_eq!(synced.len(), 3, "{synced:?}");
@@ -466,7 +464,7 @@ async fn the_sync_writes_features_with_parents_and_assignees(pool: PgPool) {
         sqlx::query_as(
             "SELECT s.last_sync_at, s.last_error,
                     m.synced_until = s.last_sync_started_at - interval '5 minutes'
-             FROM ticket_systems s JOIN ticket_system_projects m ON m.ticket_system_id = s.id",
+             FROM tag_sources s JOIN tag_source_projects m ON m.tag_source_id = s.id",
         )
         .fetch_one(&pool)
         .await
@@ -499,14 +497,12 @@ async fn the_sync_writes_features_with_parents_and_assignees(pool: PgPool) {
     );
 
     // Nothing is due again until the minutes pass.
-    let quiet = ticket_systems::sync_due(kestrel.state.clone())
-        .await
-        .unwrap();
-    assert_eq!(quiet, "0 of 0 ticket systems synced, 0 features written");
+    let quiet = tag_sources::sync_due(kestrel.state.clone()).await.unwrap();
+    assert_eq!(quiet, "0 of 0 tag sources synced, 0 features written");
 }
 
 #[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
-async fn a_refused_token_shows_on_the_ticket_system_not_the_status_page(pool: PgPool) {
+async fn a_refused_token_shows_on_the_tag_source_not_the_status_page(pool: PgPool) {
     let kestrel = kestrel(&pool).await.unwrap();
     let server = MockServer::start().await;
     Mock::given(method("POST"))
@@ -519,7 +515,7 @@ async fn a_refused_token_shows_on_the_ticket_system_not_the_status_page(pool: Pg
         .await;
     let id = jira_at(&kestrel, &server).await.unwrap();
     sqlx::query(
-        "INSERT INTO ticket_system_projects (organization_id, ticket_system_id, external_project, external_name, project)
+        "INSERT INTO tag_source_projects (organization_id, tag_source_id, external_project, external_name, project)
          VALUES ($1, $2, 'KD', 'KD', 'storefront')",
     )
     .bind(kestrel.organization_id)
@@ -530,7 +526,7 @@ async fn a_refused_token_shows_on_the_ticket_system_not_the_status_page(pool: Pg
 
     let job = jobs::standard(&kestrel.state.config)
         .into_iter()
-        .find(|job| job.name == ticket_systems::JOB)
+        .find(|job| job.name == tag_sources::JOB)
         .unwrap();
     let attempt = jobs::run_if_due(&kestrel.state, &job).await.unwrap();
     assert_eq!(attempt, Attempt::Ran { succeeded: true });
@@ -538,7 +534,7 @@ async fn a_refused_token_shows_on_the_ticket_system_not_the_status_page(pool: Pg
     let listed = send(
         &kestrel.app,
         Method::GET,
-        "/api/v1/ticket-systems",
+        "/api/v1/tag-sources",
         &kestrel.org_manager,
         None,
     )

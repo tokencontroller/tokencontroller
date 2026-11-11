@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE tag_sources SET sync_requested_at = now()\n         WHERE organization_id = $1 AND id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d699b6a535e847d4603b159e1946e41ae3a9e0424c1a91c6a4a0b8e81ebf4928"
+}

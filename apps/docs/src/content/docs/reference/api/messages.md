@@ -189,7 +189,7 @@ GET /api/v1/messages?from=2026-03-01&to=2026-03-31&session_id=S2&as_of=2026-04-0
       "messages": 1,
       "cost": "150.00",
       "count_errors": 0,
-      "unknown_models": [],
+      "not_priced_models": [],
       "contracts": ["anthropic-api"],
       "contract_by": ["hand"],
       "no_contract": 0,
@@ -207,7 +207,7 @@ GET /api/v1/messages?from=2026-03-01&to=2026-03-31&session_id=S2&as_of=2026-04-0
 }
 ```
 
-`started_at` and `ended_at` are the times of the session's first and last message. `cost` adds up its priced messages; `count_errors` and `unknown_models` name what is left out. `contracts` are the contracts of its messages, and `contract_by` how they were found, each way once: `hand`, `sender`, `rule`, `project_default` or `fallback`. `no_contract` counts the messages with no contract, which the [review list](/attribute/review) asks about, and `provider_unknown` those of them whose provider is not known either. S4 ran on an API key and Anthropic has two contracts, so Tom answered the review list by hand: `no_contract` was 1 before, and 0 after the [contract assignment](#contract-assignments).
+`started_at` and `ended_at` are the times of the session's first and last message. `cost` adds up its priced messages; `count_errors` and `not_priced_models` name what is left out. `contracts` are the contracts of its messages, and `contract_by` how they were found, each way once: `hand`, `sender`, `rule`, `project_default` or `fallback`. `no_contract` counts the messages with no contract, which the [review list](/attribute/review) asks about, and `provider_unknown` those of them whose provider is not known either. S4 ran on an API key and Anthropic has two contracts, so Tom answered the review list by hand: `no_contract` was 1 before, and 0 after the [contract assignment](#contract-assignments).
 
 ## Splits {#splits}
 

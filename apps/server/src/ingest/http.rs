@@ -1,4 +1,4 @@
-//! The doors over HTTP: the token entries endpoint, CSV import and the
+//! The usage endpoints over HTTP: the token entries endpoint, CSV import and the
 //! OpenTelemetry receiver.
 
 use axum::Json;
@@ -24,7 +24,7 @@ use crate::sign_in::{Caller, CredentialKind, Member};
 /// The most token entries one call may send.
 pub const MAX_ENTRIES_PER_CALL: usize = 1_000;
 
-/// The largest request body the doors take, before decompression. OTLP
+/// The largest request body the usage endpoints take, before decompression. OTLP
 /// bodies are also limited after it, to [`otlp::MAX_BODY_BYTES`].
 pub const MAX_REQUEST_BYTES: usize = otlp::MAX_BODY_BYTES;
 

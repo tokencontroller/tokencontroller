@@ -15,7 +15,7 @@ The mod keeps its messages through the CLI, `tc` ([install](https://docs.tokenco
 - During the session it writes the one-line summary with a small model call of its own and hands it to `tc record`, with the session facts it counts (turns, duration, subagent turns) and the feature and tags you set by hand.
 - `tc` builds the session record and splits it by your rules. The mod does not split anything itself ([ADR 0010](../../docs/adr/0010-local-tools-share-the-cli.md)).
 - A band above the prompt shows `$41.87 today · 91% on features · KD-214`, and a note when an org manager asks everyone to submit before the cutoff moves.
-- A pane (`/tc`) shows the check list, where you fix a feature and submit; a report by feature, project, team or day; and your personal rules.
+- A pane (`/tc`) shows the review list, where you fix a feature and submit; a report by feature, project, team or day; and your personal rules.
 - `/tc feature KD-214`, `/tc tag purpose=spike`, `/tc report [by]` and `/tc submit` run at once, without a turn. Claude can call the mod's `report` tool to answer "what did KD-214 cost this week?".
 
 Everything the docs promise is on the [Claude Code mod](https://docs.tokencontroller.com/collect/claude-code) page.

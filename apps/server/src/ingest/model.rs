@@ -1,4 +1,4 @@
-//! The shapes every door produces before anything is stored: one model call
+//! The shapes every usage endpoint produces before anything is stored: one model call
 //! as a [`TelemetryMessage`] (ADR 0006), with its [`TokenCounts`].
 
 use serde::{Deserialize, Serialize};
