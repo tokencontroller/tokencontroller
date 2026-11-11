@@ -10,6 +10,8 @@ test("an org manager reads cost and deviation for March", async ({ page }) => {
   await expect(cost.locator("tr").filter({ hasText: "shop" }).getByText("$800.00").filter({ visible: true })).toBeVisible();
   await expect(cost.locator("tr").filter({ hasText: "no project" }).getByText("$150.00").filter({ visible: true })).toBeVisible();
   await expect(cost.getByText("$950.00").filter({ visible: true })).toBeVisible();
+  // 400 of it ran on the Claude Team plan, already paid by its fee.
+  await expect(page.getByLabel("By kind of contract").getByText("$400.00")).toBeVisible();
 
   await page.getByLabel("Group by").selectOption("label");
   await expect(cost.locator("tr").filter({ hasText: "Direct" }).getByText("$700.00").filter({ visible: true })).toBeVisible();

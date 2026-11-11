@@ -79,6 +79,10 @@ export type BillApi = Schemas["BillApi"];
 export type BillConnection = Schemas["BillConnectionView"];
 export type NewBillConnection = Schemas["NewBillConnection"];
 export type Reconciliation = Schemas["ReconciliationRow"];
+export type Contract = Schemas["ContractView"];
+export type NewContractTerms = Schemas["NewContractTerms"];
+/** `metered`: the bill should equal its messages. `flat`: a fee plus extra usage. */
+export type ContractKind = "metered" | "flat";
 export type BillCsvBill = Schemas["BillCsvBill"];
 export type BillCsvProblem = Schemas["BillCsvProblem"];
 export type BillCsvPreview = Schemas["BillCsvPreview"];

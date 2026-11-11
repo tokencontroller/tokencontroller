@@ -1,23 +1,30 @@
 import { expect, test } from "@playwright/test";
 import { openFromMenu, signIn } from "./helpers";
 
-// Docs: Bills and reconciliation. The March bill of 1,000: messages 950,
-// 50 that no message explains. A bill below its messages is flagged.
-test("an org manager reads the reconciliation and adds a bill by hand", async ({ page }) => {
+// Docs: Bills and reconciliation. Each March bill is checked under its
+// contract: anthropic-api 270 against messages 250, 20 that no message
+// explains; claude-team a fee of 200 and extra usage of 50, the plan covered
+// 350. A bill below its messages is flagged.
+test("an org manager reads the checks and adds a bill by hand", async ({ page }) => {
   await signIn(page, "nadia");
   await openFromMenu(page, "Bills");
-  const table = page.getByRole("table", { name: "Reconciliation" });
-  const march = table.locator("tr").filter({ hasText: "anthropic" }).first();
-  await expect(march.getByText("$1,000.00").filter({ visible: true })).toBeVisible();
-  await expect(march.getByText("$950.00").filter({ visible: true })).toBeVisible();
-  await expect(march.getByText("$50.00").filter({ visible: true })).toBeVisible();
+  const api = page.getByRole("group", { name: /^Anthropic API/ });
+  await expect(api.getByText("$270.00")).toBeVisible();
+  await expect(api.getByText("$250.00")).toBeVisible();
+  await expect(api.getByText("$20.00")).toBeVisible();
+  const team = page.getByRole("group", { name: /^Claude Team plan/ });
+  await expect(team.getByText("on a plan")).toBeVisible();
+  await expect(team.getByText("$350.00")).toBeVisible();
+  await expect(page.getByRole("group", { name: /^openai-api/ }).getByText("Contract only from the provider")).toBeVisible();
 
-  await page.getByLabel("Bill provider").fill("anthropic");
-  await page.getByLabel("First day").fill("2026-03-01");
-  await page.getByLabel("Last day").fill("2026-03-31");
-  await page.getByLabel("Amount").fill("900");
-  await page.getByRole("button", { name: "Add the bill" }).click();
-  await expect(page.getByText("a message is wrong").first()).toBeVisible();
+  await page.getByRole("button", { name: "Add a bill" }).click();
+  const dialog = page.getByRole("dialog", { name: "Add a bill" });
+  await dialog.getByLabel("Contract").selectOption("anthropic-api");
+  await dialog.getByLabel("First day").fill("2026-03-01");
+  await dialog.getByLabel("Last day").fill("2026-03-31");
+  await dialog.getByLabel("Amount").fill("200");
+  await dialog.getByRole("button", { name: "Add the bill" }).click();
+  await expect(api.getByText("a message is wrong")).toBeVisible();
 });
 
 // Docs: Bills and reconciliation > CSV. The upload shows what it read before
@@ -36,18 +43,17 @@ test("an org manager uploads a CSV bill and sees what it holds first", async ({ 
   await expect(dialog.getByRole("button", { name: /^Upload the bill|^Upload \d+ bills/ })).toBeDisabled();
 
   // A good file: one new bill, one that is already stored with the same figures.
-  await dialog.getByLabel("CSV file").setInputFiles(file("bills.csv", "provider,from,to,amount,currency\nbedrock,2026-03-01,2026-03-31,500.00,USD\nanthropic,2026-03-01,2026-03-31,1000.00,USD\n"));
+  await dialog.getByLabel("CSV file").setInputFiles(file("bills.csv", "provider,from,to,amount,currency\nbedrock,2026-03-01,2026-03-31,500.00,USD\nanthropic,2026-03-01,2026-03-31,270.00,USD\n"));
   const holds = dialog.getByRole("table", { name: "What the file holds" });
   await expect(holds.getByText("$500.00").filter({ visible: true })).toBeVisible();
   await expect(holds.getByText("new bill").filter({ visible: true })).toBeVisible();
   await expect(holds.getByText("same figures, nothing changes").filter({ visible: true })).toBeVisible();
   await dialog.getByRole("button", { name: "Upload 2 bills" }).click();
 
-  // The bill is in the reconciliation: no bedrock message explains it.
-  const table = page.getByRole("table", { name: "Reconciliation" });
-  const bedrock = table.locator("tr").filter({ hasText: "bedrock" }).first();
-  await expect(bedrock.getByText("$500.00").filter({ visible: true }).first()).toBeVisible();
-  await expect(bedrock.getByText("$0.00").filter({ visible: true })).toBeVisible();
+  // The bill is checked under a new contract: no bedrock message explains it.
+  const bedrock = page.getByRole("group", { name: /^bedrock/ });
+  await expect(bedrock.getByText("$500.00").first()).toBeVisible();
+  await expect(bedrock.getByText("$0.00")).toBeVisible();
 });
 
 test("a cloud's own cost export is one month's bill", async ({ page }) => {
@@ -68,5 +74,5 @@ test("a cloud's own cost export is one month's bill", async ({ page }) => {
   await expect(holds.getByText("aws_bedrock").filter({ visible: true })).toBeVisible();
   await expect(holds.getByText("$500.00").filter({ visible: true })).toBeVisible();
   await dialog.getByRole("button", { name: "Upload the bill" }).click();
-  await expect(page.getByRole("table", { name: "Reconciliation" }).locator("tr").filter({ hasText: "aws_bedrock" }).first()).toBeVisible();
+  await expect(page.getByRole("group", { name: /^aws_bedrock/ })).toBeVisible();
 });

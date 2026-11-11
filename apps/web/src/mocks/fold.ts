@@ -31,28 +31,32 @@ export function contains(tags: Tags, filter: Tags): boolean {
 
 const KINDS = ["input", "output", "cache_read", "cache_write"] as const;
 
-/** The price per million in nanos for a kind on a day; an organization row wins over a managed one. */
-function priceOf(db: Db, m: MockMessage, kind: string): number | null {
+/**
+ * The price per million in nanos for a kind on a day. A row for the
+ * message's contract wins over a row for every contract, then the latest
+ * day, then an organization row over a managed one.
+ */
+function priceOf(db: Db, m: MockMessage, kind: string, contract: string | null): number | null {
   const day = m.at.slice(0, 10);
   const rows = db.prices
-    .filter((r) => r.provider === m.provider && r.model === m.model && r.kind === kind && r.valid_from <= day)
-    .sort((a, b) => a.valid_from.localeCompare(b.valid_from) || (a.source === "organization" ? 1 : -1));
+    .filter((r) => r.provider === m.provider && r.model === m.model && r.kind === kind && r.valid_from <= day && (!r.contract || r.contract === contract))
+    .sort((a, b) => (a.contract ? 1 : 0) - (b.contract ? 1 : 0) || a.valid_from.localeCompare(b.valid_from) || (a.source === "organization" ? 1 : -1));
   const row = rows.at(-1);
   return row ? parseDec(row.price_per_million) : null;
 }
 
 /** C(e): `null` with the reason when there is none, never zero. */
-export function messageCost(db: Db, m: MockMessage): { nanos: number | null; label: "priced" | "count_error" | "not_priced_yet" } {
+export function messageCost(db: Db, m: MockMessage, contract: string | null = null): { nanos: number | null; label: "priced" | "count_error" | "not_priced_yet" } {
   if (!m.tokens) return { nanos: null, label: "count_error" };
   let total = 0;
   for (const kind of KINDS) {
     const count = m.tokens[kind];
     if (!count) continue;
-    const p = priceOf(db, m, kind);
+    const p = priceOf(db, m, kind, contract);
     if (p === null) return { nanos: null, label: "not_priced_yet" };
     total += (count * p) / 1_000_000;
   }
-  if (!KINDS.some((k) => priceOf(db, m, k) !== null)) return { nanos: null, label: "not_priced_yet" };
+  if (!KINDS.some((k) => priceOf(db, m, k, contract) !== null)) return { nanos: null, label: "not_priced_yet" };
   return { nanos: total, label: "priced" };
 }
 
@@ -104,6 +108,19 @@ export function splitOf(db: Db, s: MockSession): { parts: { bp: number; tags: Ta
   return { parts: [{ bp: 10_000, tags: s.ruleTags }], by: Object.keys(s.ruleTags).length ? "rule" : "default" };
 }
 
+/**
+ * The contract of a message and how it was found: by hand on the session, a
+ * rule, or the provider having one contract only. `null` when none fits.
+ */
+export function contractOf(db: Db, s: MockSession, m: MockMessage): { key: string; by: "hand" | "rule" | "fallback" } | null {
+  const hand = db.contractAssignments.filter((a) => a.session_id === s.session_id).at(-1);
+  if (hand) return { key: hand.contract, by: "hand" };
+  if (s.ruleContract) return { key: s.ruleContract, by: "rule" };
+  const own = db.contracts.filter((c) => c.provider === m.provider);
+  const only = own.length === 1 ? own[0] : undefined;
+  return only ? { key: only.key, by: "fallback" } : null;
+}
+
 /** One line of the fold: a fraction of one message on one tag set. */
 export interface Line {
   session: MockSession;
@@ -114,6 +131,7 @@ export interface Line {
   nanos: number | null;
   costLabel: string;
   day: string;
+  contract: { key: string; by: "hand" | "rule" | "fallback" } | null;
 }
 
 export function lines(db: Db): Line[] {
@@ -121,7 +139,8 @@ export function lines(db: Db): Line[] {
   for (const s of db.sessions) {
     const split = splitOf(db, s);
     for (const m of s.messages) {
-      const cost = messageCost(db, m);
+      const contract = contractOf(db, s, m);
+      const cost = messageCost(db, m, contract?.key ?? null);
       for (const part of split.parts) {
         out.push({
           session: s,
@@ -132,6 +151,7 @@ export function lines(db: Db): Line[] {
           nanos: cost.nanos === null ? null : (cost.nanos * part.bp) / 10_000,
           costLabel: cost.label,
           day: m.at.slice(0, 10),
+          contract,
         });
       }
     }
@@ -214,7 +234,7 @@ function spread(est: MockEstimate, w: Window): number {
 
 export function sessionView(db: Db, s: MockSession): Session {
   const split = splitOf(db, s);
-  const costs = s.messages.map((m) => messageCost(db, m));
+  const costs = s.messages.map((m) => messageCost(db, m, contractOf(db, s, m)?.key ?? null));
   const total = costs.reduce((sum, c) => sum + (c.nanos ?? 0), 0);
   return {
     session_id: s.session_id,
@@ -230,10 +250,9 @@ export function sessionView(db: Db, s: MockSession): Session {
     cost: dec(total),
     count_errors: costs.filter((c) => c.label === "count_error").length,
     unknown_models: [...new Set(s.messages.filter((_, i) => costs[i]?.label === "not_priced_yet").map((m) => `${m.provider}/${m.model}`))],
-    // Each provider of the mocks has one contract, named after it.
-    contracts: [...new Set(s.messages.map((m) => m.provider))],
-    no_contract: 0,
-    provider_unknown: 0,
+    contracts: [...new Set(s.messages.flatMap((m) => contractOf(db, s, m)?.key ?? []))],
+    no_contract: s.messages.filter((m) => m.provider && !contractOf(db, s, m)).length,
+    provider_unknown: s.messages.filter((m) => !m.provider).length,
     assigned_by: split.by,
     submitted: submittedOf(db, s),
     parts: split.parts.map((p) => {

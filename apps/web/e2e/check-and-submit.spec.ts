@@ -30,3 +30,22 @@ test("an agent manager checks her sessions, fixes one and submits", async ({ pag
   await openFromMenu(page, "Rules");
   await expect(page.getByRole("table", { name: "Your rules" }).getByText("branch returns-label is feature KD-2").filter({ visible: true })).toBeVisible();
 });
+
+// Docs: Check and submit. Messages under no contract are asked about once,
+// per agent: Mara puts her Claude Code sessions on the Anthropic API and
+// remembers it as her rule.
+test("an agent manager answers which contract, once", async ({ page }) => {
+  await signIn(page, "mara");
+  await openFromMenu(page, "Check and submit");
+  const table = page.getByRole("table", { name: "Sessions" });
+  const label = table.locator("tr").filter({ hasText: "Returns portal: printable label" });
+  await expect(label.getByText("no contract").filter({ visible: true })).toBeVisible();
+  await page.getByLabel("Contract for Claude Code").selectOption("anthropic-api");
+  await page.getByRole("button", { name: "Set", exact: true }).click();
+  await expect(page.getByText("Claude Code: anthropic-api")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Which contract?" })).toHaveCount(0);
+  await expect(label.getByText("anthropic-api").filter({ visible: true })).toBeVisible();
+
+  await openFromMenu(page, "Rules");
+  await expect(page.getByRole("table", { name: "Your rules" }).getByText("Claude Code is on anthropic-api").filter({ visible: true })).toBeVisible();
+});

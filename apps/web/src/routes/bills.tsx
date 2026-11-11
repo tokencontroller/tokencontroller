@@ -1,11 +1,12 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useState, type ReactNode } from "react";
-import type { BillApi } from "@/api/contract";
+import type { BillApi, Contract, ContractKind, Reconciliation } from "@/api/contract";
 import { api } from "@/api/endpoints";
 import { Amount } from "@/components/controls";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ErrorBox, Loading, Note, PageHeader, Section } from "@/components/ui/display";
+import { Dialog } from "@/components/ui/dialog";
+import { Empty, ErrorBox, Figure, Loading, Note, PageHeader, Section } from "@/components/ui/display";
 import { Field, FormError, Input, Select } from "@/components/ui/form";
 import { DataTable } from "@/components/ui/table";
 import { notify } from "@/components/ui/toast";
@@ -19,78 +20,165 @@ const providerName: Record<BillApi, string> = {
   openai: "OpenAI",
 };
 
-// Docs: Bills and reconciliation. On each bill's own range: bill = cost of
-// its provider's messages + what the bill has that no message explains.
-// That line is zero or positive; negative means a message is wrong.
+// Docs: Bills and reconciliation. Each bill is checked under its contract on
+// its own range. Metered: bill = cost of its messages + what no message
+// explains, zero or more. Flat: bill = fee + extra usage, and the plan
+// covered the cost of its messages less the extra usage. Beside each check
+// stands what it could hide: the provider's messages with no contract, and
+// the part whose contract came only from the provider having one.
 export function BillsPage(): ReactNode {
   const reconciliation = useQuery({ queryKey: ["reconciliation"], queryFn: api.reconciliation });
-  const rows = reconciliation.data?.toSorted((a, b) => b.to.localeCompare(a.to)) ?? [];
-  const wrong = rows.filter((r) => r.a_message_is_wrong);
+  const contracts = useQuery({ queryKey: ["contracts"], queryFn: api.contracts });
+  const rows = reconciliation.data?.toSorted((a, b) => b.to.localeCompare(a.to) || a.contract.localeCompare(b.contract)) ?? [];
+  const wrong = rows.filter((r) => r.a_message_is_wrong).length;
   const [uploading, setUploading] = useState(false);
+  const [adding, setAdding] = useState(false);
+  const titleOf = (key: string) => contracts.data?.find((c) => c.key === key)?.title ?? key;
   return (
     <>
       <PageHeader
-        title="Bills and reconciliation"
-        lead="Each bill is checked on its own range, per provider. Tags play no part in the check."
-        actions={<Button variant="primary" onClick={() => setUploading(true)}>Upload CSV</Button>}
+        title="Bills"
+        actions={
+          <>
+            <Button onClick={() => setUploading(true)}>Upload CSV</Button>
+            <Button variant="primary" onClick={() => setAdding(true)}>Add a bill</Button>
+          </>
+        }
       />
       <UploadCsvDialog open={uploading} onOpenChange={setUploading} />
-      {wrong.length ? <Note tone="exception">{wrong.length} bill{wrong.length > 1 ? "s have" : " has"} less than the cost of its messages: a message is wrong.</Note> : null}
-      <Section title="Reconciliation">
-        {reconciliation.error ? <ErrorBox error={reconciliation.error} /> : null}
-        {!reconciliation.data ? (
-          <Loading />
-        ) : (
-          <DataTable
-            caption="Reconciliation"
-            stack
-            csvName="reconciliation.csv"
-            rows={rows}
-            rowKey={(r) => r.bill_id}
-            empty="No bills yet. Upload a CSV, connect a provider or add a bill below."
-            rowClassName={(r) => (r.a_message_is_wrong ? "bg-exception-tint" : "")}
-            columns={[
-              { key: "provider", header: "Provider", cell: (r) => <span className="flex items-center gap-1.5">{r.provider}{r.final ? null : <Badge>not final</Badge>}</span>, csv: (r) => r.provider },
-              { key: "range", header: "Range", cell: (r) => formatRange(r.from, r.to), csv: (r) => `${r.from} to ${r.to}` },
-              { key: "bill", header: "Bill", align: "right", cell: (r) => <Amount value={r.bill} />, csv: (r) => r.bill },
-              { key: "messages", header: "Cost of messages", align: "right", cell: (r) => <Amount value={r.messages} />, csv: (r) => r.messages },
-              {
-                key: "unexplained",
-                header: "No message explains",
-                align: "right",
-                cell: (r) => (
-                  <span className={`flex flex-col items-end ${r.a_message_is_wrong ? "text-exception" : ""}`}>
-                    <Amount value={r.unexplained} />
-                    {r.a_message_is_wrong ? <Badge tone="exception">a message is wrong</Badge> : null}
-                  </span>
-                ),
-                csv: (r) => r.unexplained,
-              },
-              {
-                key: "missing",
-                header: "Without a cost",
-                wide: true,
-                cell: (r) => (
-                  <span className="flex flex-wrap gap-1">
-                    {r.count_errors ? <Badge tone="exception">{r.count_errors} count errors</Badge> : null}
-                    {r.unknown_models.map((m) => (
-                      <Badge key={m} tone="exception">{m}</Badge>
-                    ))}
-                  </span>
-                ),
-              },
-            ]}
-          />
-        )}
-      </Section>
+      <AddBillDialog open={adding} onOpenChange={setAdding} contracts={contracts.data ?? []} />
+      {wrong ? <Note tone="exception">{wrong === 1 ? "1 bill: a message is wrong." : `${String(wrong)} bills: a message is wrong.`}</Note> : null}
+      {reconciliation.error ? <ErrorBox error={reconciliation.error} /> : null}
+      {!reconciliation.data ? (
+        <Loading />
+      ) : rows.length ? (
+        rows.map((r) => <Check key={r.bill_id} row={r} title={titleOf(r.contract)} />)
+      ) : (
+        <Section title="Checks">
+          <Empty title="No bills yet." action={<Button size="sm" onClick={() => setAdding(true)}>Add a bill</Button>} />
+        </Section>
+      )}
       <Connections />
-      <AddBill />
     </>
+  );
+}
+
+/** Where a check stands, in one badge. */
+function status(r: Reconciliation): ReactNode {
+  if (r.a_message_is_wrong) return <Badge tone="exception">a message is wrong</Badge>;
+  if (r.contract_kind === "flat") return r.covered === null || r.covered === undefined ? <Badge>fee not known</Badge> : <Badge tone="posted">covered</Badge>;
+  return Number(r.unexplained) === 0 ? <Badge tone="posted">balanced</Badge> : <Badge>gap</Badge>;
+}
+
+/** One bill's check under its contract: three or four figures, then what stands beside it. */
+function Check({ row: r, title }: { row: Reconciliation; title: string }) {
+  const flat = r.contract_kind === "flat";
+  const money = (value: string | null | undefined) => <Amount value={value ?? null} currency={r.currency} />;
+  const beside = Number(r.same_provider_no_contract) !== 0 || Number(r.contract_from_fallback) !== 0;
+  return (
+    <div role="group" aria-label={`${title} ${formatRange(r.from, r.to)}`}>
+      <Section
+        title={title}
+        actions={
+          <span className="flex flex-wrap items-center gap-2 text-small text-muted">
+            {formatRange(r.from, r.to)}
+            <Badge tone={flat ? "accent" : "neutral"}>{flat ? "on a plan" : "metered"}</Badge>
+            {r.final ? null : <Badge>not final</Badge>}
+            {status(r)}
+          </span>
+        }
+      >
+        <div className={`grid grid-cols-2 gap-4 ${flat ? "sm:grid-cols-4" : "sm:grid-cols-3"}`}>
+          <Figure size="lg" label="Bill" value={money(r.bill)} />
+          {flat ? (
+            <>
+              <Figure label="Fee" value={money(r.fee)} />
+              <Figure label="Extra usage" value={money(r.extra_usage)} />
+              <Figure label="Covered" tone={r.a_message_is_wrong ? "exception" : undefined} value={money(r.covered)} />
+            </>
+          ) : (
+            <>
+              <Figure label="Cost of messages" value={money(r.messages)} />
+              <Figure label="No message explains" tone={r.a_message_is_wrong ? "exception" : undefined} value={money(r.unexplained)} />
+            </>
+          )}
+        </div>
+        {beside || r.count_errors || r.unknown_models.length ? (
+          <ul className="mt-4 flex flex-col gap-1 border-t border-line pt-3 text-small">
+            {Number(r.same_provider_no_contract) !== 0 ? (
+              <li className="flex justify-between gap-3 text-exception">
+                <span>Same provider, no contract</span>
+                {money(r.same_provider_no_contract)}
+              </li>
+            ) : null}
+            {Number(r.contract_from_fallback) !== 0 ? (
+              <li className="flex justify-between gap-3 text-muted">
+                <span>Contract only from the provider</span>
+                {money(r.contract_from_fallback)}
+              </li>
+            ) : null}
+            {r.count_errors || r.unknown_models.length ? (
+              <li className="flex flex-wrap gap-1">
+                {r.count_errors ? <Badge tone="exception">{r.count_errors} count errors</Badge> : null}
+                {r.unknown_models.map((m) => (
+                  <Badge key={m} tone="exception">{m}</Badge>
+                ))}
+              </li>
+            ) : null}
+          </ul>
+        ) : null}
+      </Section>
+    </div>
   );
 }
 
 function Connections() {
   const connections = useQuery({ queryKey: ["bill-connections"], queryFn: api.billConnections });
+  const [connecting, setConnecting] = useState(false);
+  const pull = useMutation({ mutationFn: api.pullBills, onSuccess: async () => { await refreshAll(); notify("Pull started"); } });
+  const disconnect = useMutation({ mutationFn: api.disconnectBill, onSuccess: refreshAll });
+  const list = connections.data ?? [];
+  return (
+    <Section
+      title="Connected providers"
+      flush={list.length > 0}
+      hint="Pulled once a day for the last 62 days."
+      actions={<Button size="sm" onClick={() => setConnecting(true)}>Connect</Button>}
+    >
+      <ConnectDialog open={connecting} onOpenChange={setConnecting} />
+      {list.length ? (
+        <DataTable
+          caption="Connected providers"
+          stack
+          rows={list}
+          rowKey={(c) => c.id}
+          columns={[
+            { key: "provider", header: "Provider", cell: (c) => <span className="font-medium">{providerName[c.provider]}</span> },
+            { key: "key", header: "Key", wide: true, cell: (c) => <span className="font-mono text-caption">{c.key_hint}</span> },
+            { key: "status", header: "Status", cell: (c) => <span className="flex flex-col"><Badge tone={c.status === "ok" ? "posted" : "exception"}>{c.status}</Badge>{c.message ? <span className="text-caption text-exception">{c.message}</span> : null}</span> },
+            { key: "last", header: "Last pull", cell: (c) => (c.last_pull_at ? formatDateTime(c.last_pull_at) : "not yet") },
+            {
+              key: "act",
+              header: "",
+              align: "right",
+              cell: (c) => (
+                <span className="flex justify-end gap-2">
+                  <Button size="sm" onClick={() => pull.mutate(c.id)}>Pull now</Button>
+                  <Button size="sm" variant="danger" onClick={() => disconnect.mutate(c.id)}>Disconnect</Button>
+                </span>
+              ),
+            },
+          ]}
+        />
+      ) : (
+        <Empty title="No provider connected." />
+      )}
+      <FormError error={pull.error ?? disconnect.error} />
+    </Section>
+  );
+}
+
+function ConnectDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const [provider, setProvider] = useState<BillApi>("anthropic_console");
   const [key, setKey] = useState("");
   const connect = useMutation({
@@ -98,38 +186,14 @@ function Connections() {
     onSuccess: async () => {
       await refreshAll();
       setKey("");
+      onOpenChange(false);
       notify("Connected", "Pulled once a day for the last 62 days.");
     },
   });
-  const pull = useMutation({ mutationFn: api.pullBills, onSuccess: async () => { await refreshAll(); notify("Pull started"); } });
-  const disconnect = useMutation({ mutationFn: api.disconnectBill, onSuccess: refreshAll });
   return (
-    <Section title="Connected providers" lead="A connected provider is pulled once a day for the last 62 days.">
-      <DataTable
-        caption="Connected providers"
-        stack
-        rows={connections.data ?? []}
-        rowKey={(c) => c.id}
-        empty="No provider connected."
-        columns={[
-          { key: "provider", header: "Provider", cell: (c) => providerName[c.provider] },
-          { key: "key", header: "Key", cell: (c) => <span className="font-mono text-xs">{c.key_hint}</span> },
-          { key: "status", header: "Status", cell: (c) => <span className="flex flex-col"><Badge tone={c.status === "ok" ? "posted" : "exception"}>{c.status}</Badge>{c.message ? <span className="text-xs text-exception">{c.message}</span> : null}</span> },
-          { key: "last", header: "Last pull", cell: (c) => (c.last_pull_at ? formatDateTime(c.last_pull_at) : "not yet") },
-          {
-            key: "act",
-            header: "",
-            cell: (c) => (
-              <span className="flex gap-2">
-                <Button size="sm" onClick={() => pull.mutate(c.id)}>Pull now</Button>
-                <Button size="sm" variant="ghost" onClick={() => disconnect.mutate(c.id)}>Disconnect</Button>
-              </span>
-            ),
-          },
-        ]}
-      />
+    <Dialog open={open} onOpenChange={onOpenChange} title="Connect a provider">
       <form
-        className="mt-4 grid max-w-2xl gap-3 sm:grid-cols-3 sm:items-end"
+        className="flex flex-col gap-3"
         onSubmit={(e) => {
           e.preventDefault();
           connect.mutate();
@@ -145,46 +209,101 @@ function Connections() {
         <Field label="Admin key">
           <Input type="password" value={key} onChange={(e) => setKey(e.target.value)} />
         </Field>
-        <Button type="submit" disabled={!key || connect.isPending}>Connect</Button>
-        <div className="sm:col-span-3">
-          <FormError error={connect.error ?? pull.error ?? disconnect.error} />
+        <FormError error={connect.error} />
+        <div className="flex justify-end gap-2">
+          <Button onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button variant="primary" type="submit" disabled={!key || connect.isPending}>Connect</Button>
         </div>
       </form>
-    </Section>
+    </Dialog>
   );
 }
 
-function AddBill() {
+/** A new contract named in the dialog, and its kind. */
+const NEW = "__new";
+
+function AddBillDialog({ open, onOpenChange, contracts }: { open: boolean; onOpenChange: (open: boolean) => void; contracts: Contract[] }) {
+  const [contract, setContract] = useState("");
+  const [newKey, setNewKey] = useState("");
+  const [newKind, setNewKind] = useState<ContractKind>("metered");
   const [provider, setProvider] = useState("");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [amount, setAmount] = useState("");
   const [currency, setCurrency] = useState("USD");
+  const [fee, setFee] = useState("");
+  const [extra, setExtra] = useState("");
+  const chosen = contracts.find((c) => c.key === contract);
+  const kind: ContractKind = chosen ? (chosen.kind as ContractKind) : contract === NEW ? newKind : "metered";
+  const billProvider = chosen?.provider ?? provider;
   const add = useMutation({
-    mutationFn: () => api.addBill({ provider, from, to, amount, currency, typed_in: true }),
+    mutationFn: () =>
+      api.addBill({
+        provider: billProvider,
+        from,
+        to,
+        amount,
+        currency,
+        typed_in: true,
+        ...(chosen ? { contract: chosen.key } : contract === NEW ? { contract: newKey, contract_kind: newKind } : {}),
+        ...(kind === "flat" && fee ? { fee } : {}),
+        ...(kind === "flat" && extra ? { extra_usage: extra } : {}),
+      }),
     onSuccess: async () => {
       await refreshAll();
       notify("Bill added");
       setAmount("");
+      setFee("");
+      setExtra("");
+      onOpenChange(false);
     },
   });
   return (
-    <Section title="Add a bill by hand" lead="Metered usage only: seats and subscriptions are not on a bill. A new bill for the same provider and range restates the old one.">
+    <Dialog open={open} onOpenChange={onOpenChange} title="Add a bill" wide>
       <form
-        className="grid max-w-4xl gap-3 sm:grid-cols-5 sm:items-end"
+        className="grid gap-3 sm:grid-cols-2"
         onSubmit={(e) => {
           e.preventDefault();
           add.mutate();
         }}
       >
-        <Field label="Bill provider"><Input value={provider} placeholder="bedrock" onChange={(e) => setProvider(e.target.value)} /></Field>
+        <Field label="Contract" className="sm:col-span-2">
+          <Select value={contract} onChange={(e) => setContract(e.target.value)}>
+            <option value="">The provider's only contract</option>
+            {contracts.map((c) => (
+              <option key={c.key} value={c.key}>{c.title ? `${c.title} (${c.key})` : c.key}</option>
+            ))}
+            <option value={NEW}>A new contract</option>
+          </Select>
+        </Field>
+        {chosen ? null : <Field label="Bill provider"><Input value={provider} placeholder="anthropic" onChange={(e) => setProvider(e.target.value)} /></Field>}
+        {contract === NEW ? (
+          <>
+            <Field label="Contract key"><Input value={newKey} placeholder="anthropic-api" onChange={(e) => setNewKey(e.target.value)} /></Field>
+            <Field label="Kind">
+              <Select value={newKind} onChange={(e) => setNewKind(e.target.value as ContractKind)}>
+                <option value="metered">metered</option>
+                <option value="flat">flat</option>
+              </Select>
+            </Field>
+          </>
+        ) : null}
         <Field label="First day"><Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></Field>
         <Field label="Last day"><Input type="date" value={to} onChange={(e) => setTo(e.target.value)} /></Field>
         <Field label="Amount"><Input inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} /></Field>
         <Field label="Currency"><Input value={currency} onChange={(e) => setCurrency(e.target.value)} /></Field>
-        <div className="sm:col-span-5"><Button type="submit" disabled={!provider || !from || !to || !amount || add.isPending}>Add the bill</Button></div>
-        <div className="sm:col-span-5"><FormError error={add.error} /></div>
+        {kind === "flat" ? (
+          <>
+            <Field label="Fee" hint="Either is enough"><Input inputMode="decimal" value={fee} onChange={(e) => setFee(e.target.value)} /></Field>
+            <Field label="Extra usage"><Input inputMode="decimal" value={extra} onChange={(e) => setExtra(e.target.value)} /></Field>
+          </>
+        ) : null}
+        <div className="sm:col-span-2"><FormError error={add.error} /></div>
+        <div className="flex justify-end gap-2 sm:col-span-2">
+          <Button onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button variant="primary" type="submit" disabled={!billProvider || !from || !to || !amount || (contract === NEW && !newKey) || add.isPending}>Add the bill</Button>
+        </div>
       </form>
-    </Section>
+    </Dialog>
   );
 }
