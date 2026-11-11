@@ -494,6 +494,12 @@ mod tests {
         assert_eq!(json["organization.id"], "org-file-3");
         assert_eq!(json["sign_in"], "claude.ai");
         assert!(json.get("provider").is_none());
+        // A recorded signal named like a field of its own never goes out
+        // as a second key of that name, which the service would refuse.
+        let text = serde_json::to_string(&s3.signals).unwrap();
+        assert_eq!(text.matches("\"keys\"").count(), 1, "{text}");
+        assert_eq!(text.matches("\"branch\"").count(), 1, "{text}");
+        assert_ne!(json["branch"], "elsewhere");
     }
 
     #[test]

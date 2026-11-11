@@ -426,6 +426,20 @@ fn id(text: &str) -> &str {
     if text.is_empty() { "unknown" } else { text }
 }
 
+/// The signals a token entry carries as fields of their own. A recorded
+/// signal with one of these names would go out as a second key of the
+/// same name, which the service refuses, so it is left out.
+const NAMED_SIGNALS: [&str; 8] = [
+    "branch",
+    "working_directory",
+    "repository",
+    "pull_request",
+    "pull_request_title",
+    "subagent_type",
+    "keys",
+    "config",
+];
+
 /// The model with the provider the agent reported, and the session's other
 /// signals: the sign-in at session start and what `tc record` was told. The
 /// session file's own word wins over a recorded one. No provider is guessed.
@@ -446,7 +460,9 @@ fn model_and_signals(
         .unwrap_or_default()
         .into_iter()
         .chain(file_signals.clone())
-        .filter(|(name, value)| name != PROVIDER && !value.is_empty())
+        .filter(|(name, value)| {
+            name != PROVIDER && !NAMED_SIGNALS.contains(&name.as_str()) && !value.is_empty()
+        })
         .map(|(name, value)| (name, serde_json::Value::String(value)))
         .collect();
     (model, other)
@@ -1065,6 +1081,8 @@ pub mod fixtures {
                 signals: BTreeMap::from([
                     ("organization.id".to_owned(), "org-mod".to_owned()),
                     ("sign_in".to_owned(), "claude.ai".to_owned()),
+                    ("keys".to_owned(), "KD-1".to_owned()),
+                    ("branch".to_owned(), "elsewhere".to_owned()),
                 ]),
                 ..Recorded::default()
             },
