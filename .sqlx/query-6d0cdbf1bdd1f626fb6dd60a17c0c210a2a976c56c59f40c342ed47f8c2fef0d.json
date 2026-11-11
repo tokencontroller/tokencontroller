@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT count(*) AS \"count!\" FROM events\n           WHERE organization_id = $1 AND kind = 'message' AND supersedes IS NULL\n             AND recorded_at >= date_trunc('day', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'\n             AND NOT EXISTS (\n                 SELECT 1 FROM received_records r\n                 WHERE r.organization_id = events.organization_id\n                   AND r.id = events.payload->'message'->>'received'\n                   AND r.received_at < date_trunc('day', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'\n             )",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "6d0cdbf1bdd1f626fb6dd60a17c0c210a2a976c56c59f40c342ed47f8c2fef0d"
+}
