@@ -81,9 +81,12 @@ impl Machine {
         let second = json!({"type": "assistant", "sessionId": "cc-1", "timestamp": "2026-10-11T09:20:00Z", "cwd": cwd, "gitBranch": branch, "requestId": "req_2",
             "message": {"id": "msg_2", "model": "claude-sonnet-4-5", "usage": {"input_tokens": 0, "output_tokens": 0, "cache_read_input_tokens": 1_000_000}}});
         let title = json!({"type": "ai-title", "sessionId": "cc-1", "aiTitle": "Fix checkout redirect loop"});
+        // Claude Code writes the signed-in organization at session start.
+        let sign_in = json!({"type": "attachment", "sessionId": "cc-1", "timestamp": "2026-10-11T09:00:00Z",
+            "attachment": {"type": "credential_org", "organizationUuid": "4f6a1c2e-0b7d-4e59-9a3c-2d8e7f1b6a90"}});
         self.write(
             ".claude/projects/-work-storefront/cc-1.jsonl",
-            &[prompt, first.clone(), first, second, title],
+            &[sign_in, prompt, first.clone(), first, second, title],
         )
     }
 
@@ -95,7 +98,7 @@ impl Machine {
         self.write(
             ".codex/sessions/2026/10/11/rollout-2026-10-11T10-00-00-cx-1.jsonl",
             &[
-                json!({"timestamp": "2026-10-11T10:00:00Z", "type": "session_meta", "payload": {"id": "cx-1", "cwd": cwd, "git": {"branch": "main", "repository_url": "https://github.com/kestrel/ops.git"}}}),
+                json!({"timestamp": "2026-10-11T10:00:00Z", "type": "session_meta", "payload": {"id": "cx-1", "cwd": cwd, "model_provider": "openai", "git": {"branch": "main", "repository_url": "https://github.com/kestrel/ops.git"}}}),
                 json!({"timestamp": "2026-10-11T10:00:01Z", "type": "turn_context", "payload": {"model": "gpt-5", "cwd": cwd}}),
                 json!({"timestamp": "2026-10-11T10:00:02Z", "type": "event_msg", "payload": {"type": "user_message", "message": "Rotate the deploy keys for OPS-7"}}),
                 json!({"timestamp": "2026-10-11T10:05:00Z", "type": "event_msg", "payload": {"type": "token_count", "info": {"last_token_usage": usage, "total_token_usage": usage}}}),
@@ -364,7 +367,8 @@ fn sessions_come_from_both_agents_with_no_service_connected() {
     let claude = &sessions["claude-code"];
     assert_eq!(claude["session_id"], "cc-1");
     assert_eq!(claude["model"], "claude-sonnet-4-5");
-    assert_eq!(claude["provider"], "anthropic");
+    // Claude Code's file names no provider, and none is guessed.
+    assert_eq!(claude["provider"], Value::Null);
     // The repeated line of msg_1 counts once.
     assert_eq!(claude["tokens"]["input"], 1_000_000);
     assert_eq!(claude["tokens"]["cache_read"], 1_000_000);
@@ -626,10 +630,7 @@ fn without_prices_there_is_no_cost_and_never_zero() {
     let review = machine.json(&["review", "--json"]).unwrap();
     let claude = &by_harness(&review)["claude-code"];
     assert_eq!(claude["cost"], Value::Null);
-    assert_eq!(
-        claude["unknown_models"],
-        json!(["anthropic/claude-sonnet-4-5"])
-    );
+    assert_eq!(claude["unknown_models"], json!(["claude-sonnet-4-5"]));
     // The split still stands: the rule reads signals, not prices.
     assert_eq!(claude["splits"][0]["tags"]["feature"], "KD-214");
     let table = machine.tc(&["review"]).unwrap();
@@ -680,6 +681,36 @@ fn config_lists_the_settings_and_keeps_the_price_file() {
     assert_eq!(removed.trim(), "price-table removed");
     let review = machine.json(&["review", "--json"]).unwrap();
     assert_eq!(by_harness(&review)["codex"]["cost"], Value::Null);
+}
+
+/// No provider is guessed from the model name: Codex names its own, Claude
+/// Code's file names none. The sign-in Claude Code recorded at session start
+/// goes out for the service's sign-in rule.
+fn sign_in_and_provider_go_out(entries: &[Value]) {
+    let entry = |harness: &str| {
+        entries
+            .iter()
+            .find(|entry| entry.get("agent_harness") == Some(&json!(harness)))
+    };
+    let claude = entry("claude-code");
+    assert_eq!(claude.and_then(|e| e.get("provider")), None);
+    assert_eq!(
+        claude
+            .and_then(|e| e.get("signals"))
+            .and_then(|s| s.get("organization.id")),
+        Some(&json!("4f6a1c2e-0b7d-4e59-9a3c-2d8e7f1b6a90"))
+    );
+    let codex = entry("codex");
+    assert_eq!(
+        codex.and_then(|e| e.get("provider")),
+        Some(&json!("openai"))
+    );
+    assert_eq!(
+        codex
+            .and_then(|e| e.get("signals"))
+            .and_then(|s| s.get("organization.id")),
+        None
+    );
 }
 
 #[test]
@@ -744,7 +775,7 @@ fn messages_are_submitted_with_keys_but_never_prompts() {
         .find(|entry| entry["agent_harness"] == "claude-code")
         .unwrap();
     assert_eq!(claude["local_id"], "claude-code:cc-1");
-    assert_eq!(claude["provider"], "anthropic");
+    sign_in_and_provider_go_out(entries);
     assert_eq!(claude["messages"].as_array().map(Vec::len), Some(2));
     assert_eq!(claude["messages"][1]["tokens"]["cache_read"], 1_000_000);
     assert_eq!(claude["messages"][1]["tokens"]["cache_write"], 0);

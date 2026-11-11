@@ -17,7 +17,14 @@ import {
   submittedText,
   when,
 } from './lib/format.ts'
-import { countTurn, HELP, NO_FACTS, parseCommand, sessionRecord } from './lib/records.ts'
+import {
+  countTurn,
+  HELP,
+  NO_FACTS,
+  parseCommand,
+  sessionRecord,
+  signInSignals,
+} from './lib/records.ts'
 import { cleanSummary, SUMMARY_MODEL, SUMMARY_SYSTEM, summaryPrompt } from './lib/summary.ts'
 import {
   parseJson,
@@ -49,6 +56,7 @@ const feature = atom({ plugin: 'token-controller', key: 'feature' } as const, nu
 const handTags = atom({ plugin: 'token-controller', key: 'handTags' } as const, {})
 const summary = atom({ plugin: 'token-controller', key: 'summary' } as const, null)
 const facts = atom({ plugin: 'token-controller', key: 'facts' } as const, NO_FACTS)
+const signIn = atom({ plugin: 'token-controller', key: 'signIn' } as const, null)
 
 /** Where tc may be when the session's PATH does not have it (the desktop app). */
 const FALLBACK_PATHS = [
@@ -108,14 +116,36 @@ async function setProblem($: $, run: TcRun | null): Promise<void> {
  */
 function remember($: $): Promise<void> {
   return serial(async () => {
-    const [sessionId, line, counted, tags] = await Promise.all([
+    const [sessionId, line, counted, tags, signedIn] = await Promise.all([
       $.session.id(),
       read($, summary),
       read($, facts),
       read($, handTags),
+      read($, signIn),
     ])
-    await $.store.set(`record/${sessionId}`, sessionRecord(sessionId, line, counted, tags))
+    await $.store.set(
+      `record/${sessionId}`,
+      sessionRecord(sessionId, line, counted, tags, signedIn),
+    )
   })
+}
+
+/**
+ * Asks once, at session start, how the session is signed in, and records it
+ * for tc. A reload keeps the first answer, so a later sign-in never lands on
+ * this session. Claude Code answers only a mod that managed settings install;
+ * otherwise tc reads the sign-in Claude Code wrote into the session file.
+ */
+async function recordSignIn($: $): Promise<void> {
+  if ((await read($, signIn)) !== null) return
+  let signals: Record<string, string> = {}
+  try {
+    signals = signInSignals(await $.session.identity())
+  } catch {
+    // An older Claude Code without identity: tc reads the session file.
+  }
+  await update($, signIn, () => signals)
+  if (Object.keys(signals).length > 0) await remember($)
 }
 
 /** Hands every waiting record, this session's and earlier ones', to tc. */
@@ -256,6 +286,7 @@ export const register: Register = on => {
       },
       isDeferred: false,
     })
+    await recordSignIn($)
     // Records left by sessions that ended before tc took them go first.
     await flush($)
     await refresh($)

@@ -96,6 +96,32 @@ pub struct FileContents {
     pub titles: Vec<(String, String)>,
     /// Subagent types, by session ID and subagent ID.
     pub subagents: Vec<(String, String, String)>,
+    /// What the file says about the session as a whole, by session ID,
+    /// name and value: the sign-in recorded at session start
+    /// ([`SIGNED_IN_ORGANIZATION`]) and the provider the agent reports
+    /// ([`PROVIDER`]). The first value of a name in a session wins.
+    pub signals: Vec<(String, String, String)>,
+}
+
+/// The signal that names the organization an agent was signed in to when
+/// its session started, as Claude Code's telemetry names it. The service's
+/// shipped sign-in rule reads it (ADR 0028).
+pub const SIGNED_IN_ORGANIZATION: &str = "organization.id";
+
+/// The provider the agent itself reports. Sent as the token entry's
+/// provider, never guessed from the model name.
+pub const PROVIDER: &str = "provider";
+
+/// A provider as bills spell it: small letters, digits and `_`, such as
+/// `openai`. Anything else is left out rather than sent and refused.
+pub fn provider_name(reported: &str) -> Option<String> {
+    let name = reported.trim().to_ascii_lowercase().replace('-', "_");
+    let fits = !name.is_empty()
+        && name.len() <= 40
+        && name
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_');
+    fits.then_some(name)
 }
 
 /// The session files of every agent harness on this machine.
@@ -186,6 +212,18 @@ pub fn cost_nanos(value: &serde_json::Value) -> Option<i64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn providers_are_spelled_as_bills_spell_them() {
+        assert_eq!(provider_name("OpenAI").as_deref(), Some("openai"));
+        assert_eq!(
+            provider_name(" azure-openai ").as_deref(),
+            Some("azure_openai")
+        );
+        assert_eq!(provider_name(""), None);
+        assert_eq!(provider_name("my provider"), None);
+        assert_eq!(provider_name(&"a".repeat(41)), None);
+    }
 
     #[test]
     fn harness_names_round_trip() {

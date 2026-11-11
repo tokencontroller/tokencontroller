@@ -34,21 +34,34 @@ test('times must be timestamps in order', () => {
   ])
 })
 
-test('token counts are whole, known, and all four kinds are there', () => {
-  const missing = { ...ENTRY, tokens: { input: 1, output: 2 } as TokenEntry['tokens'] }
-  assert.deepEqual(problems(missing), [
-    'tokens.cache_read is required: all four kinds are sent',
-    'tokens.cache_write is required: all four kinds are sent',
+test('token kinds are open names with whole counts, at least one', () => {
+  assert.deepEqual(problems({ ...ENTRY, tokens: { input: 1, output: 2 } }), [])
+  assert.deepEqual(problems({ ...ENTRY, tokens: {} }), [
+    'tokens needs at least one kind, such as input',
   ])
   assert.deepEqual(problems({ ...ENTRY, tokens: { ...ENTRY.tokens, input: 1.5 } }), [
     'tokens.input must be a whole number, 0 or more',
   ])
-  const unknownKind = {
-    ...ENTRY,
-    tokens: { ...ENTRY.tokens, reasoning: 3 } as TokenEntry['tokens'],
-  }
-  assert.deepEqual(problems(unknownKind), [
-    'tokens.reasoning is not a token kind (input, output, cache_read, cache_write)',
+  assert.deepEqual(
+    problems({ ...ENTRY, tokens: { ...ENTRY.tokens, reasoning: 3, cache_write_1h: 4 } }),
+    [],
+  )
+  assert.deepEqual(problems({ ...ENTRY, tokens: { ...ENTRY.tokens, 'Cache Write': 3 } }), [
+    'tokens.Cache Write is not a token kind: small letters, digits and _',
+  ])
+})
+
+test('the provider is spelled as bills spell it, and any signal goes by its name', () => {
+  assert.deepEqual(problems({ ...ENTRY, provider: 'aws_bedrock' }), [])
+  assert.deepEqual(problems({ ...ENTRY, provider: 'AWS Bedrock' }), [
+    'provider is spelled as bills spell it: small letters, digits and _, such as aws_bedrock',
+  ])
+  assert.deepEqual(
+    problems({ ...ENTRY, signals: { 'organization.id': 'org-1', sign_in: 'claude.ai' } }),
+    [],
+  )
+  assert.deepEqual(problems({ ...ENTRY, signals: { notes: 'x'.repeat(10_001) } }), [
+    'signals.notes is too long: send a value, not a transcript',
   ])
 })
 
@@ -119,17 +132,16 @@ test('messages belong to a session and add up to the entry', () => {
   assert.deepEqual(problems({ ...MESSAGES, tokens: { ...MESSAGES.tokens, input: 11 } }), [
     "tokens must equal the sum of the messages' tokens",
   ])
-  const [first] = MESSAGES.messages ?? []
-  const short = { ...first, tokens: { input: 6, output: 1 } } as NonNullable<
-    TokenEntry['messages']
-  >[number]
-  assert.deepEqual(
-    problems({ ...MESSAGES, messages: [short, ...(MESSAGES.messages ?? []).slice(1)] }),
-    [
-      'message m1: tokens.cache_read is required: all four kinds are sent',
-      'message m1: tokens.cache_write is required: all four kinds are sent',
-    ],
-  )
+  // A kind left out has no tokens, so a message without its zero kinds
+  // still adds up; a kind the entry does not carry does not.
+  const [first, second] = MESSAGES.messages ?? []
+  if (first === undefined || second === undefined) throw new Error('two messages')
+  const short = { ...first, tokens: { input: 6, output: 1 } }
+  assert.deepEqual(problems({ ...MESSAGES, messages: [short, second] }), [])
+  const reasoning = { ...first, tokens: { ...first.tokens, reasoning: 3 } }
+  assert.deepEqual(problems({ ...MESSAGES, messages: [reasoning, second] }), [
+    "tokens must equal the sum of the messages' tokens",
+  ])
 })
 
 test('splits are by message or by fraction', () => {

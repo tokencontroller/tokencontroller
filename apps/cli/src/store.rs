@@ -128,7 +128,22 @@ UPDATE messages SET message_id = request_id || substr(message_id, instr(message_
    AND instr(message_id, ':advisor:') > 0;
 ";
 
-const SCHEMA_VERSION: i64 = 3;
+/// What a session file says about the session as a whole: the sign-in
+/// recorded at session start and the provider the agent reports. The first
+/// value of a name stays. Every file is read again to fill it.
+const SCHEMA_V4: &str = "
+CREATE TABLE session_signals (
+    harness TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    value TEXT NOT NULL,
+    PRIMARY KEY (harness, session_id, name)
+);
+DELETE FROM files;
+DELETE FROM session_keys;
+";
+
+const SCHEMA_VERSION: i64 = 4;
 
 /// Sessions `tc record` was told about are kept in `meta` under this prefix.
 const RECORDED: &str = "recorded:";
@@ -250,6 +265,9 @@ impl Store {
         }
         if version < 3 {
             transaction.execute_batch(SCHEMA_V3)?;
+        }
+        if version < 4 {
+            transaction.execute_batch(SCHEMA_V4)?;
         }
         transaction.pragma_update(None, "user_version", SCHEMA_VERSION)?;
         transaction.commit()?;
@@ -577,6 +595,32 @@ impl Store {
             .collect())
     }
 
+    /// What the session files say about each session as a whole, by local
+    /// id and name.
+    pub fn session_signals(&self) -> Result<BTreeMap<String, BTreeMap<String, String>>> {
+        let mut statement = self
+            .connection
+            .prepare("SELECT harness, session_id, name, value FROM session_signals")?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                ))
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        let mut signals: BTreeMap<String, BTreeMap<String, String>> = BTreeMap::new();
+        for (harness, session_id, name, value) in rows {
+            signals
+                .entry(format!("{harness}:{session_id}"))
+                .or_default()
+                .insert(name, value);
+        }
+        Ok(signals)
+    }
+
     /// How many sessions of each agent harness the database holds.
     pub fn session_counts(&self) -> Result<Vec<(String, u64)>> {
         let mut statement = self.connection.prepare(
@@ -667,6 +711,13 @@ impl Batch<'_> {
                 "INSERT INTO subagents (harness, session_id, agent_id, subagent_type) VALUES (?1, ?2, ?3, ?4)
                  ON CONFLICT (harness, session_id, agent_id) DO UPDATE SET subagent_type = excluded.subagent_type",
                 params![harness_name, session_id, agent_id, kind],
+            )?;
+        }
+        for (session_id, name, value) in &contents.signals {
+            t.execute(
+                "INSERT INTO session_signals (harness, session_id, name, value) VALUES (?1, ?2, ?3, ?4)
+                 ON CONFLICT (harness, session_id, name) DO NOTHING",
+                params![harness_name, session_id, name, value],
             )?;
         }
         t.execute("DELETE FROM session_keys WHERE path = ?1", [path])?;
@@ -985,6 +1036,40 @@ mod tests {
                 ("msg_2".to_owned(), "msg_2".to_owned()),
             ]
         );
+    }
+
+    #[test]
+    fn session_signals_keep_the_first_value_and_old_files_are_read_again() {
+        let mut store = Store::in_memory().unwrap();
+        let first = FileContents {
+            signals: vec![("s1".into(), "organization.id".into(), "org-a".into())],
+            ..FileContents::default()
+        };
+        let later = FileContents {
+            signals: vec![
+                ("s1".into(), "organization.id".into(), "org-b".into()),
+                ("s1".into(), "provider".into(), "openai".into()),
+            ],
+            ..FileContents::default()
+        };
+        add(&mut store, "/f", &first, &[]);
+        add(&mut store, "/f", &later, &[]);
+        let signals = store.session_signals().unwrap();
+        let s1 = signals.get("claude-code:s1").unwrap();
+        assert_eq!(s1.get("organization.id").map(String::as_str), Some("org-a"));
+        assert_eq!(s1.get("provider").map(String::as_str), Some("openai"));
+
+        let connection = Connection::open_in_memory().unwrap();
+        for step in [SCHEMA_V1, SCHEMA_V2, SCHEMA_V3] {
+            connection.execute_batch(step).unwrap();
+        }
+        connection
+            .execute_batch("INSERT INTO files (path, harness, size, modified_ms) VALUES ('/f', 'codex', 1, 2);")
+            .unwrap();
+        connection.pragma_update(None, "user_version", 3).unwrap();
+        let store = Store::with(connection).unwrap();
+        assert!(!store.file_unchanged("/f", 1, 2).unwrap());
+        assert!(store.session_signals().unwrap().is_empty());
     }
 
     #[test]

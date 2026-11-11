@@ -9,9 +9,11 @@ export interface TokenEntry {
   /** A label for the agent, such as "review bot". */
   agent_name?: string
   /**
-   * Who charges for the model calls: `anthropic`, `openai`, `google`,
-   * `aws_bedrock`, `gcp_vertex`, `azure_foundry`, `github`, `cursor` or
-   * `other`. Without it, it follows from the model's name.
+   * Who charges for the model calls, as the agent reports it and as bills
+   * spell it: `anthropic`, `openai`, `aws_bedrock` and so on. Send it when
+   * you know it. It is never guessed from the model's name: without it, a
+   * call is priced only when every provider in the price table charges the
+   * same for its model, and is otherwise "not priced yet".
    */
   provider?: string
   /** The model that did the work. */
@@ -20,7 +22,7 @@ export interface TokenEntry {
   started_at: string
   /** When the session ended, as an ISO 8601 timestamp. */
   ended_at: string
-  /** Counts by kind. All four kinds are required; a missing kind is a count error. */
+  /** Counts by kind. Send the kinds the agent reports; at least one. */
   tokens: Tokens
   /**
    * The agent's own cost figure in US dollars, as a number or a decimal
@@ -38,7 +40,12 @@ export interface TokenEntry {
   project?: string
   /** Any other tags, such as `{ purpose: 'code-review' }`. One value per tag name. Win over rules. */
   tags?: Record<string, string>
-  /** Facts about the session that rules read. */
+  /**
+   * Names and values that came with the session and help to assign it:
+   * the named ones below and any other, such as `organization.id`. Never
+   * prompt text: content text is removed on arrival unless your
+   * organization switches keeping it on.
+   */
   signals?: Signals
   /** The agent harness's id for the session. A message seen again with the same session id and message id is the same record. */
   session_id?: string
@@ -77,7 +84,7 @@ export interface Message {
   message_id: string
   /** When the call was made, as an ISO 8601 timestamp. */
   at: string
-  /** Counts by kind. All four kinds are required. */
+  /** Counts by kind. Send the kinds the agent reports; at least one. */
   tokens: Tokens
   /** The model of this call, when it differs from the session's. */
   model?: string
@@ -95,19 +102,34 @@ export interface Split {
   tags?: Record<string, string>
 }
 
-/** Token counts by kind. Whole, non-negative numbers; all four required. */
+/**
+ * Token counts by kind. Whole, non-negative numbers. Kinds are open names:
+ * the common ones have their fields, and any other kind, such as
+ * `cache_write_1h` or `reasoning`, goes by its name (small letters, digits
+ * and `_`). `cache_write` is a cache write of unknown duration, priced as
+ * 5 minutes; send `cache_write_5m` and `cache_write_1h` where the agent
+ * tells them apart. A kind left out has no tokens. A kind with no price is
+ * listed and leaves the rest of the call priced.
+ */
 export interface Tokens {
-  input: number
-  output: number
-  cache_read: number
-  cache_write: number
+  input?: number
+  output?: number
+  cache_read?: number
+  cache_write?: number
+  cache_write_5m?: number
+  cache_write_1h?: number
+  [kind: string]: number | undefined
 }
 
 /**
- * Signals: facts about the session that rules read. Branch, working
- * directory, repository, pull request number and title, subagent type, the
- * keys found in prompts and titles, and values from the repository's
- * `.tokencontroller.toml`. Only the keys leave the machine, never the prompt.
+ * Signals: names and values that came with the session and help to assign
+ * it. Branch, working directory, repository, pull request number and title,
+ * subagent type, the keys found in prompts and titles, values from the
+ * repository's `.tokencontroller.toml`, and any other by its name, such as
+ * `organization.id` (the account the agent was signed in to when the
+ * session started) or `sign_in`. A signal named like a tag, such as
+ * `project`, is your own assignment. Only keys leave the machine, never the
+ * prompt.
  */
 export interface Signals {
   branch?: string
@@ -120,9 +142,18 @@ export interface Signals {
   keys?: string[]
   /** Values from the repository's `.tokencontroller.toml`, as `name: value`. */
   config?: Record<string, string>
+  /** Any other signal, by name, such as `organization.id`. */
+  [name: string]: unknown
 }
 
-const TOKEN_KINDS = ['input', 'output', 'cache_read', 'cache_write'] as const
+/** A token kind's name: small letters, digits and `_`, starting with a letter. */
+const TOKEN_KIND = /^[a-z][a-z0-9_]{0,63}$/
+
+/** A provider as bills spell it: small letters, digits and `_`. */
+const PROVIDER = /^[a-z0-9_]{1,40}$/
+
+/** The longest signal value the service takes, written as JSON. */
+const MAX_SIGNAL_LENGTH = 10_000
 
 /**
  * Every problem with a token entry, in plain words. Empty when the entry is
@@ -143,6 +174,11 @@ export function problems(entry: TokenEntry): string[] {
   if (!Number.isNaN(started) && !Number.isNaN(ended) && ended < started) {
     found.push('ended_at is before started_at')
   }
+  if (entry.provider !== undefined && !PROVIDER.test(entry.provider)) {
+    found.push(
+      'provider is spelled as bills spell it: small letters, digits and _, such as aws_bedrock',
+    )
+  }
   found.push(...tokenProblems('tokens', entry.tokens))
   if (entry.reported_cost !== undefined && !isAmount(entry.reported_cost)) {
     found.push('reported_cost must be an amount, 0 or more')
@@ -159,23 +195,33 @@ export function problems(entry: TokenEntry): string[] {
   if (pr !== undefined && !(Number.isSafeInteger(pr) && pr > 0)) {
     found.push('signals.pull_request must be a pull request number')
   }
+  found.push(...signalProblems(entry.signals))
   found.push(...messageProblems(entry), ...splitProblems(entry))
   return found
 }
 
-/** All four kinds, each a whole number, 0 or more; no other kind. */
-function tokenProblems(where: string, tokens: Tokens | undefined): string[] {
-  if (typeof tokens !== 'object' || tokens === null) return [`${where} is required`]
+function signalProblems(signals: Signals | undefined): string[] {
   const found: string[] = []
-  for (const kind of Object.keys(tokens)) {
-    if (!(TOKEN_KINDS as readonly string[]).includes(kind)) {
-      found.push(`${where}.${kind} is not a token kind (${TOKEN_KINDS.join(', ')})`)
+  for (const [name, value] of Object.entries(signals ?? {})) {
+    if (name.trim() === '' || name.trim() !== name) {
+      found.push(`signals: "${name}" is not a signal name`)
+    } else if (JSON.stringify(value ?? null).length > MAX_SIGNAL_LENGTH) {
+      found.push(`signals.${name} is too long: send a value, not a transcript`)
     }
   }
-  for (const kind of TOKEN_KINDS) {
-    const count = tokens[kind]
-    if (count === undefined) found.push(`${where}.${kind} is required: all four kinds are sent`)
-    else if (!(Number.isSafeInteger(count) && count >= 0)) {
+  return found
+}
+
+/** At least one kind, each named as a kind and a whole number, 0 or more. */
+function tokenProblems(where: string, tokens: Tokens | undefined): string[] {
+  if (typeof tokens !== 'object' || tokens === null) return [`${where} is required`]
+  const kinds = Object.entries(tokens).filter(([, count]) => count !== undefined)
+  if (kinds.length === 0) return [`${where} needs at least one kind, such as input`]
+  const found: string[] = []
+  for (const [kind, count] of kinds) {
+    if (!TOKEN_KIND.test(kind)) {
+      found.push(`${where}.${kind} is not a token kind: small letters, digits and _`)
+    } else if (!(Number.isSafeInteger(count) && (count ?? 0) >= 0)) {
       found.push(`${where}.${kind} must be a whole number, 0 or more`)
     }
   }
@@ -237,7 +283,7 @@ function messageProblems(entry: TokenEntry): string[] {
   const found: string[] = []
   if (entry.session_id === undefined) found.push('messages need the session_id they belong to')
   const seen = new Set<string>()
-  const sum = { input: 0, output: 0, cache_read: 0, cache_write: 0 }
+  const sum: Record<string, number> = {}
   for (const message of messages) {
     if (seen.has(message.message_id)) found.push(`message ${message.message_id} appears twice`)
     seen.add(message.message_id)
@@ -248,9 +294,12 @@ function messageProblems(entry: TokenEntry): string[] {
     if (message.reported_cost !== undefined && !isAmount(message.reported_cost)) {
       found.push(`message ${message.message_id}: reported_cost must be an amount, 0 or more`)
     }
-    for (const kind of TOKEN_KINDS) sum[kind] += message.tokens?.[kind] ?? 0
+    for (const [kind, count] of Object.entries(message.tokens ?? {})) {
+      sum[kind] = (sum[kind] ?? 0) + (count ?? 0)
+    }
   }
-  if (TOKEN_KINDS.some(kind => sum[kind] !== (entry.tokens?.[kind] ?? 0))) {
+  const kinds = new Set([...Object.keys(sum), ...Object.keys(entry.tokens ?? {})])
+  if ([...kinds].some(kind => (sum[kind] ?? 0) !== (entry.tokens?.[kind] ?? 0))) {
     found.push("tokens must equal the sum of the messages' tokens")
   }
   return found

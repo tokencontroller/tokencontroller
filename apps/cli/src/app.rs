@@ -288,12 +288,14 @@ impl<'a> App<'a> {
         let keys = self.store.keys()?;
         let titles = self.store.titles()?;
         let records = self.records()?;
+        let session_signals = self.store.session_signals()?;
         let pattern = self.pattern();
         let inputs = log::Inputs {
             messages: &messages,
             keys: &keys,
             titles: &titles,
             records: &records,
+            session_signals: &session_signals,
             run: &self.run,
             context: &self.context,
             connected: self.connection().is_some(),

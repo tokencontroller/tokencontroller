@@ -34,7 +34,8 @@ pub struct SessionJson {
     pub started_at: String,
     pub ended_at: String,
     pub model: String,
-    pub provider: String,
+    /// The provider the agent reported, `null` when it reported none.
+    pub provider: Option<String>,
     pub tokens: tokencontroller_core::TokenCounts,
     pub cost: Option<String>,
     pub currency: String,
@@ -62,7 +63,7 @@ impl SessionJson {
             started_at: utc(session.started_at),
             ended_at: utc(session.ended_at),
             model: session.model.model.clone(),
-            provider: session.model.provider.clone().unwrap_or_default(),
+            provider: session.model.provider.clone(),
             tokens: session.tokens.clone(),
             cost: session.cost.map(decimal),
             currency: currency.code(),

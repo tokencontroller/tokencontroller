@@ -26,7 +26,9 @@ pub struct TokenEntry {
     pub agent_harness: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub agent_name: Option<String>,
-    pub provider: String,
+    /// The provider the agent reported; never guessed from the model name.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
     pub model: String,
     pub started_at: String,
     pub ended_at: String,
@@ -83,6 +85,11 @@ pub struct EntrySignals {
     /// title. Only the keys, never the text.
     pub keys: Vec<String>,
     pub config: BTreeMap<String, String>,
+    /// Every other signal, by name, such as `organization.id`: the sign-in
+    /// recorded at session start, which the service's shipped sign-in rule
+    /// reads.
+    #[serde(flatten)]
+    pub other: BTreeMap<String, serde_json::Value>,
 }
 
 #[derive(Debug, Serialize)]
@@ -170,7 +177,7 @@ pub fn token_entry(session: &SessionView) -> TokenEntry {
         session_id: session.session_id.clone(),
         agent_harness: session.harness.name().to_owned(),
         agent_name: None,
-        provider: session.model.provider.clone().unwrap_or_default(),
+        provider: session.model.provider.clone(),
         model: session.model.model.clone(),
         started_at: utc(session.started_at),
         ended_at: utc(session.ended_at),
@@ -201,6 +208,7 @@ pub fn token_entry(session: &SessionView) -> TokenEntry {
             subagent_type: session.subagent_types.first().cloned(),
             keys: signals.prompt_keys.clone(),
             config: signals.config.clone(),
+            other: signals.other.clone(),
         },
         messages: session
             .messages
@@ -411,7 +419,7 @@ mod tests {
         let (_dir, views) = folded(&run);
         let s1 = token_entry(&views[0]);
         assert_eq!(s1.agent_harness, "claude-code");
-        assert_eq!(s1.provider, "anthropic");
+        assert_eq!(s1.provider, None);
         assert_eq!(
             s1.tags.get("purpose").map(String::as_str),
             Some("code-review")
@@ -465,6 +473,33 @@ mod tests {
         let json = serde_json::to_value(&signals).unwrap();
         assert!(json.get("subagent_type").is_none());
         assert_eq!(json["pull_request"], 12);
+        assert_eq!(json["organization.id"], "org-file");
+    }
+
+    #[test]
+    fn the_sign_in_and_the_reported_provider_go_out_and_nothing_is_guessed() {
+        let (_dir, views) = folded(&Run::default());
+        let s1 = serde_json::to_value(token_entry(&views[0])).unwrap();
+        // Claude Code's file names no provider, so none is sent.
+        assert!(s1.get("provider").is_none());
+        let s3 = views
+            .iter()
+            .find(|view| view.session_id == "s3")
+            .map(token_entry)
+            .unwrap();
+        assert_eq!(s3.provider.as_deref(), Some("anthropic"));
+        let json = serde_json::to_value(&s3.signals).unwrap();
+        // The session file's sign-in wins over a recorded one; the rest of
+        // the recorded signals go out as they came.
+        assert_eq!(json["organization.id"], "org-file-3");
+        assert_eq!(json["sign_in"], "claude.ai");
+        assert!(json.get("provider").is_none());
+        // A recorded signal named like a field of its own never goes out
+        // as a second key of that name, which the service would refuse.
+        let text = serde_json::to_string(&s3.signals).unwrap();
+        assert_eq!(text.matches("\"keys\"").count(), 1, "{text}");
+        assert_eq!(text.matches("\"branch\"").count(), 1, "{text}");
+        assert_ne!(json["branch"], "elsewhere");
     }
 
     #[test]

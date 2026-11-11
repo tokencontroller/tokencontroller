@@ -36,6 +36,14 @@ export type Rule = { number: number; text: string }
 
 export type Tab = 'review' | 'report' | 'rules'
 
+/**
+ * How the session was signed in when it started, as signals for tc: `sign_in`
+ * (`claude.ai`, `console`, `api-key`, a cloud's name) and, where Claude Code
+ * tells the mod, `organization.id`. Empty when Claude Code tells the mod
+ * nothing.
+ */
+export type SignIn = Record<string, string>
+
 /** The session facts the mod counts itself; tc reads the rest from the session files. */
 export type Facts = { turns: number; durationSeconds: number; subagents: number }
 
@@ -57,6 +65,8 @@ declare module 'claude-code' {
       handTags: Record<string, string>
       summary: string | null
       facts: Facts
+      /** The sign-in at session start, kept once; null until it was asked. */
+      signIn: SignIn | null
     }
   }
 }

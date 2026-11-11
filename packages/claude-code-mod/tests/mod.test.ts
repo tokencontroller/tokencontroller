@@ -62,7 +62,14 @@ const SUBMITTED = {
 type Run = { argv: readonly string[]; stdin: string | undefined }
 
 /** The machine beneath the mod: a tc that answers from memory, and the session. */
-function world(on: On, options: { isTcInstalled?: boolean; status?: object } = {}) {
+function world(
+  on: On,
+  options: {
+    isTcInstalled?: boolean
+    status?: object
+    identity?: { kind: string; organizationId?: string }
+  } = {},
+) {
   const machine = { isTcInstalled: options.isTcInstalled ?? true }
   const clock = mock.clock(on, { now: NOW })
   mock.store(on)
@@ -100,6 +107,12 @@ function world(on: On, options: { isTcInstalled?: boolean; status?: object } = {
     }
   })
   on('session.id', () => ({ value: 'session-1' }))
+  const identity = options.identity
+  on('session.identity', () =>
+    identity === undefined
+      ? { value: { deny: 'not installed by managed settings' } }
+      : { value: { ...identity, isVerified: true } },
+  )
   on('session.messages', () => ({
     value: [
       { role: 'user', text: 'Fix the rounding in the checkout total for KD-214', toolUses: [] },
@@ -193,6 +206,32 @@ describe('recording', () => {
         session_id: 'session-1',
         summary: 'Fixed rounding in the checkout total and added tests',
         facts: { turns: 1, duration_seconds: 4, subagents: 0 },
+      },
+    ])
+  })
+
+  test('the sign-in at session start is recorded once, and a later one never replaces it', async ($, on) => {
+    const { clock, runs } = world(on, { identity: { kind: 'claude.ai', organizationId: 'org-1' } })
+    await start($)
+    await clock.settle()
+    expect(records(runs)).toEqual([
+      {
+        agent_harness: 'claude-code',
+        session_id: 'session-1',
+        signals: { sign_in: 'claude.ai', 'organization.id': 'org-1' },
+      },
+    ])
+    runs.length = 0
+    // A reload runs session.start again; the first answer stays.
+    await start($)
+    await $.turn.complete({ ...TURN, reason: 'aborted' as const, isAborted: true })
+    await clock.settle()
+    expect(records(runs)).toEqual([
+      {
+        agent_harness: 'claude-code',
+        session_id: 'session-1',
+        facts: { turns: 1, duration_seconds: 4, subagents: 0 },
+        signals: { sign_in: 'claude.ai', 'organization.id': 'org-1' },
       },
     ])
   })

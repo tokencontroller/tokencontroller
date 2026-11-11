@@ -18,7 +18,7 @@ use crate::context::{Context, PERSON};
 use crate::error::{Error, Result};
 use crate::keys::KeyPattern;
 use crate::output;
-use crate::sources::Harness;
+use crate::sources::{Harness, PROVIDER};
 use crate::store::{StoredMessage, local_id};
 
 /// The tags and signals of this run, from `TC_FEATURE`, `TC_PROJECT`,
@@ -157,6 +157,9 @@ pub struct Recorded {
     pub pull_request: Option<String>,
     pub pull_request_title: Option<String>,
     pub facts: Facts,
+    /// Signals the mod or another tool recorded, such as the sign-in at
+    /// session start.
+    pub signals: BTreeMap<String, String>,
 }
 
 impl Recorded {
@@ -171,6 +174,11 @@ impl Recorded {
             .pull_request_title
             .or_else(|| self.pull_request_title.take());
         self.facts.merge(later.facts);
+        // A signal is what was true when it was first recorded, such as the
+        // sign-in at session start: a later value never replaces it.
+        for (name, value) in later.signals {
+            self.signals.entry(name).or_insert(value);
+        }
     }
 
     pub fn is_empty(&self) -> bool {
@@ -185,6 +193,9 @@ pub struct Inputs<'a> {
     pub keys: &'a BTreeMap<String, Vec<String>>,
     pub titles: &'a BTreeMap<String, String>,
     pub records: &'a BTreeMap<String, Recorded>,
+    /// What the session files say about each session as a whole, by local
+    /// id: the sign-in at session start and the provider the agent reports.
+    pub session_signals: &'a BTreeMap<String, BTreeMap<String, String>>,
     pub run: &'a Run,
     pub context: &'a Context,
     pub connected: bool,
@@ -194,25 +205,6 @@ pub struct Inputs<'a> {
     /// Splits, rules, submits and reversals recorded on this machine.
     pub local_events: Vec<Event>,
     pub now: OffsetDateTime,
-}
-
-/// Who charges for a model, from its name, as the token entry schema says.
-pub fn provider_of(model: &str) -> &'static str {
-    let lower = model.to_ascii_lowercase();
-    if lower.starts_with("claude") {
-        "anthropic"
-    } else if lower.starts_with("gpt")
-        || lower.starts_with("codex")
-        || lower.starts_with("o1")
-        || lower.starts_with("o3")
-        || lower.starts_with("o4")
-    {
-        "openai"
-    } else if lower.starts_with("gemini") {
-        "google"
-    } else {
-        "other"
-    }
 }
 
 /// Reads the person's own price table: a CSV file with the columns
@@ -434,6 +426,48 @@ fn id(text: &str) -> &str {
     if text.is_empty() { "unknown" } else { text }
 }
 
+/// The signals a token entry carries as fields of their own. A recorded
+/// signal with one of these names would go out as a second key of the
+/// same name, which the service refuses, so it is left out.
+const NAMED_SIGNALS: [&str; 8] = [
+    "branch",
+    "working_directory",
+    "repository",
+    "pull_request",
+    "pull_request_title",
+    "subagent_type",
+    "keys",
+    "config",
+];
+
+/// The model with the provider the agent reported, and the session's other
+/// signals: the sign-in at session start and what `tc record` was told. The
+/// session file's own word wins over a recorded one. No provider is guessed.
+fn model_and_signals(
+    stored: &StoredMessage,
+    local: &str,
+    record: Option<&Recorded>,
+    inputs: &Inputs<'_>,
+) -> (ModelRef, BTreeMap<String, serde_json::Value>) {
+    let empty = BTreeMap::new();
+    let file_signals = inputs.session_signals.get(local).unwrap_or(&empty);
+    let model = match file_signals.get(PROVIDER) {
+        Some(provider) => ModelRef::new(provider, &stored.model),
+        None => ModelRef::unreported(&stored.model),
+    };
+    let other = record
+        .map(|record| record.signals.clone())
+        .unwrap_or_default()
+        .into_iter()
+        .chain(file_signals.clone())
+        .filter(|(name, value)| {
+            name != PROVIDER && !NAMED_SIGNALS.contains(&name.as_str()) && !value.is_empty()
+        })
+        .map(|(name, value)| (name, serde_json::Value::String(value)))
+        .collect();
+    (model, other)
+}
+
 fn message_of(
     stored: &StoredMessage,
     local: &str,
@@ -490,11 +524,12 @@ fn message_of(
     let summary = record
         .and_then(|record| record.summary.clone())
         .or_else(|| inputs.titles.get(local).cloned());
+    let (model, other) = model_and_signals(stored, local, record, inputs);
     Ok(Message {
         session_id,
         message_id,
         person: person.clone(),
-        model: ModelRef::new(provider_of(&stored.model), &stored.model),
+        model,
         tokens: Some(stored.tokens.kinds()),
         at,
         agent_harness: stored.harness.name().to_owned(),
@@ -521,7 +556,7 @@ fn message_of(
             prompt_keys,
             config,
             resource,
-            other: std::collections::BTreeMap::new(),
+            other,
         },
         session: record
             .map(|record| record.facts.clone())
@@ -1043,9 +1078,28 @@ pub mod fixtures {
                     turns: Some(3),
                     ..Facts::default()
                 },
+                signals: BTreeMap::from([
+                    ("organization.id".to_owned(), "org-mod".to_owned()),
+                    ("sign_in".to_owned(), "claude.ai".to_owned()),
+                    ("keys".to_owned(), "KD-1".to_owned()),
+                    ("branch".to_owned(), "elsewhere".to_owned()),
+                ]),
                 ..Recorded::default()
             },
         )]);
+        let session_signals = BTreeMap::from([
+            (
+                "claude-code:s1".to_owned(),
+                BTreeMap::from([("organization.id".to_owned(), "org-file".to_owned())]),
+            ),
+            (
+                "claude-code:s3".to_owned(),
+                BTreeMap::from([
+                    ("organization.id".to_owned(), "org-file-3".to_owned()),
+                    ("provider".to_owned(), "anthropic".to_owned()),
+                ]),
+            ),
+        ]);
         let hand = Event::new(
             "local-1",
             datetime!(2026-04-12 20:00 UTC),
@@ -1069,6 +1123,7 @@ pub mod fixtures {
             keys: &keys,
             titles: &titles,
             records: &records,
+            session_signals: &session_signals,
             run,
             context,
             connected,
@@ -1133,15 +1188,6 @@ mod tests {
                 session_id: (*session).to_owned(),
             })
             .collect()
-    }
-
-    #[test]
-    fn providers_follow_from_model_names() {
-        assert_eq!(provider_of("claude-sonnet-4-5"), "anthropic");
-        assert_eq!(provider_of("gpt-5"), "openai");
-        assert_eq!(provider_of("o3-mini"), "openai");
-        assert_eq!(provider_of("gemini-2.5-pro"), "google");
-        assert_eq!(provider_of("llama-3"), "other");
     }
 
     #[test]
@@ -1267,6 +1313,7 @@ mod tests {
             keys: &keys,
             titles: &titles,
             records: &records,
+            session_signals: &BTreeMap::new(),
             run: &run,
             context: &context,
             connected: false,
@@ -1338,6 +1385,7 @@ mod tests {
             keys: &keys,
             titles: &titles,
             records: &records,
+            session_signals: &BTreeMap::new(),
             run: &run,
             context: &context,
             connected: false,
@@ -1350,7 +1398,7 @@ mod tests {
         let views = sessions(&state, &rows(&["s1"])).unwrap();
         let s1 = views.first().unwrap();
         assert_eq!(s1.cost, None);
-        assert_eq!(s1.unknown_models, ["anthropic/claude-sonnet-4-5"]);
+        assert_eq!(s1.unknown_models, ["claude-sonnet-4-5"]);
         assert_eq!(s1.assigned_by, "hand");
         assert_eq!(s1.label, Label::ProjectOverhead);
         assert_eq!(s1.signals.repository.as_deref(), Some("kestrel/ops"));
