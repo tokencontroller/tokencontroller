@@ -285,7 +285,24 @@ function reconciliationOf(db: Db, b: Db["bills"][number]) {
     if (l.costLabel === "count_error") ids.add(l.message.message_id);
     if (l.costLabel === "not_priced_yet") unknown.add(`${l.message.provider}/${l.message.model}`);
   }
-  return { bill: dec(b.amount), messages: dec(messages), unexplained: dec(unexplained), a_message_is_wrong: unexplained < 0, count_errors: ids.size, unknown_models: [...unknown], currency: "USD" };
+  // Each provider of the mocks has one contract, named after it, so every
+  // message gets it from the fallback.
+  return {
+    contract: b.provider,
+    contract_kind: "metered",
+    bill: dec(b.amount),
+    messages: dec(messages),
+    unexplained: dec(unexplained),
+    fee: null,
+    extra_usage: null,
+    covered: null,
+    same_provider_no_contract: dec(0),
+    contract_from_fallback: dec(messages),
+    a_message_is_wrong: unexplained < 0,
+    count_errors: ids.size,
+    unknown_models: [...unknown],
+    currency: "USD",
+  };
 }
 
 function billView(db: Db, b: Db["bills"][number]) {
@@ -836,6 +853,8 @@ export const handlers = [
       not_priced_yet: notPricedYet(ls.filter((l) => l.costLabel === "not_priced_yet").map((l) => l.message)),
       unpriced_kinds: [],
       on_a_plan: q.share ? "0" : dec(0),
+      metered: q.share ? (total ? "1" : "0") : dec(total),
+      no_contract: q.share ? "0" : dec(0),
     };
     return HttpResponse.json(report);
   })),

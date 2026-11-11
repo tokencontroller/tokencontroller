@@ -795,6 +795,98 @@
         }
       }
     },
+    "/api/v1/contract-assignments": {
+      "post": {
+        "tags": [
+          "splits"
+        ],
+        "summary": "Set a contract by hand on whole sessions: the answer to \"which\ncontract?\" in the review list. It wins over every rule, and may cover\nmessages before the cutoff, since figures as of the cutoff stay as they\nwere. A later one on the same session supersedes it.",
+        "operationId": "assign_contract",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewContractAssignment"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContractAssignmentResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such session",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/contracts": {
+      "get": {
+        "tags": [
+          "bills"
+        ],
+        "summary": "Every contract of the organization: from its bills, its tag values of\n`contract` and the rules that created one.",
+        "operationId": "list_contracts",
+        "parameters": [
+          {
+            "name": "as_of",
+            "in": "query",
+            "description": "The moment to look back to; default now.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ContractView"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/cutoff": {
       "get": {
         "tags": [
@@ -2444,7 +2536,7 @@
         "tags": [
           "bills"
         ],
-        "summary": "Each bill against the cost of its provider's messages in its range, with\nthe line no message explains. Org managers only.",
+        "summary": "Each bill against the cost of the messages with its contract in its\nrange, with the line no message explains, and beside it the messages of\nthe same provider with no contract and those whose contract came from\nthe fallback. Org managers only.",
         "operationId": "get_reconciliation",
         "parameters": [
           {
@@ -4574,6 +4666,13 @@
           }
         }
       },
+      "Amount": {
+        "type": "string",
+        "description": "A decimal amount, as a string or a number",
+        "examples": [
+          "0.031"
+        ]
+      },
       "ApiToken": {
         "type": "object",
         "description": "An API token as lists show it, without its secret.",
@@ -5213,6 +5312,80 @@
           }
         }
       },
+      "ContractAssignmentResult": {
+        "type": "object",
+        "description": "What was written.",
+        "required": [
+          "contract",
+          "sessions"
+        ],
+        "properties": {
+          "contract": {
+            "type": "string"
+          },
+          "sessions": {
+            "type": "integer",
+            "description": "The sessions that now carry it.",
+            "minimum": 0
+          }
+        }
+      },
+      "ContractTermsView": {
+        "type": "object",
+        "description": "What a contract holds besides its key.",
+        "required": [
+          "provider",
+          "kind"
+        ],
+        "properties": {
+          "fee": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The fee per calendar month of a flat contract, in US dollars, when\nknown.",
+            "example": "200.00"
+          },
+          "kind": {
+            "type": "string",
+            "description": "`metered` (paid per token) or `flat` (a fee, such as a seat plan).",
+            "example": "flat"
+          },
+          "provider": {
+            "type": "string",
+            "description": "The provider that charges under it, spelled as bills spell it.",
+            "example": "anthropic"
+          }
+        }
+      },
+      "ContractView": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/ContractTermsView"
+          },
+          {
+            "type": "object",
+            "required": [
+              "key"
+            ],
+            "properties": {
+              "key": {
+                "type": "string",
+                "description": "The contract's key, a value of the tag name `contract`.",
+                "example": "anthropic-api"
+              },
+              "title": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "The title of its tag value, when it has one."
+              }
+            }
+          }
+        ],
+        "description": "One contract as the API shows it."
+      },
       "CostReport": {
         "type": "object",
         "description": "The cost report: `C(F, w)`.",
@@ -5229,7 +5402,9 @@
           "unknown_models",
           "not_priced_yet",
           "unpriced_kinds",
-          "on_a_plan"
+          "on_a_plan",
+          "metered",
+          "no_contract"
         ],
         "properties": {
           "as_of": {
@@ -5263,6 +5438,14 @@
           "from": {
             "type": "string",
             "format": "date"
+          },
+          "metered": {
+            "type": "string",
+            "description": "The part of the total under metered contracts, paid per token."
+          },
+          "no_contract": {
+            "type": "string",
+            "description": "The part of the total with no contract yet."
           },
           "not_priced_yet": {
             "$ref": "#/components/schemas/NotPricedYet",
@@ -6468,6 +6651,57 @@
           }
         }
       },
+      "NewContractAssignment": {
+        "type": "object",
+        "description": "One contract set by hand on sessions.",
+        "required": [
+          "contract",
+          "sessions"
+        ],
+        "properties": {
+          "contract": {
+            "type": "string",
+            "description": "The contract's key. It must be a contract the organization has.",
+            "example": "anthropic-api"
+          },
+          "sessions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The sessions it goes on, every message of each. Your own, or with\nassign on a filter each session is in."
+          }
+        }
+      },
+      "NewContractTerms": {
+        "type": "object",
+        "description": "A contract's terms as the API takes them.",
+        "required": [
+          "provider",
+          "kind"
+        ],
+        "properties": {
+          "fee": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Amount",
+                "description": "The fee per calendar month of a flat contract, in US dollars."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "kind": {
+            "type": "string",
+            "description": "`metered` or `flat`."
+          },
+          "provider": {
+            "type": "string",
+            "description": "The provider, spelled as bills spell it, such as `anthropic`."
+          }
+        }
+      },
       "NewCutoff": {
         "type": "object",
         "description": "A new cutoff.",
@@ -6733,6 +6967,13 @@
           "valid_from"
         ],
         "properties": {
+          "contract": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "A contract's own price: the row counts for that contract's messages\nonly, and wins over the table there. The provider must be the\ncontract's."
+          },
           "kind": {
             "type": "string",
             "example": "input"
@@ -6947,6 +7188,17 @@
           "key"
         ],
         "properties": {
+          "contract": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/NewContractTerms",
+                "description": "For a value of `contract` only: its provider, its kind and, when\nflat, its fee. Left out on a change, the terms stay as they were."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "dated": {
             "type": [
               "string",
@@ -7441,6 +7693,13 @@
           "recorded_at"
         ],
         "properties": {
+          "contract": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The contract whose own price this is: it wins over every other row,\nfor that contract's messages only. `null` for the table's own rows."
+          },
           "id": {
             "type": "string",
             "description": "The row's event id. An organization's row is reversed by it;\nmanaged rows cannot be reversed."
@@ -7603,12 +7862,16 @@
       },
       "ReconciliationView": {
         "type": "object",
-        "description": "One bill next to the cost of its provider's messages in its range, in\nthe core's currency (USD).",
+        "description": "One bill next to the cost of the messages with its contract in its\nrange, in the core's currency (USD), with what a check could otherwise\nhide beside it.",
         "required": [
           "currency",
+          "contract",
+          "contract_kind",
           "bill",
           "messages",
           "unexplained",
+          "same_provider_no_contract",
+          "contract_from_fallback",
           "a_message_is_wrong",
           "count_errors",
           "unknown_models"
@@ -7622,23 +7885,64 @@
             "description": "The bill, converted at its exchange rate when it is in another\ncurrency.",
             "example": "1000.00"
           },
+          "contract": {
+            "type": "string",
+            "description": "The contract the bill is checked under.",
+            "example": "anthropic-api"
+          },
+          "contract_from_fallback": {
+            "type": "string",
+            "description": "The part of `messages` whose contract came only from the provider\nhaving one contract.",
+            "example": "0.00"
+          },
+          "contract_kind": {
+            "type": "string",
+            "description": "`metered`: the bill should equal its messages. `flat`: the bill is a\nfee plus extra usage.",
+            "example": "metered"
+          },
           "count_errors": {
             "type": "integer",
             "description": "Messages in the range with no counts; their cost is not in\n`messages`.",
             "minimum": 0
           },
+          "covered": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Flat: the cost of its messages less the extra usage, what the plan\nwas worth. `null` while the fee is not known."
+          },
           "currency": {
             "type": "string",
             "example": "USD"
           },
+          "extra_usage": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Flat: the extra usage, from the bill or as the bill less the fee."
+          },
+          "fee": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Flat: the fee, from the bill, or from the contract for a whole\nmonth."
+          },
           "messages": {
             "type": "string",
-            "description": "The cost of every message of the provider in the range.",
+            "description": "The cost of the messages with the bill's contract in the range.",
             "example": "950.00"
+          },
+          "same_provider_no_contract": {
+            "type": "string",
+            "description": "Messages of the bill's provider in its range that have no contract.",
+            "example": "12.40"
           },
           "unexplained": {
             "type": "string",
-            "description": "What the bill has that no message explains. Negative means a\nmessage is wrong.",
+            "description": "Metered: what the bill has that no message explains; negative means\na message is wrong. Flat: what the bill has besides its fee and\nextra usage, zero when the parts add up.",
             "example": "50.00"
           },
           "unknown_models": {
@@ -7891,6 +8195,9 @@
           "cost",
           "count_errors",
           "unknown_models",
+          "contracts",
+          "no_contract",
+          "provider_unknown",
           "parts",
           "signals",
           "facts",
@@ -7909,6 +8216,13 @@
           },
           "assigned_by": {
             "type": "string"
+          },
+          "contracts": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The contracts of the session's messages."
           },
           "cost": {
             "type": "string",
@@ -7929,6 +8243,11 @@
             "type": "integer",
             "minimum": 0
           },
+          "no_contract": {
+            "type": "integer",
+            "description": "Messages with no contract: the review list asks which contract they\nare under.",
+            "minimum": 0
+          },
           "parts": {
             "type": "array",
             "items": {
@@ -7938,6 +8257,11 @@
           },
           "person": {
             "type": "string"
+          },
+          "provider_unknown": {
+            "type": "integer",
+            "description": "Of those, the messages whose provider is not known either.",
+            "minimum": 0
           },
           "session_id": {
             "type": "string"
@@ -8403,6 +8727,17 @@
           "recorded_at"
         ],
         "properties": {
+          "contract": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ContractTermsView",
+                "description": "For a value of `contract`: its provider, its kind and its fee."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "defaults": {
             "$ref": "#/components/schemas/Tags",
             "description": "The tags this value brings with it, such as `{\"project\": \"shop\"}`."

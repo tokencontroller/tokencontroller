@@ -14,6 +14,7 @@ A message is one model call with its token counts; a session is the messages of 
 | `GET /messages` | Messages with their cost, parts, tags, facts and where they stand in submit and approval. | View on the filter |
 | `GET /sessions` | Sessions: their messages added up, with the cost by tag set, the summary and the facts. | View on the filter |
 | `POST /splits` | Split a session, or one message of it, over tag sets. | Your own; assign on a filter the session is in |
+| `POST /contract-assignments` | Put whole sessions under one contract, by hand. | Your own; assign on a filter each session is in |
 
 ## Token entries {#token-entries}
 

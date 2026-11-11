@@ -46,6 +46,7 @@ fn area_routes() -> OpenApiRouter<AppState> {
         .merge(crate::ingest::routes())
         .merge(crate::messages::routes())
         .merge(crate::splits::routes())
+        .merge(crate::contracts::routes())
         .merge(crate::events::routes())
         .merge(crate::grants::routes())
         .merge(crate::cutoff::routes())

@@ -230,6 +230,10 @@ export function sessionView(db: Db, s: MockSession): Session {
     cost: dec(total),
     count_errors: costs.filter((c) => c.label === "count_error").length,
     unknown_models: [...new Set(s.messages.filter((_, i) => costs[i]?.label === "not_priced_yet").map((m) => `${m.provider}/${m.model}`))],
+    // Each provider of the mocks has one contract, named after it.
+    contracts: [...new Set(s.messages.map((m) => m.provider))],
+    no_contract: 0,
+    provider_unknown: 0,
     assigned_by: split.by,
     submitted: submittedOf(db, s),
     parts: split.parts.map((p) => {

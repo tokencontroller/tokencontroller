@@ -19,7 +19,9 @@ use axum::response::Response;
 use serde::{Deserialize, Serialize};
 use time::{Date, OffsetDateTime};
 use tokencontroller_core::state::Line;
-use tokencontroller_core::{Currency, DateRange, Filter, Money, State as Fold, TagName, TagValue};
+use tokencontroller_core::{
+    ContractKind, Currency, DateRange, Filter, Money, State as Fold, TagName, TagValue,
+};
 use utoipa::{IntoParams, ToSchema};
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
@@ -129,6 +131,10 @@ pub struct CostReport {
     /// The part of the total under a flat contract, paid by its fee: "on
     /// a plan". The rest is under metered contracts or none.
     pub on_a_plan: String,
+    /// The part of the total under metered contracts, paid per token.
+    pub metered: String,
+    /// The part of the total with no contract yet.
+    pub no_contract: String,
 }
 
 /// The messages of a report that are not priced yet, never a silent zero.
@@ -559,6 +565,23 @@ pub async fn cost(
         .fold
         .cost(&setup.filter, setup.window)
         .map_err(|error| ApiError::Internal(error.into()))?;
+    let kinds = setup
+        .fold
+        .by_contract_kind(&setup.filter, setup.window)
+        .map_err(|error| ApiError::Internal(error.into()))?;
+    let kind_total = |kind: Option<ContractKind>| {
+        kinds
+            .iter()
+            .find(|(group, _)| *group == kind)
+            .map_or_else(|| Money::zero(setup.fold.currency()), |(_, amount)| *amount)
+    };
+    let part = |amount: Money| {
+        if setup.share {
+            Ok(share_text(amount.nanos(), total.nanos()))
+        } else {
+            setup.money(amount)
+        }
+    };
     let mut rows = Vec::with_capacity(groups.len());
     for (key, (amount, messages)) in &groups {
         rows.push(CostRow {
@@ -594,11 +617,9 @@ pub async fn cost(
             .iter()
             .map(ToString::to_string)
             .collect(),
-        on_a_plan: if setup.share {
-            share_text(cost.on_a_plan.nanos(), total.nanos())
-        } else {
-            setup.money(cost.on_a_plan)?
-        },
+        on_a_plan: part(cost.on_a_plan)?,
+        metered: part(kind_total(Some(ContractKind::Metered)))?,
+        no_contract: part(kind_total(None))?,
     })
 }
 

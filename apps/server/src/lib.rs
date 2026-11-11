@@ -22,6 +22,7 @@ pub mod mail;
 pub mod state;
 
 pub mod bills;
+pub mod contracts;
 pub mod cutoff;
 pub mod events;
 pub mod grants;

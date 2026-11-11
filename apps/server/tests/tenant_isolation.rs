@@ -310,6 +310,16 @@ async fn alpha(app: &Router, pool: &PgPool) -> TestResult<Alpha> {
     )
     .await?;
     tag_value(app, &session, "project", "alpha-app", json!({})).await?;
+    must(
+        app,
+        Method::POST,
+        "/api/v1/tags/contract/values",
+        &session,
+        Payload::Json(
+            json!({"key": "alpha-api", "contract": {"provider": "anthropic", "kind": "metered"}}),
+        ),
+    )
+    .await?;
     tag_value(
         app,
         &session,
@@ -1318,6 +1328,20 @@ fn message_cases(b: &Bravo) -> Vec<Case> {
                     .json(json!({"session_id": "bravo-session-3", "parts": [{"tags": {"feature": "ALPHA-1"}}]}))
                     .expect(REFUSED),
             ],
+        ),
+        case(
+            "POST",
+            "/api/v1/contract-assignments",
+            vec![
+                post("/api/v1/contract-assignments")
+                    .json(json!({"contract": "alpha-api", "sessions": ["bravo-session-3"]}))
+                    .expect(REFUSED),
+            ],
+        ),
+        case(
+            "GET",
+            "/api/v1/contracts",
+            vec![get("/api/v1/contracts").expect(OK)],
         ),
         case(
             "GET",
@@ -2342,7 +2366,7 @@ async fn every_route_is_called_across_tenants(pool: PgPool) {
         "cases for routes the API does not have: {unknown:?}"
     );
     // The committed OpenAPI file is the same document (api.rs checks it).
-    assert_eq!(documented.len(), 94, "{documented:?}");
+    assert_eq!(documented.len(), 96, "{documented:?}");
 }
 
 #[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
