@@ -105,8 +105,7 @@ fn signal_word(signal: &Signal) -> String {
     }
 }
 
-const SIGNAL_WORDS: &str =
-    "branch, directory, repository, pull-request, config:NAME, subagent, feature";
+const SIGNAL_WORDS: &str = "branch, directory, repository, pull-request, config:NAME, subagent, feature, or signal:NAME for any other signal";
 
 /// The tests, as the command line writes them.
 const TESTS: [&str; 5] = ["is", "starts-with", "contains", "matches", "is-set"];

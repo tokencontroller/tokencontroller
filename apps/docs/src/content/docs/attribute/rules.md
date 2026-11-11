@@ -21,7 +21,7 @@ A signal is a name and a value that came with a message and may hint at where it
 | Agent harness and agent name | Every message |
 | Any other name a sender adds, such as `organization.id`, the organization an agent was signed in to | Token entries, telemetry, the mod |
 
-The list is open, so a rule may read any signal by its name. A signal named like a tag, such as `project` or `contract`, is the sender's own assignment: it runs before every rule, wins over them, and creates the tag value when it is new.
+The list is open, so a rule may read any signal by its name. A signal named like a tag, such as `project` or `contract`, is the sender's own assignment: it runs before every rule, wins over them, and counts under that tag value at once, even a new one.
 
 Prompts and titles are read on the machine and only the keys are sent, unless your organization switches keeping content text on; see [Security and privacy](/security).
 

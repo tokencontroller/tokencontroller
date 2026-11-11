@@ -146,10 +146,8 @@ test("17-upload-csv-bill", async ({ page }) => {
   await page.goto("/bills");
   await page.getByRole("button", { name: "Upload CSV" }).click();
   const dialog = page.getByRole("dialog", { name: "Upload a CSV bill" });
-  // Each bill with its contract; the mock build reads only the older columns.
-  const text = live
-    ? "provider,from,to,amount,currency,contract,contract_kind\nanthropic,2026-03-01,2026-03-31,270.00,USD,anthropic-api,metered\naws_bedrock,2026-03-01,2026-03-31,500.00,USD,bedrock-api,metered\n"
-    : "provider,from,to,amount,currency\nanthropic,2026-03-01,2026-03-31,270.00,USD\naws_bedrock,2026-03-01,2026-03-31,500.00,USD\n";
+  // Each bill with its contract.
+  const text = "provider,from,to,amount,currency,contract,contract_kind\nanthropic,2026-03-01,2026-03-31,270.00,USD,anthropic-api,metered\naws_bedrock,2026-03-01,2026-03-31,500.00,USD,bedrock-api,metered\n";
   await dialog.getByLabel("CSV file").setInputFiles({ name: "bills-2026-03.csv", mimeType: "text/csv", buffer: Buffer.from(text) });
   await dialog.getByRole("table", { name: "What the file holds" }).waitFor();
   await shot(page, "17-upload-csv-bill");

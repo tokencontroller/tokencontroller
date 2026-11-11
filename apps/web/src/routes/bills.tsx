@@ -81,7 +81,7 @@ function Contracts({ contracts, error }: { contracts: Contract[] | undefined; er
           columns={[
             { key: "key", header: "Contract", cell: (c) => <span className="inline-flex flex-col items-end sm:items-start"><span className="font-medium">{c.title ?? c.key}</span>{c.title ? <span className="font-mono text-caption text-muted">{c.key}</span> : null}</span> },
             { key: "provider", header: "Provider", cell: (c) => c.provider },
-            { key: "kind", header: "Kind", cell: (c) => <Badge tone={c.kind === "flat" ? "accent" : "neutral"}>{c.kind === "flat" ? "on a plan" : "metered"}</Badge> },
+            { key: "kind", header: "Kind", cell: (c) => <Badge tone={c.kind === "flat" ? "accent" : "neutral"}>{c.kind}</Badge> },
             { key: "fee", header: "Fee per month", align: "right", cell: (c) => (c.kind === "flat" ? (c.fee ? <Amount value={c.fee} /> : <span className="text-muted">not known</span>) : null) },
           ]}
         />
@@ -101,7 +101,6 @@ function status(r: Reconciliation): ReactNode {
 function Check({ row: r, title }: { row: Reconciliation; title: string }) {
   const flat = r.contract_kind === "flat";
   const money = (value: string | null | undefined) => <Amount value={value ?? null} currency={r.currency} />;
-  const beside = Number(r.same_provider_no_contract) !== 0 || Number(r.contract_from_fallback) !== 0;
   return (
     <div role="group" aria-label={`${title} ${formatRange(r.from, r.to)}`}>
       <Section
@@ -109,7 +108,7 @@ function Check({ row: r, title }: { row: Reconciliation; title: string }) {
         actions={
           <span className="flex flex-wrap items-center gap-2 text-small text-muted">
             {formatRange(r.from, r.to)}
-            <Badge tone={flat ? "accent" : "neutral"}>{flat ? "on a plan" : "metered"}</Badge>
+            <Badge tone={flat ? "accent" : "neutral"}>{flat ? "flat" : "metered"}</Badge>
             {r.final ? null : <Badge>not final</Badge>}
             {status(r)}
           </span>
@@ -130,30 +129,30 @@ function Check({ row: r, title }: { row: Reconciliation; title: string }) {
             </>
           )}
         </div>
-        {beside || r.count_errors || r.not_priced_models.length ? (
-          <ul className="mt-4 flex flex-col gap-1 border-t border-line pt-3 text-small">
-            {Number(r.same_provider_no_contract) !== 0 ? (
-              <li className="flex justify-between gap-3 text-exception">
-                <span>Same provider, no contract</span>
-                {money(r.same_provider_no_contract)}
-              </li>
-            ) : null}
-            {Number(r.contract_from_fallback) !== 0 ? (
-              <li className="flex justify-between gap-3 text-muted">
-                <span>Contract only from the provider</span>
-                {money(r.contract_from_fallback)}
-              </li>
-            ) : null}
-            {r.count_errors || r.not_priced_models.length ? (
-              <li className="flex flex-wrap gap-1">
-                {r.count_errors ? <Badge tone="exception">{r.count_errors} count errors</Badge> : null}
-                {r.not_priced_models.map((m) => (
-                  <Badge key={m} tone="exception">{m}</Badge>
-                ))}
-              </li>
-            ) : null}
-          </ul>
-        ) : null}
+        {/* The two lines beside every check, 0.00 included, so a check cannot balance by leaving messages out. */}
+        <ul className="mt-4 flex flex-col gap-1 border-t border-line pt-3 text-small">
+          <li className={`flex justify-between gap-3 ${Number(r.same_provider_no_contract) === 0 ? "text-muted" : "text-exception"}`}>
+            <span>Same provider, no contract</span>
+            {money(r.same_provider_no_contract)}
+          </li>
+          <li className="flex justify-between gap-3 text-muted">
+            <span>Contract only from the provider</span>
+            {money(r.contract_from_fallback)}
+          </li>
+          {r.count_errors ? (
+            <li className="flex justify-between gap-3 text-exception">
+              <span>Count errors</span>
+              <span className="num">{r.count_errors} messages</span>
+            </li>
+          ) : null}
+          {/* The check names the models only; their messages and tokens are on the price table. */}
+          {r.not_priced_models.length ? (
+            <li className="flex justify-between gap-3 text-exception">
+              <span>Not priced yet</span>
+              <span className="font-mono text-caption">{r.not_priced_models.join(", ")}</span>
+            </li>
+          ) : null}
+        </ul>
       </Section>
     </div>
   );

@@ -12,7 +12,7 @@ use crate::error::Result;
 use crate::log::SessionView;
 use crate::output::{decimal, utc};
 
-const FIXED: [&str; 10] = [
+const FIXED: [&str; 12] = [
     "agent_harness",
     "model",
     "started_at",
@@ -21,6 +21,8 @@ const FIXED: [&str; 10] = [
     "tokens.output",
     "tokens.cache_read",
     "tokens.cache_write",
+    "tokens.cache_write_5m",
+    "tokens.cache_write_1h",
     "summary",
     "feature",
 ];
@@ -96,6 +98,14 @@ pub fn write_csv(
                     message
                         .tokens
                         .get(&tokencontroller_core::TokenKind::CACHE_WRITE)
+                        .to_string(),
+                    message
+                        .tokens
+                        .get(&tokencontroller_core::TokenKind::CACHE_WRITE_5M)
+                        .to_string(),
+                    message
+                        .tokens
+                        .get(&tokencontroller_core::TokenKind::CACHE_WRITE_1H)
                         .to_string(),
                     session.summary.clone().unwrap_or_default(),
                     part.tags
@@ -229,23 +239,23 @@ mod tests {
         assert_eq!(lines.len(), 7, "{text}");
         assert_eq!(
             lines[0],
-            "agent_harness,model,started_at,ended_at,tokens.input,tokens.output,tokens.cache_read,tokens.cache_write,summary,feature,tags.purpose,project,session_id,message_id,fraction,cost,currency,label,status,assigned_by,reported_cost"
+            "agent_harness,model,started_at,ended_at,tokens.input,tokens.output,tokens.cache_read,tokens.cache_write,tokens.cache_write_5m,tokens.cache_write_1h,summary,feature,tags.purpose,project,session_id,message_id,fraction,cost,currency,label,status,assigned_by,reported_cost"
         );
         let first: Vec<&str> = lines[1].split(',').collect();
         assert_eq!(first[0], "claude-code");
         assert_eq!(first[1], "claude-sonnet-4-5");
-        assert_eq!(first[8], "Fix checkout");
-        assert_eq!(first[9], "KD-214");
-        assert_eq!(first[10], "code-review");
-        assert_eq!(first[14], "1");
-        assert_eq!(first[15], "4.50");
-        assert_eq!(first[16], "USD");
-        assert_eq!(first[17], "direct");
-        assert_eq!(first[18], "open");
-        assert_eq!(first[20], "0.50");
+        assert_eq!(first[10], "Fix checkout");
+        assert_eq!(first[11], "KD-214");
+        assert_eq!(first[12], "code-review");
+        assert_eq!(first[16], "1");
+        assert_eq!(first[17], "4.50");
+        assert_eq!(first[18], "USD");
+        assert_eq!(first[19], "direct");
+        assert_eq!(first[20], "open");
+        assert_eq!(first[22], "0.50");
         let split: Vec<&str> = lines[5].split(',').collect();
-        assert_eq!(split[14], "0.6");
-        assert_eq!(split[15], "2.70");
+        assert_eq!(split[16], "0.6");
+        assert_eq!(split[17], "2.70");
     }
 
     #[test]

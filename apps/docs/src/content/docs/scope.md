@@ -31,7 +31,7 @@ The scope is fixed: what is not listed here will not be built.
 | Local tool | No sync between one person's machines. Each machine submits its messages on its own. |
 | Money paid per project | Reports show cost at the price table. Cost under a flat contract, such as a seat plan, is marked "on a plan" with its own subtotal; how the fee itself divides over projects is not computed. |
 | Bills from PDF | A bill is not read from a PDF. Type it in, or upload it as CSV. |
-| Org chart | No team tree. Teams and departments are attributes on people, one value per name, with defaults for rollup. |
+| Org chart | No team tree. Teams and departments are attributes on people, one value per name, with defaults, so a team brings its department. |
 | Chat | Usage in a provider's own chat app is not an agent's and never becomes a message. It is what the bill has that no message explains. |
 | Your clients | Token Controller ends at the cost of a filter. It does not invoice your clients or bill on your behalf. Pass-through happens in your own invoicing tool. |
 | Open source | Issues on GitHub are open. Pull requests from outside are not accepted. See [Open source and licenses](/reference/open-source). |

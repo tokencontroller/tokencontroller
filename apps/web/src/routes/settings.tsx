@@ -131,7 +131,7 @@ function ApiTokens() {
           empty="No API tokens."
           columns={[
             { key: "name", header: "Name", cell: (t) => <span className="font-medium">{t.name}</span> },
-            { key: "kind", header: "Kind", cell: (t) => <Badge>{t.kind}</Badge> },
+            { key: "kind", header: "Access", cell: (t) => <Badge>{t.kind}</Badge> },
             { key: "person", header: "Person", cell: (t) => personName(t.person_id) },
             { key: "prefix", header: "Starts with", wide: true, cell: (t) => <span className="font-mono text-caption text-muted">{t.shown_prefix}</span> },
             { key: "used", header: "Last used", wide: true, cell: (t) => <span className="text-muted">{t.last_used_at ? formatDateTime(t.last_used_at) : "never"}</span> },
@@ -148,7 +148,7 @@ function ApiTokens() {
             create.mutate();
           }}
         >
-          <Field label="Token kind">
+          <Field label="Access">
             <Select value={kind} onChange={(e) => setKind(e.target.value as ApiTokenKind)}>
               {tokenKinds.filter((k) => !k.orgManager || hasRole(me.person, "org_manager")).map((k) => <option key={k.kind} value={k.kind}>{k.label}</option>)}
             </Select>

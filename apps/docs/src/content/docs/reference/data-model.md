@@ -39,7 +39,7 @@ Added by anyone or any source, never changed. A wrong one is reversed.
 
 A signal is a name and a value that came with a message and may help to assign it: the branch, the repository, the pull request title, how the agent was signed in, the agent's own cost figure, any attribute an OpenTelemetry exporter sent. The list is open; a sender can add any name. [Rules](/attribute/rules) read signals to put tags on.
 
-A signal named like a tag, such as `project`, is the sender's own assignment. It runs before the organization's rules, wins over them, and creates the tag value when it is new.
+A signal named like a tag, such as `project`, is the sender's own assignment. It runs before the organization's rules, wins over them, and counts under that tag value at once, even a new one. A new value is listed until someone with assign records it.
 
 ### Token kinds {#token-kinds}
 
@@ -126,6 +126,6 @@ The [worked month](/concepts#month) runs the cost formulas on three bills.
   <li><b>One value per tag name on a split, one contract per message.</b><p>So cost grouped by one tag name adds up to the total.</p></li>
   <li><b>Only messages are summed.</b><p>Bills are checked against them, plans are compared with them.</p></li>
   <li><b>Nothing is guessed.</b><p>The provider is never guessed from the model's name. Unknown is shown as unknown, and a message not priced yet is its own line with its token counts.</p></li>
-  <li><b>A check cannot balance by leaving messages out.</b><p>Messages of the same provider with no contract always show beside it.</p></li>
+  <li><b>A check cannot balance by leaving messages out.</b><p>Messages of the same provider with no contract, and messages whose contract came from the fallback, always show beside it.</p></li>
   <li><b>Management control never writes into cost accounting.</b><p>Estimates, accepts and shares read C(F, w) and change no split.</p></li>
 </ol>

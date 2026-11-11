@@ -2,7 +2,7 @@
 # brew tap tokencontroller/tap https://github.com/tokencontroller/tokencontroller
 # brew install tc
 class Tc < Formula
-  desc "Cost accounting for AI agents: reads session files, submits token sheets"
+  desc "Cost accounting for AI agents: reads session files, tags and submits sessions"
   homepage "https://docs.tokencontroller.com/collect/cli"
   version "1.0.0"
   license "MIT"

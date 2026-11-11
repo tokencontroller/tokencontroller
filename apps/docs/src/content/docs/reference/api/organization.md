@@ -139,7 +139,7 @@ POST /api/v1/submissions
 
 An empty submit says there was nothing to add. `409` when you already submitted up to that day. `GET /submissions` lists your own and those with messages inside a filter you view; `person=` keeps one person's. `POST /submissions/{id}/approve`, and `/reject` with `{"reason": "wrong client"}`, set `status` to `approved` or `rejected`; a rejected submission goes back to its person's [review list](/attribute/review), and its days are open to submit again. Approving needs approve on a filter the messages are in, never your own. See [Submit](/account/submit).
 
-`POST /submit-requests` with `{"until": "2026-04-03", "message": "March figures go to finance on Friday"}` asks everyone to submit by a day, the way finance asks for timesheets; each person who has not submitted gets one email. `GET /submit-requests` lists the open requests with `id`, `requested_by`, `requested_at`, `until`, `message` and `done`, whether you have submitted up to the request's day.
+`POST /submit-requests` with `{"until": "2026-04-03", "message": "March figures go to finance on Friday"}` asks everyone to submit by a day; each person who has not submitted gets one email. `GET /submit-requests` lists the open requests with `id`, `requested_by`, `requested_at`, `until`, `message` and `done`, whether you have submitted up to the request's day.
 
 ## API tokens {#api-tokens}
 

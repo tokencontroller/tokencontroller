@@ -1,5 +1,6 @@
-//! The accounting core shared by the service and the `tc` command: cost
-//! model 2 and nothing else.
+//! The accounting core shared by the service and the `tc` command: the data
+//! model of the picture "How costs connect" (docs: How it works, Reference >
+//! Data model, ADR 0028) and nothing else.
 //!
 //! A pure library: no database, no network, no clock. The organization is
 //! an append-only log of [`Event`]s. Nothing is edited or deleted; a
@@ -21,17 +22,24 @@
 //!
 //! Tier 1, cost accounting:
 //!
-//! 1. `C(e) = Σ_kind tokens_kind(e) × p(provider, model, kind, as of t(e))`:
-//!    [`PriceTable::cost`], [`State::message_costs`]. No counts is a count
-//!    error, a message without a certain price is not priced yet; neither
-//!    is ever zero.
+//! 1. `C(e) = Σ_kind tokens_kind(e) × p(provider, model, kind, as of t(e))`
+//!    over the kinds that have a price row, at the contract's price if it
+//!    has one, else ours: [`PriceTable::cost`], [`State::message_costs`].
+//!    The provider is the contract's, else the one the sender reported; it
+//!    is never guessed from the model. No counts is a count error, a
+//!    message without a certain price is not priced yet; neither is ever
+//!    zero.
 //! 2. `T*(s)`: the tags of a split closed under defaults; a feature brings
 //!    its project, a project its client, the person their attributes, a
 //!    team its department: [`Values::close`], [`Line::tags`].
 //! 3. `C(F, w) = Σ fraction(s) × C(e(s))` over splits with `F ⊆ T*(s)` and
 //!    `t(e) ∈ w`: [`State::cost`]. The only formula reports use.
-//! 4. `Bill(provider, r) = C({provider}, r) + R`, `R ≥ 0`: [`State::reconcile`].
-//!    `R < 0` means a message is wrong: [`Reconciliation::a_message_is_wrong`].
+//! 4. The check of a bill of contract `c` over range `r`: metered,
+//!    `Bill = C({contract: c}, r) + U`, `U ≥ 0`; flat, `Bill = fee + extra
+//!    usage`. Beside it always: messages of the same provider with no
+//!    contract, and those whose contract came from the fallback:
+//!    [`State::reconcile`]. `U < 0` means a message is wrong:
+//!    [`Reconciliation::a_message_is_wrong`].
 //! 5. For one tag name the values partition the total: [`State::by_tag`].
 //!    Labels direct, project overhead and organization overhead:
 //!    [`State::by_label`].

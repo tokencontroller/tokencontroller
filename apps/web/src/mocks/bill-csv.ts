@@ -16,6 +16,13 @@ export interface CsvBill {
   exchange_rate: string | null;
   /** How many lines a cloud's export was summed from; 0 for our own format. */
   lines: number;
+  /** The contract the bill is for, as the file names it. */
+  contract: string | null;
+  /** `metered` or `flat`, as the file names it. */
+  contract_kind: string | null;
+  /** Nanos: the fee and extra usage parts of a flat contract's bill. */
+  fee: number | null;
+  extra_usage: number | null;
 }
 
 export interface CsvProblem {
@@ -27,8 +34,8 @@ export interface CsvProblem {
 export type Read = { bills: CsvBill[]; problem: null } | { bills: []; problem: CsvProblem };
 
 const REQUIRED = ["provider", "from", "to", "amount", "currency"];
-const OPTIONAL = ["exchange_rate"];
-const SCHEMA = "provider, from, to, amount and currency, and optionally exchange_rate";
+const OPTIONAL = ["exchange_rate", "contract", "contract_kind", "fee", "extra_usage"];
+const SCHEMA = "provider, from, to, amount and currency, and optionally exchange_rate, contract, contract_kind, fee and extra_usage";
 
 const problem = (message: string, row: number | null = null, column: string | null = null): Read => ({ bills: [], problem: { row, column, message } });
 
@@ -139,11 +146,20 @@ export function parseBills(text: string): Read {
       if (rate === null || Number(rate) <= 0) return problem(`${JSON.stringify(at(row, "exchange_rate"))} is not an exchange rate. Write a number above zero, such as 0.9214.`, number, name("exchange_rate"));
       exchange_rate = rate;
     }
-    const key = `${provider} ${from} ${to}`;
+    const text = (key: string) => (seenKeys.has(key) && at(row, key) !== "" ? at(row, key) : null);
+    const parts: (number | null)[] = [];
+    for (const key of ["fee", "extra_usage"]) {
+      const partText = text(key);
+      const part = partText === null ? null : readDecimal(partText, decimalComma);
+      if (partText !== null && (part === null || part.startsWith("-"))) return problem(`${JSON.stringify(partText)} is not an amount. Write a plain number such as 20.00, or leave it empty.`, number, name(key));
+      parts.push(part === null ? null : parseDec(part));
+    }
+    const contract = text("contract");
+    const key = `${provider} ${contract ?? ""} ${from} ${to}`;
     const first = seen.get(key);
     if (first !== undefined) return problem(`This is a second bill for ${provider} from ${from} to ${to}; row ${String(first)} already is one. Give each bill once per provider, contract and range.`, number);
     seen.set(key, number);
-    bills.push({ provider, from, to, amount: parseDec(amount), currency, exchange_rate, lines: 0 });
+    bills.push({ provider, from, to, amount: parseDec(amount), currency, exchange_rate, lines: 0, contract, contract_kind: text("contract_kind"), fee: parts[0] ?? null, extra_usage: parts[1] ?? null });
   }
   if (!bills.length) return problem("The file has a header but no bills. Add one row per bill below the header.");
   return { bills, problem: null };
@@ -233,7 +249,7 @@ export function parseCloudExport(cloud: Cloud, text: string, month: string): Rea
     lines += 1;
   }
   if (!currency) return problem(`No row of this export is ${spec.service} cost in ${month}. Check that the export covers ${month} and includes ${spec.service}.`);
-  return { bills: [{ provider: spec.provider, from: range.from, to: range.to, amount: Math.max(0, total), currency, exchange_rate: null, lines }], problem: null };
+  return { bills: [{ provider: spec.provider, from: range.from, to: range.to, amount: Math.max(0, total), currency, exchange_rate: null, lines, contract: null, contract_kind: null, fee: null, extra_usage: null }], problem: null };
 }
 
 /** Reads a file the way the two CSV bill endpoints do, from their query. */

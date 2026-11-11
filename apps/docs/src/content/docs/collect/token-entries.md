@@ -56,7 +56,7 @@ The endpoint stores the body it received as a received record before it reads it
 
 `cost` is the session's cost from the price table as of now. A message not priced yet, or a count error, adds nothing to it and shows on its own line in reports. Token Controller accepts every token entry and fits the pieces together afterwards:
 
-- A tag key that names no tag value yet is kept on the message, and `unknown_tags` names it. Someone with assign creates the value or reverses the tag.
+- A tag the entry names counts under that value at once, even a new one. A value not on record yet is listed in `unknown_tags` until someone with assign records it or reverses the tag.
 - A token entry for a message Token Controller already has, by session id and message id, is the same record, counted once.
 - A token entry dated before the [cutoff](/account/cutoff) is accepted, shown, and waits for an org manager to adjust it in.
 

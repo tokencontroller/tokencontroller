@@ -43,7 +43,7 @@ import {
   type Line,
   type Window,
 } from "./fold";
-import { describeProblem, readBillCsv } from "./bill-csv";
+import { type CsvBill, describeProblem, readBillCsv } from "./bill-csv";
 import { createDb, TODAY, type Db, type MockBill, type MockEstimate, type MockSession, type MockValue } from "./seed";
 
 const KEY = "tc-mock-db-2";
@@ -398,6 +398,24 @@ function billContract(db: Db, provider: string, contract: string | null | undefi
   if (contract?.trim()) return contract.trim();
   const own = db.contracts.filter((c) => c.provider === provider && c.kind === kind);
   return own.length === 1 && own[0] ? own[0].key : `${provider}-${kind === "flat" ? "plan" : "api"}`;
+}
+
+/**
+ * The contract and kind of each bill of a CSV file, as the bills area takes
+ * them, or the first refusal (mirrors bill_uploads.rs `checked`): a file is
+ * stored whole or not at all.
+ */
+function csvTerms(db: Db, bills: CsvBill[]): { contract: string; kind: "metered" | "flat" }[] | string {
+  const out: { contract: string; kind: "metered" | "flat" }[] = [];
+  for (const b of bills) {
+    const refuse = (why: string) => `The ${b.provider} bill from ${b.from} to ${b.to}: ${why}.`;
+    if (b.contract_kind !== null && b.contract_kind !== "metered" && b.contract_kind !== "flat") return refuse(`${JSON.stringify(b.contract_kind)} is not a contract kind: use metered or flat`);
+    for (const part of [b.fee, b.extra_usage]) if (part !== null && part > b.amount) return refuse("the fee and the extra usage are in the bill's currency and not above its amount");
+    const named = db.contracts.find((c) => c.key === b.contract);
+    const kind = named?.kind ?? (b.contract_kind === "flat" ? "flat" : "metered");
+    out.push({ contract: billContract(db, b.provider, b.contract, kind), kind });
+  }
+  return out;
 }
 
 /** A new contract a bill or a value names, added with its terms. */
@@ -858,7 +876,7 @@ export const handlers = [
     const contract = body.contract?.trim() ? db.contracts.find((c) => c.key === body.contract?.trim()) : undefined;
     if (body.contract?.trim() && !contract) return error(400, "bad_request", `contract: ${body.contract} is not a contract on record`);
     if (contract && contract.provider !== body.provider.trim()) return error(400, "bad_request", `contract: ${contract.key} is a contract with ${contract.provider}, not ${body.provider}`);
-    if (!["input", "output", "cache_read", "cache_write"].includes(body.kind)) return error(400, "bad_request", "The token kind is input, output, cache_read or cache_write.");
+    if (!/^[a-z][a-z0-9_]{0,63}$/.test(body.kind)) return error(400, "bad_request", `${JSON.stringify(body.kind)} is not a token kind: use up to 64 small letters, digits and _, starting with a letter`);
     if (!/^\d+(\.\d+)?$/.test(body.price_per_million)) return error(400, "bad_request", "The price per million is a decimal number, such as 15.00.");
     if (!body.provider.trim() || !body.model.trim()) return error(400, "bad_request", "Give the provider and the model.");
     if (!/^\d{4}-\d{2}-\d{2}$/.test(body.valid_from)) return error(400, "bad_request", "Valid from is a day, YYYY-MM-DD.");
@@ -892,29 +910,33 @@ export const handlers = [
     const read = readBillCsv(await request.text(), url.searchParams.get("cloud"), url.searchParams.get("month"));
     if (read.problem) return HttpResponse.json({ bills: [], problem: read.problem });
     // Each bill against the bill in force for the contract it goes to, as the service does.
-    const bills = read.bills.map((b) => {
-      const contract = billContract(db, b.provider, null, "metered");
+    const refused = csvTerms(db, read.bills);
+    if (typeof refused === "string") return HttpResponse.json({ bills: [], problem: { row: null, column: null, message: refused } });
+    const bills = read.bills.map((b, i) => {
+      const { contract } = refused[i] ?? { contract: "" };
       const current = db.bills.find((x) => x.contract === contract && x.from === b.from && x.to === b.to);
       const in_force = current ? { amount: dec(current.amount), currency: current.currency, same: current.amount === b.amount && current.currency === b.currency } : null;
-      return { ...b, amount: dec(b.amount), contract, in_force };
+      return { provider: b.provider, from: b.from, to: b.to, amount: dec(b.amount), currency: b.currency, exchange_rate: b.exchange_rate, lines: b.lines, contract, in_force };
     });
     return HttpResponse.json({ bills, problem: null });
   }, "org_manager")),
   http.post(`${API}/bills/csv`, member(async ({ db, me, url, request }) => {
     const read = readBillCsv(await request.text(), url.searchParams.get("cloud"), url.searchParams.get("month"));
     if (read.problem) return error(400, "bad_request", `${describeProblem(read.problem)} Nothing was saved.`);
+    const terms = csvTerms(db, read.bills);
+    if (typeof terms === "string") return error(400, "bad_request", `${terms} Nothing was saved.`);
     const stored = [];
     let changed = 0;
-    for (const b of read.bills) {
-      const contract = billContract(db, b.provider, null, "metered");
+    for (const [i, b] of read.bills.entries()) {
+      const { contract, kind } = terms[i] ?? { contract: "", kind: "metered" };
       const same = (x: MockBill) => x.contract === contract && x.from === b.from && x.to === b.to;
       const current = db.bills.find(same);
-      if (current && current.amount === b.amount && current.currency === b.currency) {
+      if (current && current.amount === b.amount && current.currency === b.currency && current.fee === b.fee && current.extra_usage === b.extra_usage) {
         stored.push(billView(db, current));
         continue;
       }
-      ensureContract(db, contract, b.provider, "metered", null);
-      const bill: MockBill = { id: nextId(db, "bil"), provider: b.provider, contract, kind: "metered", fee: null, extra_usage: null, from: b.from, to: b.to, amount: b.amount, currency: b.currency, source: "csv", final: true, recorded_at: now(), recorded_by: me.email };
+      ensureContract(db, contract, b.provider, kind, b.fee);
+      const bill: MockBill = { id: nextId(db, "bil"), provider: b.provider, contract, kind, fee: b.fee, extra_usage: b.extra_usage, from: b.from, to: b.to, amount: b.amount, currency: b.currency, source: "csv", final: true, recorded_at: now(), recorded_by: me.email };
       db.bills = db.bills.filter((x) => !same(x));
       db.bills.push(bill);
       changed += 1;
@@ -989,7 +1011,7 @@ export const handlers = [
       count_errors: new Set(ls.filter((l) => l.costLabel === "count_error").map((l) => l.message.message_id)).size,
       not_priced_models: [...new Set(ls.filter((l) => l.costLabel === "not_priced_yet").map((l) => `${l.message.provider}/${l.message.model}`))],
       not_priced_yet: notPricedYet(ls.filter((l) => l.costLabel === "not_priced_yet").map((l) => l.message)),
-      unpriced_kinds: [],
+      unpriced_kinds: [...new Set(ls.flatMap((l) => l.unpricedKinds))].sort(),
       ...contractParts(db, ls, total, q.share),
     };
     return HttpResponse.json(report);

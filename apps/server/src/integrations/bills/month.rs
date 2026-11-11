@@ -1,4 +1,4 @@
-//! One calendar month, the range a provider's bill covers, and the way the
+//! One calendar month, the range a pulled bill covers, and the way the
 //! provider charges for it.
 
 use std::fmt;

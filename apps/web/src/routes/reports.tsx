@@ -12,7 +12,7 @@ import { Field, FormError, Input, Select } from "@/components/ui/form";
 import { DataTable } from "@/components/ui/table";
 import { TabPanel, Tabs } from "@/components/ui/tabs";
 import { notify } from "@/components/ui/toast";
-import { deviationLabelText, describeFilter, formatTokens, labelText } from "@/lib/format";
+import { deviationLabelText, describeFilter, formatTokens, kindName, labelText } from "@/lib/format";
 import { refreshAll, useMe, usePersonName } from "@/lib/queries";
 
 const groupings = [
@@ -144,10 +144,10 @@ function CostTab({ query }: { query: ReportQuery }) {
   );
 }
 
-/** The messages not priced yet as people read them: "2 messages, 1.5M input, 50K output". */
+/** The messages not priced yet as people read them: "2 messages; 1.5M input; 50k output". */
 function notPricedText(n: CostReport["not_priced_yet"]): string {
   const tokens = Object.entries(n.tokens as Record<string, number>).filter(([, count]) => count > 0);
-  return [`${String(n.messages)} message${n.messages === 1 ? "" : "s"}`, ...tokens.map(([kind, count]) => `${formatTokens(count)} ${kind.replace("_", " ")}`)].join(", ");
+  return [`${String(n.messages)} message${n.messages === 1 ? "" : "s"}`, ...tokens.map(([kind, count]) => `${formatTokens(count)} ${kindName(kind).toLowerCase()}`)].join("; ");
 }
 
 /**

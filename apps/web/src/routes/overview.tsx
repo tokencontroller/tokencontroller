@@ -64,7 +64,7 @@ export function OverviewPage(): ReactNode {
             {checks.map((r) => (
               <li key={r.bill_id} className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-line px-5 py-2.5 first:border-t-0">
                 <span className="min-w-0 flex-1 truncate font-medium">{r.contract}</span>
-                {r.contract_kind === "flat" ? <Badge tone="accent">on a plan</Badge> : null}
+                {r.contract_kind === "flat" ? <Badge tone="accent">flat</Badge> : null}
                 {r.a_message_is_wrong ? <Badge tone="exception">a message is wrong</Badge> : null}
                 <span className="text-small text-muted">
                   {r.contract_kind === "flat" ? "covered " : "no message explains "}

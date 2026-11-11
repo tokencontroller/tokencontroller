@@ -15,7 +15,7 @@ Like tag values, attribute values are records with a key, an optional title and 
 | `department` | `engineering` | None |
 | `location` | `vienna` | None |
 
-A person has at most one value per attribute name. Someone in two teams picks a main one, or the organization adds a second attribute name such as `guild`. There is no org chart: rollup comes from defaults, so cost per department is the sum of its teams without any tree.
+A person has at most one value per attribute name. Someone in two teams picks a main one, or the organization adds a second attribute name such as `guild`. There is no team tree: defaults do it, so cost per department is the sum of its teams without any tree.
 
 ## On messages {#messages}
 
@@ -23,6 +23,6 @@ A message carries its person's attributes as of its time. An attribute value on 
 
 ## In filters {#filters}
 
-Attributes and tags mix in one [filter](/account/tags#filters): cost of `team: web` on `client: acme`, the plan of `department: engineering`, a grant on `team: web`. A head of engineering is a people manager over `department: engineering`; a manager is never a tag or an attribute.
+Attributes and tags mix in one [filter](/account/tags#filters): cost of `team: web` on `client: acme`, the plan of `department: engineering`, a grant on `team: web`. A head of engineering is a people manager over `department: engineering`; a role is never a tag or an attribute.
 
 <div class="note"><b>Telemetry.</b> Agents that read <code>OTEL_RESOURCE_ATTRIBUTES</code> can send <code>team=web</code> with every message. That arrives as a <a href="/attribute/rules#signals">signal</a>, not as the attribute. A rule may read it to set a tag. A person's attributes are set on the person, from a date.</div>

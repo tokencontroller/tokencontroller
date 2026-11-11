@@ -239,13 +239,15 @@ pub fn read_price_file(path: &Path) -> Result<Vec<PriceRow>> {
         let number = number.saturating_add(1);
         let cells: Vec<&str> = line.split([',', ';']).map(str::trim).collect();
         let cell = |at: usize| cells.get(at).copied().unwrap_or_default();
-        let kind = match cell(kind) {
-            "input" => TokenKind::INPUT,
-            "output" => TokenKind::OUTPUT,
-            "cache_write" => TokenKind::CACHE_WRITE,
-            "cache_read" => TokenKind::CACHE_READ,
-            other => return Err(bad(number, &format!("{other} is not a token kind"))),
-        };
+        let kind = TokenKind::new(cell(kind)).map_err(|_| {
+            bad(
+                number,
+                &format!(
+                    "{} is not a token kind: use small letters, digits and _",
+                    cell(kind)
+                ),
+            )
+        })?;
         let per_million = Money::parse(cell(price), Currency::USD)
             .map_err(|_| bad(number, &format!("{} is not a price", cell(price))))?;
         let valid_from = output::parse_date(cell(from))
@@ -1200,7 +1202,16 @@ mod tests {
         assert_eq!(rows.first().unwrap().per_million.nanos(), 3_000_000_000);
         std::fs::write(
             &file,
-            "provider,model,kind,price_per_million,valid_from\nx,y,tokens,1,2026-01-01\n",
+            "provider,model,kind,price_per_million,valid_from\nx,y,cache_write_1h,1,2026-01-01\n",
+        )
+        .unwrap();
+        assert_eq!(
+            read_price_file(&file).unwrap().first().unwrap().kind,
+            TokenKind::CACHE_WRITE_1H
+        );
+        std::fs::write(
+            &file,
+            "provider,model,kind,price_per_million,valid_from\nx,y,Cache Write,1,2026-01-01\n",
         )
         .unwrap();
         assert!(read_price_file(&file).is_err());

@@ -19,7 +19,7 @@ const asNew = (r: Rule): NewRule => ({ name: r.name, signal: r.signal, pattern: 
 
 // Docs: Rules. A pattern over any signal gives a tag value or a contract.
 // Organization rules run before personal ones, each in order; a new rule
-// also runs back over unassigned messages since the cutoff, and a contract
+// also runs back over messages since the cutoff with no hand assignment, and a contract
 // rule before it too.
 export function RulesPage(): ReactNode {
   const me = useMe();
@@ -50,7 +50,7 @@ export function RulesPage(): ReactNode {
       <PageHeader title="Rules" actions={<Button variant="primary" onClick={() => setAdding(true)}>Add a rule</Button>} />
       <AddRuleDialog open={adding} onOpenChange={setAdding} mine={mine} canOrg={canOrg} />
       {rules.error ? <ErrorBox error={rules.error} /> : null}
-      <Section title="Organization rules" flush hint="They run first, in order. A tag or contract set by hand wins over every rule.">
+      <Section title="Organization rules" flush hint="After the sender's own tags, in order. Tags sent or set by hand win over every rule.">
         {!rules.data ? <Loading /> : <DataTable caption="Organization rules" stack rows={org} rowKey={(r) => r.id} empty="No organization rules." columns={columns((r) => removeOrg.mutate(r), canOrg)} />}
         <FormError error={removeOrg.error} />
       </Section>
@@ -86,7 +86,7 @@ function AddRuleDialog({ open, onOpenChange, mine, canOrg }: { open: boolean; on
     },
     onSuccess: async () => {
       await refreshAll();
-      notify("Rule added", "It ran back over unassigned messages since the cutoff.");
+      notify("Rule added", `It ran back since the cutoff, except where ${tagName} was set by hand.`);
       setName("");
       setPattern("");
       setKey("");

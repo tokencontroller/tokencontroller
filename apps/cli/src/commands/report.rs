@@ -147,7 +147,7 @@ pub fn run(
             .collect();
         writeln!(
             app.out,
-            "No price for {}: that cost is missing above.",
+            "Not priced yet: {}. Their cost is not in the total above.",
             models.join(", ")
         )?;
     }

@@ -32,7 +32,7 @@ const isMonth = (text: string) => /^\d{4}-(0[1-9]|1[0-2])$/.test(text);
 
 /** The bill schema's columns with one example row, to fill in. */
 function downloadTemplate(): void {
-  downloadFile("bills.csv", toCsv(["provider", "from", "to", "amount", "currency", "exchange_rate"], [["anthropic", "2026-03-01", "2026-03-31", "1000.00", "USD", ""]]));
+  downloadFile("bills.csv", toCsv(["provider", "contract", "contract_kind", "from", "to", "amount", "currency", "exchange_rate", "fee", "extra_usage"], [["anthropic", "anthropic-api", "metered", "2026-03-01", "2026-03-31", "1000.00", "USD", "", "", ""]]));
 }
 
 /**

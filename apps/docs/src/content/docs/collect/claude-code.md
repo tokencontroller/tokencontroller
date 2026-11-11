@@ -3,7 +3,7 @@ title: "Claude Code mod"
 description: "Install the Claude Code mod, what it records and sends, and what it shows in the terminal and the desktop app."
 ---
 
-If you work in Claude Code, you may want to see what a session costs and where it went without leaving it. The Claude Code mod records what Claude Code spends, message by message, and shows it beside the conversation.
+If you work in Claude Code, you may want to see what a session costs and where it went without leaving it. The Claude Code mod records what Claude Code spends, message by message, and shows it beside the session.
 
 ## Install {#install}
 
@@ -43,7 +43,7 @@ With the signed-in organization, a shipped sign-in rule puts the session's messa
 ## What it shows {#shows}
 
 - **A band above the prompt** with the headline number, the share on features, and a note when an org manager asks everyone to submit before moving the cutoff.
-- **A pane** (`/tc`) beside the conversation: the review list, where you fix a feature and submit; a report by feature, project, any tag or day; and your personal rules.
+- **A pane** (`/tc`) beside the session: the review list, where you fix a feature and submit; a report by feature, project, any tag or day; and your personal rules.
 
 ## Commands {#commands}
 
