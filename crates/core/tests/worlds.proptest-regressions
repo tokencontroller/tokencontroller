@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc b21f46ec20d309b936af50d01d35c2509d266d1007d8894fca9e417a0cdc8ff2 # shrinks to world = World { messages: [Made { person: 0, route: 0, input: 0, output: 0, cache_write: 0, day: 1, minute: 0, sent: 0, signed_in: false, echo: true }], bills: [false, false, false, false], splits: [], assignments: [], team_rule: false, order_seed: 0 }

@@ -300,11 +300,11 @@ pub async fn record_bill(
     let mut event = Event::new(
         &events::new_id(prefix::BILL),
         now,
-        Record::Bill(Bill {
-            provider: bill.provider.clone(),
-            range: bill.range,
-            amount: bill.amount,
-        }),
+        Record::Bill(Bill::of_provider(
+            bill.provider.clone(),
+            bill.range,
+            bill.amount,
+        )),
     )
     .map_err(|error| ApiError::Internal(error.into()))?;
     if let Some(person) = &bill.recorded_by {
@@ -444,12 +444,16 @@ async fn reconcile(
         provider: bill.provider.clone(),
         range: bill.range,
         amount: converted,
+        contract: None,
+        contract_kind: None,
+        fee: None,
+        extra_usage: None,
     };
     let messages = fold
         .provider_cost(&bill.provider, bill.range)
         .map_err(|error| ApiError::Internal(error.into()))?;
-    let reconciliation = in_core
-        .reconcile(messages.amount)
+    let reconciliation = fold
+        .reconcile(&in_core)
         .map_err(|error| ApiError::Internal(error.into()))?;
     Ok(Some(ReconciliationView {
         currency: core.code(),
@@ -459,9 +463,12 @@ async fn reconcile(
         a_message_is_wrong: reconciliation.a_message_is_wrong(),
         count_errors: messages.count_errors.len(),
         unknown_models: messages
-            .unknown_models
+            .not_priced_models
             .iter()
-            .map(|model| format!("{}/{}", model.provider, model.model))
+            .map(|model| match &model.provider {
+                Some(provider) => format!("{provider}/{}", model.model),
+                None => model.model.clone(),
+            })
             .collect(),
     }))
 }

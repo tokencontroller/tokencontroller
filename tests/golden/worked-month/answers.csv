@@ -4,12 +4,12 @@ as_of,kind,filter,from,to,argument,key,amount,note
 2026-04-05T00:00:00Z,messages,,,,,S2/1,300.00,priced
 2026-04-05T00:00:00Z,messages,,,,,S3/1,100.00,priced
 2026-04-05T00:00:00Z,messages,,,,,S4/1,150.00,priced
-2026-04-05T00:00:00Z,lines,,,,,S1/1#0,350.00,hand; direct; client=acme;department=engineering;feature=KD-1;person=mara;project=shop;team=web
-2026-04-05T00:00:00Z,lines,,,,,S1/2#0,50.00,hand; direct; client=acme;department=engineering;feature=KD-1;person=mara;project=shop;team=web
-2026-04-05T00:00:00Z,lines,,,,,S2/1#0,180.00,hand; direct; client=acme;department=engineering;feature=KD-1;person=mara;project=shop;team=web
-2026-04-05T00:00:00Z,lines,,,,,S2/1#1,120.00,hand; direct; client=acme;department=engineering;feature=KD-2;person=mara;project=shop;team=web
-2026-04-05T00:00:00Z,lines,,,,,S3/1#0,100.00,hand; project overhead; client=acme;department=engineering;person=tom;project=shop;team=web
-2026-04-05T00:00:00Z,lines,,,,,S4/1#0,150.00,default; organization overhead; department=engineering;person=tom;team=web
+2026-04-05T00:00:00Z,lines,,,,,S1/1#0,350.00,hand; direct; client=acme;contract=anthropic;department=engineering;feature=KD-1;person=mara;project=shop;team=web
+2026-04-05T00:00:00Z,lines,,,,,S1/2#0,50.00,hand; direct; client=acme;contract=anthropic;department=engineering;feature=KD-1;person=mara;project=shop;team=web
+2026-04-05T00:00:00Z,lines,,,,,S2/1#0,180.00,hand; direct; client=acme;contract=anthropic;department=engineering;feature=KD-1;person=mara;project=shop;team=web
+2026-04-05T00:00:00Z,lines,,,,,S2/1#1,120.00,hand; direct; client=acme;contract=anthropic;department=engineering;feature=KD-2;person=mara;project=shop;team=web
+2026-04-05T00:00:00Z,lines,,,,,S3/1#0,100.00,hand; project overhead; client=acme;contract=anthropic;department=engineering;person=tom;project=shop;team=web
+2026-04-05T00:00:00Z,lines,,,,,S4/1#0,150.00,default; organization overhead; contract=anthropic;department=engineering;person=tom;team=web
 2026-04-05T00:00:00Z,cost,,2026-03-01,2026-03-31,,,950.00,
 2026-04-05T00:00:00Z,by,,2026-03-01,2026-03-31,person,mara,700.00,
 2026-04-05T00:00:00Z,by,,2026-03-01,2026-03-31,person,tom,250.00,

@@ -641,6 +641,7 @@ async fn add_tag_value(
         source_id: earlier.and_then(|earlier| earlier.source_id.clone()),
         source_status: earlier.and_then(|earlier| earlier.source_status.clone()),
         defaults,
+        contract: None,
     };
     let event = write_value(&state, &log, record.clone(), Some(&person), at).await?;
     crate::organizations::record_audit_event(
@@ -668,6 +669,7 @@ mod tests {
             source_id: None,
             source_status: None,
             defaults: Tags::parse(defaults.iter().copied()).unwrap(),
+            contract: None,
         }
     }
 

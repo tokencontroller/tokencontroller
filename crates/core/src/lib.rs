@@ -56,6 +56,7 @@
 
 pub mod access;
 pub mod bill;
+pub mod contract;
 pub mod estimate;
 pub mod event;
 pub mod extension;
@@ -74,10 +75,13 @@ pub mod values;
 
 pub use access::{Capability, Grant, Role, can};
 pub use bill::{Bill, Reconciliation};
+pub use contract::{ContractAssignment, ContractBy, ContractKind, ContractTerms};
 pub use estimate::{Accept, BASIS_POINTS, Band, Distribution, DistributionError, Estimate};
 pub use event::{DateRange, Event, EventId, EventIdError, RangeError, Record};
 pub use extension::{Extension, NoExtension};
-pub use message::{IdError, Message, MessageId, ModelRef, SessionFacts, SessionId, Signals};
+pub use message::{
+    BUILT_ID_PREFIX, IdError, Message, MessageId, ModelRef, SessionFacts, SessionId, Signals,
+};
 pub use money::{Currency, ExchangeRate, Money, MoneyError};
 pub use pattern::{PatternError, TextPattern};
 pub use plan::{Share, ShareSum};
@@ -85,10 +89,10 @@ pub use price::{CostLabel, MessageCost, PriceRow, PriceSource, PriceTable, date_
 pub use rules::{Rule, Scope, Signal, Then};
 pub use split::{AssignedBy, Label, Split, SplitError, SplitPart, SplitTarget};
 pub use state::{
-    Cost, Deviation, DeviationLabel, FoldError, Line, MessageCostLine, Recorded, State,
+    Cost, Deviation, DeviationLabel, FoldError, Line, MessageCostLine, MessageKey, Recorded, State,
     TagValueHistory,
 };
 pub use submit::{Approval, Decision, Submission, SubmissionStatus, Submit};
 pub use tags::{Filter, TagError, TagName, TagValue, Tags};
-pub use tokens::{TokenCounts, TokenKind};
+pub use tokens::{TokenCounts, TokenKind, TokenKindError};
 pub use values::{AttributeValue, PersonAttribute, TagValueRecord, Values};

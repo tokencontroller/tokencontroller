@@ -170,11 +170,11 @@ pub fn token_entry(session: &SessionView) -> TokenEntry {
         session_id: session.session_id.clone(),
         agent_harness: session.harness.name().to_owned(),
         agent_name: None,
-        provider: session.model.provider.clone(),
+        provider: session.model.provider.clone().unwrap_or_default(),
         model: session.model.model.clone(),
         started_at: utc(session.started_at),
         ended_at: utc(session.ended_at),
-        tokens: session.tokens,
+        tokens: session.tokens.clone(),
         reported_cost: session.reported_cost.and_then(number),
         summary: session.summary.clone(),
         facts: Facts {
@@ -209,7 +209,7 @@ pub fn token_entry(session: &SessionView) -> TokenEntry {
                 message_id: message.message_id.clone(),
                 at: utc(message.at),
                 model: message.model.model.clone(),
-                tokens: message.tokens,
+                tokens: message.tokens.clone(),
                 reported_cost: message.reported_cost.and_then(number),
             })
             .collect(),
@@ -420,7 +420,10 @@ mod tests {
         // The rule's feature is the service's to find again.
         assert_eq!(s1.feature, None);
         assert!(s1.splits.is_empty());
-        assert_eq!(s1.tokens.input, 2_000_000);
+        assert_eq!(
+            s1.tokens.get(&tokencontroller_core::TokenKind::INPUT),
+            2_000_000
+        );
         assert_eq!(s1.messages.len(), 2);
         assert_eq!(s1.reported_cost.unwrap().get(), "1");
         assert_eq!(s1.summary.as_deref(), Some("Fix checkout"));

@@ -6,35 +6,59 @@
 //! superseded ones, and keeps what is in force. From that it answers the
 //! formulas of the model:
 //!
+//! - which messages count: a message whose id a usage endpoint built stops
+//!   counting once a message of another source is matched to it, call by
+//!   call ([`State::matched`])
+//! - the contract of each message, set on the whole message before it is
+//!   priced ([`MessageCostLine::contract`])
 //! - (1) `C(e)` per message: [`State::message_costs`]
-//! - (2) `T*(s)`: the closed tags on every [`Line`]
+//! - (2) `T*(s)`: the closed tags on every [`Line`], with the contract
 //! - (3) `C(F, w)`: [`State::cost`]
-//! - (4) reconciliation: [`State::reconcile`]
-//! - (5) partition by one tag name: [`State::by_tag`]
-//! - (7) `P(F, w)`: [`State::plan`]
-//! - (8) `P(person, w)`: [`State::person_plan`]
-//! - (9) `Δ = P − C`: [`State::deviation`]
-//! - (10) a forecast: [`State::forecast`]
+//! - (4) partition by one tag name: [`State::by_tag`]
+//! - (5, 6) the check of a bill: [`State::reconcile`]
+//! - (8) `P(F, w)`: [`State::plan`]
+//! - (9) `P(person, w)`: [`State::person_plan`]
+//! - (10) `Δ = P − C`: [`State::deviation`]
+//! - (11) a forecast: [`State::forecast`]
 //! - `can(person, capability, F)`: [`State::can`]
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
-use time::{Date, OffsetDateTime};
+use time::{Date, Duration, OffsetDateTime};
 
 use crate::access::{self, Capability, Grant};
 use crate::bill::{Bill, Reconciliation};
+use crate::contract::{ContractAssignment, ContractBy, ContractKind, ContractTerms};
 use crate::estimate::{DistributionError, Estimate};
 use crate::event::{DateRange, Event, EventId, Record};
 use crate::message::{Message, MessageId, ModelRef, SessionId};
 use crate::money::{Currency, Money, MoneyError};
 use crate::plan::{Share, ShareSum, share_sums};
 use crate::price::{CostLabel, MessageCost, PriceTable, date_of};
-use crate::rules::{Rule, first_match};
+use crate::rules::{Rule, per_tag_name};
 use crate::split::{AssignedBy, Label, Split, SplitError, SplitPart, SplitTarget};
 use crate::submit::{Decision, Submission, SubmissionStatus};
 use crate::tags::{Filter, TagName, TagValue, Tags};
+use crate::tokens::{TokenCounts, TokenKind};
 use crate::values::Values;
+
+/// How far apart in time two sources may report the same call and still
+/// be matched, and how far apart two sessions may be and still overlap.
+const MATCH_WINDOW: Duration = Duration::seconds(30);
+
+/// How far apart two moments are, in nanoseconds.
+fn gap(a: OffsetDateTime, b: OffsetDateTime) -> u128 {
+    a.unix_timestamp_nanos().abs_diff(b.unix_timestamp_nanos())
+}
+
+/// Whether two moments lie within the match window of each other.
+fn within_window(a: OffsetDateTime, b: OffsetDateTime) -> bool {
+    gap(a, b) <= MATCH_WINDOW.whole_nanoseconds().unsigned_abs()
+}
+
+/// A message's key: its session and message ids.
+pub type MessageKey = (SessionId, MessageId);
 
 /// A log that cannot be folded.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -79,6 +103,8 @@ pub struct Line {
     pub session_id: SessionId,
     pub message_id: MessageId,
     pub person: TagValue,
+    /// The model, under the provider of the message's contract when it has
+    /// one, else the provider the sender reported, if any.
     pub model: ModelRef,
     #[serde(with = "time::serde::rfc3339")]
     pub at: OffsetDateTime,
@@ -86,8 +112,8 @@ pub struct Line {
     pub part: usize,
     /// The split's own tags for this part, before defaults.
     pub assigned: Tags,
-    /// `T*(s)`: the tags closed under defaults, with the person and their
-    /// attributes.
+    /// `T*(s)`: the tags closed under defaults, with the person, their
+    /// attributes and the message's contract.
     pub tags: Tags,
     /// `fraction(s) × C(e)`. Zero where the message has no figure; the cost
     /// label says so.
@@ -95,6 +121,24 @@ pub struct Line {
     pub cost_label: CostLabel,
     pub assigned_by: AssignedBy,
     pub label: Label,
+    /// How the message got its contract, if it has one.
+    pub contract_by: Option<ContractBy>,
+    /// Whether the message's contract is flat: its cost is paid by a fee.
+    pub on_a_plan: bool,
+}
+
+impl Line {
+    /// The message's contract, if it has one.
+    #[must_use]
+    pub fn contract(&self) -> Option<&TagValue> {
+        self.tags.get(&TagName::contract())
+    }
+
+    /// The key of the message the line is a part of.
+    #[must_use]
+    pub fn key(&self) -> MessageKey {
+        (self.session_id.clone(), self.message_id.clone())
+    }
 }
 
 /// `C(F, w)` with what it leaves out.
@@ -103,10 +147,16 @@ pub struct Cost {
     pub amount: Money,
     /// Messages in the filter and window with no counts. Their cost is not
     /// in the amount.
-    pub count_errors: BTreeSet<(SessionId, MessageId)>,
-    /// Models in the filter and window with no price. Their cost is not in
-    /// the amount.
-    pub unknown_models: BTreeSet<ModelRef>,
+    pub count_errors: BTreeSet<MessageKey>,
+    /// Messages in the filter and window not priced yet, with their token
+    /// counts. Their cost is not in the amount.
+    pub not_priced: BTreeMap<MessageKey, TokenCounts>,
+    /// The models of the messages not priced yet.
+    pub not_priced_models: BTreeSet<ModelRef>,
+    /// Token kinds with tokens and no price, left out of the amount.
+    pub unpriced_kinds: BTreeSet<TokenKind>,
+    /// The part of the amount under a flat contract: paid by a fee.
+    pub on_a_plan: Money,
 }
 
 /// `Δ(F, w) = P(F, w) − C(F, w)`. Positive is favourable.
@@ -139,7 +189,7 @@ pub enum DeviationLabel {
 }
 
 /// One tag value in `H`, the history the estimator learns from
-/// (formula 6 and 11).
+/// (formula 7 and 12).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TagValueHistory {
     pub name: TagName,
@@ -151,16 +201,23 @@ pub struct TagValueHistory {
     pub source_status: Option<String>,
 }
 
-/// One message's cost as of the fold.
+/// One counting message's cost as of the fold.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MessageCostLine {
     pub session_id: SessionId,
     pub message_id: MessageId,
     pub person: TagValue,
+    /// The model under the provider it was priced at: the contract's
+    /// provider when it has a contract, else the one the sender reported.
     pub model: ModelRef,
     #[serde(with = "time::serde::rfc3339")]
     pub at: OffsetDateTime,
+    pub tokens: Option<TokenCounts>,
     pub cost: MessageCost,
+    /// The message's contract, if it has one.
+    pub contract: Option<TagValue>,
+    /// How it got the contract.
+    pub contract_by: Option<ContractBy>,
     /// The agent's own figure, kept as a fact.
     pub reported_cost: Option<Money>,
 }
@@ -171,17 +228,22 @@ pub struct State {
     as_of: OffsetDateTime,
     prices: PriceTable,
     values: Values,
-    messages: BTreeMap<(SessionId, MessageId), Recorded<Message>>,
+    messages: BTreeMap<MessageKey, Recorded<Message>>,
     bills: Vec<Recorded<Bill>>,
     estimates: BTreeMap<EventId, Recorded<Estimate>>,
     /// The accepted estimate for each tag set.
     accepts: BTreeMap<Tags, EventId>,
     shares: Vec<Share>,
     splits: BTreeMap<SplitTarget, Recorded<Split>>,
+    contract_assignments: BTreeMap<SplitTarget, Recorded<ContractAssignment>>,
+    contracts: BTreeMap<TagValue, ContractTerms>,
     grants: Vec<Grant>,
     cutoff: Option<Date>,
     submissions: Vec<Submission>,
     rules: Vec<Recorded<Rule>>,
+    /// Built-id messages that stopped counting, with the message they were
+    /// matched to.
+    matched: BTreeMap<MessageKey, MessageKey>,
     lines: Vec<Line>,
     costs: Vec<MessageCostLine>,
 }
@@ -229,16 +291,21 @@ impl State {
             accepts: BTreeMap::new(),
             shares: Vec::new(),
             splits: BTreeMap::new(),
+            contract_assignments: BTreeMap::new(),
+            contracts: BTreeMap::new(),
             grants: Vec::new(),
             cutoff: None,
             submissions: Vec::new(),
             rules: Vec::new(),
+            matched: BTreeMap::new(),
             lines: Vec::new(),
             costs: Vec::new(),
         };
         for event in live {
             state.apply(event)?;
         }
+        state.matched = state.match_built_ids();
+        state.contracts_of_records_and_bills();
         state.compute_lines()?;
         Ok(state)
     }
@@ -280,6 +347,10 @@ impl State {
                 self.splits
                     .insert(split.target.clone(), Recorded::of(event, split));
             }
+            Record::ContractAssignment(assignment) => {
+                self.contract_assignments
+                    .insert(assignment.target.clone(), Recorded::of(event, assignment));
+            }
             Record::Accept(accept) => {
                 if let Some(estimate) = self.estimates.get(&accept.estimate) {
                     self.accepts
@@ -319,8 +390,142 @@ impl State {
         Ok(())
     }
 
-    /// The split of a message: by hand on the message or its session, else
-    /// the first rule that matches, else the default.
+    /// Matches each message whose id a usage endpoint built to a message of
+    /// another source for the same call: same person, same model, the same
+    /// counts however finely the cache writes are told, and times within
+    /// [`MATCH_WINDOW`]. It looks inside the message's own session first;
+    /// only a session with no other source's messages looks at the same
+    /// person's other sessions, which the time window keeps to those that
+    /// overlap it. Session totals are never
+    /// used. Each message is matched once, the closest in time first. A
+    /// built message with no match keeps counting: it may be a call only
+    /// that source sees.
+    fn match_built_ids(&self) -> BTreeMap<MessageKey, MessageKey> {
+        let others: Vec<&Message> = self
+            .messages
+            .values()
+            .map(|message| &message.value)
+            .filter(|message| !message.has_built_id())
+            .collect();
+        let sessions_with_others: BTreeSet<&SessionId> =
+            others.iter().map(|message| &message.session_id).collect();
+        let mut taken: BTreeSet<MessageKey> = BTreeSet::new();
+        let mut matched = BTreeMap::new();
+        for built in self
+            .messages
+            .values()
+            .map(|message| &message.value)
+            .filter(|message| message.has_built_id())
+        {
+            let Some(counts) = built.tokens.as_ref().map(TokenCounts::compared) else {
+                continue;
+            };
+            let own_session = sessions_with_others.contains(&built.session_id);
+            let best = others
+                .iter()
+                .filter(|other| {
+                    other.person == built.person
+                        && (!own_session || other.session_id == built.session_id)
+                        && other.model.model == built.model.model
+                        && match (&other.model.provider, &built.model.provider) {
+                            (Some(a), Some(b)) => a == b,
+                            _ => true,
+                        }
+                        && other.tokens.as_ref().map(TokenCounts::compared).as_ref()
+                            == Some(&counts)
+                        && within_window(other.at, built.at)
+                        && !taken.contains(&other.key())
+                })
+                .min_by_key(|other| (gap(other.at, built.at), other.key()));
+            if let Some(other) = best {
+                taken.insert(other.key());
+                matched.insert(built.key(), other.key());
+            }
+        }
+        matched
+    }
+
+    /// The contracts that tag value records and bills bring. A bill creates
+    /// its contract when no contract of that key exists. A bill that names
+    /// none goes to its provider's only contract, else to one named after
+    /// the provider. Bills that name their contract are read first.
+    fn contracts_of_records_and_bills(&mut self) {
+        for record in self.values.tag_values() {
+            if record.name == TagName::contract()
+                && let Some(terms) = &record.contract
+            {
+                self.contracts.insert(record.key.clone(), terms.clone());
+            }
+        }
+        let mut bills = std::mem::take(&mut self.bills);
+        bills.sort_by_key(|bill| bill.value.contract.is_none());
+        for bill in &mut bills {
+            let key = self.contract_of_bill(&bill.value);
+            self.contracts
+                .entry(key.clone())
+                .or_insert_with(|| ContractTerms {
+                    provider: bill.value.provider.clone(),
+                    kind: bill.value.contract_kind.unwrap_or(ContractKind::Metered),
+                    fee: None,
+                });
+            bill.value.contract = Some(key);
+        }
+        bills.sort_by(|a, b| {
+            a.recorded_at
+                .cmp(&b.recorded_at)
+                .then_with(|| a.id.cmp(&b.id))
+        });
+        self.bills = bills;
+    }
+
+    /// The contract a bill is for: the one it names; else, for a bill read
+    /// in this fold, the one it went to; else its provider's only contract;
+    /// else a contract named after the provider.
+    #[must_use]
+    pub fn contract_of_bill(&self, bill: &Bill) -> TagValue {
+        if let Some(contract) = &bill.contract {
+            return contract.clone();
+        }
+        if let Some(read) = self.bills.iter().find(|read| {
+            read.value.provider == bill.provider
+                && read.value.range == bill.range
+                && read.value.amount == bill.amount
+        }) && let Some(contract) = &read.value.contract
+        {
+            return contract.clone();
+        }
+        let mut own = self
+            .contracts
+            .iter()
+            .filter(|(_, terms)| terms.provider == bill.provider);
+        if let (Some((only, _)), None) = (own.next(), own.next()) {
+            return only.clone();
+        }
+        TagValue::new(&bill.provider).unwrap_or_else(|_| TagValue::known("unnamed"))
+    }
+
+    /// The rules in force for a tag name on a message: a rule recorded by
+    /// the time the message arrived, or one that runs back over it. Rules
+    /// run back since the cutoff; a rule on `contract` runs back before it
+    /// too, since figures as of the cutoff stay as they were.
+    fn rules_for(&self, message: &Recorded<Message>) -> impl Iterator<Item = &Rule> {
+        let since_cutoff = self
+            .cutoff
+            .is_none_or(|cutoff| date_of(message.value.at) >= cutoff);
+        self.rules
+            .iter()
+            .filter(move |rule| {
+                rule.recorded_at <= message.recorded_at
+                    || since_cutoff
+                    || *rule.value.gives() == TagName::contract()
+            })
+            .map(|rule| &rule.value)
+    }
+
+    /// The split of a message: by hand on the message or its session; else
+    /// the sender's own tags, with the rules filling in the tag names the
+    /// sender left out, one rule per tag name; else the default. The
+    /// contract is not part of a split.
     fn split_of(&self, message: &Recorded<Message>) -> (Vec<SplitPart>, AssignedBy) {
         let by_message = SplitTarget::Message {
             session_id: message.value.session_id.clone(),
@@ -334,30 +539,30 @@ impl State {
         {
             return (split.value.parts.clone(), AssignedBy::Hand);
         }
-        let on_arrival_or_since_cutoff = |rule: &&Recorded<Rule>| {
-            rule.recorded_at <= message.recorded_at
-                || self
-                    .cutoff
-                    .is_none_or(|cutoff| date_of(message.value.at) >= cutoff)
+        let contract = TagName::contract();
+        let sent = message.value.tags.retain(|name| *name != contract);
+        let ruled: Tags = per_tag_name(self.rules_for(message), &message.value, &self.values)
+            .into_iter()
+            .filter(|(name, _)| *name != contract && !sent.contains(name))
+            .map(|(name, (_, key))| (name, key))
+            .collect();
+        let assigned_by = if ruled.is_empty() {
+            AssignedBy::Default
+        } else {
+            AssignedBy::Rule
         };
-        let rules = self
-            .rules
-            .iter()
-            .filter(on_arrival_or_since_cutoff)
-            .map(|rule| &rule.value);
-        if let Some((_, tags)) = first_match(rules, &message.value, &self.values) {
-            let tags = tags.over(&message.value.tags);
-            return (vec![SplitPart { weight: 1, tags }], AssignedBy::Rule);
-        }
-        (self.default_parts(&message.value), AssignedBy::Default)
+        (
+            self.default_parts(&message.value, &sent.over(&ruled)),
+            assigned_by,
+        )
     }
 
-    /// The default split: the message's own tags; when the session names
-    /// several features and the tags name none, equal shares over them.
-    fn default_parts(&self, message: &Message) -> Vec<SplitPart> {
+    /// The default split over `tags`: one part; when they name no feature
+    /// and the session names several, equal shares over them.
+    fn default_parts(&self, message: &Message, tags: &Tags) -> Vec<SplitPart> {
         let feature = TagName::feature();
         let mut named: Vec<TagValue> = Vec::new();
-        if !message.tags.contains(&feature) {
+        if !tags.contains(&feature) {
             for key in &message.signals.prompt_keys {
                 let Ok(key) = TagValue::new(key) else {
                     continue;
@@ -370,43 +575,115 @@ impl State {
         if named.is_empty() {
             return vec![SplitPart {
                 weight: 1,
-                tags: message.tags.clone(),
+                tags: tags.clone(),
             }];
         }
         named
             .into_iter()
             .map(|key| {
-                let mut tags = message.tags.clone();
-                tags.insert(feature.clone(), key);
-                SplitPart { weight: 1, tags }
+                let mut part = tags.clone();
+                part.insert(feature.clone(), key);
+                SplitPart {
+                    weight: 1,
+                    tags: part,
+                }
             })
             .collect()
     }
 
+    /// The contract set by hand on the message or its session, by the
+    /// sender, or by a rule. A rule that creates its contract does so here,
+    /// the first time it gives it.
+    fn contract_before_defaults(
+        &mut self,
+        message: &Recorded<Message>,
+    ) -> Option<(TagValue, ContractBy)> {
+        let by_message = SplitTarget::Message {
+            session_id: message.value.session_id.clone(),
+            message_id: message.value.message_id.clone(),
+        };
+        let by_session = SplitTarget::Session(message.value.session_id.clone());
+        if let Some(assignment) = self
+            .contract_assignments
+            .get(&by_message)
+            .or_else(|| self.contract_assignments.get(&by_session))
+        {
+            return Some((assignment.value.contract.clone(), ContractBy::Hand));
+        }
+        if let Some(sent) = message.value.tags.get(&TagName::contract()) {
+            return Some((sent.clone(), ContractBy::Sender));
+        }
+        let (key, terms) = {
+            let given = per_tag_name(self.rules_for(message), &message.value, &self.values);
+            let (rule, key) = given.get(&TagName::contract())?;
+            (key.clone(), rule.contract.clone())
+        };
+        if let Some(terms) = terms {
+            self.contracts.entry(key.clone()).or_insert(terms);
+        }
+        Some((key, ContractBy::Rule))
+    }
+
+    /// The contract every split part's closed tags bring, when they all
+    /// bring the same one; else the provider's only contract.
+    fn contract_by_default(
+        &self,
+        message: &Recorded<Message>,
+        parts: &[SplitPart],
+    ) -> Option<(TagValue, ContractBy)> {
+        let contract = TagName::contract();
+        let day = date_of(message.value.at);
+        let brought: BTreeSet<Option<TagValue>> = parts
+            .iter()
+            .map(|part| {
+                self.values
+                    .close_on(
+                        &part.tags.retain(|name| *name != contract),
+                        &message.value.person,
+                        day,
+                    )
+                    .get(&contract)
+                    .cloned()
+            })
+            .collect();
+        let mut brought = brought.into_iter();
+        if let (Some(Some(key)), None) = (brought.next(), brought.next()) {
+            return Some((key, ContractBy::ProjectDefault));
+        }
+        let provider = message.value.model.provider.as_deref()?;
+        let mut own = self
+            .contracts
+            .iter()
+            .filter(|(_, terms)| terms.provider == provider);
+        match (own.next(), own.next()) {
+            (Some((only, _)), None) => Some((only.clone(), ContractBy::Fallback)),
+            _ => None,
+        }
+    }
+
     fn compute_lines(&mut self) -> Result<(), FoldError> {
+        let counting: Vec<Recorded<Message>> = self
+            .messages
+            .iter()
+            .filter(|(key, _)| !self.matched.contains_key(*key))
+            .map(|(_, message)| message.clone())
+            .collect();
+        // Hand, sender and rules first, so the contracts rules create are
+        // there before any fallback counts a provider's contracts.
+        let mut first: Vec<Option<(TagValue, ContractBy)>> = Vec::with_capacity(counting.len());
+        for message in &counting {
+            first.push(self.contract_before_defaults(message));
+        }
         let currency = self.prices.currency();
         let mut lines = Vec::new();
         let mut costs = Vec::new();
-        for message in self.messages.values() {
-            let cost = self
-                .prices
-                .cost(&message.value)
-                .map_err(|error| FoldError::Money {
-                    event: message.id.clone(),
-                    error,
-                })?;
-            costs.push(MessageCostLine {
-                session_id: message.value.session_id.clone(),
-                message_id: message.value.message_id.clone(),
-                person: message.value.person.clone(),
-                model: message.value.model.clone(),
-                at: message.value.at,
-                cost,
-                reported_cost: message.value.reported_cost,
-            });
+        for (message, contract) in counting.iter().zip(first) {
             let (parts, assigned_by) = self.split_of(message);
+            let contract = contract.or_else(|| self.contract_by_default(message, &parts));
+            let (cost_line, terms) = self.cost_line(message, contract)?;
             let weights: Vec<u64> = parts.iter().map(|part| part.weight).collect();
-            let amounts = cost
+            let amounts = cost_line
+                .cost
                 .amount_or_zero(currency)
                 .allocate(&weights)
                 .map_err(|error| FoldError::Money {
@@ -414,30 +691,97 @@ impl State {
                     error,
                 })?;
             for (index, (part, amount)) in parts.iter().zip(amounts).enumerate() {
-                let tags = self.values.close_on(
-                    &part.tags,
-                    &message.value.person,
-                    date_of(message.value.at),
-                );
+                let tags = self.closed_tags(message, part, cost_line.contract.as_ref());
                 lines.push(Line {
                     session_id: message.value.session_id.clone(),
                     message_id: message.value.message_id.clone(),
                     person: message.value.person.clone(),
-                    model: message.value.model.clone(),
+                    model: cost_line.model.clone(),
                     at: message.value.at,
                     part: index,
                     assigned: part.tags.clone(),
                     label: Label::of(&tags),
                     tags,
                     amount,
-                    cost_label: cost.label,
+                    cost_label: cost_line.cost.label,
                     assigned_by,
+                    contract_by: cost_line.contract_by,
+                    on_a_plan: terms.is_some_and(|kind| kind == ContractKind::Flat),
                 });
             }
+            costs.push(cost_line);
         }
         self.lines = lines;
         self.costs = costs;
         Ok(())
+    }
+
+    /// `C(e)` of a message under its contract: priced at the contract's
+    /// provider and the contract's own rows when it has a known contract,
+    /// else at the provider the sender reported.
+    fn cost_line(
+        &self,
+        message: &Recorded<Message>,
+        resolved: Option<(TagValue, ContractBy)>,
+    ) -> Result<(MessageCostLine, Option<ContractKind>), FoldError> {
+        let (contract, contract_by) =
+            resolved.map_or((None, None), |(key, by)| (Some(key), Some(by)));
+        let terms = contract.as_ref().and_then(|key| self.contracts.get(key));
+        let model = match terms {
+            Some(terms) => message.value.model.under(&terms.provider),
+            None => message.value.model.clone(),
+        };
+        let cost = self
+            .prices
+            .cost_of(
+                message.value.tokens.as_ref(),
+                model.provider.as_deref(),
+                &model.model,
+                message.value.at,
+                contract.as_ref(),
+            )
+            .map_err(|error| FoldError::Money {
+                event: message.id.clone(),
+                error,
+            })?;
+        Ok((
+            MessageCostLine {
+                session_id: message.value.session_id.clone(),
+                message_id: message.value.message_id.clone(),
+                person: message.value.person.clone(),
+                model,
+                at: message.value.at,
+                tokens: message.value.tokens.clone(),
+                cost,
+                contract,
+                contract_by,
+                reported_cost: message.value.reported_cost,
+            },
+            terms.map(|terms| terms.kind),
+        ))
+    }
+
+    /// `T*(s)` of one part: its tags closed under defaults, with the
+    /// message's contract and no other. A default that brings a contract
+    /// the message did not get is left out.
+    fn closed_tags(
+        &self,
+        message: &Recorded<Message>,
+        part: &SplitPart,
+        contract: Option<&TagValue>,
+    ) -> Tags {
+        let name = TagName::contract();
+        let mut own = part.tags.retain(|tag| *tag != name);
+        if let Some(contract) = contract {
+            own.insert(name.clone(), contract.clone());
+        }
+        let mut closed =
+            self.values
+                .close_on(&own, &message.value.person, date_of(message.value.at));
+        if contract.is_none() {
+            closed.remove(&name);
+        }
+        closed
     }
 
     /// The moment the fold is as of. Reports show it.
@@ -475,24 +819,38 @@ impl State {
         &self.values
     }
 
-    /// Every message in force, by session and message id.
+    /// Every message in force, by session and message id, counting or not.
     pub fn messages(&self) -> impl Iterator<Item = &Recorded<Message>> {
         self.messages.values()
     }
 
-    /// `C(e)` for every message in force.
+    /// Messages whose id a usage endpoint built and that stopped counting,
+    /// each with the message of another source it was matched to.
+    #[must_use]
+    pub const fn matched(&self) -> &BTreeMap<MessageKey, MessageKey> {
+        &self.matched
+    }
+
+    /// Every contract in force with its terms: from tag value records,
+    /// from bills, and from rules that created theirs.
+    #[must_use]
+    pub const fn contracts(&self) -> &BTreeMap<TagValue, ContractTerms> {
+        &self.contracts
+    }
+
+    /// `C(e)` for every counting message.
     #[must_use]
     pub fn message_costs(&self) -> &[MessageCostLine] {
         &self.costs
     }
 
-    /// Every line: one part of one message on one closed tag set.
+    /// Every line: one part of one counting message on one closed tag set.
     #[must_use]
     pub fn lines(&self) -> &[Line] {
         &self.lines
     }
 
-    /// The bills in force.
+    /// The bills in force, each with the contract it went to.
     pub fn bills(&self) -> impl Iterator<Item = &Recorded<Bill>> {
         self.bills.iter()
     }
@@ -516,6 +874,11 @@ impl State {
     /// The splits recorded by hand, by target.
     pub fn splits(&self) -> impl Iterator<Item = &Recorded<Split>> {
         self.splits.values()
+    }
+
+    /// The contracts set by hand, by target.
+    pub fn contract_assignments(&self) -> impl Iterator<Item = &Recorded<ContractAssignment>> {
+        self.contract_assignments.values()
     }
 
     #[must_use]
@@ -555,18 +918,43 @@ impl State {
         let mut cost = Cost {
             amount: Money::zero(self.currency()),
             count_errors: BTreeSet::new(),
-            unknown_models: BTreeSet::new(),
+            not_priced: BTreeMap::new(),
+            not_priced_models: BTreeSet::new(),
+            unpriced_kinds: BTreeSet::new(),
+            on_a_plan: Money::zero(self.currency()),
         };
+        let mut seen: BTreeSet<MessageKey> = BTreeSet::new();
         for line in lines {
             cost.amount = cost.amount.checked_add(line.amount)?;
+            if line.on_a_plan {
+                cost.on_a_plan = cost.on_a_plan.checked_add(line.amount)?;
+            }
+            if !seen.insert(line.key()) {
+                continue;
+            }
             match line.cost_label {
                 CostLabel::Priced => {}
                 CostLabel::CountError => {
-                    cost.count_errors
-                        .insert((line.session_id.clone(), line.message_id.clone()));
+                    cost.count_errors.insert(line.key());
                 }
-                CostLabel::UnknownModel => {
-                    cost.unknown_models.insert(line.model.clone());
+                CostLabel::NotPricedYet => {
+                    cost.not_priced_models.insert(line.model.clone());
+                }
+            }
+            if let Some(message) = self
+                .costs
+                .binary_search_by(|cost_line| {
+                    (&cost_line.session_id, &cost_line.message_id)
+                        .cmp(&(&line.session_id, &line.message_id))
+                })
+                .ok()
+                .and_then(|index| self.costs.get(index))
+            {
+                cost.unpriced_kinds
+                    .extend(message.cost.unpriced_kinds.iter().cloned());
+                if line.cost_label == CostLabel::NotPricedYet {
+                    cost.not_priced
+                        .insert(line.key(), message.tokens.clone().unwrap_or_default());
                 }
             }
         }
@@ -627,28 +1015,104 @@ impl State {
         Ok(groups.into_iter().collect())
     }
 
-    /// `C({provider}, r)`: what one provider's messages in a range cost.
+    /// `C(F, w)` by the kind of the messages' contracts: metered, flat (on a
+    /// plan) and no contract, always in that order. A contract with no
+    /// known terms counts as metered.
+    ///
+    /// # Errors
+    ///
+    /// [`MoneyError::Overflow`] if a sum does not fit.
+    pub fn by_contract_kind(
+        &self,
+        filter: &Filter,
+        window: DateRange,
+    ) -> Result<Vec<(Option<ContractKind>, Money)>, MoneyError> {
+        let zero = Money::zero(self.currency());
+        let mut groups = [
+            (Some(ContractKind::Metered), zero),
+            (Some(ContractKind::Flat), zero),
+            (None, zero),
+        ];
+        for line in self.select(filter, window) {
+            let kind = match (line.contract(), line.on_a_plan) {
+                (None, _) => None,
+                (Some(_), true) => Some(ContractKind::Flat),
+                (Some(_), false) => Some(ContractKind::Metered),
+            };
+            if let Some((_, group)) = groups.iter_mut().find(|(group, _)| *group == kind) {
+                *group = group.checked_add(line.amount)?;
+            }
+        }
+        Ok(groups.into())
+    }
+
+    /// `C({provider}, r)`: what the messages priced under one provider in a
+    /// range cost, whatever their contract.
     ///
     /// # Errors
     ///
     /// [`MoneyError::Overflow`] if the sum does not fit.
     pub fn provider_cost(&self, provider: &str, range: DateRange) -> Result<Cost, MoneyError> {
-        self.sum(
-            self.lines
-                .iter()
-                .filter(|line| line.model.provider == provider && range.contains_moment(line.at)),
-        )
+        self.sum(self.lines.iter().filter(|line| {
+            line.model.provider.as_deref() == Some(provider) && range.contains_moment(line.at)
+        }))
     }
 
-    /// Reconciles one bill on its own range: `Bill = C({provider}, r) + R`.
+    /// The check of one bill on its own range, against the messages with
+    /// its contract, with the messages of the same provider that have no
+    /// contract and those whose contract came from the fallback beside it.
+    /// A flat contract's fee comes from the bill, else from the contract
+    /// when the bill is for one whole month.
     ///
     /// # Errors
     ///
     /// [`MoneyError::CurrencyMismatch`] if the bill is in another currency
     /// than the prices, or [`MoneyError::Overflow`].
     pub fn reconcile(&self, bill: &Bill) -> Result<Reconciliation, MoneyError> {
-        let messages = self.provider_cost(&bill.provider, bill.range)?;
-        bill.reconcile(messages.amount)
+        let contract = self.contract_of_bill(bill);
+        let terms = self.contracts.get(&contract);
+        let provider = terms.map_or(bill.provider.as_str(), |terms| terms.provider.as_str());
+        let in_range = |line: &&Line| bill.range.contains_moment(line.at);
+        let zero = Money::zero(self.currency());
+        let (mut messages, mut fallback, mut no_contract) = (zero, zero, zero);
+        for line in self.lines.iter().filter(in_range) {
+            match line.contract() {
+                Some(own) if *own == contract => {
+                    messages = messages.checked_add(line.amount)?;
+                    if line.contract_by == Some(ContractBy::Fallback) {
+                        fallback = fallback.checked_add(line.amount)?;
+                    }
+                }
+                None if line.model.provider.as_deref() == Some(provider) => {
+                    no_contract = no_contract.checked_add(line.amount)?;
+                }
+                _ => {}
+            }
+        }
+        let beside = (no_contract, fallback);
+        let kind = terms
+            .map(|terms| terms.kind)
+            .or(bill.contract_kind)
+            .unwrap_or(ContractKind::Metered);
+        match kind {
+            ContractKind::Metered => {
+                Reconciliation::metered(contract, bill.amount, messages, beside)
+            }
+            ContractKind::Flat => {
+                let fee = bill.fee.or_else(|| {
+                    terms
+                        .and_then(|terms| terms.fee)
+                        .filter(|_| bill.is_full_month())
+                });
+                Reconciliation::flat(
+                    contract,
+                    bill.amount,
+                    messages,
+                    (fee, bill.extra_usage),
+                    beside,
+                )
+            }
+        }
     }
 
     /// `P(F, w)`: the accepted estimate for `F` spread over `w`, or the
@@ -877,6 +1341,7 @@ mod tests {
             source_id: None,
             source_status: None,
             defaults: tags(defaults),
+            contract: None,
         })
     }
 
@@ -888,6 +1353,7 @@ mod tests {
             per_million: usd(price),
             valid_from: date!(2026 - 01 - 01),
             source: PriceSource::Managed,
+            contract: None,
         })
     }
 
@@ -903,10 +1369,9 @@ mod tests {
             message_id: MessageId::new(id).unwrap(),
             person: key(person),
             model: ModelRef::new("anthropic", "claude-sonnet-4-5"),
-            tokens: Some(TokenCounts {
-                input: input_millions.saturating_mul(1_000_000),
-                ..TokenCounts::default()
-            }),
+            tokens: Some(
+                TokenCounts::new().with(TokenKind::INPUT, input_millions.saturating_mul(1_000_000)),
+            ),
             at,
             agent_harness: "claude-code".to_owned(),
             agent_name: None,
@@ -973,7 +1438,7 @@ mod tests {
     /// The settings of the worked month: prices, tag values, attributes.
     fn settings() -> Vec<Event> {
         vec![
-            event("p1", JANUARY, price_row(TokenKind::Input, "10")),
+            event("p1", JANUARY, price_row(TokenKind::INPUT, "10")),
             event(
                 "v1",
                 JANUARY,
@@ -1104,11 +1569,11 @@ mod tests {
             event(
                 "b1",
                 datetime!(2026-04-01 00:00 UTC),
-                Record::Bill(Bill {
-                    provider: "anthropic".to_owned(),
-                    range: march(),
-                    amount: usd("1000"),
-                }),
+                Record::Bill(Bill::of_provider(
+                    "anthropic".to_owned(),
+                    march(),
+                    usd("1000"),
+                )),
             ),
         ]);
         events.extend(plans());
@@ -1261,9 +1726,15 @@ mod tests {
                 "client=acme",
                 "person=mara",
                 "team=web",
-                "department=engineering"
+                "department=engineering",
+                "contract=anthropic"
             ])
         );
+        // The bill of March created the contract `anthropic`, the provider's
+        // only one, so every message of the provider falls back to it.
+        assert_eq!(first.contract().unwrap().as_str(), "anthropic");
+        assert_eq!(first.contract_by, Some(ContractBy::Fallback));
+        assert!(!first.on_a_plan);
         assert_eq!(first.assigned_by, AssignedBy::Hand);
         assert_eq!(first.label, Label::Direct);
         assert_eq!(first.cost_label, CostLabel::Priced);
@@ -1279,7 +1750,12 @@ mod tests {
         assert_eq!(s4.label, Label::OrganizationOverhead);
         assert_eq!(
             s4.tags,
-            tags(&["person=tom", "team=web", "department=engineering"])
+            tags(&[
+                "person=tom",
+                "team=web",
+                "department=engineering",
+                "contract=anthropic"
+            ])
         );
         assert_eq!(state.splits().count(), 3);
     }
@@ -1292,11 +1768,7 @@ mod tests {
         assert_eq!(reconciliation.messages, usd("950"));
         assert_eq!(reconciliation.unexplained, usd("50"));
         assert!(!reconciliation.a_message_is_wrong());
-        let other = Bill {
-            provider: "openai".to_owned(),
-            range: march(),
-            amount: usd("10"),
-        };
+        let other = Bill::of_provider("openai".to_owned(), march(), usd("10"));
         assert_eq!(state.reconcile(&other).unwrap().unexplained, usd("10"));
         let short = Bill {
             amount: usd("900"),
@@ -1569,10 +2041,11 @@ mod tests {
             Record::PriceRow(PriceRow {
                 provider: "a".to_owned(),
                 model: "b".to_owned(),
-                kind: TokenKind::Input,
+                kind: TokenKind::INPUT,
                 per_million: Money::zero(Currency::EUR),
                 valid_from: date!(2026 - 01 - 01),
                 source: PriceSource::Managed,
+                contract: None,
             }),
         ));
         assert!(matches!(
@@ -1681,11 +2154,23 @@ mod tests {
         assert_eq!(cost.amount, usd("950"));
         assert_eq!(cost.count_errors.len(), 1);
         assert_eq!(cost.count_errors.iter().next().unwrap().0.as_str(), "S5");
-        assert_eq!(cost.unknown_models.len(), 1);
-        assert_eq!(cost.unknown_models.iter().next().unwrap().provider, "acme");
+        assert_eq!(cost.not_priced_models.len(), 1);
+        assert_eq!(
+            cost.not_priced_models
+                .iter()
+                .next()
+                .unwrap()
+                .provider
+                .as_deref(),
+            Some("acme")
+        );
+        let (key, counts) = cost.not_priced.iter().next().unwrap();
+        assert_eq!(key.0.as_str(), "S6");
+        assert_eq!(counts.get(&TokenKind::INPUT), 1_000_000);
         let mara = state.cost(&filter(&["person=mara"]), march()).unwrap();
         assert!(mara.count_errors.is_empty());
-        assert!(mara.unknown_models.is_empty());
+        assert!(mara.not_priced_models.is_empty());
+        assert!(mara.not_priced.is_empty());
         let labels: Vec<CostLabel> = state
             .message_costs()
             .iter()
@@ -1699,7 +2184,7 @@ mod tests {
                 CostLabel::Priced,
                 CostLabel::Priced,
                 CostLabel::CountError,
-                CostLabel::UnknownModel
+                CostLabel::NotPricedYet
             ]
         );
         let line = state
@@ -1716,7 +2201,7 @@ mod tests {
             state
                 .provider_cost("acme", march())
                 .unwrap()
-                .unknown_models
+                .not_priced_models
                 .len(),
             1
         );
@@ -1735,6 +2220,7 @@ mod tests {
                 then: Then::KeyOf {
                     name: name("feature"),
                 },
+                contract: None,
             }),
         )
     }
@@ -1942,10 +2428,11 @@ mod tests {
             Record::PriceRow(PriceRow {
                 provider: "anthropic".to_owned(),
                 model: "claude-sonnet-4-5".to_owned(),
-                kind: TokenKind::Input,
+                kind: TokenKind::INPUT,
                 per_million: usd("5"),
                 valid_from: date!(2026 - 03 - 10),
                 source: PriceSource::Organization,
+                contract: None,
             }),
         ));
         let state = State::fold(&events, APRIL, Currency::USD).unwrap();
@@ -2365,6 +2852,207 @@ mod tests {
         assert_eq!(
             serde_json::to_string(&DeviationLabel::Trouble).unwrap(),
             r#""trouble""#
+        );
+    }
+
+    #[test]
+    fn the_match_window_is_thirty_seconds_either_way() {
+        let at = datetime!(2026-03-10 09:00 UTC);
+        assert_eq!(
+            gap(at, at.saturating_add(Duration::seconds(5))),
+            5_000_000_000
+        );
+        assert_eq!(
+            gap(at.saturating_add(Duration::seconds(5)), at),
+            5_000_000_000
+        );
+        assert!(within_window(at, at.saturating_add(Duration::seconds(30))));
+        assert!(!within_window(at, at.saturating_add(Duration::seconds(31))));
+        assert!(!within_window(at.saturating_sub(Duration::seconds(31)), at));
+    }
+
+    fn call(
+        session: &str,
+        id: &str,
+        provider: Option<&str>,
+        at: OffsetDateTime,
+        input: u64,
+    ) -> Event {
+        let mut sent = message(session, id, "tom", at, 0);
+        sent.tokens = Some(TokenCounts::new().with(TokenKind::INPUT, input));
+        sent.model = match provider {
+            Some(provider) => ModelRef::new(provider, "gpt-5"),
+            None => ModelRef::unreported("gpt-5"),
+        };
+        event(
+            &format!("e-{session}-{id}"),
+            APRIL,
+            Record::Message(Box::new(sent)),
+        )
+    }
+
+    fn matched_of(events: &[Event]) -> Vec<(String, String)> {
+        State::fold(events, APRIL, Currency::USD)
+            .unwrap()
+            .matched()
+            .iter()
+            .map(|((session, id), (to_session, to_id))| {
+                (format!("{session}/{id}"), format!("{to_session}/{to_id}"))
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_built_id_matches_only_the_same_call() {
+        let at = datetime!(2026-03-10 09:00 UTC);
+        let later = |seconds| at.saturating_add(Duration::seconds(seconds));
+        let file = call("c1", "turn-1", Some("openai"), at, 100);
+        // Same call, four seconds later: matched.
+        let echo = call("c1", "otel:a", Some("openai"), later(4), 100);
+        assert_eq!(
+            matched_of(&[file.clone(), echo]),
+            [("c1/otel:a".to_owned(), "c1/turn-1".to_owned())]
+        );
+        // Another provider, other counts, or out of the window: not the same call.
+        for other in [
+            call("c1", "otel:b", Some("azure_foundry"), later(4), 100),
+            call("c1", "otel:c", Some("openai"), later(4), 101),
+            call("c1", "otel:d", Some("openai"), later(40), 100),
+        ] {
+            assert!(matched_of(&[file.clone(), other]).is_empty());
+        }
+        // A built message without a provider still matches.
+        let unreported = call("c1", "otel:e", None, later(4), 100);
+        assert_eq!(matched_of(&[file, unreported]).len(), 1);
+        // A session with its own file messages looks nowhere else.
+        let elsewhere = call("c2", "turn-1", Some("openai"), later(2), 100);
+        let mine = call("c1", "turn-9", Some("openai"), later(30), 7);
+        let echo = call("c1", "otel:f", Some("openai"), later(4), 100);
+        assert!(matched_of(&[elsewhere.clone(), mine, echo]).is_empty());
+        // A telemetry-only session looks in the person's other sessions.
+        let lonely = call("tel", "otel:g", Some("openai"), later(4), 100);
+        assert_eq!(
+            matched_of(&[elsewhere, lonely]),
+            [("tel/otel:g".to_owned(), "c2/turn-1".to_owned())]
+        );
+    }
+
+    fn contract_bill(provider: &str, contract: Option<&str>, from: Date, amount: &str) -> Bill {
+        let mut bill = Bill::of_provider(
+            provider.to_owned(),
+            DateRange::new(from, from.saturating_add(Duration::days(27))).unwrap(),
+            usd(amount),
+        );
+        bill.contract = contract.map(key);
+        bill
+    }
+
+    #[test]
+    fn a_bill_read_in_the_fold_keeps_its_contract() {
+        let march = date!(2026 - 03 - 01);
+        let unnamed = contract_bill("anthropic", None, march, "50");
+        let bills = [
+            contract_bill("openai", Some("openai-api"), march, "50"),
+            contract_bill("anthropic", Some("api"), date!(2026 - 02 - 01), "50"),
+            contract_bill("anthropic", Some("team"), march, "70"),
+            unnamed.clone(),
+        ];
+        let events: Vec<Event> = bills
+            .into_iter()
+            .enumerate()
+            .map(|(index, bill)| {
+                event(
+                    &format!("b{index}"),
+                    APRIL.saturating_add(Duration::seconds(i64::try_from(index).unwrap())),
+                    Record::Bill(bill),
+                )
+            })
+            .collect();
+        let state = State::fold(
+            &events,
+            APRIL.saturating_add(Duration::hours(1)),
+            Currency::USD,
+        )
+        .unwrap();
+        // Anthropic has two contracts, so the bill naming none got one
+        // named after its provider, and asking again gives the same.
+        assert_eq!(state.contract_of_bill(&unnamed), key("anthropic"));
+        assert_eq!(state.contracts().len(), 4);
+    }
+
+    #[test]
+    fn a_contract_tag_value_brings_its_terms() {
+        let mut team = TagValueRecord {
+            name: TagName::contract(),
+            key: key("team"),
+            title: None,
+            description: None,
+            source_id: None,
+            source_status: None,
+            defaults: Tags::new(),
+            contract: Some(ContractTerms {
+                provider: "anthropic".to_owned(),
+                kind: ContractKind::Flat,
+                fee: Some(usd("150")),
+            }),
+        };
+        let mut project = team.clone();
+        project.name = name("project");
+        project.key = key("shop");
+        let state = State::fold(
+            &[
+                event("v1", JANUARY, Record::TagValue(team.clone())),
+                event("v2", JANUARY, Record::TagValue(project)),
+            ],
+            APRIL,
+            Currency::USD,
+        )
+        .unwrap();
+        assert_eq!(state.contracts().len(), 1);
+        assert_eq!(
+            state.contracts().get(&key("team")).map(|terms| terms.kind),
+            Some(ContractKind::Flat)
+        );
+        team.contract = None;
+        let state = State::fold(
+            &[event("v1", JANUARY, Record::TagValue(team))],
+            APRIL,
+            Currency::USD,
+        )
+        .unwrap();
+        assert!(state.contracts().is_empty());
+    }
+
+    #[test]
+    fn hand_contracts_are_listed_and_provider_cost_keeps_to_its_range() {
+        let in_march = message("s1", "m1", "tom", datetime!(2026-03-10 09:00 UTC), 1);
+        let in_april = message("s1", "m2", "tom", datetime!(2026-04-02 09:00 UTC), 1);
+        let state = State::fold(
+            &[
+                event("p1", JANUARY, price_row(TokenKind::INPUT, "10")),
+                event("m1", APRIL, Record::Message(Box::new(in_march))),
+                event("m2", APRIL, Record::Message(Box::new(in_april))),
+                event(
+                    "a1",
+                    APRIL,
+                    Record::ContractAssignment(ContractAssignment {
+                        target: session("s1"),
+                        contract: key("api"),
+                    }),
+                ),
+            ],
+            APRIL.saturating_add(Duration::hours(1)),
+            Currency::USD,
+        )
+        .unwrap();
+        assert_eq!(state.contract_assignments().count(), 1);
+        assert_eq!(
+            state.provider_cost("anthropic", march()).unwrap().amount,
+            usd("10")
+        );
+        assert_eq!(
+            state.provider_cost("openai", march()).unwrap().amount,
+            usd("0")
         );
     }
 }

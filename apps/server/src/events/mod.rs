@@ -297,6 +297,7 @@ async fn managed_rows(state: &AppState) -> Result<Vec<Event>, ApiError> {
             per_million: Money::from_nanos(row.per_million_nanos, Currency::USD),
             valid_from: row.valid_from,
             source: PriceSource::Managed,
+            contract: None,
         };
         events.push(managed_row_event(&price, row.loaded_at)?);
     }
@@ -353,6 +354,7 @@ pub mod prefix {
     pub const SUBMIT: &str = "sub_";
     pub const APPROVAL: &str = "apr_";
     pub const RULE: &str = "rul_";
+    pub const CONTRACT_ASSIGNMENT: &str = "con_";
     pub const REVERSAL: &str = "rev_";
     pub const SAVED_REPORT: &str = "rpt_";
 }
@@ -376,6 +378,7 @@ pub const fn prefix_of(record: &Record) -> &'static str {
         Record::Submit(_) => prefix::SUBMIT,
         Record::Approval(_) => prefix::APPROVAL,
         Record::Rule(_) => prefix::RULE,
+        Record::ContractAssignment(_) => prefix::CONTRACT_ASSIGNMENT,
         Record::Reversal(_) => prefix::REVERSAL,
     }
 }
@@ -467,10 +470,11 @@ mod tests {
         PriceRow {
             provider: "anthropic".to_owned(),
             model: "claude-sonnet-5".to_owned(),
-            kind: TokenKind::Input,
+            kind: TokenKind::INPUT,
             per_million: Money::from_nanos(10_000_000_000, Currency::USD),
             valid_from: date!(2026 - 01 - 01),
             source: PriceSource::Managed,
+            contract: None,
         }
     }
 
@@ -482,7 +486,7 @@ mod tests {
         assert_eq!(first.id, second.id);
         assert!(first.id.as_str().starts_with(MANAGED_ROW_PREFIX));
         let mut other = row();
-        other.kind = TokenKind::Output;
+        other.kind = TokenKind::OUTPUT;
         assert_ne!(managed_row_event(&other, at).unwrap().id, first.id);
     }
 

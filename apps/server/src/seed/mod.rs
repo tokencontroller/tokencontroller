@@ -267,12 +267,12 @@ fn message(session: Session<'_>) -> anyhow::Result<Event> {
         message_id: tokencontroller_core::MessageId::new("1")?,
         person: person(session.person)?,
         model: ModelRef::new(PROVIDER, MODEL),
-        tokens: Some(TokenCounts {
-            input: session.input_millions.saturating_mul(1_000_000),
-            output: 0,
-            cache_write: 0,
-            cache_read: 0,
-        }),
+        tokens: Some(TokenCounts::common(
+            session.input_millions.saturating_mul(1_000_000),
+            0,
+            0,
+            0,
+        )),
         at: session.at,
         agent_harness: "claude-code".to_owned(),
         agent_name: session.agent_name.map(str::to_owned),
@@ -349,10 +349,11 @@ fn setup_events(setup: OffsetDateTime, nadia: &TagValue) -> anyhow::Result<Vec<E
         Record::PriceRow(PriceRow {
             provider: PROVIDER.to_owned(),
             model: MODEL.to_owned(),
-            kind: TokenKind::Input,
+            kind: TokenKind::INPUT,
             per_million: usd("10")?,
             valid_from: date!(2026 - 01 - 01),
             source: PriceSource::Organization,
+            contract: None,
         }),
     )?);
 
@@ -423,6 +424,7 @@ fn value_events(setup: OffsetDateTime, nadia: &TagValue) -> anyhow::Result<Vec<E
             source_id: None,
             source_status: None,
             defaults: Tags::new(),
+            contract: None,
         },
     )?);
     events.push(tag_value(
@@ -435,6 +437,7 @@ fn value_events(setup: OffsetDateTime, nadia: &TagValue) -> anyhow::Result<Vec<E
             source_id: None,
             source_status: None,
             defaults: tags(&[("client", "acme")])?,
+            contract: None,
         },
     )?);
     for (id, key, title, description) in [
@@ -461,6 +464,7 @@ fn value_events(setup: OffsetDateTime, nadia: &TagValue) -> anyhow::Result<Vec<E
                 source_id: None,
                 source_status: None,
                 defaults: tags(&[("project", "shop")])?,
+                contract: None,
             },
         )?);
     }
@@ -618,6 +622,10 @@ fn month_events(nadia: &TagValue, mara: &TagValue) -> anyhow::Result<Vec<Event>>
                 provider: PROVIDER.to_owned(),
                 range: MARCH,
                 amount: usd("1000")?,
+                contract: None,
+                contract_kind: None,
+                fee: None,
+                extra_usage: None,
             }),
         )?
         .by(nadia.clone()),

@@ -78,11 +78,21 @@ impl TagName {
         Self("client".to_owned())
     }
 
-    /// Whether this is one of the built-in tag names `project`, `feature`
-    /// and `client`. An organization adds its own.
+    /// The built-in tag `contract`: one thing a provider charges under. A
+    /// bill has exactly one, a message at most one.
+    #[must_use]
+    pub fn contract() -> Self {
+        Self("contract".to_owned())
+    }
+
+    /// Whether this is one of the built-in tag names `project`, `feature`,
+    /// `client` and `contract`. An organization adds its own.
     #[must_use]
     pub fn is_built_in(&self) -> bool {
-        matches!(self.0.as_str(), "project" | "feature" | "client")
+        matches!(
+            self.0.as_str(),
+            "project" | "feature" | "client" | "contract"
+        )
     }
 
     #[must_use]
@@ -140,6 +150,11 @@ impl TagValue {
     #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
+    }
+
+    /// A value the core itself names, written so it passes [`Self::new`].
+    pub(crate) fn known(value: &'static str) -> Self {
+        Self(value.to_owned())
     }
 }
 
@@ -349,6 +364,8 @@ mod tests {
         assert!(TagName::project().is_built_in());
         assert!(TagName::feature().is_built_in());
         assert!(TagName::client().is_built_in());
+        assert!(TagName::contract().is_built_in());
+        assert_eq!(TagName::contract().as_str(), "contract");
         assert!(!TagName::person().is_built_in());
         assert!(!TagName::new("team").unwrap().is_built_in());
         assert_eq!(TagName::person(), TagName::new("person").unwrap());

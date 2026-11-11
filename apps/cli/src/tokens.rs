@@ -21,12 +21,12 @@ impl Tokens {
 
     /// The four kinds of the token entry schema and the core.
     pub fn kinds(self) -> TokenCounts {
-        TokenCounts {
-            input: self.input,
-            output: self.output,
-            cache_write: self.cache_write_5m.saturating_add(self.cache_write_1h),
-            cache_read: self.cache_read,
-        }
+        TokenCounts::common(
+            self.input,
+            self.output,
+            self.cache_write_5m.saturating_add(self.cache_write_1h),
+            self.cache_read,
+        )
     }
 }
 
@@ -44,8 +44,8 @@ mod tests {
             cache_read: 5,
         };
         let kinds = a.kinds();
-        assert_eq!(kinds.cache_write, 7);
-        assert_eq!(kinds.cache_read, 5);
+        assert_eq!(kinds.get(&tokencontroller_core::TokenKind::CACHE_WRITE), 7);
+        assert_eq!(kinds.get(&tokencontroller_core::TokenKind::CACHE_READ), 5);
         assert!(Tokens::default().is_zero());
         assert!(!a.is_zero());
     }
@@ -57,13 +57,24 @@ mod tests {
             ..Tokens::default()
         };
         assert!(!hour.is_zero());
-        assert_eq!(hour.kinds().cache_write, 1);
+        assert_eq!(
+            hour.kinds()
+                .get(&tokencontroller_core::TokenKind::CACHE_WRITE),
+            1
+        );
         let kinds = Tokens {
             input: 10,
             output: 20,
             ..Tokens::default()
         }
         .kinds();
-        assert_eq!((kinds.input, kinds.output, kinds.cache_read), (10, 20, 0));
+        assert_eq!(
+            (
+                kinds.get(&tokencontroller_core::TokenKind::INPUT),
+                kinds.get(&tokencontroller_core::TokenKind::OUTPUT),
+                kinds.get(&tokencontroller_core::TokenKind::CACHE_READ)
+            ),
+            (10, 20, 0)
+        );
     }
 }

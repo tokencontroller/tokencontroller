@@ -567,7 +567,7 @@ pub async fn cost(
         rows,
         count_errors: cost.count_errors.len(),
         unknown_models: cost
-            .unknown_models
+            .not_priced_models
             .iter()
             .map(ToString::to_string)
             .collect(),

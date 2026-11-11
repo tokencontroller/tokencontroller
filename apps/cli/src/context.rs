@@ -143,10 +143,11 @@ impl Context {
             let row = PriceRow {
                 provider: line.provider.clone(),
                 model: line.model.clone(),
-                kind: line.kind,
+                kind: line.kind.clone(),
                 per_million,
                 valid_from,
                 source: line.source.unwrap_or(PriceSource::Managed),
+                contract: None,
             };
             events.push(Event::new(
                 &format!("price-{index}"),
@@ -283,7 +284,7 @@ mod tests {
             price_table: vec![PriceLine {
                 provider: "anthropic".into(),
                 model: "x".into(),
-                kind: TokenKind::Input,
+                kind: TokenKind::INPUT,
                 per_million: "3".into(),
                 valid_from: "soon".into(),
                 source: None,

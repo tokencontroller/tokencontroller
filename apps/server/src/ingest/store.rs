@@ -106,7 +106,7 @@ fn message_events(
             message_id,
             person: person.clone(),
             model: ModelRef::new(checked.provider, &message.model),
-            tokens: message.tokens,
+            tokens: message.tokens.clone(),
             at: message.at,
             agent_harness: checked.entry.agent_harness.clone(),
             agent_name: checked.entry.agent_name.clone(),
@@ -423,7 +423,7 @@ fn telemetry_record(
             .map_err(|error| ApiError::BadRequest(error.to_string()))?,
         person,
         model: ModelRef::new(provider, &message.model),
-        tokens: Some(message.tokens),
+        tokens: Some(message.tokens.clone()),
         at: message.occurred_at,
         agent_harness: message.harness.name().to_owned(),
         agent_name: None,
@@ -567,10 +567,9 @@ mod tests {
             message_id: MessageId::new("m1").unwrap(),
             person: mara,
             model: ModelRef::new("anthropic", "claude-sonnet-5"),
-            tokens: Some(tokencontroller_core::TokenCounts {
-                input: 1_000_000,
-                ..Default::default()
-            }),
+            tokens: Some(tokencontroller_core::TokenCounts::common(
+                1_000_000, 0, 0, 0,
+            )),
             at: datetime!(2026-03-02 10:00 UTC),
             agent_harness: "claude-code".to_owned(),
             agent_name: None,
@@ -582,10 +581,11 @@ mod tests {
         let price = tokencontroller_core::PriceRow {
             provider: "anthropic".to_owned(),
             model: "claude-sonnet-5".to_owned(),
-            kind: tokencontroller_core::TokenKind::Input,
+            kind: tokencontroller_core::TokenKind::INPUT,
             per_million: tokencontroller_core::Money::parse("3", Currency::USD).unwrap(),
             valid_from: time::macros::date!(2026 - 01 - 01),
             source: tokencontroller_core::PriceSource::Managed,
+            contract: None,
         };
         let split = Split {
             target: SplitTarget::Session(session.clone()),

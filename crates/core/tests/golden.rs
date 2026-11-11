@@ -16,10 +16,11 @@ use serde::de::DeserializeOwned;
 use time::format_description::well_known::Rfc3339;
 use time::{Date, OffsetDateTime};
 use tokencontroller_core::{
-    Accept, Approval, AttributeValue, Bill, Capability, DateRange, Decision, Distribution,
-    Estimate, Event, EventId, Filter, Grant, Message, MessageId, ModelRef, Money, PersonAttribute,
-    PriceRow, Record, Rule, Scope, SessionId, Share, Signal, Split, SplitPart, SplitTarget, State,
-    Submit, TagName, TagValue, TagValueRecord, Tags, TextPattern, Then, TokenCounts,
+    Accept, Approval, AttributeValue, Bill, Capability, ContractAssignment, ContractKind,
+    ContractTerms, DateRange, Decision, Distribution, Estimate, Event, EventId, Filter, Grant,
+    Message, MessageId, ModelRef, Money, PersonAttribute, PriceRow, Record, Rule, Scope, SessionId,
+    Share, Signal, Split, SplitPart, SplitTarget, State, Submit, TagName, TagValue, TagValueRecord,
+    Tags, TextPattern, Then, TokenCounts, TokenKind,
 };
 
 type Row = BTreeMap<String, String>;
@@ -103,10 +104,14 @@ fn answer(state: &State, row: &Row) -> Outcome<Vec<(String, String, String)>> {
     match cell(row, "kind")?.as_str() {
         "messages" => {
             for line in state.message_costs() {
+                let mut note = line.cost.label.as_str().to_owned();
+                for kind in &line.cost.unpriced_kinds {
+                    let _ignored = write!(note, "; unpriced kind {kind}");
+                }
                 answers.push((
                     format!("{}/{}", line.session_id, line.message_id),
                     line.cost.amount.map(money).unwrap_or_default(),
-                    cost_label(line.cost.label).to_owned(),
+                    note,
                 ));
             }
         }
@@ -170,8 +175,56 @@ fn answer(state: &State, row: &Row) -> Outcome<Vec<(String, String, String)>> {
                 note.to_owned(),
             ));
         }
+        "check" => answers.extend(check(state, &argument)?),
         other => return answer_more(state, row, other, &filter, window().ok()),
     }
+    Ok(answers)
+}
+
+/// The check of one bill: its contract, the figures, and the two lines
+/// beside it.
+fn check(state: &State, argument: &str) -> Outcome<Vec<(String, String, String)>> {
+    let bill = state
+        .bills()
+        .find(|bill| bill.id.as_str() == argument)
+        .ok_or_else(|| format!("no bill {argument}"))?;
+    let check = state
+        .reconcile(&bill.value)
+        .map_err(|error| error.to_string())?;
+    let row = |key: &str, amount: Money| (key.to_owned(), exact(amount), String::new());
+    let mut answers = vec![
+        (
+            "contract".to_owned(),
+            String::new(),
+            format!("{} {}", check.contract, check.kind.as_str()),
+        ),
+        row("bill", check.bill),
+        row("messages", check.messages),
+    ];
+    let note = if check.a_message_is_wrong() {
+        "a message is wrong"
+    } else {
+        ""
+    };
+    answers.push((
+        "unexplained".to_owned(),
+        exact(check.unexplained),
+        note.to_owned(),
+    ));
+    for (key, amount) in [
+        ("fee", check.fee),
+        ("extra usage", check.extra_usage),
+        ("covered by the plan", check.covered),
+    ] {
+        if let Some(amount) = amount {
+            answers.push(row(key, amount));
+        }
+    }
+    answers.push(row(
+        "same provider no contract",
+        check.same_provider_no_contract,
+    ));
+    answers.push(row("contract from fallback", check.contract_from_fallback));
     Ok(answers)
 }
 
@@ -181,9 +234,9 @@ fn answer_more(
     row: &Row,
     kind: &str,
     filter: &Filter,
-    window: Option<DateRange>,
+    range: Option<DateRange>,
 ) -> Outcome<Vec<(String, String, String)>> {
-    let window = || window.ok_or_else(|| "the query needs from and to".to_owned());
+    let window = || range.ok_or_else(|| "the query needs from and to".to_owned());
     let from = cell(row, "from")?;
     let argument = cell(row, "argument")?;
     let money = |amount: Money| exact(amount);
@@ -279,17 +332,61 @@ fn answer_more(
                 ));
             }
         }
-        other => return Err(format!("unknown query kind {other}")),
+        other => return answer_contracts(state, other, filter, range),
     }
     Ok(answers)
 }
 
-fn cost_label(label: tokencontroller_core::CostLabel) -> &'static str {
-    match label {
-        tokencontroller_core::CostLabel::Priced => "priced",
-        tokencontroller_core::CostLabel::CountError => "count error",
-        tokencontroller_core::CostLabel::UnknownModel => "unknown model",
+/// The answers of the queries on contracts and matched messages.
+fn answer_contracts(
+    state: &State,
+    kind: &str,
+    filter: &Filter,
+    window: Option<DateRange>,
+) -> Outcome<Vec<(String, String, String)>> {
+    let window = || window.ok_or_else(|| "the query needs from and to".to_owned());
+    let money = |amount: Money| exact(amount);
+    let fail = |error: tokencontroller_core::MoneyError| error.to_string();
+    let mut answers = Vec::new();
+    match kind {
+        "contracts" => {
+            for line in state.message_costs() {
+                let contract = match (&line.contract, line.contract_by) {
+                    (Some(contract), Some(by)) => format!("{contract} by {}", by.as_str()),
+                    _ => "none".to_owned(),
+                };
+                answers.push((
+                    format!("{}/{}", line.session_id, line.message_id),
+                    String::new(),
+                    format!(
+                        "{contract}; provider {}",
+                        line.model.provider.as_deref().unwrap_or("unknown")
+                    ),
+                ));
+            }
+        }
+        "matched" => {
+            for ((session, message), (to_session, to_message)) in state.matched() {
+                answers.push((
+                    format!("{session}/{message}"),
+                    String::new(),
+                    format!("counted as {to_session}/{to_message}"),
+                ));
+            }
+        }
+        "by_contract_kind" => {
+            for (kind, amount) in state.by_contract_kind(filter, window()?).map_err(fail)? {
+                let (key, note) = match kind {
+                    Some(ContractKind::Flat) => ("flat", "on a plan"),
+                    Some(ContractKind::Metered) => ("metered", ""),
+                    None => ("none", ""),
+                };
+                answers.push((key.to_owned(), money(amount), note.to_owned()));
+            }
+        }
+        other => return Err(format!("unknown query kind {other}")),
     }
+    Ok(answers)
 }
 
 /// What a cost leaves out, as a note.
@@ -299,10 +396,17 @@ fn cost_notes(cost: &tokencontroller_core::Cost) -> String {
         .iter()
         .map(|(session, message)| format!("count error {session}/{message}"))
         .collect();
-    notes.extend(
-        cost.unknown_models
+    notes.extend(cost.not_priced.iter().map(|((session, message), counts)| {
+        let counts: Vec<String> = counts
             .iter()
-            .map(|model| format!("unknown model {model}")),
+            .map(|(kind, count)| format!("{kind} {count}"))
+            .collect();
+        format!("not priced yet {session}/{message} {}", counts.join(" "))
+    }));
+    notes.extend(
+        cost.unpriced_kinds
+            .iter()
+            .map(|kind| format!("unpriced kind {kind}")),
     );
     notes.join("; ")
 }
@@ -323,20 +427,7 @@ fn events(case: &Path) -> Outcome<Vec<Event>> {
         events.push(event);
         Ok(())
     };
-    for row in rows(case, "tag_values.csv")?.unwrap_or_default() {
-        push(
-            &row,
-            Record::TagValue(TagValueRecord {
-                name: name(&cell(&row, "name")?)?,
-                key: value(&cell(&row, "key")?)?,
-                title: optional(&cell(&row, "title")?).map(str::to_owned),
-                description: None,
-                source_id: None,
-                source_status: optional(&cell(&row, "source_status")?).map(str::to_owned),
-                defaults: tags(&cell(&row, "defaults")?)?,
-            }),
-        )?;
-    }
+    value_events(case, &mut push)?;
     for row in rows(case, "attribute_values.csv")?.unwrap_or_default() {
         push(
             &row,
@@ -377,6 +468,7 @@ fn events(case: &Path) -> Outcome<Vec<Event>> {
                 per_million: usd(&cell(&row, "per_million")?)?,
                 valid_from: date(&cell(&row, "valid_from")?)?,
                 source: word(&cell(&row, "source")?)?,
+                contract: optional_cell(&row, "contract").map(value).transpose()?,
             }),
         )?;
     }
@@ -384,24 +476,64 @@ fn events(case: &Path) -> Outcome<Vec<Event>> {
         push(&row, Record::Message(Box::new(message(&row)?)))?;
     }
     for row in rows(case, "splits.csv")?.unwrap_or_default() {
-        let session_id = session(&cell(&row, "session")?)?;
-        let target = match optional(&cell(&row, "message")?) {
-            Some(message) => SplitTarget::Message {
-                session_id,
-                message_id: MessageId::new(message).map_err(|error| error.to_string())?,
-            },
-            None => SplitTarget::Session(session_id),
-        };
         push(
             &row,
             Record::Split(Split {
-                target,
+                target: target(&row)?,
                 parts: parts(&cell(&row, "parts")?)?,
+            }),
+        )?;
+    }
+    for row in rows(case, "contract_assignments.csv")?.unwrap_or_default() {
+        push(
+            &row,
+            Record::ContractAssignment(ContractAssignment {
+                target: target(&row)?,
+                contract: value(&cell(&row, "contract")?)?,
             }),
         )?;
     }
     more_events(case, &mut push)?;
     Ok(events)
+}
+
+/// The tag values and contracts of a case.
+fn value_events(case: &Path, push: &mut dyn FnMut(&Row, Record) -> Outcome<()>) -> Outcome<()> {
+    for row in rows(case, "tag_values.csv")?.unwrap_or_default() {
+        push(
+            &row,
+            Record::TagValue(TagValueRecord {
+                name: name(&cell(&row, "name")?)?,
+                key: value(&cell(&row, "key")?)?,
+                title: optional(&cell(&row, "title")?).map(str::to_owned),
+                description: None,
+                source_id: None,
+                source_status: optional(&cell(&row, "source_status")?).map(str::to_owned),
+                defaults: tags(&cell(&row, "defaults")?)?,
+                contract: None,
+            }),
+        )?;
+    }
+    for row in rows(case, "contracts.csv")?.unwrap_or_default() {
+        push(
+            &row,
+            Record::TagValue(TagValueRecord {
+                name: TagName::contract(),
+                key: value(&cell(&row, "key")?)?,
+                title: None,
+                description: None,
+                source_id: None,
+                source_status: None,
+                defaults: Tags::new(),
+                contract: Some(terms(
+                    &cell(&row, "provider")?,
+                    &cell(&row, "kind")?,
+                    &cell(&row, "fee")?,
+                )?),
+            }),
+        )?;
+    }
+    Ok(())
 }
 
 /// The rest of the event files: bills, plans, access, rules and the other
@@ -412,8 +544,12 @@ fn more_events(case: &Path, push: &mut dyn FnMut(&Row, Record) -> Outcome<()>) -
             &row,
             Record::Bill(Bill {
                 provider: cell(&row, "provider")?,
+                contract: optional_cell(&row, "contract").map(value).transpose()?,
+                contract_kind: optional_cell(&row, "contract_kind").map(word).transpose()?,
                 range: range(&row)?,
                 amount: usd(&cell(&row, "amount")?)?,
+                fee: optional_cell(&row, "fee").map(usd).transpose()?,
+                extra_usage: optional_cell(&row, "extra_usage").map(usd).transpose()?,
             }),
         )?;
     }
@@ -511,22 +647,34 @@ fn message(row: &Row) -> Outcome<Message> {
     let count = |kind: &str| -> Outcome<Option<u64>> {
         optional(&cell(row, kind)?).map(number).transpose()
     };
-    let counts = [
-        count("input")?,
-        count("output")?,
-        count("cache_write")?,
-        count("cache_read")?,
-    ];
-    let tokens = if counts.iter().all(Option::is_none) {
+    let mut counts: Vec<(TokenKind, Option<u64>)> = Vec::new();
+    for kind in [
+        TokenKind::INPUT,
+        TokenKind::OUTPUT,
+        TokenKind::CACHE_WRITE,
+        TokenKind::CACHE_READ,
+    ] {
+        counts.push((kind.clone(), count(kind.as_str())?));
+    }
+    for kind in [TokenKind::CACHE_WRITE_5M, TokenKind::CACHE_WRITE_1H] {
+        let found = optional_cell(row, kind.as_str()).map(number).transpose()?;
+        counts.push((kind, found));
+    }
+    for (kind, count) in pairs(row.get("kinds").map_or("", String::as_str))? {
+        counts.push((
+            TokenKind::new(&kind).map_err(|error| error.to_string())?,
+            Some(number(&count)?),
+        ));
+    }
+    let tokens = if counts.iter().all(|(_, count)| count.is_none()) {
         None
     } else {
-        let at = |index: usize| counts.get(index).copied().flatten().unwrap_or(0);
-        Some(TokenCounts {
-            input: at(0),
-            output: at(1),
-            cache_write: at(2),
-            cache_read: at(3),
-        })
+        Some(
+            counts
+                .into_iter()
+                .map(|(kind, count)| (kind, count.unwrap_or(0)))
+                .collect::<TokenCounts>(),
+        )
     };
     let signals = tokencontroller_core::Signals {
         branch: optional(&cell(row, "branch")?).map(str::to_owned),
@@ -535,13 +683,20 @@ fn message(row: &Row) -> Outcome<Message> {
             .filter(|key| !key.is_empty())
             .map(str::to_owned)
             .collect(),
+        resource: pairs(row.get("resource").map_or("", String::as_str))?
+            .into_iter()
+            .collect(),
         ..tokencontroller_core::Signals::default()
     };
+    let model = cell(row, "model")?;
     Ok(Message {
         session_id: session(&cell(row, "session")?)?,
         message_id: MessageId::new(&cell(row, "message")?).map_err(|error| error.to_string())?,
         person: value(&cell(row, "person")?)?,
-        model: ModelRef::new(&cell(row, "provider")?, &cell(row, "model")?),
+        model: match optional(&cell(row, "provider")?) {
+            Some(provider) => ModelRef::new(provider, &model),
+            None => ModelRef::unreported(&model),
+        },
         tokens,
         at: moment(&cell(row, "at")?)?,
         agent_harness: cell(row, "agent_harness")?,
@@ -585,6 +740,16 @@ fn rule(row: &Row) -> Outcome<Rule> {
         },
         _ => return Err(format!("{then_text} is not tag name=key or key_of name")),
     };
+    let contract = match optional_cell(row, "creates") {
+        Some(creates) => {
+            let mut words = creates.split(' ');
+            let provider = words.next().unwrap_or_default();
+            let kind = words.next().unwrap_or_default();
+            let fee = words.next().unwrap_or_default();
+            Some(terms(provider, kind, fee)?)
+        }
+        None => None,
+    };
     Ok(Rule {
         name: cell(row, "name")?,
         scope,
@@ -592,7 +757,42 @@ fn rule(row: &Row) -> Outcome<Rule> {
         signal,
         pattern: TextPattern::new(&cell(row, "pattern")?).map_err(|error| error.to_string())?,
         then,
+        contract,
     })
+}
+
+/// A contract's terms from its provider, `metered` or `flat`, and a fee
+/// that may be empty.
+fn terms(provider: &str, kind: &str, fee: &str) -> Outcome<ContractTerms> {
+    Ok(ContractTerms {
+        provider: provider.to_owned(),
+        kind: word(kind)?,
+        fee: optional(fee).map(usd).transpose()?,
+    })
+}
+
+/// A split or contract target from the `session` and `message` columns:
+/// an empty message means the whole session.
+fn target(row: &Row) -> Outcome<SplitTarget> {
+    let session_id = session(&cell(row, "session")?)?;
+    Ok(match optional(&cell(row, "message")?) {
+        Some(message) => SplitTarget::Message {
+            session_id,
+            message_id: MessageId::new(message).map_err(|error| error.to_string())?,
+        },
+        None => SplitTarget::Session(session_id),
+    })
+}
+
+/// Names and values written as `name=value` pairs separated by `;`.
+fn pairs(text: &str) -> Outcome<Vec<(String, String)>> {
+    list(text)
+        .map(|pair| {
+            pair.split_once('=')
+                .map(|(name, value)| (name.to_owned(), value.to_owned()))
+                .ok_or_else(|| format!("{pair} is not name=value"))
+        })
+        .collect()
 }
 
 /// Split parts written as `60 feature=KD-1|40 feature=KD-2`.
@@ -635,6 +835,11 @@ fn cell(row: &Row, column: &str) -> Outcome<String> {
 
 fn optional(text: &str) -> Option<&str> {
     Some(text).filter(|text| !text.is_empty())
+}
+
+/// A column that older cases may not have, empty or missing as `None`.
+fn optional_cell<'r>(row: &'r Row, column: &str) -> Option<&'r str> {
+    row.get(column).map(String::as_str).and_then(optional)
 }
 
 /// The items of a `;`-separated list.
@@ -817,7 +1022,22 @@ mod helper_tests {
         let mut some = row;
         some.insert("output".to_owned(), "5".to_owned());
         let counts = message(&some).unwrap().tokens.unwrap();
-        assert_eq!(counts.input, 0);
-        assert_eq!(counts.output, 5);
+        assert_eq!(counts.get(&TokenKind::INPUT), 0);
+        assert_eq!(counts.get(&TokenKind::OUTPUT), 5);
+        some.insert("kinds".to_owned(), "reasoning=7".to_owned());
+        some.insert("resource".to_owned(), "organization.id=org-1".to_owned());
+        some.insert("provider".to_owned(), String::new());
+        let more = message(&some).unwrap();
+        assert_eq!(
+            more.tokens
+                .unwrap()
+                .get(&TokenKind::new("reasoning").unwrap()),
+            7
+        );
+        assert_eq!(
+            more.signals.resource.get("organization.id").unwrap(),
+            "org-1"
+        );
+        assert_eq!(more.model, ModelRef::unreported("claude-sonnet-4-5"));
     }
 }

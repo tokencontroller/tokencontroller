@@ -59,17 +59,19 @@ fn visible(fold: &Fold, person: &TagValue, event: &tokencontroller_core::Event) 
                     })
                     .any(|line| access::can_view(fold, person, &line.tags))
         }
-        Record::Split(split) => fold
-            .lines()
-            .iter()
-            .filter(|line| match &split.target {
-                SplitTarget::Session(session) => line.session_id == *session,
-                SplitTarget::Message {
-                    session_id,
-                    message_id,
-                } => line.session_id == *session_id && line.message_id == *message_id,
-            })
-            .any(|line| line.person == *person || access::can_view(fold, person, &line.tags)),
+        Record::Split(tokencontroller_core::Split { target, .. })
+        | Record::ContractAssignment(tokencontroller_core::ContractAssignment { target, .. }) => {
+            fold.lines()
+                .iter()
+                .filter(|line| match target {
+                    SplitTarget::Session(session) => line.session_id == *session,
+                    SplitTarget::Message {
+                        session_id,
+                        message_id,
+                    } => line.session_id == *session_id && line.message_id == *message_id,
+                })
+                .any(|line| line.person == *person || access::can_view(fold, person, &line.tags))
+        }
         Record::Estimate(estimate) => {
             fold.can(person, Capability::View, &Filter(estimate.tags.clone()))
         }
@@ -163,9 +165,10 @@ fn reversal_needs(
                 line.session_id == message.session_id && line.message_id == message.message_id
             }),
         ),
-        Record::Split(split) => (
+        Record::Split(tokencontroller_core::Split { target, .. })
+        | Record::ContractAssignment(tokencontroller_core::ContractAssignment { target, .. }) => (
             Capability::Assign,
-            line_filters(&|line| match &split.target {
+            line_filters(&|line| match target {
                 SplitTarget::Session(session) => line.session_id == *session,
                 SplitTarget::Message {
                     session_id,

@@ -3534,7 +3534,7 @@ async fn an_output_row_prices_what_was_unknown(pool: PgPool) {
 }
 
 #[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
-async fn a_price_row_needs_a_known_kind_and_a_price(pool: PgPool) {
+async fn a_price_row_needs_a_well_formed_kind_and_a_price(pool: PgPool) {
     let k = Kestrel::load(&pool).await.unwrap();
     let result: TestResult<()> = async {
         let answer = k
@@ -3542,7 +3542,7 @@ async fn a_price_row_needs_a_known_kind_and_a_price(pool: PgPool) {
                 &k.nadia,
                 "/price-table/rows",
                 json!({
-                    "provider": "anthropic", "model": seed::MODEL, "kind": "thinking",
+                    "provider": "anthropic", "model": seed::MODEL, "kind": "Thinking time",
                     "price_per_million": "5", "valid_from": "2026-03-15"
                 }),
             )

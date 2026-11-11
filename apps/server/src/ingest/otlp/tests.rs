@@ -472,12 +472,7 @@ fn claude_code_sonnet_call() -> TelemetryMessage {
         message_id: "req_011CXa8bnL9xkqW5tHzP3mYe".to_owned(),
         model: "claude-sonnet-5".to_owned(),
         occurred_at: datetime!(2026-10-05 09:14:03.512 UTC),
-        tokens: TokenCounts {
-            input: 1204,
-            output: 1873,
-            cache_write: 3170,
-            cache_read: 48211,
-        },
+        tokens: TokenCounts::common(1204, 1873, 3170, 48211),
         reported_cost: Some(usd(42_391_500)),
         person_email: Some("ana.silva@acme.example".to_owned()),
         person_account_id: Some("a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d".to_owned()),
@@ -517,12 +512,7 @@ fn claude_code_haiku_call() -> TelemetryMessage {
         message_id: "otel:9461e8185ede62e0ea197cfe723b1d02".to_owned(),
         model: "claude-haiku-4-5".to_owned(),
         occurred_at: datetime!(2026-10-05 09:14:05.020 UTC),
-        tokens: TokenCounts {
-            input: 312,
-            output: 96,
-            cache_write: 0,
-            cache_read: 0,
-        },
+        tokens: TokenCounts::common(312, 96, 0, 0),
         reported_cost: Some(usd(792_000)),
         person_email: Some("ana.silva@acme.example".to_owned()),
         person_account_id: Some("a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d".to_owned()),
@@ -607,12 +597,7 @@ fn claude_code_from_the_desktop_app_and_without_session_ids() {
     assert!(found[1].1.starts_with("otel:"));
     assert_eq!(
         extracted.messages[0].tokens,
-        TokenCounts {
-            input: 10,
-            output: 20,
-            cache_write: 0,
-            cache_read: 0
-        }
+        TokenCounts::common(10, 20, 0, 0)
     );
     assert_eq!(
         extracted.messages[0].attributes,
@@ -662,23 +647,13 @@ fn codex_cli_calls() -> [TelemetryMessage; 2] {
         message(
             "otel:14e75c2e78e64804ccbaa3cabd9643e4",
             datetime!(2026-10-05 10:02:11.348 UTC),
-            TokenCounts {
-                input: 3000,
-                output: 950,
-                cache_write: 0,
-                cache_read: 15000,
-            },
+            TokenCounts::common(3000, 950, 0, 15000),
             &first,
         ),
         message(
             "otel:b495861eba362a45069666d4c9c7b607",
             datetime!(2026-10-05 10:02:19.901 UTC),
-            TokenCounts {
-                input: 1290,
-                output: 312,
-                cache_write: 0,
-                cache_read: 17920,
-            },
+            TokenCounts::common(1290, 312, 0, 17920),
             &resource,
         ),
     ]
@@ -718,15 +693,7 @@ fn codex_cli_input_counts_include_cache_reads_and_writes() {
     );
     let extracted = extract_from_logs(&through_protobuf_logs(&request).unwrap());
     let message = &extracted.messages[0];
-    assert_eq!(
-        message.tokens,
-        TokenCounts {
-            input: 1000,
-            output: 70,
-            cache_write: 1000,
-            cache_read: 3000
-        }
-    );
+    assert_eq!(message.tokens, TokenCounts::common(1000, 70, 1000, 3000));
     assert_eq!(message.occurred_at, datetime!(2026-10-05 10:02:11.348 UTC));
     assert_eq!(message.attributes, tags(&[("service.name", "codex-tui")]));
 }
@@ -835,12 +802,7 @@ fn gemini_cli_api_responses_become_messages() {
         model: "gemini-2.5-pro".to_owned(),
         occurred_at: datetime!(2026-10-05 11:30:00.250 UTC),
         // The prompt includes the cached content; thoughts are output.
-        tokens: TokenCounts {
-            input: 3000,
-            output: 800,
-            cache_write: 0,
-            cache_read: 6000,
-        },
+        tokens: TokenCounts::common(3000, 800, 0, 6000),
         reported_cost: None,
         person_email: Some("kim.park@acme.example".to_owned()),
         person_account_id: None,
@@ -916,12 +878,7 @@ fn copilot_cli_calls() -> [TelemetryMessage; 2] {
             "msg_01Hc7TqgKz3nWb5YxPr2VdLm",
             "claude-sonnet-5-20260901",
             datetime!(2026-10-05 13:05:07.777 UTC),
-            TokenCounts {
-                input: 410,
-                output: 1408,
-                cache_write: 3900,
-                cache_read: 48000,
-            },
+            TokenCounts::common(410, 1408, 3900, 48000),
             &[
                 ("gen_ai.provider.name", "github"),
                 ("gen_ai.request.stream", "true"),
@@ -938,12 +895,7 @@ fn copilot_cli_calls() -> [TelemetryMessage; 2] {
             "otel:dc279ba35342a57cf4b9b94937d64c88",
             "claude-sonnet-5",
             datetime!(2026-10-05 13:05:11.250 UTC),
-            TokenCounts {
-                input: 1200,
-                output: 340,
-                cache_write: 0,
-                cache_read: 0,
-            },
+            TokenCounts::common(1200, 340, 0, 0),
             &[],
         ),
     ]
@@ -959,12 +911,7 @@ fn copilot_cli_chat_spans_become_messages() {
         message_id: "otel:c48d506110bf2edffa3a4aca0456f1af".to_owned(),
         model: "gpt-5-mini".to_owned(),
         occurred_at: datetime!(2026-10-05 13:05:13 UTC),
-        tokens: TokenCounts {
-            input: 900,
-            output: 40,
-            cache_write: 0,
-            cache_read: 0,
-        },
+        tokens: TokenCounts::common(900, 40, 0, 0),
         ..second.clone()
     };
     assert_eq!(extracted.messages, [first, second, summarize]);
@@ -1017,23 +964,13 @@ fn copilot_cli_cache_counts_follow_the_genai_conventions() {
     let tokens: Vec<TokenCounts> = extracted
         .messages
         .iter()
-        .map(|message| message.tokens)
+        .map(|message| message.tokens.clone())
         .collect();
     assert_eq!(
         tokens,
         [
-            TokenCounts {
-                input: 100,
-                output: 5,
-                cache_write: 300,
-                cache_read: 600
-            },
-            TokenCounts {
-                input: 12,
-                output: 5,
-                cache_write: 0,
-                cache_read: 40_000
-            },
+            TokenCounts::common(100, 5, 300, 600),
+            TokenCounts::common(12, 5, 0, 40_000),
         ]
     );
     assert_eq!(extracted.ignored, 1);
@@ -1159,12 +1096,7 @@ fn cursor_api_requests_become_messages() {
         message_id: "customer-telemetry:v1:7f3a9c21".to_owned(),
         model: "claude-sonnet-5".to_owned(),
         occurred_at: datetime!(2026-10-05 12:45:30.125 UTC),
-        tokens: TokenCounts {
-            input: 2400,
-            output: 610,
-            cache_write: 1800,
-            cache_read: 30_500,
-        },
+        tokens: TokenCounts::common(2400, 610, 1800, 30_500),
         reported_cost: None,
         person_email: Some("lena.fischer@acme.example".to_owned()),
         person_account_id: Some("user_2Wm8Qd7Lk3".to_owned()),
@@ -1187,12 +1119,7 @@ fn cursor_api_requests_become_messages() {
         message_id: "customer-telemetry:v1:5e1f".to_owned(),
         model: "unknown".to_owned(),
         occurred_at: datetime!(2026-10-05 12:45:30.125 UTC),
-        tokens: TokenCounts {
-            input: 5000,
-            output: 200,
-            cache_write: 0,
-            cache_read: 0,
-        },
+        tokens: TokenCounts::common(5000, 200, 0, 0),
         reported_cost: None,
         person_email: None,
         person_account_id: None,
@@ -1394,7 +1321,7 @@ fn unreadable_token_counts_are_ignored() {
     let inputs: Vec<u64> = extracted
         .messages
         .iter()
-        .map(|message| message.tokens.input)
+        .map(|message| message.tokens.get(&tokencontroller_core::TokenKind::INPUT))
         .collect();
     assert_eq!(inputs, [7, 8]);
     assert_eq!(extracted.ignored, 5);
@@ -1502,7 +1429,13 @@ fn a_model_call_loses_only_what_carries_text() {
         (1, 0)
     );
     let message = &extracted.messages[0];
-    assert_eq!((message.tokens.input, message.tokens.output), (10, 20));
+    assert_eq!(
+        (
+            message.tokens.get(&tokencontroller_core::TokenKind::INPUT),
+            message.tokens.get(&tokencontroller_core::TokenKind::OUTPUT)
+        ),
+        (10, 20)
+    );
     assert_eq!(
         message.attributes,
         tags(&[("service.name", "claude-code"), ("team", "web")])
@@ -1605,7 +1538,7 @@ fn recorded_agent_bodies_read_as_their_agent_harness() {
                         "{name}: a call without a session"
                     );
                     assert!(
-                        message.tokens.output > 0,
+                        message.tokens.get(&tokencontroller_core::TokenKind::OUTPUT) > 0,
                         "{name}: a call without output tokens"
                     );
                 }

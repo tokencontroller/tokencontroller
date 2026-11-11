@@ -117,12 +117,12 @@ fn claude_code(names: &[&str], fields: &mut Fields<'_>) -> Option<Call> {
     {
         return None;
     }
-    let tokens = TokenCounts {
-        input: required(fields, "input_tokens")?,
-        output: required(fields, "output_tokens")?,
-        cache_write: optional(fields, &["cache_creation_tokens"])?,
-        cache_read: optional(fields, &["cache_read_tokens"])?,
-    };
+    let tokens = TokenCounts::common(
+        required(fields, "input_tokens")?,
+        required(fields, "output_tokens")?,
+        optional(fields, &["cache_creation_tokens"])?,
+        optional(fields, &["cache_read_tokens"])?,
+    );
     let reported_cost = fields
         .take_dollars("cost_usd")
         .or_else(|| fields.take_micro_dollars("cost_usd_micros"));
@@ -155,12 +155,12 @@ fn codex_cli(names: &[&str], fields: &mut Fields<'_>) -> Option<Call> {
         session_id: fields.take_text(&["conversation.id"]),
         message_id: None,
         model: model(fields, &["model"]),
-        tokens: TokenCounts {
-            input: uncached(input, cache_read.checked_add(cache_write)?),
+        tokens: TokenCounts::common(
+            uncached(input, cache_read.checked_add(cache_write)?),
             output,
             cache_write,
             cache_read,
-        },
+        ),
         reported_cost: None,
     })
 }
@@ -183,12 +183,12 @@ fn gemini_cli(names: &[&str], fields: &mut Fields<'_>) -> Option<Call> {
         session_id: fields.take_text(&["session.id"]),
         message_id: None,
         model: model(fields, &["model"]),
-        tokens: TokenCounts {
-            input: uncached(prompt, cached).checked_add(tool_use)?,
-            output: candidates.checked_add(thoughts)?,
-            cache_write: 0,
-            cache_read: cached,
-        },
+        tokens: TokenCounts::common(
+            uncached(prompt, cached).checked_add(tool_use)?,
+            candidates.checked_add(thoughts)?,
+            0,
+            cached,
+        ),
         reported_cost: None,
     })
 }
@@ -225,12 +225,12 @@ fn copilot_cli(fields: &mut Fields<'_>) -> Option<Call> {
         session_id: fields.take_text(&["gen_ai.conversation.id", "session.id"]),
         message_id: fields.take_text(&["gen_ai.response.id"]),
         model,
-        tokens: TokenCounts {
-            input: uncached(input, cache_read.checked_add(cache_write)?),
+        tokens: TokenCounts::common(
+            uncached(input, cache_read.checked_add(cache_write)?),
             output,
             cache_write,
             cache_read,
-        },
+        ),
         reported_cost: None,
     })
 }
@@ -242,12 +242,12 @@ fn cursor(names: &[&str], fields: &mut Fields<'_>) -> Option<Call> {
     if !names.contains(&"cursor.api.request") {
         return None;
     }
-    let tokens = TokenCounts {
-        input: required(fields, "cursor.api.request.input_tokens")?,
-        output: required(fields, "cursor.api.request.output_tokens")?,
-        cache_write: optional(fields, &["cursor.api.request.cache_creation_tokens"])?,
-        cache_read: optional(fields, &["cursor.api.request.cache_read_tokens"])?,
-    };
+    let tokens = TokenCounts::common(
+        required(fields, "cursor.api.request.input_tokens")?,
+        required(fields, "cursor.api.request.output_tokens")?,
+        optional(fields, &["cursor.api.request.cache_creation_tokens"])?,
+        optional(fields, &["cursor.api.request.cache_read_tokens"])?,
+    );
     Some(Call {
         session_id: fields.take_text(&["cursor.conversation.id"]),
         message_id: fields.take_text(&["cursor.event.id"]),

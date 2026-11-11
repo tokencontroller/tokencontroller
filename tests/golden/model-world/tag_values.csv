@@ -1,0 +1,4 @@
+id,recorded_at,name,key,title,source_status,defaults
+v1,2026-01-01T00:00:00Z,project,shop,Shop,,
+v2,2026-01-01T00:00:00Z,project,bot,Review bot,,contract=anthropic-api
+v3,2026-01-01T00:00:00Z,feature,KD-1,Login,open,project=shop
