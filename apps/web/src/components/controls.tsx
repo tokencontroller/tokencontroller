@@ -66,5 +66,5 @@ export function FilterField({ value, onChange, label = "Filter" }: { value: Filt
 
 /** "As of …" under a figure, as every report shows it. */
 export function AsOf({ at }: { at: string }) {
-  return <span className="text-xs text-muted">as of {formatDateTime(at)}</span>;
+  return <span className="text-caption text-muted">as of {formatDateTime(at)}</span>;
 }

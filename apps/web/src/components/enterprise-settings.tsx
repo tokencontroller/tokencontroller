@@ -48,8 +48,8 @@ const standingText: Record<Standing, { label: string; tone: "posted" | "accent" 
 function Row({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="flex flex-col gap-1 border-b border-line py-3 last:border-0 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
-      <div className="text-sm font-medium">{label}</div>
-      <div className="text-sm sm:text-right">{children}</div>
+      <div className="text-body font-medium">{label}</div>
+      <div className="text-body sm:text-right">{children}</div>
     </div>
   );
 }
@@ -59,7 +59,7 @@ function LicenseFacts({ license }: { license: License }) {
   return (
     <>
       {license.problem ? <Note tone="exception">The license key was refused: {license.problem}</Note> : null}
-      <div className="rounded-lg border border-line px-4">
+      <div>
         <Row label="License">{standing ? <Badge tone={standing.tone}>{standing.label}</Badge> : <Badge tone="exception">No license key</Badge>}</Row>
         {license.organization ? <Row label="Licensed to">{license.organization}</Row> : null}
         {license.support_ends ? <Row label="Support until">{formatDate(license.support_ends)}</Row> : null}
@@ -74,11 +74,11 @@ function CopyField({ label, value, hint }: { label: string; value: string; hint:
     <div>
       <div className="flex items-end gap-2">
         <Field label={label} className="min-w-0 flex-1">
-          <Input readOnly value={value} className="font-mono text-[13px]" onFocus={(e) => e.target.select()} />
+          <Input readOnly value={value} className="font-mono text-small" onFocus={(e) => e.target.select()} />
         </Field>
         <Button onClick={() => void navigator.clipboard.writeText(value).then(() => notify("Copied"))}>Copy</Button>
       </div>
-      <p className="mt-1 text-xs text-muted">{hint}</p>
+      <p className="mt-1 text-caption text-muted">{hint}</p>
     </div>
   );
 }
@@ -186,7 +186,7 @@ function Scim() {
         </Button>
       </div>
       <Dialog open={Boolean(secret)} onOpenChange={() => setSecret(null)} title="Copy your SCIM token now" description="It is shown once. Paste it into your identity provider with the SCIM URL.">
-        <code className="block break-all rounded-md bg-sand p-3 font-mono text-[13px]" data-testid="scim-token">
+        <code className="block break-all rounded-md bg-hover p-3 font-mono text-small ring-1 ring-inset ring-line" data-testid="scim-token">
           {secret}
         </code>
         <div className="mt-4 flex justify-end gap-2">
@@ -283,7 +283,7 @@ function CloudConnectors() {
   ];
   return (
     <>
-      <p className="mb-3 text-sm">
+      <p className="mb-3 text-body">
         {set.length ? <>Set up: {set.map((c) => cloudName[c]).join(", ")}. Each pulls the cloud's bill every day.</> : <>No cloud bill connector is set up. They come with the Enterprise plan on request.</>}
       </p>
       {runs.length ? <DataTable stack columns={columns} rows={runs} rowKey={(r) => `${r.provider}${r.started_at}`} csvName="cloud-bill-pulls.csv" caption="Cloud bill pulls" /> : null}
@@ -303,16 +303,16 @@ export function EnterpriseSettings(): ReactNode {
       </Section>
       {on ? (
         <>
-          <Section title="Sign-in" lead="Members sign in with your identity provider, such as Entra ID, Okta or Google Workspace. The magic link keeps working.">
+          <Section title="Sign-in" hint="Members sign in with your identity provider, such as Entra ID, Okta or Google Workspace. The magic link keeps working.">
             <SignInProvider />
           </Section>
-          <Section title="SCIM" lead="People you add or remove at your identity provider are added or removed as members.">
+          <Section title="SCIM" hint="People you add or remove at your identity provider are added or removed as members.">
             <Scim />
           </Section>
-          <Section title="Audit log" lead="Who changed what, newest first.">
+          <Section title="Audit log" hint="Who changed what, newest first.">
             <AuditLog />
           </Section>
-          <Section title="Cloud bill connectors" lead="Bills from Bedrock, Vertex and Foundry, pulled from the cloud.">
+          <Section title="Cloud bill connectors" hint="Bills from Bedrock, Vertex and Foundry, pulled from the cloud.">
             <CloudConnectors />
           </Section>
         </>

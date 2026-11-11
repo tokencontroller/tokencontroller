@@ -1,7 +1,7 @@
 import type { Money } from "@/api/contract";
 import { formatMoney, formatShare } from "@/lib/money";
 import { Popover } from "@base-ui/react/popover";
-import { useEffect, type ReactNode } from "react";
+import { Children, useEffect, type ReactNode } from "react";
 import { additions } from "@/lib/additions";
 
 /** An amount, or a share of a total in basis points. `null` shows why there is none. */
@@ -75,11 +75,14 @@ export function Section({
   children,
   lead,
   hint,
+  badge,
   flush = false,
   footer,
 }: {
   id?: string;
   title: string;
+  /** A short status next to the title, such as "built in" or "not connected". */
+  badge?: ReactNode;
   actions?: ReactNode;
   children: ReactNode;
   lead?: ReactNode;
@@ -95,6 +98,7 @@ export function Section({
           <div className="flex items-center gap-1.5">
             <h2 className="text-heading font-semibold text-ink">{title}</h2>
             {hint ? <Hint label={`About ${title}`}>{hint}</Hint> : null}
+            {badge ? <span className="ml-1">{badge}</span> : null}
           </div>
           {lead ? <p className="mt-0.5 text-small text-muted">{lead}</p> : null}
         </div>
@@ -130,8 +134,11 @@ export function Kpi({ label, value, note, tone, hint, hero = false }: { label: s
 
 /** Figures side by side in one card, split by hairlines. */
 export function KpiRow({ children }: { children: ReactNode }) {
+  // Two to four figures share the row; the first, the hero, is wider.
+  const count = Children.toArray(children).filter(Boolean).length;
+  const columns = count <= 2 ? "lg:grid-cols-[1.5fr_1fr]" : count === 3 ? "lg:grid-cols-[1.5fr_1fr_1fr]" : "lg:grid-cols-[1.5fr_1fr_1fr_1fr]";
   return (
-    <div className="mb-6 grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-line bg-line shadow-card lg:grid-cols-[1.5fr_1fr_1fr_1fr] max-sm:-mx-4 max-sm:rounded-none max-sm:border-x-0 [&>*]:bg-surface max-lg:[&>*:nth-child(4):last-child]:col-span-2">
+    <div className={`mb-6 grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-line bg-line shadow-card ${columns} max-sm:-mx-4 max-sm:rounded-none max-sm:border-x-0 [&>*]:bg-surface max-lg:[&>*:nth-child(4):last-child]:col-span-2`}>
       {children}
     </div>
   );
@@ -156,7 +163,7 @@ export function ShareBar({ parts, label }: { parts: { label: string; share: numb
           <span key={part.label} style={{ width: `${part.share / 100}%`, background: part.color }} />
         ))}
       </div>
-      <ul className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted">
+      <ul className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-caption text-muted">
         {parts.map((part) => (
           <li key={part.label} className="flex items-center gap-1.5">
             <span aria-hidden="true" className="size-2 rounded-full" style={{ background: part.color }} />
@@ -204,7 +211,7 @@ export function ErrorBox({ error }: { error: unknown }) {
     additions.onErrorShown(message);
   }, [message]);
   return (
-    <div role="alert" className="rounded-lg border border-exception/30 bg-exception-tint px-4 py-3 text-sm text-exception">
+    <div role="alert" className="rounded-lg border border-exception/30 bg-exception-tint px-4 py-3 text-body text-exception">
       {message}
     </div>
   );
@@ -214,7 +221,7 @@ export function Note({ children, tone = "accent" }: { children: ReactNode; tone?
   const styles = { accent: "bg-accent-tint text-ink", exception: "bg-exception-tint text-ink", posted: "bg-posted-tint text-ink" };
   const bar = { accent: "bg-accent", exception: "bg-exception", posted: "bg-posted" };
   return (
-    <div className={`relative mb-6 overflow-hidden rounded-md py-2.5 pl-4 pr-3 text-sm ${styles[tone]}`}>
+    <div className={`relative mb-6 overflow-hidden rounded-md py-2.5 pl-4 pr-3 text-body ${styles[tone]}`}>
       <span aria-hidden="true" className={`absolute inset-y-0 left-0 w-1 ${bar[tone]}`} />
       {children}
     </div>

@@ -7,7 +7,7 @@ export function Checkbox({ checked, onCheckedChange, label, indeterminate = fals
       indeterminate={indeterminate}
       onCheckedChange={onCheckedChange}
       aria-label={label}
-      className="flex size-4 shrink-0 items-center justify-center rounded-sm border border-line-strong bg-page data-[checked]:border-ink data-[checked]:bg-ink data-[indeterminate]:border-ink data-[indeterminate]:bg-ink"
+      className="flex size-4 shrink-0 items-center justify-center rounded-sm border border-line-strong bg-surface data-[checked]:border-ink data-[checked]:bg-ink data-[indeterminate]:border-ink data-[indeterminate]:bg-ink"
     >
       <BaseCheckbox.Indicator className="text-on-ink">
         {indeterminate ? (
@@ -23,7 +23,7 @@ export function Checkbox({ checked, onCheckedChange, label, indeterminate = fals
 /** A checkbox with its label shown next to it. */
 export function CheckField({ checked, onCheckedChange, label }: { checked: boolean; onCheckedChange: (checked: boolean) => void; label: string }) {
   return (
-    <span className="inline-flex items-center gap-2 text-sm">
+    <span className="inline-flex items-center gap-2 text-body">
       <Checkbox checked={checked} onCheckedChange={onCheckedChange} label={label} />
       <span aria-hidden="true">{label}</span>
     </span>

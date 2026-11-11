@@ -10,7 +10,7 @@ export function Tabs({ value, onValueChange, tabs, children }: { value: string; 
             <BaseTabs.Tab
               key={tab.value}
               value={tab.value}
-              className="relative -mb-px whitespace-nowrap border-b-2 border-transparent px-3 py-2 text-sm font-medium text-muted hover:text-ink data-[active]:border-ink data-[active]:text-ink"
+              className="relative -mb-px whitespace-nowrap border-b-2 border-transparent px-3 py-2 text-body font-medium text-muted hover:text-ink data-[active]:border-ink data-[active]:text-ink"
             >
               {tab.label}
             </BaseTabs.Tab>

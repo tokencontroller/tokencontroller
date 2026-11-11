@@ -12,7 +12,7 @@ function Toasts() {
   return list.map((toast) => (
     <Toast.Root key={toast.id} toast={toast} className="rounded-md bg-ink px-4 py-3 text-on-ink shadow-pop data-[ending-style]:opacity-0 data-[starting-style]:translate-y-2 data-[starting-style]:opacity-0 transition-all">
       <Toast.Content>
-        <Toast.Title className="text-sm font-medium" />
+        <Toast.Title className="text-body font-medium" />
         <Toast.Description className="mt-0.5 text-[13px] opacity-80" />
       </Toast.Content>
     </Toast.Root>

@@ -26,10 +26,10 @@ export function Dialog({
           >
             <div className="mb-4 flex items-start justify-between gap-4">
               <div>
-                <BaseDialog.Title className="text-base font-semibold">{title}</BaseDialog.Title>
-                {description ? <BaseDialog.Description className="mt-1 text-sm text-muted">{description}</BaseDialog.Description> : null}
+                <BaseDialog.Title className="text-heading font-semibold">{title}</BaseDialog.Title>
+                {description ? <BaseDialog.Description className="mt-1 text-small text-muted">{description}</BaseDialog.Description> : null}
               </div>
-              <BaseDialog.Close aria-label="Close" className="-mr-1 -mt-1 rounded-md p-1.5 text-muted hover:bg-sand hover:text-ink">
+              <BaseDialog.Close aria-label="Close" className="-mr-1 -mt-1 rounded-md p-1.5 text-muted hover:bg-hover hover:text-ink">
                 <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></svg>
               </BaseDialog.Close>
             </div>
