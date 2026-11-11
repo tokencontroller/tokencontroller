@@ -63,29 +63,29 @@ export function DataTable<Row>({
         head: "max-sm:hidden",
         body: "max-sm:block",
         row: "max-sm:block max-sm:py-2",
-        cell: "max-sm:flex max-sm:px-4 max-sm:items-start max-sm:justify-between max-sm:gap-4 max-sm:py-1 max-sm:text-right max-sm:before:shrink-0 max-sm:before:pt-0.5 max-sm:before:text-left max-sm:before:font-mono max-sm:before:text-[11px] max-sm:before:uppercase max-sm:before:tracking-wide max-sm:before:text-muted max-sm:before:content-[attr(data-label)]",
+        cell: "max-sm:flex max-sm:px-4 max-sm:items-start max-sm:justify-between max-sm:gap-4 max-sm:py-1 max-sm:text-right max-sm:before:shrink-0 max-sm:before:pt-0.5 max-sm:before:text-left max-sm:before:text-caption max-sm:before:font-medium max-sm:before:text-muted max-sm:before:content-[attr(data-label)]",
       }
     : { table: "", head: "", body: "", row: "", cell: "" };
   return (
     <div>
       {csvName ? (
-        <div className="mb-2 flex justify-end">
+        <div className="tc-csv mb-2 flex justify-end">
           <Button size="sm" variant="ghost" onClick={download} disabled={!rows.length}>
             <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2v8m0 0L5 7m3 3l3-3M3 13h10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
             Download CSV
           </Button>
         </div>
       ) : null}
-      <div className="-mx-4 overflow-x-auto sm:mx-0">
+      <div className="tc-table-wrap -mx-4 overflow-x-auto sm:mx-0">
         <table className={`w-full min-w-full border-collapse text-sm ${st.table}`}>
           {caption ? <caption className="sr-only">{caption}</caption> : null}
           <thead className={st.head}>
-            <tr className="border-b border-ink">
+            <tr className="border-b border-line">
               {visible.map((c) => (
                 <th
                   key={c.key}
                   scope="col"
-                  className={`whitespace-nowrap px-2 py-2 font-mono text-[11px] font-medium uppercase tracking-wide text-muted first:pl-4 last:pr-4 sm:first:pl-2 sm:last:pr-2 ${c.align === "right" ? "text-right" : "text-left"} ${hide(c)} ${c.className ?? ""}`}
+                  className={`h-9 whitespace-nowrap bg-hover/70 px-3 text-caption font-medium text-muted first:pl-4 last:pr-4 sm:first:pl-3 sm:last:pr-3 ${c.align === "right" ? "text-right" : "text-left"} ${hide(c)} ${c.className ?? ""}`}
                 >
                   {c.header}
                 </th>
@@ -104,13 +104,13 @@ export function DataTable<Row>({
                 <tr
                   key={rowKey(row)}
                   onClick={onRowClick ? () => onRowClick(row) : undefined}
-                  className={`border-b border-line align-top ${st.row} ${onRowClick ? "cursor-pointer hover:bg-sheet" : ""} ${rowClassName?.(row) ?? ""}`}
+                  className={`border-b border-line last:border-b-0 align-middle ${st.row} ${onRowClick ? "cursor-pointer hover:bg-hover" : ""} ${rowClassName?.(row) ?? ""}`}
                 >
                   {visible.map((c) => (
                     <td
                       key={c.key}
                       data-label={c.header}
-                      className={`${c.wide ? "" : st.cell} px-2 py-2.5 first:pl-4 last:pr-4 sm:first:pl-2 sm:last:pr-2 ${c.align === "right" ? "num whitespace-nowrap" : ""} ${hide(c)} ${c.className ?? ""}`}
+                      className={`${c.wide ? "" : st.cell} ${stack ? "max-sm:empty:hidden" : ""} px-3 py-3 text-body first:pl-4 last:pr-4 sm:first:pl-3 sm:last:pr-3 ${c.align === "right" ? "num whitespace-nowrap" : ""} ${hide(c)} ${c.className ?? ""}`}
                     >
                       {c.cell(row)}
                     </td>
@@ -120,13 +120,13 @@ export function DataTable<Row>({
             )}
           </tbody>
           {totals && rows.length ? (
-            <tfoot className={`border-t-[3px] border-double border-ink font-medium ${st.body}`}>
-              <tr className={st.row}>
+            <tfoot className={`border-t border-line-strong font-medium ${st.body}`}>
+              <tr className={stack ? "max-sm:flex max-sm:items-baseline max-sm:justify-between max-sm:px-4 max-sm:py-3" : ""}>
                 {visible.map((c, i) => {
                   // Stacked on a phone, a total row shows only the cells that have a total.
                   const empty = stack && i !== 0 && totals.values[c.key] === undefined;
                   return (
-                    <td key={c.key} data-label={i === 0 ? "" : c.header} className={`${c.wide ? "" : st.cell} ${empty ? "max-sm:hidden" : ""} whitespace-nowrap px-2 py-2.5 first:pl-4 last:pr-4 sm:first:pl-2 sm:last:pr-2 ${c.align === "right" ? "num" : ""} ${hide(c)}`}>
+                    <td key={c.key} className={`${empty ? "max-sm:hidden" : ""} ${stack ? "max-sm:!p-0" : ""} whitespace-nowrap px-3 py-3 first:pl-4 last:pr-4 sm:first:pl-3 sm:last:pr-3 ${c.align === "right" ? "num" : ""} ${hide(c)}`}>
                       {i === 0 ? totals.label : totals.values[c.key]}
                     </td>
                   );

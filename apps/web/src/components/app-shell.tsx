@@ -78,14 +78,14 @@ function Nav({ onNavigate, onPanel }: { onNavigate?: () => void; onPanel: (panel
   // Help is the last of the app's groups; only a build's entries fill it.
   const menu = joinMenu([...groups, { title: "Help", items: [] }], useAddedMenu());
   return (
-    <nav aria-label="Main" className="flex flex-col gap-5">
+    <nav aria-label="Main" className="flex flex-col gap-4">
       {menu.map((group) => {
         const added = group.added.map((entry) => <AddedItem key={entry.label} entry={entry} path={path} onNavigate={onNavigate} onPanel={onPanel} />);
         const items = group.items.filter((item) => hasRole(me.person, item.role));
         if (!items.length && !added.length) return null;
         return (
           <div key={group.title || "home"}>
-            {group.title ? <div className="mb-1 px-2 text-xs font-medium text-muted">{group.title}</div> : null}
+            {group.title ? <div className="mb-1 px-2 text-caption font-medium text-muted">{group.title}</div> : null}
             <ul className="flex flex-col gap-px">
               {items.map((item) => {
                 const active = item.to === "/" ? path === "/" : path.startsWith(item.to);
@@ -95,7 +95,7 @@ function Nav({ onNavigate, onPanel }: { onNavigate?: () => void; onPanel: (panel
                       to={item.to}
                       onClick={onNavigate}
                       aria-current={active ? "page" : undefined}
-                      className={`block rounded-md px-2 py-1.5 text-sm ${active ? "bg-accent-tint font-medium text-ink" : "text-ink-soft hover:bg-sand hover:text-ink"}`}
+                      className={`flex h-8 items-center rounded-md px-2 text-body ${active ? "bg-accent-tint font-medium text-ink" : "text-ink-soft hover:bg-hover hover:text-ink"}`}
                     >
                       {item.label}
                     </Link>
@@ -112,7 +112,7 @@ function Nav({ onNavigate, onPanel }: { onNavigate?: () => void; onPanel: (panel
 }
 
 const itemClass = (active: boolean) =>
-  `flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-sm ${active ? "bg-accent-tint font-medium text-ink" : "text-ink-soft hover:bg-sand hover:text-ink"}`;
+  `flex h-8 w-full items-center justify-between gap-2 rounded-md px-2 text-left text-body ${active ? "bg-accent-tint font-medium text-ink" : "text-ink-soft hover:bg-hover hover:text-ink"}`;
 
 /** One of the build's menu entries: a page, or a button that opens its dialog. */
 function AddedItem({ entry, path, onNavigate, onPanel }: { entry: MenuEntry; path: string; onNavigate?: (() => void) | undefined; onPanel: (panel: Panel) => void }) {
@@ -167,8 +167,8 @@ export function AppShell({ children }: { children: ReactNode }): ReactNode {
   const [panel, setPanel] = useState<Panel | null>(null);
   const added = useAddedMenu();
   return (
-    <div className="min-h-dvh lg:grid lg:grid-cols-[240px_minmax(0,1fr)]">
-      <aside className="sticky top-0 hidden h-dvh flex-col gap-6 overflow-y-auto border-r border-line bg-sheet px-3 py-5 lg:flex">
+    <div className="min-h-dvh bg-canvas lg:grid lg:grid-cols-[240px_minmax(0,1fr)]">
+      <aside className="sticky top-0 hidden h-dvh flex-col gap-6 overflow-y-auto border-r border-line bg-surface px-3 py-5 lg:flex">
         <div className="px-2">
           <Logo />
           <div className="mt-1 truncate text-xs text-muted">{me.organization.name}</div>
@@ -179,7 +179,7 @@ export function AppShell({ children }: { children: ReactNode }): ReactNode {
         <Account />
       </aside>
 
-      <header className="sticky top-0 z-30 flex h-14 items-center justify-between border-b border-line bg-page/95 px-4 backdrop-blur-none lg:hidden">
+      <header className="sticky top-0 z-30 flex h-14 items-center justify-between border-b border-line bg-surface px-4 lg:hidden">
         <Logo />
         <BaseDialog.Root open={open} onOpenChange={setOpen}>
           <BaseDialog.Trigger aria-label="Menu" className="-mr-2 rounded-md p-2 text-ink hover:bg-sand">
@@ -187,7 +187,7 @@ export function AppShell({ children }: { children: ReactNode }): ReactNode {
           </BaseDialog.Trigger>
           <BaseDialog.Portal>
             <BaseDialog.Backdrop className="fixed inset-0 z-40 bg-ink/25" />
-            <BaseDialog.Popup className="fixed inset-y-0 left-0 z-50 flex w-72 max-w-[85vw] flex-col gap-6 overflow-y-auto bg-sheet px-3 py-5 shadow-pop transition-transform data-[ending-style]:-translate-x-full data-[starting-style]:-translate-x-full">
+            <BaseDialog.Popup className="fixed inset-y-0 left-0 z-50 flex w-72 max-w-[85vw] flex-col gap-6 overflow-y-auto bg-surface px-3 py-5 shadow-pop transition-transform data-[ending-style]:-translate-x-full data-[starting-style]:-translate-x-full">
               <BaseDialog.Title className="px-2">
                 <Logo />
                 <span className="mt-1 block truncate text-xs font-normal text-muted">{me.organization.name}</span>
@@ -201,7 +201,7 @@ export function AppShell({ children }: { children: ReactNode }): ReactNode {
         </BaseDialog.Root>
       </header>
 
-      <main className="mx-auto w-full min-w-0 max-w-6xl px-4 py-6 sm:px-6 lg:px-10 lg:py-8">
+      <main className="mx-auto w-full min-w-0 max-w-6xl px-4 py-6 sm:px-6 lg:px-10 lg:py-10">
         <LicenseNotice />
         {children}
       </main>

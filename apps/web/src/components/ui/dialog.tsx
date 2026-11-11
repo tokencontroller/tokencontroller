@@ -22,7 +22,7 @@ export function Dialog({
         <BaseDialog.Backdrop className="fixed inset-0 z-40 bg-ink/25 transition-opacity data-[ending-style]:opacity-0 data-[starting-style]:opacity-0" />
         <BaseDialog.Viewport className="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-6">
           <BaseDialog.Popup
-            className={`max-h-[92dvh] w-full overflow-y-auto rounded-t-lg bg-page p-5 shadow-pop transition-all data-[ending-style]:translate-y-2 data-[ending-style]:opacity-0 data-[starting-style]:translate-y-2 data-[starting-style]:opacity-0 sm:rounded-lg sm:p-6 ${wide ? "sm:max-w-3xl" : "sm:max-w-lg"}`}
+            className={`max-h-[92dvh] w-full overflow-y-auto rounded-t-lg bg-surface p-5 shadow-pop transition-all data-[ending-style]:translate-y-2 data-[ending-style]:opacity-0 data-[starting-style]:translate-y-2 data-[starting-style]:opacity-0 sm:rounded-lg sm:p-6 ${wide ? "sm:max-w-3xl" : "sm:max-w-lg"}`}
           >
             <div className="mb-4 flex items-start justify-between gap-4">
               <div>

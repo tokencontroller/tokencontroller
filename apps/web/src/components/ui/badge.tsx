@@ -4,15 +4,15 @@ import { labelText } from "@/lib/format";
 type Tone = "neutral" | "posted" | "exception" | "accent" | "ink";
 
 const tones: Record<Tone, string> = {
-  neutral: "bg-sand text-ink-soft",
-  posted: "bg-posted-tint text-posted",
-  exception: "bg-exception-tint text-exception",
-  accent: "bg-accent-tint text-accent",
-  ink: "bg-ink text-on-ink",
+  neutral: "bg-sand text-ink-soft ring-line-strong/60",
+  posted: "bg-posted-tint text-posted ring-posted/25",
+  exception: "bg-exception-tint text-exception ring-exception/25",
+  accent: "bg-accent-tint text-accent ring-accent/25",
+  ink: "bg-ink text-on-ink ring-ink",
 };
 
 export function Badge({ tone = "neutral", children }: { tone?: Tone; children: ReactNode }) {
-  return <span className={`inline-flex items-center rounded-sm px-1.5 py-px text-xs font-medium leading-5 whitespace-nowrap ${tones[tone]}`}>{children}</span>;
+  return <span className={`inline-flex items-center rounded-md px-1.5 py-px text-caption font-medium leading-5 whitespace-nowrap ring-1 ring-inset ${tones[tone]}`}>{children}</span>;
 }
 
 const statusTone: Record<string, Tone> = { open: "neutral", submitted: "accent", approved: "posted", rejected: "exception" };

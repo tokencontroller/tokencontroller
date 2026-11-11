@@ -6,14 +6,14 @@ type Size = "sm" | "md";
 
 const variants: Record<Variant, string> = {
   primary: "bg-ink text-on-ink shadow-chip hover:bg-ink-soft",
-  secondary: "bg-page text-ink shadow-raised hover:bg-sheet",
-  ghost: "text-ink-soft hover:bg-sand",
-  danger: "bg-page text-exception shadow-raised hover:bg-exception-tint",
+  secondary: "border border-line-strong bg-surface text-ink shadow-chip hover:bg-hover",
+  ghost: "text-ink-soft hover:bg-hover hover:text-ink",
+  danger: "border border-line-strong bg-surface text-exception shadow-chip hover:bg-exception-tint",
 };
 
 const sizes: Record<Size, string> = {
-  sm: "h-8 px-2.5 text-[13px] gap-1.5",
-  md: "h-9 px-3.5 text-sm gap-2",
+  sm: "h-8 px-3 text-small gap-1.5",
+  md: "h-9 px-4 text-body gap-2",
 };
 
 export function buttonClass(variant: Variant = "secondary", size: Size = "md", extra = ""): string {
