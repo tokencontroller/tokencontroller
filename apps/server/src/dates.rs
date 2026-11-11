@@ -80,6 +80,18 @@ pub fn range(from: Option<&str>, to: Option<&str>) -> Result<DateRange, ApiError
     DateRange::new(from, to).map_err(|error| ApiError::BadRequest(error.to_string()))
 }
 
+/// A date range for a list: a missing `from` is the beginning of time and a
+/// missing `to` its end, so a list without either shows everything.
+///
+/// # Errors
+///
+/// [`ApiError::BadRequest`] when a date is wrong, or `to` is before `from`.
+pub fn range_or_everything(from: Option<&str>, to: Option<&str>) -> Result<DateRange, ApiError> {
+    let from = parse_optional(from)?.unwrap_or(Date::MIN);
+    let to = parse_optional(to)?.unwrap_or(Date::MAX);
+    range_of(from, to)
+}
+
 /// A date range from two dates.
 ///
 /// # Errors
@@ -122,12 +134,6 @@ pub fn end_of(date: Date) -> OffsetDateTime {
     )
 }
 
-/// The whole of time as a range, for lists without `from` and `to`.
-#[must_use]
-pub fn everything() -> DateRange {
-    DateRange::new(Date::MIN, Date::MAX).unwrap_or(DateRange::day(Date::MIN))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -153,7 +159,20 @@ mod tests {
         assert_eq!(march.days(), 31);
         assert!(range(None, Some("2026-03-31")).is_err());
         assert!(range(Some("2026-03-31"), Some("2026-03-01")).is_err());
-        assert!(everything().contains(date!(2026 - 03 - 01)));
+    }
+
+    #[test]
+    fn a_list_without_ends_shows_everything() {
+        let all = range_or_everything(None, None).unwrap();
+        assert!(all.contains(date!(2026 - 03 - 01)));
+        let from_march = range_or_everything(Some("2026-03-01"), None).unwrap();
+        assert!(from_march.contains(date!(2030 - 01 - 01)));
+        assert!(!from_march.contains(date!(2026 - 02 - 28)));
+        let to_march = range_or_everything(None, Some("2026-03-31")).unwrap();
+        assert!(to_march.contains(date!(2020 - 01 - 01)));
+        assert!(!to_march.contains(date!(2026 - 04 - 01)));
+        assert!(range_or_everything(Some("2026-03-31"), Some("2026-03-01")).is_err());
+        assert!(range_or_everything(Some("March"), None).is_err());
     }
 
     #[test]
