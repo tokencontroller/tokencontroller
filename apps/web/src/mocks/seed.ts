@@ -1,6 +1,7 @@
 // The mock service's data: Kestrel Digital, the docs' example organization,
-// with the worked month of the docs (March 2026): one bill of 1,000, four
-// sessions of 950, a plan for Shop and KD-1, and Mara's share of Shop.
+// with the worked month of the docs (March 2026): three contracts and their
+// bills, four sessions of 950 (400 of them on the Claude Team plan), a plan
+// for Shop and KD-1, and Mara's share of Shop.
 // April has a few open sessions to check and submit. The service seeds the
 // same month (apps/server/src/seed).
 
@@ -55,6 +56,27 @@ export interface MockSession {
   messages: MockMessage[];
   /** What rules found on arrival; empty when none matched. */
   ruleTags: Tags;
+  /** The contract a rule found on arrival, if any. */
+  ruleContract?: string;
+}
+
+/** A contract: a value of the tag name `contract` with its terms. */
+export interface MockContract {
+  key: string;
+  title: string | null;
+  provider: string;
+  kind: "metered" | "flat";
+  /** Nanos of US dollars, flat contracts only. */
+  fee: number | null;
+}
+
+/** A contract set by hand on a whole session. */
+export interface MockContractAssignment {
+  id: string;
+  session_id: string;
+  contract: string;
+  recorded_at: string;
+  by: string;
 }
 
 export interface MockSplit {
@@ -97,6 +119,12 @@ export interface MockEstimate {
 export interface MockBill {
   id: string;
   provider: string;
+  /** The contract the bill is checked under. */
+  contract: string;
+  kind: "metered" | "flat";
+  /** Flat only, nanos of the bill's currency. */
+  fee: number | null;
+  extra_usage: number | null;
   from: string;
   to: string;
   /** Nanos of the bill's currency. */
@@ -124,6 +152,8 @@ export interface Db {
   splits: MockSplit[];
   prices: PriceRow[];
   bills: MockBill[];
+  contracts: MockContract[];
+  contractAssignments: MockContractAssignment[];
   connections: BillConnection[];
   estimates: MockEstimate[];
   /** Tag set (as filter text) to the accepted estimate's id. */
@@ -203,7 +233,7 @@ function session(
   };
 }
 
-const msg = (id: string, at: string, tokens: Tokens | null, model = MODEL): MockMessage => ({ message_id: id, at, provider: "anthropic", model, tokens });
+const msg = (id: string, at: string, tokens: Tokens | null, model = MODEL, provider = "anthropic"): MockMessage => ({ message_id: id, at, provider, model, tokens });
 
 export const emails = {
   nadia: "n.varga@kestrel.example",
@@ -213,15 +243,33 @@ export const emails = {
   ola: "o.berg@kestrel.example",
 };
 
-const price = (kind: string, perMillion: string): PriceRow => ({
-  id: `prc_managed_${kind}`,
-  provider: "anthropic",
-  model: MODEL,
+const price = (kind: string, perMillion: string, provider = "anthropic", model = MODEL): PriceRow => ({
+  id: provider === "anthropic" ? `prc_managed_${kind}` : `prc_managed_${model}_${kind}`,
+  provider,
+  model,
   kind,
   price_per_million: perMillion,
   valid_from: "2026-01-01",
   source: "managed",
   recorded_at: SETUP,
+});
+
+/** A March bill, pulled and final. */
+const bill = (id: string, provider: string, contract: string, amount: number): MockBill => ({
+  id,
+  provider,
+  contract,
+  kind: "metered",
+  fee: null,
+  extra_usage: null,
+  from: "2026-03-01",
+  to: "2026-03-31",
+  amount: amount * 1e9,
+  currency: "USD",
+  source: "pulled",
+  final: true,
+  recorded_at: "2026-04-02T08:00:00Z",
+  recorded_by: emails.nadia,
 });
 
 export function createDb(): Db {
@@ -269,18 +317,27 @@ export function createDb(): Db {
     attributeValues: [value("team", "web", "Web", { department: "engineering" }), value("department", "engineering", "Engineering"), value("location", "vienna", "Vienna")],
     personAttributes: [ids.priya, ids.mara, ids.tom].map((id, i) => ({ id: `pat_seed_${String(i)}`, person: id, name: "team", key: "web", from: null })),
     sessions: [
-      session("seed-s1", emails.mara, "2026-03-04T10:00:00Z", 95, "Checkout: saved addresses", [msg("seed-s1-1", "2026-03-04T10:00:00Z", millions(40))], { feature: "KD-1" }, {
-        branch: "KD-1-saved-addresses",
-        repository: "kestrel/shop",
-        pull_request: 412,
-        pull_request_title: "KD-1 Saved addresses in checkout",
-      }),
-      session("seed-s2", emails.mara, "2026-03-12T14:00:00Z", 120, "Shared payment component for checkout and returns", [msg("seed-s2-1", "2026-03-12T14:00:00Z", millions(30))], {}, {
-        branch: "payment-component",
-        repository: "kestrel/shop",
-        keys: ["KD-1", "KD-2"],
-      }),
-      session("seed-s3", emails.tom, "2026-03-18T09:00:00Z", 40, "Nightly review of open pull requests", [msg("seed-s3-1", "2026-03-18T09:00:00Z", millions(10))], { project: "shop" }, { repository: "kestrel/shop" }, "review bot"),
+      // Signed in to the team's Claude plan: the sign-in rule finds claude-team.
+      {
+        ...session("seed-s1", emails.mara, "2026-03-04T10:00:00Z", 95, "Checkout: saved addresses", [msg("seed-s1-1", "2026-03-04T10:00:00Z", millions(40))], { feature: "KD-1" }, {
+          branch: "KD-1-saved-addresses",
+          repository: "kestrel/shop",
+          pull_request: 412,
+          pull_request_title: "KD-1 Saved addresses in checkout",
+          "organization.id": "kestrel-team",
+        }),
+        ruleContract: "claude-team",
+      },
+      // Codex on OpenAI, the provider's only contract.
+      {
+        ...session("seed-s2", emails.mara, "2026-03-12T14:00:00Z", 120, "Shared payment component for checkout and returns", [msg("seed-s2-1", "2026-03-12T14:00:00Z", millions(30), "gpt-5", "openai")], {}, {
+          branch: "payment-component",
+          repository: "kestrel/shop",
+          keys: ["KD-1", "KD-2"],
+        }),
+        agent_harness: "codex",
+      },
+      { ...session("seed-s3", emails.tom, "2026-03-18T09:00:00Z", 40, "Nightly review of open pull requests", [msg("seed-s3-1", "2026-03-18T09:00:00Z", millions(10))], { project: "shop" }, { repository: "kestrel/shop" }, "review bot"), ruleContract: "anthropic-api" },
       session("seed-s4", emails.tom, "2026-03-25T11:00:00Z", 60, "Exploring a logging library", [msg("seed-s4-1", "2026-03-25T11:00:00Z", millions(15))], {}, { branch: "spike/logging", repository: "kestrel/tools" }),
       // April: open, to check and submit.
       session(
@@ -308,21 +365,19 @@ export function createDb(): Db {
         by: emails.mara,
       },
     ],
-    prices: [price("input", "10.00"), price("output", "50.00"), price("cache_read", "1.00"), price("cache_write", "12.50")],
+    prices: [price("input", "10.00"), price("output", "50.00"), price("cache_read", "1.00"), price("cache_write", "12.50"), price("input", "10.00", "openai", "gpt-5"), price("output", "40.00", "openai", "gpt-5")],
     bills: [
-      {
-        id: "bil_seed_anthropic_2026_03",
-        provider: "anthropic",
-        from: "2026-03-01",
-        to: "2026-03-31",
-        amount: 1_000 * 1e9,
-        currency: "USD",
-        source: "pulled",
-        final: true,
-        recorded_at: "2026-04-02T08:00:00Z",
-        recorded_by: emails.nadia,
-      },
+      bill("bil_seed_anthropic_2026_03", "anthropic", "anthropic-api", 270),
+      bill("bil_seed_openai_2026_03", "openai", "openai-api", 300),
+      { ...bill("bil_seed_claude_team_2026_03", "anthropic", "claude-team", 250), kind: "flat", fee: 200 * 1e9, extra_usage: 50 * 1e9 },
     ],
+    contracts: [
+      { key: "anthropic-api", title: "Anthropic API", provider: "anthropic", kind: "metered", fee: null },
+      { key: "claude-team", title: "Claude Team plan", provider: "anthropic", kind: "flat", fee: 200 * 1e9 },
+      { key: "openai-api", title: null, provider: "openai", kind: "metered", fee: null },
+    ],
+    // Tom puts his spike under the API contract by hand.
+    contractAssignments: [{ id: "con_seed_s4", session_id: "seed-s4", contract: "anthropic-api", recorded_at: "2026-03-26T09:00:00Z", by: emails.tom }],
     connections: [{ id: "con_anthropic", provider: "anthropic_console", key_hint: "sk-ant-admin…7f3c", status: "ok", last_pull_at: "2026-04-10T04:00:00Z", message: null }],
     estimates: [
       {
@@ -386,6 +441,8 @@ export function createDb(): Db {
     rules: [
       { id: "rul_seed_branch", name: "feature key in branch", signal: "branch", pattern: "(?<key>KD-\\d+)", tag_name: "feature", key: null, order: 1, scope: "organization", recorded_at: SETUP },
       { id: "rul_seed_repo", name: "repository kestrel/shop is project Shop", signal: "repository", pattern: "^kestrel/shop$", tag_name: "project", key: "shop", order: 2, scope: "organization", recorded_at: SETUP },
+      { id: "rul_seed_team_sign_in", name: "signed in to the team plan", signal: "organization.id", pattern: "^kestrel-team$", tag_name: "contract", key: "claude-team", order: 10, scope: "organization", recorded_at: SETUP },
+      { id: "rul_seed_review_bot", name: "review bot on the API", signal: "agent_name", pattern: "^review bot$", tag_name: "contract", key: "anthropic-api", order: 11, scope: "organization", recorded_at: SETUP },
     ],
     saved: [],
     tokens: [{ id: "tok_bot", name: "review bot", kind: "service", person_id: ids.tom, shown_prefix: "tc_svc_9f2c", created_at: SETUP, last_used_at: "2026-04-09T02:00:00Z", needs_owner: false }],

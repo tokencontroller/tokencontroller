@@ -5,7 +5,7 @@ import { api } from "@/api/endpoints";
 import { Amount, AsOf } from "@/components/controls";
 import { Badge, LabelBadge } from "@/components/ui/badge";
 import { buttonClass } from "@/components/ui/button";
-import { ErrorBox, Figure, Kpi, KpiRow, Loading, Note, PageHeader, Section, linkClass } from "@/components/ui/display";
+import { ErrorBox, Kpi, KpiRow, Loading, Note, PageHeader, Section, linkClass } from "@/components/ui/display";
 import { DataTable } from "@/components/ui/table";
 import { additions } from "@/lib/additions";
 import { describeFilter, formatRange, lastMonth } from "@/lib/format";
@@ -14,7 +14,8 @@ import { hasRole } from "@/lib/roles";
 import { today } from "@/lib/today";
 
 // Docs: How it works. The cost of what you may view over the current bill's
-// range, as of now; the reconciliation line of that bill; open deviations.
+// range, as of now, with what of it ran on a plan; the checks of the bills
+// of that range; open deviations.
 export function OverviewPage(): ReactNode {
   const me = useMe();
   const orgManager = hasRole(me.person, "org_manager");
@@ -32,7 +33,8 @@ export function OverviewPage(): ReactNode {
   const toCheck = open.data?.sessions.filter((s) => s.submitted === "open" || s.submitted === "rejected") ?? [];
   const name = me.person.name.split(" ")[0] ?? "";
   const lineOf = (label: string) => cost.data?.rows.find((r) => r.key === label)?.amount ?? "0.00";
-  const explained = latest && Number(latest.bill) > 0 ? Math.max(0, Math.min(1, Number(latest.messages) / Number(latest.bill))) : null;
+  const checks = latest ? (reconciliation.data ?? []).filter((r) => r.from === latest.from && r.to === latest.to) : [];
+  const onAPlan = cost.data && Number(cost.data.on_a_plan) > 0 ? cost.data.on_a_plan : null;
   return (
     <>
       <PageHeader title={name ? `Hello, ${name}` : "Hello"} lead={`${me.organization.name} · ${formatRange(range.from, range.to)}`} meta={cost.data ? <AsOf at={cost.data.as_of} /> : null} />
@@ -42,7 +44,7 @@ export function OverviewPage(): ReactNode {
       ) : (
         <>
           <KpiRow>
-            <Kpi hero label="Cost" value={<Amount value={cost.data.total} currency={cost.data.currency} />} note="Everything you may view" />
+            <Kpi hero label="Cost" value={<Amount value={cost.data.total} currency={cost.data.currency} />} note={onAPlan ? <>On a plan <Amount value={onAPlan} currency={cost.data.currency} /></> : "Everything you may view"} />
             <Kpi label="Direct" value={<Amount value={lineOf("direct")} currency={cost.data.currency} />} note="On a feature" />
             <Kpi label="Project overhead" value={<Amount value={lineOf("project_overhead")} currency={cost.data.currency} />} note="On a project, no feature" />
             <Kpi label="Organization overhead" value={<Amount value={lineOf("organization_overhead")} currency={cost.data.currency} />} note="On no project" tone={Number(lineOf("organization_overhead")) > 0 ? "exception" : undefined} />
@@ -57,22 +59,21 @@ export function OverviewPage(): ReactNode {
       )}
 
       {orgManager && latest ? (
-        <Section
-          title="Reconciliation"
-          hint={`The ${latest.provider} bill for ${formatRange(latest.from, latest.to)}: the cost of its messages plus what no message explains.`}
-          actions={<Link to="/bills" className={linkClass}>Bills</Link>}
-        >
-          <div className="grid grid-cols-2 items-end gap-4 sm:grid-cols-[1.5fr_1fr_1fr] max-sm:[&>*:first-child]:col-span-2">
-            <Figure size="lg" label="No message explains" tone={latest.a_message_is_wrong ? "exception" : undefined} value={<Amount value={latest.unexplained} currency={latest.currency} />} />
-            <Figure label="Bill" value={<Amount value={latest.bill} currency={latest.currency} />} />
-            <Figure label="Cost of messages" value={<Amount value={latest.messages} currency={latest.currency} />} />
-          </div>
-          {explained !== null ? (
-            <div className="mt-4 flex h-2 overflow-hidden rounded-full bg-sand" role="img" aria-label={`Messages explain ${String(Math.round(explained * 100))} % of the bill`}>
-              <span className="h-full bg-posted" style={{ width: `${String(explained * 100)}%` }} />
-            </div>
-          ) : null}
-          {latest.a_message_is_wrong ? <p className="mt-2 text-small text-exception">Negative: a message is wrong.</p> : null}
+        <Section title="Checks" flush hint={`Each bill of ${formatRange(latest.from, latest.to)} under its contract.`} actions={<Link to="/bills" className={linkClass}>Bills</Link>}>
+          <ul className="flex flex-col text-body" aria-label="Checks">
+            {checks.map((r) => (
+              <li key={r.bill_id} className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-line px-5 py-2.5 first:border-t-0">
+                <span className="min-w-0 flex-1 truncate font-medium">{r.contract}</span>
+                {r.contract_kind === "flat" ? <Badge tone="accent">on a plan</Badge> : null}
+                {r.a_message_is_wrong ? <Badge tone="exception">a message is wrong</Badge> : null}
+                <span className="text-small text-muted">
+                  {r.contract_kind === "flat" ? "covered " : "no message explains "}
+                  <Amount value={(r.contract_kind === "flat" ? r.covered : r.unexplained) ?? null} currency={r.currency} />
+                </span>
+                <span className="w-28 text-right font-medium"><Amount value={r.bill} currency={r.currency} /></span>
+              </li>
+            ))}
+          </ul>
         </Section>
       ) : null}
 

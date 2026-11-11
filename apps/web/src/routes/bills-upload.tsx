@@ -36,11 +36,15 @@ function downloadTemplate(): void {
   downloadFile("bills.csv", toCsv(["provider", "from", "to", "amount", "currency", "exchange_rate"], [["anthropic", "2026-03-01", "2026-03-31", "1000.00", "USD", ""]]));
 }
 
-/** How a bill in the file stands against the bill in force for its provider and range. */
+/**
+ * How a bill in the file stands against the bill in force for its provider
+ * and range. A CSV bill names no contract, so it goes to the provider's
+ * metered contract; a flat contract's bill is not the one it restates.
+ */
 type Standing = { kind: "new" } | { kind: "same" } | { kind: "restates"; amount: string; currency: string };
 
 function standingOf(bill: BillCsvBill, inForce: Bill[]): Standing {
-  const current = inForce.find((b) => b.provider === bill.provider && b.from === bill.from && b.to === bill.to && !b.reversed_by);
+  const current = inForce.find((b) => b.provider === bill.provider && b.from === bill.from && b.to === bill.to && !b.reversed_by && b.reconciliation?.contract_kind !== "flat");
   if (!current) return { kind: "new" };
   const same = current.currency === bill.currency && nanosOf(fromDecimal(current.amount, current.currency)) === nanosOf(fromDecimal(bill.amount, bill.currency));
   return same ? { kind: "same" } : { kind: "restates", amount: current.amount, currency: current.currency };

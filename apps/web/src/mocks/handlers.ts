@@ -25,6 +25,7 @@ import {
   acceptedFor,
   canSee,
   contains,
+  contractOf,
   costOf,
   days,
   dec,
@@ -238,17 +239,81 @@ function mayAssign(db: Db, me: Member, s: MockSession): boolean {
 
 /** Runs a rule back over sessions since the cutoff that nobody assigned. */
 function runBack(db: Db, rule: Pick<Rule, "signal" | "pattern" | "tag_name" | "key" | "scope">): void {
+  if (rule.tag_name === "contract") {
+    runBackContract(db, rule);
+    return;
+  }
   const since = db.cutoff.cutoff ?? "0000-00-00";
   for (const s of db.sessions) {
     if (s.started_at.slice(0, 10) <= since || db.splits.some((x) => x.session_id === s.session_id) || s.ruleTags[rule.tag_name]) continue;
     if (rule.scope !== "organization" && rule.scope !== s.person) continue;
-    const signal = s.signals[rule.signal];
-    if (typeof signal !== "string") continue;
+    const signal = signalOf(s, rule.signal);
+    if (signal === undefined) continue;
     const match = new RegExp(rule.pattern).exec(signal);
     if (!match) continue;
     const key = rule.key ?? match.groups?.key ?? match[0];
     if (db.tagValues.some((v) => v.name === rule.tag_name && v.key === key)) s.ruleTags = { ...s.ruleTags, [rule.tag_name]: key };
   }
+}
+
+/** A signal of a session as a rule reads it; `agent_harness` and `agent_name` come from the session. */
+function signalOf(s: MockSession, name: string): string | undefined {
+  if (name === "agent_harness") return s.agent_harness;
+  if (name === "agent_name") return s.agent_name ?? undefined;
+  const value = s.signals[name];
+  return typeof value === "string" ? value : undefined;
+}
+
+// Contract rules run back before the cutoff too: figures as of the cutoff
+// stay as they were. A hand assignment wins over any rule.
+function runBackContract(db: Db, rule: Pick<Rule, "signal" | "pattern" | "key" | "scope">): void {
+  for (const s of db.sessions) {
+    if (s.ruleContract || db.contractAssignments.some((a) => a.session_id === s.session_id)) continue;
+    if (rule.scope !== "organization" && rule.scope !== s.person) continue;
+    const signal = signalOf(s, rule.signal);
+    const match = signal === undefined ? null : new RegExp(rule.pattern).exec(signal);
+    if (!match) continue;
+    const key = rule.key ?? match.groups?.key ?? match[0];
+    if (db.contracts.some((c) => c.key === key)) s.ruleContract = key;
+  }
+}
+
+function contractView(c: Db["contracts"][number]) {
+  return { key: c.key, title: c.title, provider: c.provider, kind: c.kind, fee: c.fee === null ? null : dec(c.fee) };
+}
+
+/** On a plan, metered and no contract: the cost report's parts by contract kind. */
+function contractParts(db: Db, ls: ReturnType<typeof lines>, total: number, share: boolean) {
+  const kindOf = (l: (typeof ls)[number]) => (l.contract ? (db.contracts.find((c) => c.key === l.contract?.key)?.kind ?? "metered") : null);
+  const part = (nanos: number) => (share ? (total ? (nanos / total).toFixed(6) : "0") : dec(nanos));
+  return {
+    on_a_plan: part(costOf(ls.filter((l) => kindOf(l) === "flat"))),
+    metered: part(costOf(ls.filter((l) => kindOf(l) === "metered"))),
+    no_contract: part(costOf(ls.filter((l) => kindOf(l) === null))),
+  };
+}
+
+/** A value of `contract`: its terms are required the first time, kept after. */
+function addContract(db: Db, body: { key: string; title?: string | null; contract?: { provider: string; kind: string; fee?: string | null } | null }) {
+  const key = body.key.trim();
+  if (!key || /\s/.test(key)) return error(400, "bad_request", "Give the contract a key without spaces, such as anthropic-api.");
+  const earlier = db.contracts.find((c) => c.key === key);
+  const terms = body.contract;
+  if (!terms && !earlier) return error(400, "bad_request", "contract: give its provider and kind");
+  if (terms && terms.kind !== "metered" && terms.kind !== "flat") return error(400, "bad_request", "contract: kind is metered or flat");
+  if (terms?.kind === "metered" && terms.fee) return error(400, "bad_request", "contract: only a flat contract has a fee");
+  if (terms?.fee && !/^\d+(\.\d+)?$/.test(terms.fee)) return error(400, "bad_request", "contract: the fee is a decimal number, such as 200.00");
+  if (terms && !terms.provider.trim()) return error(400, "bad_request", "contract: give its provider");
+  const contract = {
+    key,
+    title: body.title?.trim() || earlier?.title || null,
+    provider: terms?.provider.trim() ?? earlier?.provider ?? "",
+    kind: (terms?.kind ?? earlier?.kind ?? "metered") as "metered" | "flat",
+    fee: terms ? (terms.fee ? parseDec(terms.fee) : null) : (earlier?.fee ?? null),
+  };
+  db.contracts = [...db.contracts.filter((c) => c.key !== key), contract];
+  const value = { id: nextId(db, "val"), name: "contract", key, title: contract.title, description: null, source_id: null, source_status: null, defaults: {}, recorded_at: now() };
+  return HttpResponse.json({ ...valueView(value), contract: { provider: contract.provider, kind: contract.kind, fee: contract.fee === null ? null : dec(contract.fee) } }, { status: 201 });
 }
 
 function estimateView(db: Db, e: MockEstimate) {
@@ -275,30 +340,46 @@ function estimateView(db: Db, e: MockEstimate) {
   };
 }
 
+// Mirrors the core's reconcile (crates/core/src/state.rs, bill.rs): the
+// messages under the bill's contract in its range, and beside the check the
+// same provider's messages with no contract and the part from the fallback.
 function reconciliationOf(db: Db, b: Db["bills"][number]) {
-  const ls = lines(db).filter((l) => l.message.provider === b.provider && l.day >= b.from && l.day <= b.to);
-  const messages = costOf(ls);
-  const unexplained = b.amount - messages;
+  const terms = db.contracts.find((c) => c.key === b.contract);
+  const provider = terms?.provider ?? b.provider;
+  const kind = terms?.kind ?? b.kind;
+  const ls = lines(db).filter((l) => l.day >= b.from && l.day <= b.to);
+  const own = ls.filter((l) => l.contract?.key === b.contract);
+  const messages = costOf(own);
+  const fallback = costOf(own.filter((l) => l.contract?.by === "fallback"));
+  const noContract = costOf(ls.filter((l) => !l.contract && l.message.provider === provider));
   const ids = new Set<string>();
   const unknown = new Set<string>();
-  for (const l of ls) {
+  for (const l of own) {
     if (l.costLabel === "count_error") ids.add(l.message.message_id);
     if (l.costLabel === "not_priced_yet") unknown.add(`${l.message.provider}/${l.message.model}`);
   }
-  // Each provider of the mocks has one contract, named after it, so every
-  // message gets it from the fallback.
+  let fee: number | null = null;
+  let extra: number | null = null;
+  let unexplained = b.amount - messages;
+  let covered: number | null = null;
+  if (kind === "flat") {
+    fee = b.fee ?? (b.extra_usage !== null ? b.amount - b.extra_usage : (terms?.fee ?? null));
+    extra = b.extra_usage ?? (fee !== null ? b.amount - fee : null);
+    unexplained = fee !== null && extra !== null ? b.amount - fee - extra : 0;
+    covered = extra !== null ? messages - extra : null;
+  }
   return {
-    contract: b.provider,
-    contract_kind: "metered",
+    contract: b.contract,
+    contract_kind: kind,
     bill: dec(b.amount),
     messages: dec(messages),
     unexplained: dec(unexplained),
-    fee: null,
-    extra_usage: null,
-    covered: null,
-    same_provider_no_contract: dec(0),
-    contract_from_fallback: dec(messages),
-    a_message_is_wrong: unexplained < 0,
+    fee: fee === null ? null : dec(fee),
+    extra_usage: extra === null ? null : dec(extra),
+    covered: covered === null ? null : dec(covered),
+    same_provider_no_contract: dec(noContract),
+    contract_from_fallback: dec(fallback),
+    a_message_is_wrong: kind === "flat" ? covered !== null && covered < 0 : unexplained < 0,
     count_errors: ids.size,
     unknown_models: [...unknown],
     currency: "USD",
@@ -306,7 +387,19 @@ function reconciliationOf(db: Db, b: Db["bills"][number]) {
 }
 
 function billView(db: Db, b: Db["bills"][number]) {
-  return { ...b, contract: b.provider, contract_kind: null, fee: null, extra_usage: null, amount: dec(b.amount), lines: [], exchange_rate: null, exchange_rate_given: false, reversed_by: null, reconciliation: reconciliationOf(db, b) };
+  return { ...b, contract_kind: b.kind, fee: b.fee === null ? null : dec(b.fee), extra_usage: b.extra_usage === null ? null : dec(b.extra_usage), amount: dec(b.amount), lines: [], exchange_rate: null, exchange_rate_given: false, reversed_by: null, reconciliation: reconciliationOf(db, b) };
+}
+
+/** The contract a bill goes to: the one it names, else its provider's only contract of its kind. */
+function billContract(db: Db, provider: string, contract: string | null | undefined, kind: "metered" | "flat"): string {
+  if (contract?.trim()) return contract.trim();
+  const own = db.contracts.filter((c) => c.provider === provider && c.kind === kind);
+  return own.length === 1 && own[0] ? own[0].key : `${provider}-${kind === "flat" ? "plan" : "api"}`;
+}
+
+/** A new contract a bill or a value names, added with its terms. */
+function ensureContract(db: Db, key: string, provider: string, kind: "metered" | "flat", fee: number | null): void {
+  if (!db.contracts.some((c) => c.key === key)) db.contracts.push({ key, title: null, provider, kind, fee });
 }
 
 function forecastPast(w: Window): Window[] {
@@ -532,7 +625,9 @@ export const handlers = [
     return new HttpResponse(null, { status: 204 });
   }, "org_manager")),
   http.post(`${API}/tags/:name/values`, member(async ({ db, me, params, request }) => {
-    const body = (await request.json()) as { key: string; title?: string | null; description?: string | null; defaults?: Tags | null };
+    const body = (await request.json()) as { key: string; title?: string | null; description?: string | null; defaults?: Tags | null; contract?: { provider: string; kind: string; fee?: string | null } | null };
+    if (params.name === "contract") return addContract(db, body);
+    if (body.contract) return error(400, "bad_request", "contract: terms go on a value of contract only");
     if (!db.tagNames.some((n) => n.name === params.name)) return error(404, "not_found", `There is no tag name ${params.name ?? ""}.`);
     if (!body.key.trim()) return error(400, "bad_request", "Give the value a key.");
     const v: MockValue = { id: nextId(db, "val"), name: params.name ?? "", key: body.key.trim(), title: body.title ?? null, description: body.description ?? null, source_id: null, source_status: null, defaults: body.defaults ?? {}, recorded_at: now() };
@@ -565,16 +660,16 @@ export const handlers = [
       .flatMap((s) => {
         const split = splitOf(db, s);
         return s.messages.map((m) => {
-          const cost = messageCost(db, m);
+          const cost = messageCost(db, m, contractOf(db, s, m)?.key ?? null);
           return {
             message_id: m.message_id,
             session_id: s.session_id,
             person: s.person,
             provider: m.provider,
             model: m.model,
-            contract: null,
-            contract_by: null,
-            on_a_plan: false,
+            contract: contractOf(db, s, m)?.key ?? null,
+            contract_by: contractOf(db, s, m)?.by ?? null,
+            on_a_plan: db.contracts.find((c) => c.key === contractOf(db, s, m)?.key)?.kind === "flat",
             at: m.at,
             agent_harness: s.agent_harness,
             agent_name: s.agent_name,
@@ -633,7 +728,7 @@ export const handlers = [
     db.submissions = db.submissions.filter((s) => !(s.person === me.email && s.status === "rejected"));
     const mineIn = db.sessions.filter((s) => s.person === me.email && s.started_at.slice(0, 10) >= from && s.started_at.slice(0, 10) <= TODAY);
     if (!mineIn.length) return error(400, "nothing_to_submit", "There is nothing to submit: no messages since your last submit.");
-    const cost = mineIn.reduce((sum, s) => sum + s.messages.reduce((t, m) => t + (messageCost(db, m).nanos ?? 0), 0), 0);
+    const cost = mineIn.reduce((sum, s) => sum + s.messages.reduce((t, m) => t + (messageCost(db, m, contractOf(db, s, m)?.key ?? null).nanos ?? 0), 0), 0);
     const sub = { id: nextId(db, "sub"), person: me.email, from, to: TODAY, messages: mineIn.reduce((n, s) => n + s.messages.length, 0), cost: dec(cost), status: db.organization.approval ? "submitted" : "approved", reason: null };
     db.submissions.push(sub);
     record(db, "submit", sub, me.email, sub.id);
@@ -756,12 +851,15 @@ export const handlers = [
   // Price table
   http.get(`${API}/price-table`, member(({ db }) => HttpResponse.json({ as_of: now(), rows: db.prices }))),
   http.post(`${API}/price-table/rows`, member(async ({ db, request }) => {
-    const body = (await request.json()) as { provider: string; model: string; kind: string; price_per_million: string; valid_from: string };
+    const body = (await request.json()) as { provider: string; model: string; kind: string; price_per_million: string; valid_from: string; contract?: string | null };
+    const contract = body.contract?.trim() ? db.contracts.find((c) => c.key === body.contract?.trim()) : undefined;
+    if (body.contract?.trim() && !contract) return error(400, "bad_request", `contract: ${body.contract} is not a contract on record`);
+    if (contract && contract.provider !== body.provider.trim()) return error(400, "bad_request", `contract: ${contract.key} is a contract with ${contract.provider}, not ${body.provider}`);
     if (!["input", "output", "cache_read", "cache_write"].includes(body.kind)) return error(400, "bad_request", "The token kind is input, output, cache_read or cache_write.");
     if (!/^\d+(\.\d+)?$/.test(body.price_per_million)) return error(400, "bad_request", "The price per million is a decimal number, such as 15.00.");
     if (!body.provider.trim() || !body.model.trim()) return error(400, "bad_request", "Give the provider and the model.");
     if (!/^\d{4}-\d{2}-\d{2}$/.test(body.valid_from)) return error(400, "bad_request", "Valid from is a day, YYYY-MM-DD.");
-    const row = { id: nextId(db, "prc"), ...body, provider: body.provider.trim(), model: body.model.trim(), source: "organization", recorded_at: now() };
+    const row = { id: nextId(db, "prc"), ...body, contract: contract?.key ?? null, provider: body.provider.trim(), model: body.model.trim(), source: "organization", recorded_at: now() };
     db.prices.push(row);
     return HttpResponse.json(row, { status: 201 });
   }, "org_manager")),
@@ -769,12 +867,20 @@ export const handlers = [
   // Bills and reconciliation
   http.get(`${API}/bills`, member(({ db }) => HttpResponse.json(db.bills.map((b) => billView(db, b))), "org_manager")),
   http.post(`${API}/bills`, member(async ({ db, me, request }) => {
-    const body = (await request.json()) as { provider: string; from: string; to: string; amount: string; currency: string };
+    const body = (await request.json()) as { provider: string; from: string; to: string; amount: string; currency: string; contract?: string | null; contract_kind?: string | null; fee?: string | null; extra_usage?: string | null };
     if (!body.provider.trim()) return error(400, "bad_request", "Give the provider.");
     if (!/^\d+(\.\d+)?$/.test(body.amount)) return error(400, "bad_request", "The amount is a decimal number, such as 1000.00.");
     if (!(body.from <= body.to)) return error(400, "bad_request", "The first day is on or before the last.");
-    const bill = { id: nextId(db, "bil"), provider: body.provider.trim(), from: body.from, to: body.to, amount: parseDec(body.amount), currency: body.currency.toUpperCase(), source: "manual" as const, final: true, recorded_at: now(), recorded_by: me.email };
-    db.bills = db.bills.filter((b) => !(b.provider === bill.provider && b.from === bill.from && b.to === bill.to));
+    for (const part of [body.fee, body.extra_usage]) if (part && !/^\d+(\.\d+)?$/.test(part)) return error(400, "bad_request", "Fee and extra usage are decimal numbers, such as 200.00.");
+    const provider = body.provider.trim();
+    const named = db.contracts.find((c) => c.key === body.contract?.trim());
+    const kind = named?.kind ?? (body.contract_kind === "flat" ? "flat" : "metered");
+    if (kind === "metered" && (body.fee || body.extra_usage)) return error(400, "bad_request", "Only a flat contract's bill has a fee and extra usage.");
+    const contract = billContract(db, provider, body.contract, kind);
+    const fee = body.fee ? parseDec(body.fee) : null;
+    ensureContract(db, contract, provider, kind, fee);
+    const bill: MockBill = { id: nextId(db, "bil"), provider, contract, kind, fee, extra_usage: body.extra_usage ? parseDec(body.extra_usage) : null, from: body.from, to: body.to, amount: parseDec(body.amount), currency: body.currency.toUpperCase(), source: "manual", final: true, recorded_at: now(), recorded_by: me.email };
+    db.bills = db.bills.filter((b) => !(b.contract === bill.contract && b.from === bill.from && b.to === bill.to));
     db.bills.push(bill);
     return HttpResponse.json(billView(db, bill), { status: 201 });
   }, "org_manager")),
@@ -790,13 +896,15 @@ export const handlers = [
     const stored = [];
     let changed = 0;
     for (const b of read.bills) {
-      const same = (x: MockBill) => x.provider === b.provider && x.from === b.from && x.to === b.to;
+      const contract = billContract(db, b.provider, null, "metered");
+      const same = (x: MockBill) => x.contract === contract && x.from === b.from && x.to === b.to;
       const current = db.bills.find(same);
       if (current && current.amount === b.amount && current.currency === b.currency) {
         stored.push(billView(db, current));
         continue;
       }
-      const bill: MockBill = { id: nextId(db, "bil"), provider: b.provider, from: b.from, to: b.to, amount: b.amount, currency: b.currency, source: "csv", final: true, recorded_at: now(), recorded_by: me.email };
+      ensureContract(db, contract, b.provider, "metered", null);
+      const bill: MockBill = { id: nextId(db, "bil"), provider: b.provider, contract, kind: "metered", fee: null, extra_usage: null, from: b.from, to: b.to, amount: b.amount, currency: b.currency, source: "csv", final: true, recorded_at: now(), recorded_by: me.email };
       db.bills = db.bills.filter((x) => !same(x));
       db.bills.push(bill);
       changed += 1;
@@ -825,6 +933,26 @@ export const handlers = [
   http.get(`${API}/reconciliation`, member(({ db }) =>
     HttpResponse.json(db.bills.map((b) => ({ bill_id: b.id, provider: b.provider, from: b.from, to: b.to, final: b.final, ...reconciliationOf(db, b) }))),
   "org_manager")),
+  http.get(`${API}/contracts`, member(({ db }) => HttpResponse.json(db.contracts.map(contractView)))),
+  http.post(`${API}/contract-assignments`, member(async ({ db, me, request }) => {
+    const body = (await request.json()) as { contract: string; sessions: string[] };
+    if (!body.sessions.length || body.sessions.length > 1000) return error(400, "bad_request", "name 1 to 1000 sessions");
+    const contract = body.contract.trim();
+    if (!db.contracts.some((c) => c.key === contract)) return error(400, "bad_request", `contract: ${contract} is not a contract on record; add it first`);
+    const found = [];
+    for (const id of body.sessions) {
+      const s = db.sessions.find((x) => x.session_id === id.trim());
+      if (!s) return error(404, "not_found", "No such session.");
+      if (!mayAssign(db, me, s)) return error(403, "forbidden", "this needs assign on a filter the session is in");
+      found.push(s);
+    }
+    for (const s of found) {
+      const a = { id: nextId(db, "con"), session_id: s.session_id, contract, recorded_at: now(), by: me.email };
+      db.contractAssignments.push(a);
+      record(db, "contract assignment", { session_id: s.session_id, contract }, me.email, a.id);
+    }
+    return HttpResponse.json({ contract, sessions: found.length }, { status: 201 });
+  })),
 
   // Reports
   http.get(`${API}/reports/cost`, member(({ db, me, url }) => {
@@ -852,9 +980,7 @@ export const handlers = [
       unknown_models: [...new Set(ls.filter((l) => l.costLabel === "not_priced_yet").map((l) => `${l.message.provider}/${l.message.model}`))],
       not_priced_yet: notPricedYet(ls.filter((l) => l.costLabel === "not_priced_yet").map((l) => l.message)),
       unpriced_kinds: [],
-      on_a_plan: q.share ? "0" : dec(0),
-      metered: q.share ? (total ? "1" : "0") : dec(total),
-      no_contract: q.share ? "0" : dec(0),
+      ...contractParts(db, ls, total, q.share),
     };
     return HttpResponse.json(report);
   })),
@@ -979,16 +1105,16 @@ export const handlers = [
   ...enterpriseHandlers({ API, member, fail: error, now }),
 ];
 
-const SIGNALS = ["branch", "working_directory", "repository", "pull_request_title", "subagent_type", "prompt_keys", "agent_name"];
-
 function ruleProblem(db: Db, rule: NewRule): string | null {
   if (!rule.name.trim()) return "Give the rule a name.";
-  if (!SIGNALS.includes(rule.signal) && !/^(config|resource):.+/.test(rule.signal)) return `${rule.signal} is not a signal.`;
+  // Signals are open: any name without spaces is read as it came.
+  if (!rule.signal.trim() || /\s/.test(rule.signal.trim())) return `${JSON.stringify(rule.signal)} is not a signal.`;
   try {
     new RegExp(rule.pattern);
   } catch {
     return "The pattern is not a regular expression.";
   }
+  if (rule.tag_name === "contract") return rule.key && !db.contracts.some((c) => c.key === rule.key) ? `contract: ${rule.key} is not a contract on record.` : null;
   if (!db.tagNames.some((n) => n.name === rule.tag_name)) return `${rule.tag_name} is not a tag name.`;
   if (rule.key && !db.tagValues.some((v) => v.name === rule.tag_name && v.key === rule.key)) return `${rule.tag_name}: ${rule.key} is not a tag value.`;
   return null;
