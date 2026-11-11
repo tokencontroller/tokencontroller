@@ -134,12 +134,6 @@ pub fn end_of(date: Date) -> OffsetDateTime {
     )
 }
 
-/// The whole of time as a range, for lists without `from` and `to`.
-#[must_use]
-pub fn everything() -> DateRange {
-    DateRange::new(Date::MIN, Date::MAX).unwrap_or(DateRange::day(Date::MIN))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -165,7 +159,6 @@ mod tests {
         assert_eq!(march.days(), 31);
         assert!(range(None, Some("2026-03-31")).is_err());
         assert!(range(Some("2026-03-31"), Some("2026-03-01")).is_err());
-        assert!(everything().contains(date!(2026 - 03 - 01)));
     }
 
     #[test]

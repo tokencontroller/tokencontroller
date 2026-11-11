@@ -1770,14 +1770,18 @@ async fn sessions_as_of_an_earlier_moment(pool: PgPool) {
 }
 
 #[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
-async fn messages_need_a_from_date(pool: PgPool) {
+async fn messages_and_sessions_without_dates_show_everything(pool: PgPool) {
     let k = Kestrel::load(&pool).await.unwrap();
     let result: TestResult<()> = async {
-        let error = k
-            .get(&k.nadia, "/messages")
+        let all = k.get(&k.nadia, "/messages").await?.ok(StatusCode::OK)?;
+        let march = k
+            .get(&k.nadia, &format!("/messages?{MARCH}"))
             .await?
-            .refused(StatusCode::BAD_REQUEST)?;
-        assert!(error.contains("from"), "{error}");
+            .ok(StatusCode::OK)?;
+        assert!(count(&all["messages"]) >= count(&march["messages"]));
+        assert!(count(&all["messages"]) > 0);
+        let sessions = k.get(&k.nadia, "/sessions").await?.ok(StatusCode::OK)?;
+        assert!(count(&sessions["sessions"]) > 0);
         Ok(())
     }
     .await;
