@@ -2,7 +2,9 @@
 //! loads the example organization (`seed`), prints the OpenAPI document
 //! (`openapi`), prints a sign-in link for a member (`sign-in-link EMAIL`), or
 //! shows what the telemetry receiver makes of a saved export request
-//! (`otlp-decode SIGNAL FILE`), for the agent harness checks.
+//! (`otlp-decode SIGNAL FILE`), for the agent harness checks, or reads an
+//! organization's stored telemetry again with this version
+//! (`reread ORGANIZATION_ID`).
 
 use std::io::{Read as _, Write as _};
 use std::process::ExitCode;
@@ -25,8 +27,14 @@ async fn main() -> ExitCode {
             None => Err(anyhow::anyhow!("usage: tokencontroller sign-in-link EMAIL")),
         },
         Some("otlp-decode") => decode_otlp(args.collect()),
+        Some("reread") => match args.next() {
+            Some(organization) => reread(&organization).await,
+            None => Err(anyhow::anyhow!(
+                "usage: tokencontroller reread ORGANIZATION_ID"
+            )),
+        },
         Some(other) => Err(anyhow::anyhow!(
-            "unknown command {other:?}: use `serve` (the default), `seed`, `openapi`, `sign-in-link EMAIL` or `otlp-decode SIGNAL FILE`"
+            "unknown command {other:?}: use `serve` (the default), `seed`, `openapi`, `sign-in-link EMAIL`, `otlp-decode SIGNAL FILE` or `reread ORGANIZATION_ID`"
         )),
     };
     match result {
@@ -36,6 +44,18 @@ async fn main() -> ExitCode {
             ExitCode::FAILURE
         }
     }
+}
+
+async fn reread(organization: &str) -> anyhow::Result<()> {
+    let done = tokencontroller_server::reread(organization).await?;
+    writeln!(
+        std::io::stdout().lock(),
+        "{} records read again: {} model calls and {} activities added",
+        done.records,
+        done.messages,
+        done.activities
+    )?;
+    Ok(())
 }
 
 async fn write_sign_in_link(email: &str) -> anyhow::Result<()> {

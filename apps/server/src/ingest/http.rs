@@ -412,6 +412,7 @@ async fn receive(
                 messages: extracted.messages,
                 activities: extracted.activities,
                 received: Some(id),
+                reread: false,
             },
         )
         .await?

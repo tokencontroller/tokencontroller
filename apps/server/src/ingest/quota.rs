@@ -25,6 +25,22 @@ pub(super) async fn limit(
         .await
 }
 
+/// [`limit`], or none when `exempt`, as for a re-read of stored records.
+///
+/// # Errors
+///
+/// Whatever the hook fails with.
+pub(super) async fn limit_unless(
+    state: &AppState,
+    organization_id: Uuid,
+    exempt: bool,
+) -> Result<Option<DailyMessageLimit>, ApiError> {
+    if exempt {
+        return Ok(None);
+    }
+    limit(state, organization_id).await
+}
+
 /// How many messages the organization added since 00:00 UTC. A message
 /// event that supersedes the earlier record of the same call is not a new
 /// message, so it does not count.

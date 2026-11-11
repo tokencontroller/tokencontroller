@@ -951,3 +951,56 @@ async fn token_entries_take_any_token_kind_and_signal_and_keep_what_arrived(pool
         "{payload}"
     );
 }
+
+#[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
+async fn a_reread_adds_what_an_older_reader_passed_over_once(pool: PgPool) {
+    let kestrel = kestrel(&pool).await.unwrap();
+    // A record stored with nothing read from it, as by an older reader.
+    sqlx::query(
+        "INSERT INTO received_records (id, organization_id, endpoint, received_by, content_type, body, bytes, delete_after)
+         VALUES ('rcv_old', $1, 'otlp-logs', 'ana.silva@acme.example', 'application/json', $2, $3, now() + interval '400 days')",
+    )
+    .bind(kestrel.organization_id)
+    .bind(CLAUDE_CODE_LOGS.as_bytes())
+    .bind(i64::try_from(CLAUDE_CODE_LOGS.len()).unwrap())
+    .execute(&pool)
+    .await
+    .unwrap();
+    let state = AppState::new(pool.clone(), config(), kestrel.forwarder.clone());
+    let first = tokencontroller_server::ingest::received::reread(&state, kestrel.organization_id)
+        .await
+        .unwrap();
+    assert_eq!(first.records, 1);
+    assert!(first.messages > 0, "{first:?}");
+    assert!(first.activities > 0, "{first:?}");
+    let pointers: Vec<Option<String>> = sqlx::query_scalar(
+        "SELECT payload->'message'->>'received' FROM events WHERE organization_id = $1 AND kind = 'message'",
+    )
+    .bind(kestrel.organization_id)
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert!(
+        pointers.iter().all(|id| id.as_deref() == Some("rcv_old")),
+        "{pointers:?}"
+    );
+    // Read again, it finds everything on record already.
+    let second = tokencontroller_server::ingest::received::reread(&state, kestrel.organization_id)
+        .await
+        .unwrap();
+    assert_eq!(
+        (second.records, second.messages, second.activities),
+        (1, 0, 0)
+    );
+    let runs: Vec<(String, i64, bool)> = sqlx::query_as(
+        "SELECT reader_version, messages, finished_at IS NOT NULL FROM received_rereads
+         WHERE organization_id = $1 ORDER BY started_at",
+    )
+    .bind(kestrel.organization_id)
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(runs.len(), 2);
+    assert_eq!(runs[0].1, first.messages);
+    assert!(runs.iter().all(|run| run.2 && !run.0.is_empty()));
+}

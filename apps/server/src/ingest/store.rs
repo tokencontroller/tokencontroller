@@ -573,6 +573,9 @@ pub struct Telemetry {
     pub activities: Vec<TelemetryActivity>,
     /// The received record it was read from.
     pub received: Option<String>,
+    /// Read again from a stored record by a newer reader: what it adds does
+    /// not count against the daily limit.
+    pub reread: bool,
 }
 
 /// Stores the model calls of a telemetry batch as message events. A call
@@ -620,9 +623,10 @@ pub async fn store_received_telemetry(
         messages,
         activities,
         received,
+        reread,
     } = telemetry;
     let received = received.as_deref();
-    let limit = quota::limit(state, organization_id).await?;
+    let limit = quota::limit_unless(state, organization_id, reread).await?;
     quota::check(state, organization_id, limit.as_ref(), 0).await?;
     let log = Log::load(state, organization_id).await?;
     let members: BTreeSet<String> = sqlx::query_scalar!(

@@ -26,6 +26,12 @@ Without a mail server, someone with access to the container can still sign a mem
 docker compose exec tokencontroller tokencontroller sign-in-link ana@example.com
 ```
 
+Every usage endpoint stores what it received for 400 days. After an upgrade whose release notes say it reads more of the telemetry, you may read an organization's stored telemetry again. It adds only the model calls and activities not on record yet, and they do not count against a daily limit:
+
+```sh
+docker compose exec tokencontroller tokencontroller reread 0e000000-0000-4000-8000-000000000001
+```
+
 ## Price table {#price-table}
 
 The open edition ships without prices. Write the rows you pay in a CSV file (the format is under [Price tables](/reference/pricing-tables#file)) and point `TC_PRICE_TABLE` at it; mount it into the container. An org manager can still add rows and overrides in the web app, and those win over the file. With an Enterprise key the managed table comes with the image and is refreshed from us, and the file is only for rows of your own, or for newer managed prices on an instance without internet access.

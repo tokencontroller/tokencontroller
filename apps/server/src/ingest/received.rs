@@ -378,6 +378,97 @@ fn record_deletion(state: &AppState, member: &Member) {
     );
 }
 
+/// What a re-read of stored records added.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+pub struct Reread {
+    pub records: i64,
+    pub messages: i64,
+    pub activities: i64,
+}
+
+/// Reads an organization's stored telemetry records again with this
+/// version of the reader, oldest first, and stores what it finds that is
+/// not on record yet: a model call or activity an older reader passed
+/// over. Logged in `received_rereads` with the reader's version; what it
+/// adds does not count against the daily limit. Token entries and CSV
+/// files are read whole on arrival, so they are not read again.
+///
+/// # Errors
+///
+/// A database error, or a stored record whose content type is not one the
+/// receiver takes.
+pub async fn reread(state: &AppState, organization_id: Uuid) -> Result<Reread, ApiError> {
+    use super::otlp::{self, Encoding};
+    use super::store::{self, Telemetry};
+
+    let run: Uuid = sqlx::query_scalar!(
+        "INSERT INTO received_rereads (organization_id, reader_version) VALUES ($1, $2) RETURNING id",
+        organization_id,
+        env!("CARGO_PKG_VERSION"),
+    )
+    .fetch_one(&state.db)
+    .await?;
+    let records = sqlx::query!(
+        "SELECT id, endpoint, content_type, body, received_by FROM received_records
+         WHERE organization_id = $1 AND endpoint LIKE 'otlp-%' ORDER BY received_at, id",
+        organization_id,
+    )
+    .fetch_all(&state.db)
+    .await?;
+    let mut done = Reread::default();
+    for record in records {
+        let encoding = Encoding::from_content_type(Some(&record.content_type))
+            .map_err(|error| ApiError::Internal(error.into()))?;
+        let read = match record.endpoint.as_str() {
+            "otlp-logs" => otlp::decode_logs(&record.body, encoding)
+                .map(|request| otlp::extract_from_logs(&request)),
+            "otlp-traces" => otlp::decode_traces(&record.body, encoding)
+                .map(|request| otlp::extract_from_traces(&request)),
+            _ => otlp::decode_metrics(&record.body, encoding)
+                .map(|request| otlp::extract_from_metrics(&request)),
+        };
+        // A record the reader cannot decode stays stored as it is.
+        let Ok(extracted) = read else { continue };
+        let Some(fallback) = record
+            .received_by
+            .as_deref()
+            .and_then(|email| tokencontroller_core::TagValue::new(email).ok())
+        else {
+            continue;
+        };
+        let outcome = store::store_received_telemetry(
+            state,
+            organization_id,
+            &fallback,
+            Telemetry {
+                messages: extracted.messages,
+                activities: extracted.activities,
+                received: Some(record.id),
+                reread: true,
+            },
+        )
+        .await?;
+        done.records = done.records.saturating_add(1);
+        done.messages = done
+            .messages
+            .saturating_add(i64::try_from(outcome.new_messages).unwrap_or(i64::MAX));
+        done.activities = done
+            .activities
+            .saturating_add(i64::try_from(outcome.new_activities).unwrap_or(i64::MAX));
+    }
+    sqlx::query!(
+        "UPDATE received_rereads SET finished_at = now(), records = $2, messages = $3, activities = $4
+         WHERE id = $1",
+        run,
+        done.records,
+        done.messages,
+        done.activities,
+    )
+    .execute(&state.db)
+    .await?;
+    Ok(done)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
