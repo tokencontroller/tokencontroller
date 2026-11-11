@@ -260,8 +260,17 @@ pub(super) async fn import_csv(
     }
     let person = member.person()?;
     received::check_bytes(&state, member.organization_id, body.len()).await?;
-    // The CSV columns hold no content text: signals and facts beyond the
-    // named ones come in their own columns and are read without it.
+    // A `signals.<name>` column may hold content text: it is left out of
+    // the record unless the organization keeps it.
+    let keep = received::keeps_content_text(&state.db, member.organization_id).await?;
+    let stripped = if keep {
+        None
+    } else {
+        let text = std::str::from_utf8(&body)
+            .map_err(|_| ApiError::BadRequest("the file is not UTF-8 text".to_owned()))?;
+        csv_import::without_content_text(text)
+            .map_err(|error| ApiError::BadRequest(error.to_string()))?
+    };
     let id = received::store(
         &state.db,
         member.organization_id,
@@ -269,9 +278,9 @@ pub(super) async fn import_csv(
             endpoint: Endpoint::TokenEntriesCsv,
             received_by: Some(person.as_str()),
             content_type: "text/csv",
-            body: &body,
+            body: stripped.as_ref().map_or(&body[..], String::as_bytes),
             bytes: body.len(),
-            content_kept: false,
+            content_kept: keep,
         },
     )
     .await?;

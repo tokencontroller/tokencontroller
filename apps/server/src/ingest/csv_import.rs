@@ -89,12 +89,8 @@ const REQUIRED: [&str; 4] = ["agent_harness", "model", "started_at", "ended_at"]
 /// single rows are in each [`Row`] instead.
 pub fn parse(text: &str) -> Result<Vec<Row>, CsvError> {
     let text = text.strip_prefix('\u{feff}').unwrap_or(text);
-    let first_line = text.lines().next().ok_or(CsvError::Empty)?;
-    let separator = if first_line.matches(';').count() > first_line.matches(',').count() {
-        b';'
-    } else {
-        b','
-    };
+    text.lines().next().ok_or(CsvError::Empty)?;
+    let separator = separator_of(text);
     let mut reader = csv::ReaderBuilder::new()
         .delimiter(separator)
         .flexible(false)
@@ -129,6 +125,69 @@ pub fn parse(text: &str) -> Result<Vec<Row>, CsvError> {
         rows.push(Row { line, result });
     }
     Ok(rows)
+}
+
+fn separator_of(text: &str) -> u8 {
+    let first_line = text.lines().next().unwrap_or_default();
+    if first_line.matches(';').count() > first_line.matches(',').count() {
+        b';'
+    } else {
+        b','
+    }
+}
+
+/// The file without its columns of content text (`signals.prompt` and the
+/// like), as the received record keeps it when the organization keeps
+/// none. `None` when no column holds content text.
+///
+/// # Errors
+///
+/// A [`CsvError`] when the file cannot be read.
+pub fn without_content_text(text: &str) -> Result<Option<String>, CsvError> {
+    let text = text.strip_prefix('\u{feff}').unwrap_or(text);
+    let separator = separator_of(text);
+    let unreadable = |error: csv::Error| CsvError::Unreadable(error.to_string());
+    let mut reader = csv::ReaderBuilder::new()
+        .delimiter(separator)
+        .flexible(true)
+        .has_headers(false)
+        .from_reader(text.as_bytes());
+    let mut records = reader.records();
+    let Some(headers) = records.next().transpose().map_err(unreadable)? else {
+        return Ok(None);
+    };
+    let keep: Vec<bool> = headers
+        .iter()
+        .map(|header| {
+            !header
+                .trim()
+                .strip_prefix("signals.")
+                .is_some_and(super::otlp::is_content_text_name)
+        })
+        .collect();
+    if keep.iter().all(|kept| *kept) {
+        return Ok(None);
+    }
+    let mut writer = csv::WriterBuilder::new()
+        .delimiter(separator)
+        .flexible(true)
+        .from_writer(Vec::new());
+    for record in std::iter::once(Ok(headers)).chain(records) {
+        let record = record.map_err(unreadable)?;
+        let kept = record
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| keep.get(*index).copied().unwrap_or(true));
+        writer
+            .write_record(kept.map(|(_, cell)| cell))
+            .map_err(unreadable)?;
+    }
+    let bytes = writer
+        .into_inner()
+        .map_err(|error| CsvError::Unreadable(error.to_string()))?;
+    String::from_utf8(bytes)
+        .map(Some)
+        .map_err(|error| CsvError::Unreadable(error.to_string()))
 }
 
 fn check_headers(headers: &[String]) -> Result<(), CsvError> {
@@ -270,6 +329,17 @@ fn entry_from_cells(cells: &BTreeMap<&str, &str>) -> Result<NewTokenEntry, Strin
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn columns_of_content_text_are_left_out_of_what_is_kept() {
+        let file = "agent_harness;model;signals.prompt;signals.queue\nbot;m1;\"fix it; now\";eu\n";
+        let kept = without_content_text(file).unwrap().unwrap();
+        assert_eq!(kept, "agent_harness;model;signals.queue\nbot;m1;eu\n");
+        assert_eq!(
+            without_content_text("agent_harness,model\nbot,m1\n").unwrap(),
+            None
+        );
+    }
 
     const FILE: &str = "\u{feff}agent_harness,model,started_at,ended_at,tokens.input,tokens.output,reported_cost,summary,feature,tags.team\n\
         claude-code,claude-sonnet-5,2026-09-18T09:12:00Z,2026-09-18T09:40:00Z,1200,300,0.42,\"Fixed the cart, and tests\",KD-214,web\n\
