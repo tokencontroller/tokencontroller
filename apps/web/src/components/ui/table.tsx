@@ -77,7 +77,7 @@ export function DataTable<Row>({
         </div>
       ) : null}
       <div className="tc-table-wrap -mx-4 overflow-x-auto sm:mx-0">
-        <table className={`w-full min-w-full border-collapse text-sm ${st.table}`}>
+        <table className={`w-full min-w-full border-collapse text-body ${st.table}`}>
           {caption ? <caption className="sr-only">{caption}</caption> : null}
           <thead className={st.head}>
             <tr className="border-b border-line">
@@ -95,7 +95,7 @@ export function DataTable<Row>({
           <tbody className={st.body}>
             {rows.length === 0 ? (
               <tr>
-                <td colSpan={visible.length} className="px-4 py-8 text-center text-sm text-muted">
+                <td colSpan={visible.length} className="px-4 py-8 text-center text-body text-muted">
                   {empty ?? "Nothing here."}
                 </td>
               </tr>

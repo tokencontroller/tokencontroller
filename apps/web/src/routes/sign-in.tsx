@@ -16,15 +16,16 @@ const inviteRoute = getRouteApi("/i/$code");
 
 function Frame({ title, lead, children }: { title: string; lead?: ReactNode; children: ReactNode }) {
   return (
-    <div className="flex min-h-dvh flex-col items-center justify-center bg-sheet px-4 py-10">
+    <div className="flex min-h-dvh flex-col items-center justify-center bg-canvas px-4 py-10">
       <div className="w-full max-w-sm">
-        <div className="mb-8 flex justify-center">
-          <img src="/logo-light.svg" width="56" height="56" alt="Token Controller" className="logo-light size-14" />
-          <img src="/logo-dark-small.svg" width="56" height="56" alt="Token Controller" className="logo-dark size-14" />
+        <div className="mb-8 flex items-center justify-center gap-2.5">
+          <img src="/logo-light-small.svg" width="32" height="32" alt="" className="logo-light size-8" />
+          <img src="/logo-dark-small.svg" width="32" height="32" alt="" className="logo-dark size-8" />
+          <span className="text-[18px] font-semibold tracking-[-0.015em] text-ink">Token Controller</span>
         </div>
-        <div className="rounded-lg bg-page p-6 shadow-raised">
-          <h1 className="text-lg font-semibold">{title}</h1>
-          {lead ? <p className="mt-1 text-sm text-muted">{lead}</p> : null}
+        <div className="rounded-lg border border-line bg-surface p-7 shadow-card">
+          <h1 className="text-title font-semibold">{title}</h1>
+          {lead ? <p className="mt-1 text-small text-muted">{lead}</p> : null}
           <div className="mt-5">{children}</div>
         </div>
       </div>
@@ -64,7 +65,7 @@ function MockLink() {
     window.location.assign(data.start ?? "/");
   };
   return (
-    <div className="mt-4 rounded-md border border-dashed border-line-strong p-3 text-xs text-muted">
+    <div className="mt-4 rounded-md border border-dashed border-line-strong p-3 text-caption text-muted">
       Example data: no email is sent.{" "}
       <button type="button" onClick={() => void open()} className="font-medium text-accent underline">
         Open the sign-in link
@@ -88,7 +89,7 @@ function CheckYourEmail({ lead, onBack }: { lead: ReactNode; onBack: () => void 
   }, [justSignedIn, navigate]);
   return (
     <Frame title="Check your email" lead={lead}>
-      <button type="button" onClick={onBack} className="text-sm text-accent hover:underline">
+      <button type="button" onClick={onBack} className="text-small font-medium text-accent hover:underline">
         Use another email
       </button>
       <MockLink />
@@ -106,7 +107,7 @@ function Providers() {
   if (!providers.data?.length) return null;
   return (
     <div className="mt-4 space-y-2">
-      <p className="text-center text-xs text-muted">or</p>
+      <p className="text-center text-caption text-muted">or</p>
       {providers.data.map((p) => (
         <a key={p.id} href={p.url} className={buttonClass("secondary", "md", "w-full")}>
           {p.label}
@@ -149,7 +150,7 @@ export function SignInPage(): ReactNode {
         </Button>
       </form>
       <Providers />
-      <p className="mt-5 text-center text-sm text-muted">
+      <p className="mt-5 text-center text-small text-muted">
         New to Token Controller?{" "}
         <Link to="/signup" className="font-medium text-accent hover:underline">
           Create an organization
@@ -180,8 +181,8 @@ export function InvitePage(): ReactNode {
     return (
       <Frame title="This invite does not work">
         <ErrorBox error={invite.error} />
-        <p className="mt-4 text-sm text-muted">Ask whoever invited you for a new link, or sign in if you joined already.</p>
-        <Link to="/sign-in" className="mt-3 inline-block text-sm text-accent hover:underline">
+        <p className="mt-4 text-small text-muted">Ask whoever invited you for a new link, or sign in if you joined already.</p>
+        <Link to="/sign-in" className="mt-3 inline-block text-small font-medium text-accent hover:underline">
           Sign in
         </Link>
       </Frame>
@@ -290,10 +291,10 @@ export function SignUpPage(): ReactNode {
           <Input autoComplete="name" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
         </Field>
         <fieldset>
-          <legend className="mb-1 text-[13px] font-medium text-ink-soft">Do you manage agents, or do you manage people?</legend>
+          <legend className="mb-1.5 text-small font-medium text-ink-soft">Do you manage agents, or do you manage people?</legend>
           <div className="grid grid-cols-2 gap-2">
             {(["agents", "people"] as const).map((value) => (
-              <label key={value} className={`flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm ${choices.manages === value ? "border-ink bg-sheet" : "border-line-strong"}`}>
+              <label key={value} className={`flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-body ${choices.manages === value ? "border-accent bg-accent-tint" : "border-line-strong bg-surface hover:bg-hover"}`}>
                 <input type="radio" name="manages" value={value} checked={choices.manages === value} onChange={() => setChoices((c) => ({ ...c, manages: value }))} className="accent-[var(--tc-ink)]" />
                 I manage {value}
               </label>
@@ -312,7 +313,7 @@ export function SignUpPage(): ReactNode {
           Create organization
         </Button>
       </form>
-      <p className="mt-5 text-center text-sm text-muted">
+      <p className="mt-5 text-center text-small text-muted">
         Already a member?{" "}
         <Link to="/sign-in" className="font-medium text-accent hover:underline">
           Sign in

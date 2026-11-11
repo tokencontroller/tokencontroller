@@ -3,7 +3,7 @@ import { useState, type ReactNode } from "react";
 import type { Submission } from "@/api/contract";
 import { api } from "@/api/endpoints";
 import { Amount } from "@/components/controls";
-import { StatusBadge } from "@/components/ui/badge";
+import { Badge, StatusBadge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { ErrorBox, Loading, Note, PageHeader, Section } from "@/components/ui/display";
@@ -34,50 +34,61 @@ export function SubmissionsPage(): ReactNode {
       notify("Approved");
     },
   });
+  // What waits for a decision comes first; settled rows are muted.
+  const order: Record<string, number> = { submitted: 0, rejected: 1, open: 1, approved: 2 };
+  const rows = submissions.data?.toSorted((a, b) => (order[a.status] ?? 1) - (order[b.status] ?? 1) || b.to.localeCompare(a.to));
+  const waiting = submissions.data?.filter((s) => s.status === "submitted").length ?? 0;
   return (
     <>
       <PageHeader
         title="Submissions"
-        lead={approval ? "Approval is on: reports can show approved messages only." : "Approval is off: submitted messages count in reports as they are."}
-        actions={hasRole(me.person, "org_manager") ? <Button onClick={() => setAsking(true)}>Ask everyone to submit</Button> : null}
+        lead={<Badge tone={approval ? "accent" : "neutral"}>{approval ? "Approval on" : "Approval off"}</Badge>}
+        actions={hasRole(me.person, "org_manager") ? <Button variant="primary" onClick={() => setAsking(true)}>Ask everyone to submit</Button> : null}
       />
       {requests.data?.length ? (
         <Note>
           {requests.data.map((r) => `Asked to submit by ${formatDate(r.until)}${r.message ? `: ${r.message}` : ""}`).join(" · ")}
         </Note>
       ) : null}
-      <FormError error={approve.error} />
-      <Section title={mayApprove ? "To approve and done" : "Submissions"}>
-        {submissions.error ? <ErrorBox error={submissions.error} /> : null}
-        {!submissions.data ? (
-          <Loading />
+      <Section
+        title={mayApprove ? "To approve" : "Submitted"}
+        badge={mayApprove && waiting ? <Badge tone="accent">{waiting}</Badge> : null}
+        hint={approval ? "Reports can show approved messages only." : "Submitted messages count in reports as they are."}
+        flush
+      >
+        {submissions.error ? <div className="px-5 pb-5"><ErrorBox error={submissions.error} /></div> : null}
+        {!rows ? (
+          <div className="px-5 pb-5"><Loading /></div>
         ) : (
           <DataTable
             caption="Submissions"
             stack
-            rows={submissions.data}
+            rows={rows}
             rowKey={(s) => s.id}
+            rowClassName={(s) => (s.status === "submitted" ? "" : "text-ink-soft")}
             empty="Nothing was submitted yet."
             columns={[
-              { key: "person", header: "Person", cell: (s) => personName(s.person) },
+              { key: "person", header: "Person", cell: (s) => <span className="font-medium text-ink">{personName(s.person)}</span> },
               { key: "window", header: "Window", cell: (s) => formatRange(s.from, s.to) },
-              { key: "messages", header: "Messages", align: "right", cell: (s) => <span className="num">{s.messages}</span> },
+              { key: "messages", header: "Messages", align: "right", wide: true, cell: (s) => <span className="num">{s.messages}</span> },
               { key: "cost", header: "Cost", align: "right", cell: (s) => <Amount value={s.cost} /> },
-              { key: "status", header: "Status", cell: (s) => <span className="flex flex-col gap-0.5"><StatusBadge status={s.status} />{s.reason ? <span className="text-xs text-muted">{s.reason}</span> : null}</span> },
+              { key: "status", header: "Status", cell: (s) => <span className="inline-flex flex-col items-end gap-0.5 sm:items-start"><StatusBadge status={s.status} />{s.reason ? <span className="text-caption text-muted">{s.reason}</span> : null}</span> },
               {
                 key: "act",
                 header: "",
+                align: "right",
                 cell: (s) =>
                   mayApprove && s.status === "submitted" && s.person !== me.person.email ? (
-                    <span className="flex gap-2">
-                      <Button size="sm" variant="primary" onClick={() => approve.mutate(s.id)} aria-label={`Approve ${personName(s.person)}`}>Approve</Button>
+                    <span className="inline-flex gap-2">
                       <Button size="sm" variant="danger" onClick={() => setRejecting(s)} aria-label={`Reject ${personName(s.person)}`}>Reject</Button>
+                      <Button size="sm" onClick={() => approve.mutate(s.id)} aria-label={`Approve ${personName(s.person)}`}>Approve</Button>
                     </span>
                   ) : null,
               },
             ]}
           />
         )}
+        {approve.error ? <div className="px-5 py-3"><FormError error={approve.error} /></div> : null}
       </Section>
       {rejecting ? <RejectDialog submission={rejecting} onClose={() => setRejecting(null)} /> : null}
       <AskDialog open={asking} onClose={() => setAsking(false)} />
@@ -103,7 +114,7 @@ function RejectDialog({ submission, onClose }: { submission: Submission; onClose
         </Field>
         <FormError error={reject.error} />
         <div className="flex justify-end gap-2">
-          <Button onClick={onClose}>Cancel</Button>
+          <Button variant="ghost" onClick={onClose}>Cancel</Button>
           <Button type="submit" variant="danger" disabled={reject.isPending}>Reject</Button>
         </div>
       </form>
@@ -129,7 +140,7 @@ function AskDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
         <Field label="Message"><Input value={message} onChange={(e) => setMessage(e.target.value)} /></Field>
         <FormError error={ask.error} />
         <div className="flex justify-end gap-2">
-          <Button onClick={onClose}>Cancel</Button>
+          <Button variant="ghost" onClick={onClose}>Cancel</Button>
           <Button type="submit" variant="primary" disabled={ask.isPending}>Ask</Button>
         </div>
       </form>

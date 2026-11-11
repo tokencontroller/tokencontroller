@@ -113,7 +113,7 @@ export function PriceTablePage(): ReactNode {
                 header: "Model",
                 cell: (g) => (
                   <span className="flex flex-wrap items-center gap-1.5">
-                    <span className="font-mono text-[13px]">{g.provider}/{g.model}</span>
+                    <span className="font-mono text-small">{g.provider}/{g.model}</span>
                     {g.contract ? <Badge tone="accent">{g.contract}</Badge> : null}
                     {g.source === "managed" ? null : <Badge tone="accent">your row</Badge>}
                   </span>

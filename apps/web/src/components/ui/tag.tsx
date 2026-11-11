@@ -21,7 +21,7 @@ export function Tag({ name, value, onRemove }: { name: string; value: string; on
   const personName = usePersonName();
   const shown = name === "person" ? personName(value) : value;
   return (
-    <span className="inline-flex max-w-full items-center gap-1.5 rounded-sm border border-line bg-page py-px pl-1.5 pr-2 text-xs leading-5 text-ink shadow-chip">
+    <span className="inline-flex max-w-full items-center gap-1.5 rounded-sm border border-line bg-surface py-px pl-1.5 pr-2 text-caption leading-5 text-ink shadow-chip">
       <span aria-hidden="true" className="size-2 shrink-0 rounded-full" style={{ background: tagColor(name) }} />
       <span className="text-muted">{name}</span>
       <span className="truncate font-medium">{shown}</span>
@@ -36,7 +36,7 @@ export function Tag({ name, value, onRemove }: { name: string; value: string; on
 
 export function TagRow({ tags, hide = ["person"] }: { tags: Tags; hide?: string[] }) {
   const list = tagList(tags).filter(([name]) => !hide.includes(name));
-  if (!list.length) return <span className="text-xs text-muted">no tags</span>;
+  if (!list.length) return <span className="text-caption text-muted">no tags</span>;
   return (
     <span className="flex flex-wrap gap-1">
       {list.map(([name, value]) => (

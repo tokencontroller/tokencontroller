@@ -3,7 +3,8 @@ import { useState, type ReactNode } from "react";
 import { api } from "@/api/endpoints";
 import { Amount } from "@/components/controls";
 import { Button } from "@/components/ui/button";
-import { ErrorBox, Kpi, KpiRow, Loading, Note, PageHeader, Section } from "@/components/ui/display";
+import { Badge } from "@/components/ui/badge";
+import { ErrorBox, Kpi, KpiRow, Loading, PageHeader, Section } from "@/components/ui/display";
 import { Field, FormError, Input } from "@/components/ui/form";
 import { notify } from "@/components/ui/toast";
 import { formatDate, formatDateTime, formatRange } from "@/lib/format";
@@ -36,63 +37,83 @@ export function CutoffPage(): ReactNode {
   const inRange = reconciliation.data?.filter((r) => r.to <= target && r.to > (current ?? "")) ?? [];
   const pending = submissions.data?.filter((s) => s.status !== "approved" && s.to <= target) ?? [];
   const orgOverhead = overhead.data?.rows.find((r) => r.key === "organization_overhead")?.amount ?? "0.00";
+  const checks: { key: string; ok: boolean; text: ReactNode }[] = [
+    ...inRange.map((r) => ({
+      key: r.bill_id,
+      ok: !r.a_message_is_wrong,
+      text:
+        r.contract_kind === "flat" ? (
+          <>{r.contract} bill {formatRange(r.from, r.to)}: covered <Amount value={r.covered ?? null} />{r.a_message_is_wrong ? ", negative: a message is wrong." : "."}</>
+        ) : (
+          <>{r.contract} bill {formatRange(r.from, r.to)}: what no message explains <Amount value={r.unexplained} />{r.a_message_is_wrong ? ", negative: a message is wrong." : "."}</>
+        ),
+    })),
+    ...(inRange.length ? [] : [{ key: "no-bill", ok: true, text: "No bill ends between the cutoff and this day." }]),
+    { key: "overhead", ok: Number(orgOverhead) === 0, text: <>Organization overhead since the cutoff: <Amount value={orgOverhead} />. Some of it may belong on a project.</> },
+    ...(me.organization.approval
+      ? [{ key: "submissions", ok: !pending.length, text: pending.length ? `Submissions not approved yet: ${pending.map((s) => `${personName(s.person)} (${s.status})`).join(", ")}.` : "Every submission in the range is approved." }]
+      : []),
+  ];
+  const open = checks.filter((c) => !c.ok).length;
   return (
     <>
-      <PageHeader title="Cutoff" lead="Every figure as of the cutoff is frozen; everything after it is live. There are no months to close." />
+      <PageHeader title="Cutoff" lead="Figures up to the cutoff are frozen; after it they are live." />
       {cutoff.error ? <ErrorBox error={cutoff.error} /> : null}
       {!cutoff.data ? (
         <Loading />
       ) : (
         <KpiRow>
           <Kpi
+            hero
             label="Cutoff"
             value={current ? formatDate(current) : "none"}
-            note={cutoff.data.moved_at ? `moved ${formatDateTime(cutoff.data.moved_at)} by ${personName(cutoff.data.moved_by)}` : "Every figure is live."}
+            note={cutoff.data.moved_at ? `moved ${formatDateTime(cutoff.data.moved_at)} by ${personName(cutoff.data.moved_by)}` : "every figure is live"}
           />
+          <Kpi label="To look at before moving it" value={open} tone={open ? "exception" : "posted"} note={`of ${String(checks.length)} checks`} />
         </KpiRow>
       )}
-      <Section title="Move it" lead={`Checks before moving it to ${formatDate(target)}. Moving it back is allowed and is an event like any other.`}>
-        <ul className="mb-4 flex max-w-2xl flex-col gap-2 text-sm">
-          {inRange.map((r) => (
-            <li key={r.bill_id} className={r.a_message_is_wrong ? "text-exception" : ""}>
-              {r.contract} bill {formatRange(r.from, r.to)}:{" "}
-              {r.contract_kind === "flat" ? (
-                <>covered <Amount value={r.covered ?? null} />{r.a_message_is_wrong ? ", negative: a message is wrong." : "."}</>
-              ) : (
-                <>what no message explains <Amount value={r.unexplained} />{r.a_message_is_wrong ? ", negative: a message is wrong." : ", zero or positive."}</>
-              )}
-            </li>
-          ))}
-          {!inRange.length ? <li className="text-muted">No bill ends between the cutoff and this day.</li> : null}
-          <li>
-            Organization overhead since the cutoff: <Amount value={orgOverhead} />. Check whether some of it belongs on a project.
-          </li>
-          {me.organization.approval ? (
-            <li className={pending.length ? "text-exception" : ""}>
-              {pending.length ? `Submissions not approved yet: ${pending.map((s) => `${personName(s.person)} (${s.status})`).join(", ")}.` : "Every submission in the range is approved."}
-            </li>
-          ) : null}
-        </ul>
-        <form
-          className="flex max-w-md items-end gap-2"
-          onSubmit={(e) => {
-            e.preventDefault();
-            move.mutate();
-          }}
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          move.mutate();
+        }}
+      >
+        <Section
+          title={`Before you move it to ${formatDate(target)}`}
+          flush
+          hint="Nothing is edited. A wrong split before the cutoff gets a reversal and a new split; an org manager with adjust may date them before the cutoff, and the log says who did it. Moving the cutoff back is allowed."
+          footer={
+            <>
+              <FormError error={move.error} />
+              <Field label="New cutoff" className="w-44">
+                <Input type="date" value={target} max={today()} onChange={(e) => setDay(e.target.value)} />
+              </Field>
+              <Button type="submit" variant="primary" className="self-end" disabled={move.isPending}>
+                Move the cutoff
+              </Button>
+            </>
+          }
         >
-          <Field label="New cutoff" className="flex-1">
-            <Input type="date" value={target} max={today()} onChange={(e) => setDay(e.target.value)} />
-          </Field>
-          <Button type="submit" variant="primary" disabled={move.isPending}>
-            Move the cutoff
-          </Button>
-        </form>
-        <FormError error={move.error} />
-      </Section>
-      <Note>
-        Nothing is edited. A wrong split before the cutoff gets a reversal and a new split. An org manager with adjust can date them before the cutoff, so the frozen figures change on purpose and the
-        log says who did it and when.
-      </Note>
+          <ul className="border-t border-line">
+            {checks.map((c) => (
+              <li key={c.key} className="flex items-start gap-3 border-b border-line px-5 py-3 text-body last:border-b-0">
+                <CheckIcon ok={c.ok} />
+                <span>{c.text}</span>
+                <span className="ml-auto shrink-0">{c.ok ? <Badge tone="posted">fine</Badge> : <Badge tone="exception">look</Badge>}</span>
+              </li>
+            ))}
+          </ul>
+        </Section>
+      </form>
     </>
+  );
+}
+
+function CheckIcon({ ok }: { ok: boolean }) {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" className={`mt-0.5 shrink-0 ${ok ? "text-posted" : "text-exception"}`}>
+      <circle cx="8" cy="8" r="6.25" fill="none" stroke="currentColor" strokeWidth="1.4" />
+      {ok ? <path d="M5.3 8.2 7.2 10l3.5-4" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /> : <path d="M8 4.8v3.8M8 10.9v.1" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />}
+    </svg>
   );
 }

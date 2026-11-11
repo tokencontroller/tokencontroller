@@ -57,7 +57,7 @@ export function FormError({ error }: { error: unknown }) {
   }, [message]);
   if (!message) return null;
   return (
-    <p role="alert" className="rounded-md bg-exception-tint px-3 py-2 text-sm text-exception">
+    <p role="alert" className="rounded-md bg-exception-tint px-3 py-2 text-body text-exception">
       {message}
     </p>
   );

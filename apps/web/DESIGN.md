@@ -51,9 +51,9 @@ All in `src/components/ui/`.
 | Piece | Where | How to use it |
 |---|---|---|
 | `PageHeader` | display.tsx | `title`, at most a short `lead` (such as the range), `meta` (such as as-of), and the one primary action in `actions` |
-| `Section` | display.tsx | The card. `title`, `hint` for the explanation, `actions` for small buttons, `flush` when the body is a table, `footer` for a form's save button. `lead` is only for screens not yet moved |
+| `Section` | display.tsx | The card. `title`, `badge` for a short status next to it (such as "built in"), `hint` for the explanation, `actions` for small buttons, `flush` when the body is a table, `footer` for a form's save button. `lead` is only for the hosted add-on's screens until they move |
 | `Card` | display.tsx | A card with no title, such as a filter toolbar |
-| `KpiRow` + `Kpi` | display.tsx | Up to four figures in one card, split by hairlines. The first is the `hero` (larger, wider). A `note` of at most four words |
+| `KpiRow` + `Kpi` | display.tsx | Two to four figures in one card, split by hairlines. The first is the `hero` (larger, wider). A `note` of at most four words |
 | `Figure` | display.tsx | A figure inside a card, such as bill, cost of messages and the gap |
 | `Hint` | display.tsx | The (i) that opens help text on click or tap. Use it only where the text matters; most cards need none |
 | `linkClass` | display.tsx | A quiet blue link in a card header, such as "Bills" |
@@ -61,6 +61,8 @@ All in `src/components/ui/`.
 | `SettingRow` | form.tsx | Label and one line on the left, the control on the right; stacks on a phone. For settings cards |
 | `Field`, `Input`, `Select`, `Textarea` | form.tsx | Label above, 36 px controls, a blue focus ring |
 | `Button` | button.tsx | `primary` (Ink, once per screen or dialog), `secondary` (bordered), `ghost` (quiet links in card headers), `danger` (revoke, remove, disconnect) |
+| `Segmented` | tabs.tsx | Two or three views of one list in a card header, each with its count, such as To check and Submitted |
+| `Menu` | menu.tsx | The ··· row or card menu, for an action that is rare or destructive, such as removing a tag name |
 | `Badge` | badge.tsx | A short status in a tinted chip with a thin ring. One per row |
 | `Empty` | display.tsx | What is missing in a line, and the one action that fills it |
 | `Dialog` | dialog.tsx | Every add-form. The submit is the primary button, bottom right, with Cancel beside it |
@@ -76,10 +78,8 @@ Cards run to the screen's edges, so tables get the width. Columns that matter le
 
 ## Open work
 
-Moved to the system: overview, reports, settings, and with the contracts of the data model rebuild bills (one check card per bill), rules (list cards, dialog), the price table (problems first, one row per model, dialog) and check and submit (the contract question card; its table still waits for the Open and Submitted tabs). Every other screen still uses older patterns (lead sentences, open add-forms, ghost buttons for removing) and moves in the data model rebuild: screens it touches with that work, the rest after its release. Each screen's diagnosis and word budget is in the design diagnosis. These shared pieces are still to make, at the latest with the first screen that needs them:
+Every screen of the public web app is in the system. The hosted add-on's screens (Billing, feedback) move in the private repository; after that, `Section`'s `lead` and the old colour names `page` and `sheet` go. These shared pieces are still to make, at the latest with the first screen that needs them:
 
 - A date range button in place of the browser's date inputs (reports, plans).
 - On a phone, report filters folded into one summary row that opens them.
-- On a phone, list rows (name, amount, badge) in place of stacked label and value blocks for long lists (grants, sessions).
-- A row menu for row actions when a row has more than one.
-- Small icons in the main menu.
+- On a phone, list rows (name, amount, badge) in place of stacked label and value blocks for long lists.

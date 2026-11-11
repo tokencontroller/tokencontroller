@@ -14,6 +14,7 @@ test("an org manager accepts an estimate and adds a share", async ({ page }) => 
   await expect(page.getByText("Accepted", { exact: true })).toBeVisible();
 
   await expect(page.getByRole("table", { name: "Shares" }).getByText("Mara Ortner").filter({ visible: true })).toBeVisible();
+  await page.getByRole("button", { name: "Add a share" }).click();
   await page.getByLabel("Share person").selectOption({ label: "Tom Lindqvist" });
   await page.getByLabel("Share project").selectOption("shop");
   await page.getByLabel("Fraction").fill("0.6");
@@ -25,6 +26,7 @@ test("an org manager accepts an estimate and adds a share", async ({ page }) => 
 test("a classifier estimate comes back as a distribution", async ({ page }) => {
   await signIn(page, "priya");
   await openFromMenu(page, "Plans and estimates");
+  await page.getByRole("button", { name: "Ask for an estimate" }).click();
   await page.getByLabel("Work").fill("Gift cards in checkout");
   await page.getByLabel("Tag set").fill("project:shop");
   await page.getByLabel("Markup, percent").fill("15");

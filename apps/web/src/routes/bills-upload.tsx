@@ -68,14 +68,14 @@ function Problem({ problem, text }: { problem: BillCsvProblem; text: string }) {
   const row = problem.row ?? null;
   const shown = row === null ? [] : [1, row - 1, row].filter((n, i, all) => n >= 1 && n <= lines.length && all.indexOf(n) === i);
   return (
-    <div role="alert" className="rounded-lg border border-exception/30 bg-exception-tint px-4 py-3 text-sm">
+    <div role="alert" className="rounded-lg border border-exception/30 bg-exception-tint px-4 py-3 text-body">
       <p className="text-exception">
         {where ? <span className="font-medium">{where}: </span> : null}
         {problem.message}
       </p>
       <p className="mt-1 text-ink-soft">Fix the file and choose it again. Nothing was saved.</p>
       {shown.length ? (
-        <ol className="mt-3 overflow-x-auto rounded-md bg-page font-mono text-xs">
+        <ol className="mt-3 overflow-x-auto rounded-md bg-surface font-mono text-caption">
           {shown.map((n) => (
             <li key={n} className={`flex gap-3 px-3 py-1 ${n === row ? "bg-exception/10 text-exception" : "text-muted"}`}>
               <span className="w-6 shrink-0 select-none text-right">{n}</span>
@@ -93,7 +93,7 @@ function FileDrop({ file, onFile }: { file: File | null; onFile: (file: File | n
   const [over, setOver] = useState(false);
   return (
     <label
-      className={`flex cursor-pointer flex-col items-center justify-center gap-1 rounded-lg border border-dashed px-6 py-7 text-center transition-colors ${over ? "border-accent bg-accent-tint" : "border-line-strong hover:bg-sheet"}`}
+      className={`flex cursor-pointer flex-col items-center justify-center gap-1 rounded-lg border border-dashed px-6 py-7 text-center transition-colors ${over ? "border-accent bg-accent-tint" : "border-line-strong hover:bg-hover"}`}
       onDragOver={(e) => {
         e.preventDefault();
         setOver(true);
@@ -108,13 +108,13 @@ function FileDrop({ file, onFile }: { file: File | null; onFile: (file: File | n
       <input type="file" accept=".csv,text/csv" className="sr-only" aria-label="CSV file" onChange={(e) => onFile(e.target.files?.item(0) ?? null)} />
       {file ? (
         <>
-          <span className="text-sm font-medium">{file.name}</span>
-          <span className="text-xs text-muted">{formatSize(file.size)}. Choose another file to replace it.</span>
+          <span className="text-body font-medium">{file.name}</span>
+          <span className="text-caption text-muted">{formatSize(file.size)}. Choose another file to replace it.</span>
         </>
       ) : (
         <>
-          <span className="text-sm font-medium">Choose a CSV file</span>
-          <span className="text-xs text-muted">or drop it here</span>
+          <span className="text-body font-medium">Choose a CSV file</span>
+          <span className="text-caption text-muted">or drop it here</span>
         </>
       )}
     </label>
@@ -205,7 +205,7 @@ export function UploadCsvDialog({ open, onOpenChange }: { open: boolean; onOpenC
 
         <FileDrop file={file} onFile={setFile} />
 
-        {kind && file && !isMonth(month) ? <p className="text-sm text-muted">Give the month the export is the bill for, such as 2026-03.</p> : null}
+        {kind && file && !isMonth(month) ? <p className="text-body text-muted">Give the month the export is the bill for, such as 2026-03.</p> : null}
         {preview.isFetching ? <Loading /> : null}
         {preview.error ? <ErrorBox error={preview.error} /> : null}
         {problem && preview.data ? <Problem problem={problem} text={preview.data.text} /> : null}
@@ -228,7 +228,7 @@ export function UploadCsvDialog({ open, onOpenChange }: { open: boolean; onOpenC
 
         <FormError error={upload.error} />
         <div className="flex flex-wrap items-center justify-end gap-2 border-t border-line pt-4">
-          {bills.length && changes === 0 ? <span className="mr-auto text-sm text-muted">Every bill is already stored with the same figures.</span> : null}
+          {bills.length && changes === 0 ? <span className="mr-auto text-body text-muted">Every bill is already stored with the same figures.</span> : null}
           <Button variant="ghost" onClick={close}>Cancel</Button>
           <Button variant="primary" disabled={!bills.length || upload.isPending} onClick={() => upload.mutate()}>
             {bills.length > 1 ? `Upload ${String(bills.length)} bills` : "Upload the bill"}

@@ -16,10 +16,11 @@ test("an org manager adds a feature with its project and maps Jira", async ({ pa
   await dialog.getByRole("button", { name: "Save" }).click();
   await expect(features.getByText("Gift cards").filter({ visible: true })).toBeVisible();
 
+  await page.getByRole("button", { name: "Connect Jira" }).click();
   await page.getByLabel("Jira site").fill("https://kestrel.atlassian.net");
   await page.getByLabel("Atlassian account email").fill("n.varga@kestrel.example");
   await page.getByLabel("API token").fill("atl-token-1234");
-  await page.getByRole("button", { name: "Connect Jira" }).click();
+  await page.getByRole("dialog", { name: "Connect Jira" }).getByRole("button", { name: "Connect Jira" }).click();
   await page.getByLabel("Project for KD").selectOption("shop");
   // On a phone the notices sit over the save button, and a pointer resting on
   // them keeps them open. Move it away and let them close first.

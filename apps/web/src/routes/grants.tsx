@@ -5,7 +5,7 @@ import { api } from "@/api/endpoints";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
-import { ErrorBox, Loading, Note, PageHeader, Section } from "@/components/ui/display";
+import { ErrorBox, Loading, PageHeader, Section } from "@/components/ui/display";
 import { Field, FormError, Input, Select } from "@/components/ui/form";
 import { DataTable } from "@/components/ui/table";
 import { notify } from "@/components/ui/toast";
@@ -30,11 +30,13 @@ export function GrantsPage(): ReactNode {
   const [promoting, setPromoting] = useState<Member | null>(null);
   const changeRole = useMutation({ mutationFn: ({ id, role }: { id: string; role: Role }) => api.updateMember(id, { role }), onSuccess: async () => { await refreshAll(); notify("Role changed"); } });
   const revoke = useMutation({ mutationFn: (g: Grant) => api.reverse(g.id), onSuccess: async () => { await refreshAll(); notify("Grant taken away"); } });
+  // Grants that come with a role are shown by the role; the card lists the extra ones unless asked.
+  const [roleGrants, setRoleGrants] = useState(false);
+  const shown = grants.data?.filter((g) => g.capability !== "record" && (roleGrants || !g.from_role));
   return (
     <>
       <PageHeader
         title="Grants and roles"
-        lead="What each person may do, and on which part of the organization."
         actions={
           <>
             <Button onClick={() => setInviting(true)}>Invite a person</Button>
@@ -43,9 +45,13 @@ export function GrantsPage(): ReactNode {
         }
       />
       {additions.parts.PeopleNote ? <additions.parts.PeopleNote /> : null}
-      <Section title="Roles" lead="Agent manager: record, view on themselves. People manager: also view, assign, approve, plan and grant on their filters. Org manager: everything, adjust, the cutoff.">
+      <Section
+        title="Roles"
+        flush
+        hint="Agent manager: record and view on themselves. People manager: also view, assign, approve, plan and grant on their filters. Org manager: everything, adjust and the cutoff."
+      >
         {!people.data ? (
-          <Loading />
+          <div className="px-5 pb-5"><Loading /></div>
         ) : (
           <DataTable
             caption="People and roles"
@@ -53,7 +59,7 @@ export function GrantsPage(): ReactNode {
             rows={people.data}
             rowKey={(p) => p.id}
             columns={[
-              { key: "name", header: "Person", cell: (p) => <span>{displayName(p)}{p.status === "invited" ? <> <Badge>invited</Badge></> : null}<span className="block text-xs text-muted">{p.email}</span></span> },
+              { key: "name", header: "Person", cell: (p) => <span className="inline-flex flex-col items-end sm:items-start"><span className="flex items-center gap-1.5 font-medium">{displayName(p)}{p.status === "invited" ? <Badge>invited</Badge> : null}</span><span className="text-caption text-muted">{p.email}</span></span> },
               {
                 key: "role",
                 header: "Role",
@@ -66,34 +72,39 @@ export function GrantsPage(): ReactNode {
                     roleLabel[p.role]
                   ),
               },
-              { key: "filters", header: "On filters", cell: (p) => (p.role === "people_manager" ? p.filters.map((f) => describeFilter(f)).join("; ") || "none yet" : p.role === "org_manager" ? "Whole organization" : "Themselves") },
+              { key: "filters", header: "On", cell: (p) => <span className="text-ink-soft">{p.role === "people_manager" ? p.filters.map((f) => describeFilter(f)).join("; ") || "no filter yet" : p.role === "org_manager" ? "Whole organization" : "Themselves"}</span> },
             ]}
           />
         )}
-        <FormError error={changeRole.error} />
+        {changeRole.error ? <div className="px-5 py-3"><FormError error={changeRole.error} /></div> : null}
       </Section>
-      <Section title="Grants in force">
-        {grants.error ? <ErrorBox error={grants.error} /> : null}
-        {!grants.data ? (
-          <Loading />
+      <Section
+        title="Grants in force"
+        flush
+        hint="Grants handed on one by one, beside the ones a role brings."
+        actions={<Button size="sm" variant="ghost" onClick={() => setRoleGrants(!roleGrants)} aria-pressed={roleGrants}>{roleGrants ? "Hide role grants" : "Show role grants"}</Button>}
+      >
+        {grants.error ? <div className="px-5 pb-5"><ErrorBox error={grants.error} /></div> : null}
+        {!shown ? (
+          <div className="px-5 pb-5"><Loading /></div>
         ) : (
           <DataTable
             caption="Grants"
             stack
-            rows={grants.data.filter((g) => g.capability !== "record")}
+            rows={shown}
             rowKey={(g) => g.id}
+            empty="No grants beyond the roles."
             columns={[
-              { key: "person", header: "Person", cell: (g) => personName(g.person) },
+              { key: "person", header: "Person", cell: (g) => <span className="font-medium">{personName(g.person)}</span> },
               { key: "capability", header: "Capability", cell: (g) => g.capability },
-              { key: "filter", header: "Filter", cell: (g) => describeFilter(g.filter) },
-              { key: "from", header: "From", cell: (g) => (g.from_role ? <span className="text-muted">role</span> : <Badge tone="accent">grant</Badge>) },
-              { key: "act", header: "", cell: (g) => (g.from_role ? null : <Button size="sm" variant="ghost" onClick={() => revoke.mutate(g)}>Take away</Button>) },
+              { key: "filter", header: "On", cell: (g) => describeFilter(g.filter) },
+              { key: "from", header: "From", cell: (g) => (g.from_role ? <Badge>role</Badge> : <Badge tone="accent">grant</Badge>) },
+              { key: "act", header: "", align: "right", cell: (g) => (g.from_role ? null : <Button size="sm" variant="danger" onClick={() => revoke.mutate(g)}>Take away</Button>) },
             ]}
           />
         )}
-        <FormError error={revoke.error} />
+        {revoke.error ? <div className="px-5 py-3"><FormError error={revoke.error} /></div> : null}
       </Section>
-      <Note>Finance needs no login: hand them a report as of the cutoff.</Note>
       {granting ? <GrantDialog onClose={() => setGranting(false)} /> : null}
       {inviting ? <InviteDialog onClose={() => setInviting(false)} /> : null}
       {promoting ? <PeopleManagerDialog person={promoting} onClose={() => setPromoting(null)} /> : null}
@@ -131,7 +142,7 @@ function GrantDialog({ onClose }: { onClose: () => void }) {
         <Field label="On filter" hint="Such as team:web or client:acme. Empty: the whole organization."><Input value={filter} onChange={(e) => setFilter(e.target.value)} /></Field>
         <FormError error={save.error} />
         <div className="flex justify-end gap-2">
-          <Button onClick={onClose}>Cancel</Button>
+          <Button variant="ghost" onClick={onClose}>Cancel</Button>
           <Button type="submit" variant="primary" disabled={!person || save.isPending}>Grant</Button>
         </div>
       </form>
@@ -155,7 +166,7 @@ function PeopleManagerDialog({ person, onClose }: { person: Member; onClose: () 
         <Field label="On filters" hint="Such as team:web or client:acme. Separate several with a semicolon."><Input value={filter} onChange={(e) => setFilter(e.target.value)} /></Field>
         <FormError error={save.error} />
         <div className="flex justify-end gap-2">
-          <Button onClick={onClose}>Cancel</Button>
+          <Button variant="ghost" onClick={onClose}>Cancel</Button>
           <Button type="submit" variant="primary" disabled={!filter.trim() || save.isPending}>Make people manager</Button>
         </div>
       </form>
@@ -177,10 +188,10 @@ function InviteDialog({ onClose }: { onClose: () => void }) {
   return (
     <Dialog open onOpenChange={(o) => { if (!o) onClose(); }} title="Invite a person" description="They get record and view on themselves.">
       {link ? (
-        <div className="flex flex-col gap-3 text-sm">
+        <div className="flex flex-col gap-3 text-body">
           <p>Invited. They got an email; this is the same link:</p>
-          <code className="break-all rounded-md bg-sand px-2 py-1">{link}</code>
-          <div className="flex justify-end"><Button onClick={onClose}>Done</Button></div>
+          <code className="break-all rounded-md bg-hover px-2 py-1 font-mono text-small ring-1 ring-inset ring-line">{link}</code>
+          <div className="flex justify-end"><Button variant="primary" onClick={onClose}>Done</Button></div>
         </div>
       ) : (
         <form className="flex flex-col gap-4" onSubmit={(e) => { e.preventDefault(); invite.mutate(); }}>
@@ -188,7 +199,7 @@ function InviteDialog({ onClose }: { onClose: () => void }) {
           <Field label="Name"><Input value={name} onChange={(e) => setName(e.target.value)} /></Field>
           <FormError error={invite.error} />
           <div className="flex justify-end gap-2">
-            <Button onClick={onClose}>Cancel</Button>
+            <Button variant="ghost" onClick={onClose}>Cancel</Button>
             <Button type="submit" variant="primary" disabled={!email.trim() || invite.isPending}>Invite</Button>
           </div>
         </form>
