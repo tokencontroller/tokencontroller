@@ -136,9 +136,10 @@ export function Kpi({ label, value, note, tone, hint, hero = false }: { label: s
 export function KpiRow({ children }: { children: ReactNode }) {
   // Two to four figures share the row; the first, the hero, is wider.
   const count = Children.toArray(children).filter(Boolean).length;
-  const columns = count <= 2 ? "lg:grid-cols-[1.5fr_1fr]" : count === 3 ? "lg:grid-cols-[1.5fr_1fr_1fr]" : "lg:grid-cols-[1.5fr_1fr_1fr_1fr]";
+  // Below lg, two figures stack; three or four go hero first, then two by two.
+  const columns = count <= 2 ? "grid-cols-1 lg:grid-cols-[1.5fr_1fr] [&>*]:col-span-1!" : count === 3 ? "grid-cols-2 lg:grid-cols-[1.5fr_1fr_1fr]" : "grid-cols-2 lg:grid-cols-[1.5fr_1fr_1fr_1fr]";
   return (
-    <div className={`mb-6 grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-line bg-line shadow-card ${columns} max-sm:-mx-4 max-sm:rounded-none max-sm:border-x-0 [&>*]:bg-surface max-lg:[&>*:nth-child(4):last-child]:col-span-2`}>
+    <div className={`mb-6 grid gap-px overflow-hidden rounded-lg border border-line bg-line shadow-card ${columns} max-sm:-mx-4 max-sm:rounded-none max-sm:border-x-0 [&>*]:bg-surface max-lg:[&>*:nth-child(4):last-child]:col-span-2`}>
       {children}
     </div>
   );

@@ -133,7 +133,7 @@ function SignInProvider() {
             <Input value={shown.label} onChange={(e) => set("label", e.target.value)} placeholder="Sign in with your company account" />
           </Field>
         </div>
-        <p className="text-[13px] text-muted">The provider must send the member's email address. Only members can sign in this way: invite people, or let SCIM add them.</p>
+        <p className="text-small text-muted">The provider must send the member's email address. Only members can sign in this way: invite people, or let SCIM add them.</p>
         <FormError error={save.error} />
         <div className="flex flex-wrap justify-end gap-2">
           {configured ? <Button onClick={() => setRemoving(true)}>Remove</Button> : null}
@@ -171,7 +171,7 @@ function Scim() {
   const columns: Column<ScimToken>[] = [
     { key: "created", header: "Created", cell: (t) => formatDate(t.created_at), csv: (t) => t.created_at },
     { key: "used", header: "Last used", cell: (t) => (t.last_used_at ? formatDateTime(t.last_used_at) : "never"), csv: (t) => t.last_used_at ?? "" },
-    { key: "actions", header: "", cell: (t) => <span className="flex justify-end"><Button size="sm" variant="ghost" onClick={() => revoke.mutate(t.id)}>Revoke</Button></span> },
+    { key: "actions", header: "", cell: (t) => <span className="flex justify-end"><Button size="sm" variant="danger" onClick={() => revoke.mutate(t.id)}>Revoke</Button></span> },
   ];
   return (
     <>

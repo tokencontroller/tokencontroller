@@ -12,9 +12,11 @@ test("an agent manager checks her sessions, fixes one and submits", async ({ pag
   await expect(label.getByText("no project").filter({ visible: true })).toBeVisible();
   await expect(label.getByText("not priced yet").filter({ visible: true })).toBeVisible();
   // The worked month's S2: 60 % KD-1, 40 % KD-2, submitted.
+  await page.getByRole("button", { name: /^Submitted/ }).click();
   const s2 = table.locator("tr").filter({ hasText: "Shared payment component" });
   await expect(s2.getByText("60 %").filter({ visible: true })).toBeVisible();
   await expect(s2.getByText("$300.00").filter({ visible: true })).toBeVisible();
+  await page.getByRole("button", { name: /^To check/ }).click();
 
   await page.getByRole("button", { name: "Split Returns portal: printable label" }).click();
   const dialog = page.getByRole("dialog", { name: "Split the session" });

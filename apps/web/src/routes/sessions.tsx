@@ -10,6 +10,7 @@ import { Dialog } from "@/components/ui/dialog";
 import { ErrorBox, Hint, Loading, Note, PageHeader, Section } from "@/components/ui/display";
 import { Field, FormError, Input, Select } from "@/components/ui/form";
 import { DataTable } from "@/components/ui/table";
+import { Segmented } from "@/components/ui/tabs";
 import { TagRow, TagValueList } from "@/components/ui/tag";
 import { notify } from "@/components/ui/toast";
 import { formatDay, formatFraction, formatTime } from "@/lib/format";
@@ -38,6 +39,10 @@ export function SessionsPage(): ReactNode {
   const rows = sessions.data?.sessions ?? [];
   const open = rows.filter((s) => s.person === me.person.email && (s.submitted === "open" || s.submitted === "rejected"));
   const request = requests.data?.find((r) => !r.done);
+  // Open and rejected sessions are the ones to check; the rest are muted in their own view.
+  const [view, setView] = useState<"check" | "submitted">("check");
+  const toCheck = rows.filter((s) => s.submitted === "open" || s.submitted === "rejected");
+  const shown = view === "check" ? toCheck : rows.filter((s) => s.submitted !== "open" && s.submitted !== "rejected");
   return (
     <>
       <PageHeader
@@ -50,27 +55,40 @@ export function SessionsPage(): ReactNode {
       />
       {request ? <Note>Asked to submit by {formatDay(request.until)}{request.message ? `: ${request.message}` : "."}</Note> : null}
       <FormError error={submit.error} />
-      {hasRole(me.person, "people_manager") ? (
-        <div className="mb-4">
-          <CheckField checked={everyone} onCheckedChange={setEveryone} label="Everyone I may view" />
-        </div>
-      ) : null}
       <ContractQuestion sessions={open} />
-      <Section title="Sessions">
-        {sessions.error ? <ErrorBox error={sessions.error} /> : null}
+      <Section
+        title="Sessions"
+        flush
+        actions={
+          <>
+            {hasRole(me.person, "people_manager") ? <CheckField checked={everyone} onCheckedChange={setEveryone} label="Everyone I may view" /> : null}
+            <Segmented
+              label="Which sessions"
+              value={view}
+              onValueChange={setView}
+              options={[
+                { value: "check", label: "To check", count: toCheck.length },
+                { value: "submitted", label: "Submitted", count: rows.length - toCheck.length },
+              ]}
+            />
+          </>
+        }
+      >
+        {sessions.error ? <div className="px-5 pb-5"><ErrorBox error={sessions.error} /></div> : null}
         {!sessions.data ? (
-          <Loading />
+          <div className="px-5 pb-5"><Loading /></div>
         ) : (
           <DataTable
             caption="Sessions"
             stack
-            rows={rows}
+            rows={shown}
             rowKey={(s) => s.session_id}
-            empty="No sessions yet."
+            rowClassName={() => (view === "check" ? "" : "text-ink-soft")}
+            empty={view === "check" ? "Nothing to check." : "Nothing submitted yet."}
             columns={[
               { key: "when", header: "When", cell: (s) => `${formatDay(s.started_at)} ${formatTime(s.started_at)}`, csv: (s) => s.started_at },
               ...(everyone ? [{ key: "person", header: "Person", cell: (s: Session) => personName(s.person), csv: (s: Session) => s.person }] : []),
-              { key: "summary", header: "Summary", cell: (s) => <span className="block max-w-xs">{s.summary}{s.agent_name ? <span className="text-muted"> · {s.agent_name}</span> : null}</span>, csv: (s) => s.summary ?? "" },
+              { key: "summary", header: "Summary", cell: (s) => <span className="inline-flex max-w-xs flex-col items-end text-right sm:items-start sm:text-left"><span className="font-medium text-ink">{s.summary}</span>{s.agent_name ? <span className="text-caption text-muted">{s.agent_name}</span> : null}</span>, csv: (s) => s.summary ?? "" },
               {
                 key: "cost",
                 header: "Cost",
@@ -91,8 +109,8 @@ export function SessionsPage(): ReactNode {
                   <span className="flex flex-col gap-1">
                     {s.parts.map((p, i) => (
                       <span key={i} className="flex flex-wrap items-center gap-1">
-                        {s.parts.length > 1 ? <span className="num text-xs text-muted">{formatFraction(p.fraction)}</span> : null}
-                        {Object.keys(p.assigned).length ? <TagRow tags={p.assigned} /> : <span className="text-xs text-muted">no project</span>}
+                        {s.parts.length > 1 ? <span className="num text-caption text-muted">{formatFraction(p.fraction)}</span> : null}
+                        {Object.keys(p.assigned).length ? <TagRow tags={p.assigned} /> : <span className="text-caption text-muted">no project</span>}
                         <LabelBadge label={p.label} />
                       </span>
                     ))}
@@ -113,7 +131,7 @@ export function SessionsPage(): ReactNode {
               },
               { key: "by", header: "By", wide: true, cell: (s) => (s.assigned_by === "default" ? "no rule matched" : s.assigned_by) },
               { key: "status", header: "Status", cell: (s) => <StatusBadge status={s.submitted} /> },
-              { key: "fix", header: "", cell: (s) => <Button size="sm" onClick={() => setEditing(s)} aria-label={`Split ${s.summary ?? s.session_id}`}>Split</Button> },
+              { key: "fix", header: "", align: "right", cell: (s) => <Button size="sm" onClick={() => setEditing(s)} aria-label={`Split ${s.summary ?? s.session_id}`}>Split</Button> },
             ]}
           />
         )}
@@ -308,11 +326,11 @@ function SplitDialog({ session, onClose }: { session: Session; onClose: () => vo
         ))}
         <div className="flex flex-wrap items-center gap-2">
           <Button size="sm" onClick={() => setParts([...parts, { percent: "", name: "feature", key: "" }])}>Add a part</Button>
-          {parts.length > 1 ? <Button size="sm" variant="ghost" onClick={() => setParts(parts.slice(0, -1))}>Remove the last part</Button> : null}
-          <span className={`ml-auto text-sm ${total === 100 ? "text-muted" : "text-exception"}`}>{total} % of 100 %</span>
+          {parts.length > 1 ? <Button size="sm" variant="danger" onClick={() => setParts(parts.slice(0, -1))}>Remove the last part</Button> : null}
+          <span className={`ml-auto text-body ${total === 100 ? "text-muted" : "text-exception"}`}>{total} % of 100 %</span>
         </div>
         {parts.length === 1 ? <CheckField checked={remember} onCheckedChange={setRemember} label="Remember as my rule" /> : null}
-        <p className="text-xs text-muted">The project and the client follow from the feature. The split supersedes the earlier one; the old one stays in the log.</p>
+        <p className="text-caption text-muted">The project and the client follow from the feature. The split supersedes the earlier one; the old one stays in the log.</p>
         <FormError error={save.error} />
         <div className="flex justify-end gap-2">
           <Button onClick={onClose}>Cancel</Button>
