@@ -515,7 +515,7 @@ mod tests {
     fn the_sign_in_at_session_start_is_read_and_a_later_one_is_not() {
         let text = [
             r#"{"type":"attachment","sessionId":"s1","attachment":{"type":"context_sections","sections":[]}}"#,
-            r#"{"type":"attachment","sessionId":"s1","attachment":{"type":"credential_org","organizationUuid":"85249816-e7ce-4406"}}"#,
+            r#"{"type":"attachment","sessionId":"s1","attachment":{"type":"credential_org","organizationUuid":"4f6a1c2e-0b7d-4e59"}}"#,
             r#"{"type":"attachment","sessionId":"s1","attachment":{"type":"credential_org","organizationUuid":"other-org"}}"#,
             r#"{"type":"attachment","sessionId":"s2","attachment":{"type":"credential_org","organizationUuid":"  "}}"#,
         ]
@@ -526,7 +526,7 @@ mod tests {
             [(
                 "s1".to_owned(),
                 SIGNED_IN_ORGANIZATION.to_owned(),
-                "85249816-e7ce-4406".to_owned()
+                "4f6a1c2e-0b7d-4e59".to_owned()
             )]
         );
     }

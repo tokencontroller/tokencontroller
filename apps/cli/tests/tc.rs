@@ -83,7 +83,7 @@ impl Machine {
         let title = json!({"type": "ai-title", "sessionId": "cc-1", "aiTitle": "Fix checkout redirect loop"});
         // Claude Code writes the signed-in organization at session start.
         let sign_in = json!({"type": "attachment", "sessionId": "cc-1", "timestamp": "2026-10-11T09:00:00Z",
-            "attachment": {"type": "credential_org", "organizationUuid": "85249816-e7ce-4406-b575-8bf34483c58a"}});
+            "attachment": {"type": "credential_org", "organizationUuid": "4f6a1c2e-0b7d-4e59-9a3c-2d8e7f1b6a90"}});
         self.write(
             ".claude/projects/-work-storefront/cc-1.jsonl",
             &[sign_in, prompt, first.clone(), first, second, title],
@@ -698,7 +698,7 @@ fn sign_in_and_provider_go_out(entries: &[Value]) {
         claude
             .and_then(|e| e.get("signals"))
             .and_then(|s| s.get("organization.id")),
-        Some(&json!("85249816-e7ce-4406-b575-8bf34483c58a"))
+        Some(&json!("4f6a1c2e-0b7d-4e59-9a3c-2d8e7f1b6a90"))
     );
     let codex = entry("codex");
     assert_eq!(
