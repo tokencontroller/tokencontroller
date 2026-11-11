@@ -1086,7 +1086,9 @@ async fn reconciliation_comes_as_csv(pool: PgPool) {
         let answer = k.get(&k.nadia, "/reconciliation?format=csv").await?;
         assert_eq!(answer.status, StatusCode::OK);
         assert!(
-            answer.text.starts_with("provider,from,to"),
+            answer
+                .text
+                .starts_with("provider,contract,contract_kind,from,to"),
             "{}",
             answer.text
         );
@@ -1242,6 +1244,247 @@ async fn a_bill_for_another_contract_stands_beside_the_providers_bill(pool: PgPo
             )
             .await?;
         assert_eq!(odd.status, StatusCode::BAD_REQUEST, "{}", odd.text);
+        Ok(())
+    }
+    .await;
+    result.unwrap();
+}
+
+#[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
+async fn the_check_shows_its_contract_and_what_it_could_hide(pool: PgPool) {
+    let k = Kestrel::load(&pool).await.unwrap();
+    let result: TestResult<()> = async {
+        let rows = k
+            .get(&k.nadia, "/reconciliation")
+            .await?
+            .ok(StatusCode::OK)?;
+        let check = &rows[0];
+        assert_eq!(text(check, "contract"), "anthropic");
+        assert_eq!(text(check, "contract_kind"), "metered");
+        // The provider has one contract, so every message got it from the
+        // fallback; none is left without one.
+        assert_eq!(text(check, "contract_from_fallback"), "950.00");
+        assert_eq!(text(check, "same_provider_no_contract"), "0.00");
+        assert!(check["fee"].is_null());
+        assert!(check["covered"].is_null());
+        // A second contract of the provider ends the fallback: the
+        // messages now stand beside the check, with no contract.
+        k.post(
+            &k.nadia,
+            "/bills",
+            json!({
+                "provider": "anthropic", "contract": "anthropic-max", "contract_kind": "flat",
+                "from": "2026-03-01", "to": "2026-03-31",
+                "amount": "120.00", "fee": "100.00", "extra_usage": "20.00", "currency": "USD"
+            }),
+        )
+        .await?
+        .ok(StatusCode::CREATED)?;
+        let rows = k
+            .get(&k.nadia, "/reconciliation")
+            .await?
+            .ok(StatusCode::OK)?;
+        let api = rows
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["contract"] == "anthropic")
+            .unwrap();
+        assert_eq!(text(api, "messages"), "0.00");
+        assert_eq!(text(api, "same_provider_no_contract"), "950.00");
+        let plan = rows
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["contract"] == "anthropic-max")
+            .unwrap();
+        assert_eq!(text(plan, "contract_kind"), "flat");
+        assert_eq!(text(plan, "fee"), "100.00");
+        assert_eq!(text(plan, "extra_usage"), "20.00");
+        assert_eq!(text(plan, "covered"), "-20.00");
+        let csv = k.get(&k.nadia, "/reconciliation?format=csv").await?;
+        assert!(
+            csv.text
+                .starts_with("provider,contract,contract_kind,from,to"),
+            "{}",
+            csv.text
+        );
+        Ok(())
+    }
+    .await;
+    result.unwrap();
+}
+
+#[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
+async fn a_contract_set_on_sessions_wins_and_is_listed(pool: PgPool) {
+    let k = Kestrel::load(&pool).await.unwrap();
+    let result: TestResult<()> = async {
+        // A contract of our own, with its terms.
+        let value = k
+            .post(
+                &k.nadia,
+                "/tags/contract/values",
+                json!({
+                    "key": "anthropic-team", "title": "Team plan",
+                    "contract": {"provider": "anthropic", "kind": "flat", "fee": "150"}
+                }),
+            )
+            .await?
+            .ok(StatusCode::CREATED)?;
+        assert_eq!(value["contract"]["kind"], "flat");
+        assert_eq!(value["contract"]["fee"], "150.00");
+        let contracts = k.get(&k.mara, "/contracts").await?.ok(StatusCode::OK)?;
+        let keys: Vec<&str> = contracts
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|c| c["key"].as_str())
+            .collect();
+        assert_eq!(keys, vec!["anthropic", "anthropic-team"]);
+        assert_eq!(contracts[1]["title"], "Team plan");
+        assert_eq!(contracts[0]["kind"], "metered");
+        // A value of contract needs its terms; other names take none.
+        let bare = k
+            .post(&k.nadia, "/tags/contract/values", json!({"key": "nothing"}))
+            .await?;
+        assert_eq!(bare.status, StatusCode::BAD_REQUEST, "{}", bare.text);
+        let wrong = k
+            .post(
+                &k.nadia,
+                "/tags/project/values",
+                json!({"key": "x", "contract": {"provider": "anthropic", "kind": "flat"}}),
+            )
+            .await?;
+        assert_eq!(wrong.status, StatusCode::BAD_REQUEST, "{}", wrong.text);
+        let metered_fee = k
+            .post(
+                &k.nadia,
+                "/tags/contract/values",
+                json!({"key": "y", "contract": {"provider": "openai", "kind": "metered", "fee": "1"}}),
+            )
+            .await?;
+        assert_eq!(metered_fee.status, StatusCode::BAD_REQUEST, "{}", metered_fee.text);
+        // Mara puts her own sessions under it.
+        let sessions = k
+            .get(&k.mara, &format!("/sessions?{MARCH}&filter=person:{}", emails::MARA))
+            .await?
+            .ok(StatusCode::OK)?;
+        let ids: Vec<String> = sessions["sessions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|s| text(s, "session_id").to_owned())
+            .collect();
+        assert!(!ids.is_empty());
+        // With two contracts of one provider the fallback stops, so the
+        // review list asks.
+        assert!(sessions["sessions"][0]["no_contract"].as_u64().unwrap() > 0);
+        assert_eq!(sessions["sessions"][0]["provider_unknown"], 0);
+        let done = k
+            .post(
+                &k.mara,
+                "/contract-assignments",
+                json!({"contract": "anthropic-team", "sessions": ids}),
+            )
+            .await?
+            .ok(StatusCode::CREATED)?;
+        assert_eq!(done["sessions"], json!(ids.len()));
+        let after = k
+            .get(&k.mara, &format!("/sessions?{MARCH}&filter=person:{}", emails::MARA))
+            .await?
+            .ok(StatusCode::OK)?;
+        for session in after["sessions"].as_array().unwrap() {
+            assert_eq!(session["no_contract"], 0);
+            assert_eq!(session["contracts"], json!(["anthropic-team"]));
+        }
+        let report = k
+            .get(&k.nadia, &format!("/reports/cost?{MARCH}"))
+            .await?
+            .ok(StatusCode::OK)?;
+        assert_eq!(text(&report, "on_a_plan"), "700.00");
+        assert_eq!(text(&report, "metered"), "0.00");
+        assert_eq!(text(&report, "no_contract"), "250.00");
+        // A contract nobody has, or someone else's session, is refused.
+        let unknown = k
+            .post(
+                &k.mara,
+                "/contract-assignments",
+                json!({"contract": "nobody", "sessions": [ids[0].clone()]}),
+            )
+            .await?;
+        assert_eq!(unknown.status, StatusCode::BAD_REQUEST, "{}", unknown.text);
+        let theirs = k
+            .post(
+                &k.tom,
+                "/contract-assignments",
+                json!({"contract": "anthropic-team", "sessions": [ids[0].clone()]}),
+            )
+            .await?;
+        assert_eq!(theirs.status, StatusCode::FORBIDDEN, "{}", theirs.text);
+        let none = k
+            .post(
+                &k.mara,
+                "/contract-assignments",
+                json!({"contract": "anthropic-team", "sessions": []}),
+            )
+            .await?;
+        assert_eq!(none.status, StatusCode::BAD_REQUEST, "{}", none.text);
+        Ok(())
+    }
+    .await;
+    result.unwrap();
+}
+
+#[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
+async fn a_contract_has_prices_of_its_own(pool: PgPool) {
+    let k = Kestrel::load(&pool).await.unwrap();
+    let result: TestResult<()> = async {
+        let model = "claude-sonnet-4-5";
+        let row = k
+            .post(
+                &k.nadia,
+                "/price-table/rows",
+                json!({
+                    "provider": "anthropic", "model": model, "kind": "input",
+                    "price_per_million": "1.00", "valid_from": "2026-01-01",
+                    "contract": "anthropic"
+                }),
+            )
+            .await?
+            .ok(StatusCode::CREATED)?;
+        assert_eq!(row["contract"], "anthropic");
+        let table = k.get(&k.nadia, "/price-table").await?.ok(StatusCode::OK)?;
+        assert!(
+            table["rows"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|row| row["contract"] == "anthropic")
+        );
+        let unknown = k
+            .post(
+                &k.nadia,
+                "/price-table/rows",
+                json!({
+                    "provider": "anthropic", "model": model, "kind": "input",
+                    "price_per_million": "1.00", "valid_from": "2026-01-01",
+                    "contract": "nobody"
+                }),
+            )
+            .await?;
+        assert_eq!(unknown.status, StatusCode::BAD_REQUEST, "{}", unknown.text);
+        let other = k
+            .post(
+                &k.nadia,
+                "/price-table/rows",
+                json!({
+                    "provider": "openai", "model": model, "kind": "input",
+                    "price_per_million": "1.00", "valid_from": "2026-01-01",
+                    "contract": "anthropic"
+                }),
+            )
+            .await?;
+        assert_eq!(other.status, StatusCode::BAD_REQUEST, "{}", other.text);
         Ok(())
     }
     .await;

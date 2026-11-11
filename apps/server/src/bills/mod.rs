@@ -145,23 +145,47 @@ impl From<BillError> for ApiError {
     }
 }
 
-/// One bill next to the cost of its provider's messages in its range, in
-/// the core's currency (USD).
+/// One bill next to the cost of the messages with its contract in its
+/// range, in the core's currency (USD), with what a check could otherwise
+/// hide beside it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, ToSchema)]
 pub struct ReconciliationView {
     #[schema(example = "USD")]
     pub currency: String,
+    /// The contract the bill is checked under.
+    #[schema(example = "anthropic-api")]
+    pub contract: String,
+    /// `metered`: the bill should equal its messages. `flat`: the bill is a
+    /// fee plus extra usage.
+    #[schema(example = "metered")]
+    pub contract_kind: String,
     /// The bill, converted at its exchange rate when it is in another
     /// currency.
     #[schema(example = "1000.00")]
     pub bill: String,
-    /// The cost of every message of the provider in the range.
+    /// The cost of the messages with the bill's contract in the range.
     #[schema(example = "950.00")]
     pub messages: String,
-    /// What the bill has that no message explains. Negative means a
-    /// message is wrong.
+    /// Metered: what the bill has that no message explains; negative means
+    /// a message is wrong. Flat: what the bill has besides its fee and
+    /// extra usage, zero when the parts add up.
     #[schema(example = "50.00")]
     pub unexplained: String,
+    /// Flat: the fee, from the bill, or from the contract for a whole
+    /// month.
+    pub fee: Option<String>,
+    /// Flat: the extra usage, from the bill or as the bill less the fee.
+    pub extra_usage: Option<String>,
+    /// Flat: the cost of its messages less the extra usage, what the plan
+    /// was worth. `null` while the fee is not known.
+    pub covered: Option<String>,
+    /// Messages of the bill's provider in its range that have no contract.
+    #[schema(example = "12.40")]
+    pub same_provider_no_contract: String,
+    /// The part of `messages` whose contract came only from the provider
+    /// having one contract.
+    #[schema(example = "0.00")]
+    pub contract_from_fallback: String,
     pub a_message_is_wrong: bool,
     /// Messages in the range with no counts; their cost is not in
     /// `messages`.
@@ -534,9 +558,16 @@ async fn reconcile(
         .map_err(|error| ApiError::Internal(error.into()))?;
     Ok(Some(ReconciliationView {
         currency: core.code(),
+        contract: reconciliation.contract.as_str().to_owned(),
+        contract_kind: reconciliation.kind.as_str().to_owned(),
         bill: events::json::money(reconciliation.bill),
         messages: events::json::money(reconciliation.messages),
         unexplained: events::json::money(reconciliation.unexplained),
+        fee: reconciliation.fee.map(events::json::money),
+        extra_usage: reconciliation.extra_usage.map(events::json::money),
+        covered: reconciliation.covered.map(events::json::money),
+        same_provider_no_contract: events::json::money(reconciliation.same_provider_no_contract),
+        contract_from_fallback: events::json::money(reconciliation.contract_from_fallback),
         a_message_is_wrong: reconciliation.a_message_is_wrong(),
         count_errors: messages.count_errors.len(),
         unknown_models: messages
@@ -910,6 +941,7 @@ pub(crate) async fn get_bill(
         .iter()
         .filter(|other| {
             other.provider == bill.provider
+                && other.contract == bill.contract
                 && other.from == bill.from
                 && other.to == bill.to
                 && other.recorded_at <= bill.recorded_at
@@ -956,19 +988,28 @@ pub struct ReconciliationQuery {
 
 const RECONCILIATION_COLUMNS: &[crate::reports::csv::Column] = &[
     ("provider", "/provider"),
+    ("contract", "/contract"),
+    ("contract_kind", "/contract_kind"),
     ("from", "/from"),
     ("to", "/to"),
     ("currency", "/currency"),
     ("bill", "/bill"),
     ("messages", "/messages"),
     ("unexplained", "/unexplained"),
+    ("fee", "/fee"),
+    ("extra_usage", "/extra_usage"),
+    ("covered", "/covered"),
+    ("same_provider_no_contract", "/same_provider_no_contract"),
+    ("contract_from_fallback", "/contract_from_fallback"),
     ("a_message_is_wrong", "/a_message_is_wrong"),
     ("final", "/final"),
     ("bill_id", "/bill_id"),
 ];
 
-/// Each bill against the cost of its provider's messages in its range, with
-/// the line no message explains. Org managers only.
+/// Each bill against the cost of the messages with its contract in its
+/// range, with the line no message explains, and beside it the messages of
+/// the same provider with no contract and those whose contract came from
+/// the fallback. Org managers only.
 #[utoipa::path(
     get,
     path = "/reconciliation",

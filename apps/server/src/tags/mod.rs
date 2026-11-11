@@ -101,9 +101,99 @@ pub struct TagValueView {
     /// The tags this value brings with it, such as `{"project": "shop"}`.
     #[schema(value_type = TagsSchema)]
     pub defaults: BTreeMap<String, String>,
+    /// For a value of `contract`: its provider, its kind and its fee.
+    pub contract: Option<ContractTermsView>,
     #[serde(with = "time::serde::rfc3339")]
     #[schema(value_type = String, format = DateTime)]
     pub recorded_at: OffsetDateTime,
+}
+
+/// What a contract holds besides its key.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct ContractTermsView {
+    /// The provider that charges under it, spelled as bills spell it.
+    #[schema(example = "anthropic")]
+    pub provider: String,
+    /// `metered` (paid per token) or `flat` (a fee, such as a seat plan).
+    #[schema(example = "flat")]
+    pub kind: String,
+    /// The fee per calendar month of a flat contract, in US dollars, when
+    /// known.
+    #[schema(example = "200.00")]
+    pub fee: Option<String>,
+}
+
+impl ContractTermsView {
+    /// The view of a contract's terms.
+    #[must_use]
+    pub fn of(terms: &tokencontroller_core::ContractTerms) -> Self {
+        Self {
+            provider: terms.provider.clone(),
+            kind: terms.kind.as_str().to_owned(),
+            fee: terms.fee.map(json::money),
+        }
+    }
+}
+
+/// A contract's terms as the API takes them.
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+pub struct NewContractTerms {
+    /// The provider, spelled as bills spell it, such as `anthropic`.
+    pub provider: String,
+    /// `metered` or `flat`.
+    pub kind: String,
+    /// The fee per calendar month of a flat contract, in US dollars.
+    #[serde(default)]
+    pub fee: Option<json::Amount>,
+}
+
+impl NewContractTerms {
+    /// Reads the terms, with the fee in `currency`.
+    ///
+    /// # Errors
+    ///
+    /// [`ApiError::BadRequest`] naming what is wrong.
+    pub fn read(
+        &self,
+        currency: tokencontroller_core::Currency,
+    ) -> Result<tokencontroller_core::ContractTerms, ApiError> {
+        use tokencontroller_core::ContractKind;
+        let provider = self.provider.trim().to_ascii_lowercase();
+        if provider.is_empty() {
+            return Err(ApiError::BadRequest(
+                "a contract needs its provider".to_owned(),
+            ));
+        }
+        let kind = match self.kind.trim() {
+            "metered" => ContractKind::Metered,
+            "flat" => ContractKind::Flat,
+            other => {
+                return Err(ApiError::BadRequest(format!(
+                    "a contract is metered or flat, not {other}"
+                )));
+            }
+        };
+        let fee = self
+            .fee
+            .as_ref()
+            .map(|fee| fee.money(currency))
+            .transpose()?;
+        if let Some(fee) = fee {
+            if kind == ContractKind::Metered {
+                return Err(ApiError::BadRequest(
+                    "only a flat contract has a fee".to_owned(),
+                ));
+            }
+            if fee.nanos().is_negative() {
+                return Err(ApiError::BadRequest("a fee is not below zero".to_owned()));
+            }
+        }
+        Ok(tokencontroller_core::ContractTerms {
+            provider,
+            kind,
+            fee,
+        })
+    }
 }
 
 /// A new tag name.
@@ -127,6 +217,10 @@ pub struct NewTagValue {
     #[serde(default)]
     #[schema(value_type = Option<TagsSchema>)]
     pub defaults: Option<BTreeMap<String, String>>,
+    /// For a value of `contract` only: its provider, its kind and, when
+    /// flat, its fee. Left out on a change, the terms stay as they were.
+    #[serde(default)]
+    pub contract: Option<NewContractTerms>,
     /// When the record is dated; default now. Before the cutoff needs
     /// adjust.
     #[serde(default, with = "time::serde::rfc3339::option")]
@@ -252,6 +346,7 @@ pub fn unknown_values(fold: &Fold, tags: &Tags) -> Vec<String> {
     tags.iter()
         .filter(|(name, key)| {
             name.as_str() != "person"
+                && !(**name == TagName::contract() && fold.contracts().contains_key(key))
                 && fold.values().tag_value(name, key).is_none()
                 && fold.values().attribute_value(name, key).is_none()
         })
@@ -344,6 +439,7 @@ impl TagValueView {
             source_id: record.source_id.clone(),
             source_status: record.source_status.clone(),
             defaults: json::tags_map(&record.defaults),
+            contract: record.contract.as_ref().map(ContractTermsView::of),
             recorded_at: event.recorded_at,
         }
     }
@@ -612,7 +708,10 @@ async fn add_tag_value(
     Json(request): Json<NewTagValue>,
 ) -> Result<(StatusCode, Json<TagValueView>), ApiError> {
     member.require_session()?;
-    if kind_of(&state.db, member.organization_id, &name).await? != Some(Kind::Tag) {
+    let built_in_contract = name == TagName::contract().as_str();
+    if !built_in_contract
+        && kind_of(&state.db, member.organization_id, &name).await? != Some(Kind::Tag)
+    {
         return Err(ApiError::NotFound);
     }
     let name = json::tag_name(&name)?;
@@ -632,6 +731,25 @@ async fn add_tag_value(
     access::require(&fold, &person, Capability::Assign, &filter)?;
     let at = access::dated(&fold, &person, request.dated)?;
     let earlier = fold.values().tag_value(&name, &key);
+    let contract = if name == TagName::contract() {
+        match &request.contract {
+            Some(terms) => Some(terms.read(fold.currency())?),
+            None => earlier
+                .and_then(|earlier| earlier.contract.clone())
+                .or_else(|| fold.contracts().get(&key).cloned()),
+        }
+    } else if request.contract.is_some() {
+        return Err(ApiError::BadRequest(
+            "only a value of contract has contract terms".to_owned(),
+        ));
+    } else {
+        None
+    };
+    if name == TagName::contract() && contract.is_none() {
+        return Err(ApiError::BadRequest(
+            "a new contract needs its provider and kind".to_owned(),
+        ));
+    }
     let record = TagValueRecord {
         name,
         key,
@@ -643,7 +761,7 @@ async fn add_tag_value(
         source_id: earlier.and_then(|earlier| earlier.source_id.clone()),
         source_status: earlier.and_then(|earlier| earlier.source_status.clone()),
         defaults,
-        contract: None,
+        contract,
     };
     let event = write_value(&state, &log, record.clone(), Some(&person), at).await?;
     crate::organizations::record_audit_event(

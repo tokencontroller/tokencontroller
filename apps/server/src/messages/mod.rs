@@ -141,6 +141,13 @@ pub struct SessionView {
     pub cost: String,
     pub count_errors: usize,
     pub unknown_models: Vec<String>,
+    /// The contracts of the session's messages.
+    pub contracts: Vec<String>,
+    /// Messages with no contract: the review list asks which contract they
+    /// are under.
+    pub no_contract: usize,
+    /// Of those, the messages whose provider is not known either.
+    pub provider_unknown: usize,
     /// Cost by tag set, the session's splits added up.
     pub parts: Vec<PartView>,
     pub summary: Option<String>,
@@ -385,6 +392,36 @@ fn session_part_views(
     (cost, parts)
 }
 
+/// Counts a message's cost label in its session, and adds its contract or
+/// counts it as one the review list asks about.
+fn count_message(
+    session: &mut SessionView,
+    line: &tokencontroller_core::state::Line,
+    message: &tokencontroller_core::Message,
+) {
+    match line.cost_label {
+        CostLabel::Priced => {}
+        CostLabel::CountError => session.count_errors = session.count_errors.saturating_add(1),
+        CostLabel::NotPricedYet => {
+            let model = message.model.to_string();
+            if !session.unknown_models.contains(&model) {
+                session.unknown_models.push(model);
+            }
+        }
+    }
+    if let Some(contract) = line.contract() {
+        let contract = contract.to_string();
+        if !session.contracts.contains(&contract) {
+            session.contracts.push(contract);
+        }
+    } else {
+        session.no_contract = session.no_contract.saturating_add(1);
+        if line.model.provider.is_none() {
+            session.provider_unknown = session.provider_unknown.saturating_add(1);
+        }
+    }
+}
+
 /// The sessions of the fold as views, newest first.
 #[must_use]
 pub fn session_views(
@@ -432,6 +469,9 @@ pub fn session_views(
                 cost: String::new(),
                 count_errors: 0,
                 unknown_models: Vec::new(),
+                contracts: Vec::new(),
+                no_contract: 0,
+                provider_unknown: 0,
                 parts: Vec::new(),
                 summary: message.session.summary.clone(),
                 signals: message.signals.clone(),
@@ -449,16 +489,7 @@ pub fn session_views(
                 session.signals = message.signals.clone();
             }
         }
-        match first.cost_label {
-            CostLabel::Priced => {}
-            CostLabel::CountError => session.count_errors = session.count_errors.saturating_add(1),
-            CostLabel::NotPricedYet => {
-                let model = message.model.to_string();
-                if !session.unknown_models.contains(&model) {
-                    session.unknown_models.push(model);
-                }
-            }
-        }
+        count_message(session, first, message);
         let session_parts = parts.entry(key.0.clone()).or_default();
         for line in lines {
             let tags = json::tags_map(&line.tags);

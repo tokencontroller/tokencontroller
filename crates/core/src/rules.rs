@@ -115,6 +115,7 @@ impl Rule {
                 .map(String::as_str)
                 .into_iter()
                 .collect(),
+            Signal::Named(name) if name == AGENT_HARNESS => vec![message.agent_harness.as_str()],
             Signal::Named(name) => named(signals, name).into_iter().collect(),
         }
     }
@@ -167,6 +168,11 @@ pub fn named<'m>(signals: &'m Signals, name: &str) -> Option<&'m str> {
         .and_then(serde_json::Value::as_str)
         .or_else(|| signals.resource.get(name).map(String::as_str))
 }
+
+/// The name a rule reads the agent by, such as `claude-code`: the
+/// message's own field, so the review list can remember "every message of
+/// this agent is under this contract".
+pub const AGENT_HARNESS: &str = "agent_harness";
 
 /// The signal that names the account an agent was signed in with, where
 /// the agent records one: Claude Code sends the organization of a
@@ -469,6 +475,25 @@ mod tests {
         assert_eq!(read("seats"), vec!["three"]);
         assert_eq!(read("service.name"), vec!["bot"]);
         assert!(read("missing").is_empty());
+        // The agent is the message's own field, read by its name, even
+        // when a signal of that name came with the message.
+        assert_eq!(read(AGENT_HARNESS), vec![with.agent_harness.clone()]);
+        let mut sent = with.clone();
+        sent.signals
+            .other
+            .insert(AGENT_HARNESS.to_owned(), serde_json::json!("sent"));
+        let agent = rule(
+            "agent",
+            Scope::Organization,
+            1,
+            Signal::Named(AGENT_HARNESS.to_owned()),
+            ".",
+            Then::Tag {
+                name: name("project"),
+                key: key("shop"),
+            },
+        );
+        assert_eq!(agent.texts(&sent), vec![sent.agent_harness.as_str()]);
     }
 
     #[test]

@@ -58,9 +58,28 @@ pub struct PriceRowView {
     /// `managed` or `organization`.
     #[schema(value_type = String, example = "organization")]
     pub source: PriceSource,
+    /// The contract whose own price this is: it wins over every other row,
+    /// for that contract's messages only. `null` for the table's own rows.
+    pub contract: Option<String>,
     #[serde(with = "time::serde::rfc3339")]
     #[schema(value_type = String, format = DateTime)]
     pub recorded_at: OffsetDateTime,
+}
+
+impl PriceRowView {
+    fn of(event: &tokencontroller_core::Event, row: &PriceRow) -> Self {
+        Self {
+            id: event.id.to_string(),
+            provider: row.provider.clone(),
+            model: row.model.clone(),
+            kind: row.kind.clone(),
+            price_per_million: json::money_exact(row.per_million),
+            valid_from: row.valid_from,
+            source: row.source,
+            contract: row.contract.as_ref().map(ToString::to_string),
+            recorded_at: event.recorded_at,
+        }
+    }
 }
 
 /// The table as of a moment.
@@ -84,6 +103,11 @@ pub struct NewPriceRow {
     pub price_per_million: Amount,
     /// `YYYY-MM-DD`.
     pub valid_from: String,
+    /// A contract's own price: the row counts for that contract's messages
+    /// only, and wins over the table there. The provider must be the
+    /// contract's.
+    #[serde(default)]
+    pub contract: Option<String>,
 }
 
 /// What a list is cut by.
@@ -105,16 +129,7 @@ pub fn rows_view(log: &Log, fold: &Fold) -> Vec<PriceRowView> {
         .filter(|event| event.recorded_at <= fold.as_of())
         .filter_map(|event| match &event.record {
             Record::PriceRow(row) if fold.prices().rows().any(|live| live == row) => {
-                Some(PriceRowView {
-                    id: event.id.to_string(),
-                    provider: row.provider.clone(),
-                    model: row.model.clone(),
-                    kind: row.kind.clone(),
-                    price_per_million: json::money_exact(row.per_million),
-                    valid_from: row.valid_from,
-                    source: row.source,
-                    recorded_at: event.recorded_at,
-                })
+                Some(PriceRowView::of(event, row))
             }
             _ => None,
         })
@@ -217,6 +232,29 @@ async fn add_row(
             "model has 1 to 200 characters".to_owned(),
         ));
     }
+    let contract = match request
+        .contract
+        .as_deref()
+        .map(str::trim)
+        .filter(|key| !key.is_empty())
+    {
+        Some(key) => {
+            let key = json::tag_value("contract", key)?;
+            let Some(terms) = fold.contracts().get(&key) else {
+                return Err(ApiError::BadRequest(format!(
+                    "contract: {key} is not a contract on record; add it first"
+                )));
+            };
+            if terms.provider != provider {
+                return Err(ApiError::BadRequest(format!(
+                    "contract {key} is with {}, not {provider}",
+                    terms.provider
+                )));
+            }
+            Some(key)
+        }
+        None => None,
+    };
     let row = PriceRow {
         provider,
         model: model.to_owned(),
@@ -224,7 +262,7 @@ async fn add_row(
         per_million: price(&request.price_per_million)?,
         valid_from: crate::dates::parse(&request.valid_from)?,
         source: PriceSource::Organization,
-        contract: None,
+        contract,
     };
     if fold.prices().rows().any(|live| *live == row) {
         return Err(ApiError::Conflict(
@@ -240,19 +278,7 @@ async fn add_row(
         "price_row.added",
         None,
     );
-    Ok((
-        StatusCode::CREATED,
-        Json(PriceRowView {
-            id: event.id.to_string(),
-            provider: row.provider,
-            model: row.model,
-            kind: row.kind,
-            price_per_million: json::money_exact(row.per_million),
-            valid_from: row.valid_from,
-            source: row.source,
-            recorded_at: event.recorded_at,
-        }),
-    ))
+    Ok((StatusCode::CREATED, Json(PriceRowView::of(&event, &row))))
 }
 
 /// Why the price table file cannot be read.
