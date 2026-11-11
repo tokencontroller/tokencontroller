@@ -1,11 +1,11 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT kind AS \"kind!\", site AS \"site!\", sealed_credentials AS \"sealed_credentials!\"\n         FROM tag_sources\n         WHERE organization_id = $1 AND id = $2",
+  "query": "SELECT kind, site, sealed_credentials\n         FROM tag_sources\n         WHERE organization_id = $1 AND id = $2",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "kind!",
+        "name": "kind",
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -16,7 +16,7 @@
       },
       {
         "ordinal": 1,
-        "name": "site!",
+        "name": "site",
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -27,7 +27,7 @@
       },
       {
         "ordinal": 2,
-        "name": "sealed_credentials!",
+        "name": "sealed_credentials",
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -44,10 +44,10 @@
       ]
     },
     "nullable": [
-      true,
-      true,
-      true
+      false,
+      false,
+      false
     ]
   },
-  "hash": "f0a1d69abf2ecd1aed1758bf7989bed15e2bdc94df33950bff2e51931dea989b"
+  "hash": "a8c54485acab7122479f78b4eb81b3d018e187c89ff367da2a8f5ad9e5c2d120"
 }

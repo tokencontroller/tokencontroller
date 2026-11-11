@@ -1,11 +1,11 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE tag_sources SET last_sync_started_at = now()\n           WHERE id IN (\n               SELECT id FROM tag_sources\n               WHERE last_sync_started_at IS NULL\n                  OR last_sync_started_at <= now() - make_interval(mins => $1)\n                  OR sync_requested_at >= last_sync_started_at\n               ORDER BY last_sync_started_at NULLS FIRST\n               LIMIT $2)\n           RETURNING id AS \"id!\", organization_id AS \"organization_id!\", kind AS \"kind!\",\n                     site AS \"site!\", sealed_credentials AS \"sealed_credentials!\",\n                     last_sync_started_at AS \"started_at!\"",
+  "query": "UPDATE tag_sources SET last_sync_started_at = now()\n           WHERE id IN (\n               SELECT id FROM tag_sources\n               WHERE last_sync_started_at IS NULL\n                  OR last_sync_started_at <= now() - make_interval(mins => $1)\n                  OR sync_requested_at >= last_sync_started_at\n               ORDER BY last_sync_started_at NULLS FIRST\n               LIMIT $2)\n           RETURNING id, organization_id, kind,\n                     site, sealed_credentials,\n                     last_sync_started_at AS \"started_at!\"",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "id!",
+        "name": "id",
         "type_info": "Uuid",
         "origin": {
           "Table": {
@@ -16,7 +16,7 @@
       },
       {
         "ordinal": 1,
-        "name": "organization_id!",
+        "name": "organization_id",
         "type_info": "Uuid",
         "origin": {
           "Table": {
@@ -27,7 +27,7 @@
       },
       {
         "ordinal": 2,
-        "name": "kind!",
+        "name": "kind",
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -38,7 +38,7 @@
       },
       {
         "ordinal": 3,
-        "name": "site!",
+        "name": "site",
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -49,7 +49,7 @@
       },
       {
         "ordinal": 4,
-        "name": "sealed_credentials!",
+        "name": "sealed_credentials",
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -77,13 +77,13 @@
       ]
     },
     "nullable": [
-      true,
-      true,
-      true,
-      true,
-      true,
+      false,
+      false,
+      false,
+      false,
+      false,
       true
     ]
   },
-  "hash": "f67d4a97efdf55cf33b258e81bea70bcb804f4fe89f92831e7e436e0972281ca"
+  "hash": "8ae3584fb39d3c8555967eef2f163806dac830a93458d0222eeb3abca62c72f0"
 }
