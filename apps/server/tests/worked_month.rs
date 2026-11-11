@@ -4643,6 +4643,7 @@ async fn the_status_page_lists_the_jobs(pool: PgPool) {
                 "submit-reminders",
                 "price-table",
                 "exchange-rates",
+                "received-records",
                 "sign-in-email"
             ]
         );

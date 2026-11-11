@@ -109,7 +109,7 @@ pub enum PartState {
 #[derive(Debug, Serialize, ToSchema)]
 pub struct Component {
     /// `service`, `bill-pulls`, `ticket-sync`, `submit-reminders`,
-    /// `price-table`, `exchange-rates` or
+    /// `price-table`, `exchange-rates`, `received-records` or
     /// `sign-in-email`.
     pub id: &'static str,
     pub state: PartState,
@@ -128,12 +128,13 @@ pub struct ServiceStatus {
 }
 
 /// The jobs status.tokencontroller.com shows, by their component id.
-const JOBS: [&str; 5] = [
+const JOBS: [&str; 6] = [
     "bill-pulls",
     "ticket-sync",
     "submit-reminders",
     "price-table",
     "exchange-rates",
+    crate::ingest::received::JOB,
 ];
 
 /// The state of every part status.tokencontroller.com shows.

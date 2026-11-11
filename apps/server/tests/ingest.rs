@@ -508,6 +508,34 @@ async fn a_new_price_row_prices_messages_whose_model_was_unknown(pool: PgPool) {
     assert!(cost.not_priced_models.is_empty());
 }
 
+/// Token kinds are open names (ADR 0028): the managed table may price a
+/// kind beyond the first four, such as a one-hour cache write.
+#[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
+async fn the_managed_table_prices_a_one_hour_cache_write(pool: PgPool) {
+    let kestrel = kestrel(&pool).await.unwrap();
+    price_table::store_managed(
+        &pool,
+        &[price("claude-sonnet-5", TokenKind::CACHE_WRITE_1H, "20").unwrap()],
+    )
+    .await
+    .unwrap();
+    let sent = entry(&serde_json::json!({
+        "session_id": "s9",
+        "model": "claude-sonnet-5",
+        "tokens": { "input": 1_000_000, "cache_write_1h": 500_000 },
+    }))
+    .unwrap();
+    submit(&kestrel, vec![sent]).await.unwrap();
+    let cost = fold(&kestrel)
+        .await
+        .unwrap()
+        .cost(&Filter(Tags::new()), OCTOBER)
+        .unwrap();
+    // One million input at 10 and half a million one-hour writes at 20.
+    assert_eq!(cost.amount, usd("20.00"));
+    assert!(cost.not_priced_models.is_empty());
+}
+
 #[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
 async fn a_broken_record_stores_nothing(pool: PgPool) {
     let kestrel = kestrel(&pool).await.unwrap();

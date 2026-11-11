@@ -73,6 +73,7 @@ POST /api/v1/sign-up
     { "id": "submit-reminders", "state": "operational", "last_success_at": "2026-04-05T07:00:00Z" },
     { "id": "price-table", "state": "operational", "last_success_at": "2026-04-05T07:10:00Z" },
     { "id": "exchange-rates", "state": "operational", "last_success_at": "2026-04-05T02:00:00Z" },
+    { "id": "received-records", "state": "operational", "last_success_at": "2026-04-05T07:05:00Z" },
     { "id": "sign-in-email", "state": "operational", "last_success_at": null }
   ]
 }
