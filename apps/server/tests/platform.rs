@@ -1803,13 +1803,16 @@ async fn the_status_endpoint_shows_each_part(pool: PgPool) {
             "submit-reminders",
             "price-table",
             "exchange-rates",
+            "received-records",
             "sign-in-email"
         ]
     );
     assert_eq!(fresh.json["components"][0]["state"], "operational");
     assert_eq!(fresh.json["components"][1]["state"], "not_running");
-    // Without TC_SMTP_URL no sign-in mail goes out.
+    // The received-records job has not run yet.
     assert_eq!(fresh.json["components"][6]["state"], "not_running");
+    // Without TC_SMTP_URL no sign-in mail goes out.
+    assert_eq!(fresh.json["components"][7]["state"], "not_running");
 
     let mut with_mail = config();
     with_mail.smtp_url = Some("smtp://localhost:2525".to_owned());
@@ -1823,7 +1826,7 @@ async fn the_status_endpoint_shows_each_part(pool: PgPool) {
             .await
             .unwrap();
         (
-            answer.json["components"][6]["state"].clone(),
+            answer.json["components"][7]["state"].clone(),
             answer.json["status"].clone(),
         )
     };

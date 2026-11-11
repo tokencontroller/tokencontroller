@@ -5114,7 +5114,7 @@
         "properties": {
           "id": {
             "type": "string",
-            "description": "`service`, `bill-pulls`, `ticket-sync`, `submit-reminders`,\n`price-table`, `exchange-rates` or\n`sign-in-email`."
+            "description": "`service`, `bill-pulls`, `ticket-sync`, `submit-reminders`,\n`price-table`, `exchange-rates`, `received-records` or\n`sign-in-email`."
           },
           "last_success_at": {
             "type": [

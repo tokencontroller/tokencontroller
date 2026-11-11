@@ -307,7 +307,7 @@ pub fn parse_file(text: &str) -> Result<Vec<PriceRow>, FileError> {
         let kind: TokenKind = serde_json::from_value(serde_json::Value::String(kind_text.clone()))
             .map_err(|_| {
                 problem(format!(
-                    "{kind_text:?} is not input, output, cache_read or cache_write"
+                    "{kind_text:?} is not a token kind such as input, output, cache_read, cache_write or cache_write_1h"
                 ))
             })?;
         let price_text = cell(price);
