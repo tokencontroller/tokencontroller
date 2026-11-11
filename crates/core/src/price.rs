@@ -417,6 +417,7 @@ mod tests {
             tags: Tags::new(),
             signals: Signals::default(),
             session: SessionFacts::default(),
+            received: None,
         }
     }
 

@@ -35,11 +35,12 @@ One organization is one event log, one cutoff and one reporting currency. These 
   "approval": true,
   "cutoff": "2026-02-28",
   "sign_in_domains": ["kestrel.example"],
+  "keep_content_text": false,
   "created_at": "2026-01-08T08:50:00Z"
 }
 ```
 
-`PATCH /organization` takes any of `name`, `reporting_currency`, `approval` and `sign_in_domains`; fields left out stay. `approval` says whether submissions need approval. `sign_in_domains` limits magic-link sign-in to these email domains; empty means any. `slug` is used in invite links. See [Organization settings](/account/organizations).
+`PATCH /organization` takes any of `name`, `reporting_currency`, `approval`, `sign_in_domains` and `keep_content_text`; fields left out stay. `keep_content_text` (default `false`) keeps prompts, responses, tool output and file contents in the [received records](/reference/api/messages#received-records); the log never holds them. `approval` says whether submissions need approval. `sign_in_domains` limits magic-link sign-in to these email domains; empty means any. `slug` is used in invite links. See [Organization settings](/account/organizations).
 
 `GET /organization/member-limit` answers `{"members": 12, "member_limit": 150, "message": null}`; `member_limit` is `null` where there is none, as on the open edition, and `message` is what an invite past the limit is refused with. See [Plans and limits](/plans#members).
 

@@ -21,8 +21,11 @@ mod wire;
 mod tests;
 
 pub use describe::describe;
-pub use extract::{Extracted, extract_from_logs, extract_from_traces};
-pub use privacy::{PROMPT_TEXT_ATTRIBUTES, PROMPT_TEXT_EVENTS};
+pub use extract::{Extracted, extract_from_logs, extract_from_metrics, extract_from_traces};
+pub use privacy::{
+    PROMPT_TEXT_ATTRIBUTES, PROMPT_TEXT_EVENTS, is_content_text_name, strip_logs, strip_metrics,
+    strip_traces,
+};
 pub use wire::{
     DecodeError, Encoding, MAX_BODY_BYTES, Signal, decode_logs, decode_metrics, decode_traces,
     decompress, encode_response,

@@ -383,6 +383,7 @@ struct Bravo {
     saved_report: String,
     bill_connection: Uuid,
     ticket_system: Uuid,
+    received: String,
     /// Every name, key, text and id of Bravo's.
     secrets: Vec<String>,
 }
@@ -473,6 +474,14 @@ async fn bravo(app: &Router, pool: &PgPool) -> TestResult<Bravo> {
     b.secrets.push(b.tag_value.clone());
     b.secrets.push(b.submission.clone());
     b.secrets.push(b.bill.clone());
+    // What Bravo's usage endpoints received.
+    b.received = sqlx::query_scalar(
+        "SELECT id FROM received_records WHERE organization_id = $1 ORDER BY received_at LIMIT 1",
+    )
+    .bind(organization_id)
+    .fetch_one(pool)
+    .await?;
+    b.secrets.push(b.received.clone());
     b.secrets.push(b.saved_report.clone());
     b.secrets.sort();
     b.secrets.dedup();
@@ -1548,6 +1557,26 @@ fn bill_cases(b: &Bravo) -> Vec<Case> {
     ]
 }
 
+fn received_cases(b: &Bravo) -> Vec<Case> {
+    vec![
+        case(
+            "GET",
+            "/api/v1/received-records",
+            vec![get("/api/v1/received-records").expect(OK)],
+        ),
+        case(
+            "DELETE",
+            "/api/v1/received-records/{id}",
+            vec![delete(format!("/api/v1/received-records/{}", b.received)).expect(NOT_FOUND)],
+        ),
+        case(
+            "DELETE",
+            "/api/v1/received-records",
+            vec![delete("/api/v1/received-records?before=2026-01-01").expect(OK)],
+        ),
+    ]
+}
+
 fn ticket_system_cases(b: &Bravo) -> Vec<Case> {
     vec![
         case(
@@ -1806,6 +1835,7 @@ fn all_cases(alpha: &Alpha, bravo: &Bravo) -> Vec<Case> {
     // Alpha's messages reuse Bravo's session ids and feature key, which
     // then are Alpha's own too; reads before them see none of that.
     cases.extend(ingest_cases());
+    cases.extend(received_cases(bravo));
     // The cutoff freezes Alpha's earlier figures, so it goes after the
     // writes that are dated before it.
     cases.extend(cutoff_cases());
@@ -2312,7 +2342,7 @@ async fn every_route_is_called_across_tenants(pool: PgPool) {
         "cases for routes the API does not have: {unknown:?}"
     );
     // The committed OpenAPI file is the same document (api.rs checks it).
-    assert_eq!(documented.len(), 91, "{documented:?}");
+    assert_eq!(documented.len(), 94, "{documented:?}");
 }
 
 #[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]

@@ -349,6 +349,7 @@ pub fn new_id(prefix: &str) -> String {
 /// The id prefixes of each kind of event, as the ids people see start.
 pub mod prefix {
     pub const MESSAGE: &str = "msg_";
+    pub const ACTIVITY: &str = "act_";
     pub const BILL: &str = "bil_";
     pub const ESTIMATE: &str = "est_";
     pub const TAG_VALUE: &str = "tag_";
@@ -373,6 +374,7 @@ pub mod prefix {
 pub const fn prefix_of(record: &Record) -> &'static str {
     match record {
         Record::Message(_) => prefix::MESSAGE,
+        Record::Activity(_) => prefix::ACTIVITY,
         Record::Bill(_) => prefix::BILL,
         Record::Estimate(_) => prefix::ESTIMATE,
         Record::TagValue(_) => prefix::TAG_VALUE,

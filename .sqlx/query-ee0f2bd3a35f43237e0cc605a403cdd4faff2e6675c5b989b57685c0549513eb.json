@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM received_records WHERE id IN (\n             SELECT id FROM received_records WHERE delete_after <= $1\n             ORDER BY delete_after LIMIT $2)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Timestamptz",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ee0f2bd3a35f43237e0cc605a403cdd4faff2e6675c5b989b57685c0549513eb"
+}

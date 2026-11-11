@@ -1,18 +1,22 @@
-//! The prompt text rule: prompt text never enters. An event or span that
-//! carries prompt, completion or message text, tool input or output, or
-//! system instructions is dropped whole, before anything is read from it,
-//! unless it is a model call: a model call loses every attribute and the body
-//! that carry text, and keeps its token counts. ADR 0028 replaces this with
-//! "remove content text unless the organization switches keeping it on" (stage D2).
+//! The content text rule (ADR 0028): content text (prompts, responses,
+//! tool input and output, file contents, system instructions) is removed on
+//! arrival. A record that carries some loses every attribute and the body
+//! that carry it, and is read from the rest: a model call keeps its token
+//! counts, any other record becomes an activity. The received record keeps
+//! the text only when the organization switches keeping it on; the log
+//! never holds it.
 
+use opentelemetry_proto::tonic::collector::logs::v1::ExportLogsServiceRequest;
+use opentelemetry_proto::tonic::collector::metrics::v1::ExportMetricsServiceRequest;
+use opentelemetry_proto::tonic::collector::trace::v1::ExportTraceServiceRequest;
 use opentelemetry_proto::tonic::common::v1::any_value::Value;
 use opentelemetry_proto::tonic::common::v1::{AnyValue, KeyValue};
+use opentelemetry_proto::tonic::metrics::v1::metric::Data;
 
 /// Attribute names that hold prompt, completion or message text, tool input
 /// or output, or system instructions, in the telemetry of the agent harnesses
 /// and in the OpenTelemetry `GenAI` conventions. An event or span with one of
-/// them, at any depth, is dropped whole unless the value is empty or
-/// redacted.
+/// them, at any depth, loses it unless the value is empty or redacted.
 pub const PROMPT_TEXT_ATTRIBUTES: &[&str] = &[
     // OpenTelemetry GenAI conventions, current and deprecated.
     "gen_ai.input.messages",
@@ -197,4 +201,144 @@ fn holds_text(value: &Value) -> bool {
         | Value::DoubleValue(_)
         | Value::StringValueStrindex(_) => false,
     }
+}
+
+/// Whether a name is one that holds content text, as an attribute, a signal
+/// or a session fact.
+#[must_use]
+pub fn is_content_text_name(name: &str) -> bool {
+    is_prompt_text_attribute(name)
+}
+
+/// Removes content text from a logs export request, as the received record
+/// keeps it when the organization keeps none: from the resource, from each
+/// event's attributes and from a body that carries some. Answers how many
+/// events lost something.
+pub fn strip_logs(request: &mut ExportLogsServiceRequest) -> u32 {
+    let mut stripped = 0_u32;
+    for resource_logs in &mut request.resource_logs {
+        if let Some(resource) = resource_logs.resource.as_mut() {
+            resource.attributes = without_prompt_text(&resource.attributes);
+        }
+        for scope_logs in &mut resource_logs.scope_logs {
+            for log in &mut scope_logs.log_records {
+                let names = log_names(log);
+                let names: Vec<&str> = names.iter().map(String::as_str).collect();
+                let body_has_text = body_carries_prompt_text(log.body.as_ref(), &names);
+                let attributes_have_text = attributes_carry_text(&log.attributes);
+                if body_has_text {
+                    log.body = None;
+                }
+                if attributes_have_text {
+                    log.attributes = without_prompt_text(&log.attributes);
+                }
+                if body_has_text || attributes_have_text {
+                    stripped = stripped.saturating_add(1);
+                }
+            }
+        }
+    }
+    stripped
+}
+
+/// The names a log event goes by, as the extraction reads them.
+fn log_names(log: &opentelemetry_proto::tonic::logs::v1::LogRecord) -> Vec<String> {
+    let event_name = log
+        .attributes
+        .iter()
+        .find(|attribute| attribute.key == "event.name")
+        .and_then(|attribute| attribute.value.as_ref())
+        .and_then(|value| match value.value.as_ref() {
+            Some(Value::StringValue(text)) => Some(text.clone()),
+            _ => None,
+        });
+    let body = log
+        .body
+        .as_ref()
+        .and_then(|body| match body.value.as_ref() {
+            Some(Value::StringValue(text)) => Some(text.clone()),
+            _ => None,
+        });
+    [event_name, Some(log.event_name.clone()), body]
+        .into_iter()
+        .flatten()
+        .filter(|name| !name.is_empty())
+        .collect()
+}
+
+/// Removes content text from a traces export request: from the resource,
+/// each span's attributes and its events' attributes. Answers how many
+/// spans lost something.
+pub fn strip_traces(request: &mut ExportTraceServiceRequest) -> u32 {
+    let mut stripped = 0_u32;
+    for resource_spans in &mut request.resource_spans {
+        if let Some(resource) = resource_spans.resource.as_mut() {
+            resource.attributes = without_prompt_text(&resource.attributes);
+        }
+        for scope_spans in &mut resource_spans.scope_spans {
+            for span in &mut scope_spans.spans {
+                let mut changed = attributes_carry_text(&span.attributes);
+                span.attributes = without_prompt_text(&span.attributes);
+                for event in &mut span.events {
+                    changed = changed || attributes_carry_text(&event.attributes);
+                    event.attributes = without_prompt_text(&event.attributes);
+                }
+                if changed {
+                    stripped = stripped.saturating_add(1);
+                }
+            }
+        }
+    }
+    stripped
+}
+
+/// Removes content text from a metrics export request: from the resource
+/// and from each data point's attributes. Answers how many data points
+/// lost something.
+pub fn strip_metrics(request: &mut ExportMetricsServiceRequest) -> u32 {
+    let mut stripped = 0_u32;
+    let mut strip = |attributes: &mut Vec<KeyValue>| {
+        if attributes_carry_text(attributes) {
+            *attributes = without_prompt_text(attributes);
+            stripped = stripped.saturating_add(1);
+        }
+    };
+    for resource_metrics in &mut request.resource_metrics {
+        if let Some(resource) = resource_metrics.resource.as_mut() {
+            resource.attributes = without_prompt_text(&resource.attributes);
+        }
+        for scope_metrics in &mut resource_metrics.scope_metrics {
+            for metric in &mut scope_metrics.metrics {
+                match metric.data.as_mut() {
+                    Some(Data::Sum(sum)) => {
+                        for point in &mut sum.data_points {
+                            strip(&mut point.attributes);
+                        }
+                    }
+                    Some(Data::Gauge(gauge)) => {
+                        for point in &mut gauge.data_points {
+                            strip(&mut point.attributes);
+                        }
+                    }
+                    Some(Data::Histogram(histogram)) => {
+                        for point in &mut histogram.data_points {
+                            strip(&mut point.attributes);
+                        }
+                    }
+                    Some(Data::ExponentialHistogram(histogram)) => {
+                        for point in &mut histogram.data_points {
+                            strip(&mut point.attributes);
+                        }
+                    }
+                    Some(Data::Summary(summary)) => {
+                        for point in &mut summary.data_points {
+                            strip(&mut point.attributes);
+                        }
+                    }
+                    None => {}
+                }
+            }
+        }
+    }
+    stripped
 }

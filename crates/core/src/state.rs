@@ -385,7 +385,7 @@ impl State {
                 }
             }
             Record::Rule(rule) => self.rules.push(Recorded::of(event, rule)),
-            Record::Reversal(_) => {}
+            Record::Activity(_) | Record::Reversal(_) => {}
         }
         Ok(())
     }
@@ -592,8 +592,9 @@ impl State {
     }
 
     /// The contract set by hand on the message or its session, by the
-    /// sender, or by a rule. A rule that creates its contract does so here,
-    /// the first time it gives it.
+    /// sender, or by a rule: the organization's, then the one we ship on
+    /// how the agent was signed in. A rule that creates its contract does
+    /// so here, the first time it gives it.
     fn contract_before_defaults(
         &mut self,
         message: &Recorded<Message>,
@@ -615,8 +616,12 @@ impl State {
         }
         let (key, terms) = {
             let given = per_tag_name(self.rules_for(message), &message.value, &self.values);
-            let (rule, key) = given.get(&TagName::contract())?;
-            (key.clone(), rule.contract.clone())
+            if let Some((rule, key)) = given.get(&TagName::contract()) {
+                (key.clone(), rule.contract.clone())
+            } else {
+                let (key, terms) = crate::rules::signed_in_contract(&message.value)?;
+                (key, Some(terms))
+            }
         };
         if let Some(terms) = terms {
             self.contracts.entry(key.clone()).or_insert(terms);
@@ -1379,6 +1384,7 @@ mod tests {
             tags: Tags::new(),
             signals: Signals::default(),
             session: SessionFacts::default(),
+            received: None,
         }
     }
 
@@ -2978,6 +2984,126 @@ mod tests {
         // named after its provider, and asking again gives the same.
         assert_eq!(state.contract_of_bill(&unnamed), key("anthropic"));
         assert_eq!(state.contracts().len(), 4);
+    }
+
+    #[test]
+    fn the_shipped_sign_in_rule_gives_the_signed_in_organizations_contract() {
+        let mut signed_in = message("s1", "m1", "mara", datetime!(2026-03-02 10:00 UTC), 1);
+        signed_in.signals.resource.insert(
+            "organization.id".to_owned(),
+            "6F1E2A3B-0000-4000-8000-000000000001".to_owned(),
+        );
+        let mut by_tc = message("s2", "m1", "mara", datetime!(2026-03-02 10:00 UTC), 1);
+        by_tc.signals.other.insert(
+            "organization.id".to_owned(),
+            serde_json::json!("6f1e2a3b-0000-4000-8000-000000000001"),
+        );
+        let api_key = message("s3", "m1", "mara", datetime!(2026-03-02 10:00 UTC), 1);
+        let events = vec![
+            event("p1", JANUARY, price_row(TokenKind::INPUT, "3")),
+            event("m1", APRIL, Record::Message(Box::new(signed_in.clone()))),
+            event("m2", APRIL, Record::Message(Box::new(by_tc))),
+            event("m3", APRIL, Record::Message(Box::new(api_key))),
+        ];
+        let state = State::fold(&events, APRIL, Currency::USD).unwrap();
+        let by_session: BTreeMap<&str, (Option<&TagValue>, Option<ContractBy>)> = state
+            .message_costs()
+            .iter()
+            .map(|line| {
+                (
+                    line.session_id.as_str(),
+                    (line.contract.as_ref(), line.contract_by),
+                )
+            })
+            .collect();
+        let created = key("anthropic-6f1e2a3b");
+        assert_eq!(
+            by_session.get("s1"),
+            Some(&(Some(&created), Some(ContractBy::Rule)))
+        );
+        assert_eq!(
+            by_session.get("s2"),
+            Some(&(Some(&created), Some(ContractBy::Rule)))
+        );
+        // An API key names no organization: the fallback finds the one
+        // anthropic contract the rule created.
+        assert_eq!(
+            by_session.get("s3"),
+            Some(&(Some(&created), Some(ContractBy::Fallback)))
+        );
+        assert_eq!(
+            state.contracts().get(&created),
+            Some(&ContractTerms::metered("anthropic"))
+        );
+
+        // The organization's own rule on contract wins over the shipped one.
+        let own = Rule {
+            name: "plan".to_owned(),
+            scope: Scope::Organization,
+            order: 1,
+            signal: Signal::Named("organization.id".to_owned()),
+            pattern: TextPattern::new("^6f1e").unwrap(),
+            then: Then::Tag {
+                name: TagName::contract(),
+                key: key("claude-team"),
+            },
+            contract: Some(ContractTerms {
+                provider: "anthropic".to_owned(),
+                kind: ContractKind::Flat,
+                fee: None,
+            }),
+        };
+        let mut with_rule = events;
+        with_rule.push(event("r1", JANUARY, Record::Rule(own)));
+        let state = State::fold(&with_rule, APRIL, Currency::USD).unwrap();
+        let first = state
+            .message_costs()
+            .iter()
+            .find(|line| line.session_id.as_str() == "s1")
+            .unwrap();
+        // The organization id in the resource is upper case; the pattern
+        // reads it as sent, so only the open signal of s2 matches.
+        assert_eq!(first.contract.as_ref(), Some(&created));
+        let second = state
+            .message_costs()
+            .iter()
+            .find(|line| line.session_id.as_str() == "s2")
+            .unwrap();
+        assert_eq!(second.contract.as_ref(), Some(&key("claude-team")));
+        assert_eq!(second.contract_by, Some(ContractBy::Rule));
+    }
+
+    #[test]
+    fn an_activity_changes_no_figure() {
+        let activity = crate::activity::Activity {
+            kind: "claude_code.tool_result".to_owned(),
+            session_id: Some(SessionId::new("s1").unwrap()),
+            person: key("mara"),
+            at: datetime!(2026-03-02 10:00 UTC),
+            agent_harness: "claude-code".to_owned(),
+            signals: Signals::default(),
+            received: Some("rcv_1".to_owned()),
+        };
+        let base = vec![
+            event("p1", JANUARY, price_row(TokenKind::INPUT, "3")),
+            event(
+                "m1",
+                APRIL,
+                Record::Message(Box::new(message(
+                    "s1",
+                    "m1",
+                    "mara",
+                    datetime!(2026-03-02 10:00 UTC),
+                    1,
+                ))),
+            ),
+        ];
+        let mut with_activity = base.clone();
+        with_activity.push(event("a1", APRIL, Record::Activity(Box::new(activity))));
+        let without = State::fold(&base, APRIL, Currency::USD).unwrap();
+        let with = State::fold(&with_activity, APRIL, Currency::USD).unwrap();
+        assert_eq!(with.lines(), without.lines());
+        assert_eq!(with.message_costs(), without.message_costs());
     }
 
     #[test]

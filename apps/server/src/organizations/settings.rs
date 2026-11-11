@@ -29,6 +29,10 @@ pub struct Organization {
     pub approval: bool,
     /// Email domains magic-link sign-in is limited to; empty means any.
     pub sign_in_domains: Vec<String>,
+    /// Whether received records keep content text (prompts, responses,
+    /// tool output, file contents). Off by default: content text is removed
+    /// on arrival. Kept text is shown on no screen.
+    pub keep_content_text: bool,
     /// The cutoff in force: figures up to it are frozen. `null` until an
     /// org manager sets one.
     #[serde(with = "crate::dates::option_day")]
@@ -46,6 +50,7 @@ pub struct OrganizationChange {
     pub reporting_currency: Option<String>,
     pub approval: Option<bool>,
     pub sign_in_domains: Option<Vec<String>>,
+    pub keep_content_text: Option<bool>,
 }
 
 /// The organization's settings.
@@ -103,13 +108,15 @@ pub(super) async fn update_organization(
              name = coalesce($2, name),
              reporting_currency = coalesce($3, reporting_currency),
              approval = coalesce($4, approval),
-             sign_in_domains = coalesce($5, sign_in_domains)
+             sign_in_domains = coalesce($5, sign_in_domains),
+             keep_content_text = coalesce($6, keep_content_text)
            WHERE id = $1"#,
         member.organization_id,
         name,
         currency,
         change.approval,
-        domains.as_deref()
+        domains.as_deref(),
+        change.keep_content_text
     )
     .execute(&state.db)
     .await?;
@@ -140,7 +147,8 @@ pub(super) async fn load(
     organization_id: Uuid,
 ) -> Result<Organization, ApiError> {
     let row = sqlx::query!(
-        r#"SELECT id, name, slug, reporting_currency, approval, sign_in_domains, created_at
+        r#"SELECT id, name, slug, reporting_currency, approval, sign_in_domains,
+                  keep_content_text, created_at
            FROM organizations WHERE id = $1"#,
         organization_id
     )
@@ -154,6 +162,7 @@ pub(super) async fn load(
         reporting_currency: row.reporting_currency,
         approval: row.approval,
         sign_in_domains: row.sign_in_domains,
+        keep_content_text: row.keep_content_text,
         cutoff: None,
         created_at: row.created_at,
     })
@@ -237,5 +246,9 @@ mod tests {
         assert_eq!(change.approval, Some(true));
         assert_eq!(change.name, None);
         assert_eq!(change.reporting_currency, None);
+        assert_eq!(change.keep_content_text, None);
+        let change: OrganizationChange =
+            serde_json::from_str(r#"{"keep_content_text": true}"#).unwrap();
+        assert_eq!(change.keep_content_text, Some(true));
     }
 }

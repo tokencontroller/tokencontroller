@@ -33,6 +33,14 @@ pub struct DailyMessageLimit {
     pub message: String,
 }
 
+/// How many bytes an organization's usage endpoints may receive in one day
+/// (UTC), counted as they arrived, and what to say when it is reached.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DailyByteLimit {
+    pub max: i64,
+    pub message: String,
+}
+
 /// The plug-in points. Each has a default that keeps the open behavior.
 pub trait ServiceHooks: Send + Sync + 'static {
     /// The member limit of one organization, or `None` for no limit, as in
@@ -55,6 +63,19 @@ pub trait ServiceHooks: Send + Sync + 'static {
         state: &'a AppState,
         organization_id: Uuid,
     ) -> HookFuture<'a, Option<DailyMessageLimit>> {
+        let _ = (state, organization_id);
+        Box::pin(async { Ok(None) })
+    }
+
+    /// How many bytes one organization's usage endpoints may receive per
+    /// day, or `None` for no limit, as in the open build. Received records
+    /// are stored whole (ADR 0028), so a shared service caps their bytes
+    /// next to its message limit.
+    fn daily_received_bytes_limit<'a>(
+        &'a self,
+        state: &'a AppState,
+        organization_id: Uuid,
+    ) -> HookFuture<'a, Option<DailyByteLimit>> {
         let _ = (state, organization_id);
         Box::pin(async { Ok(None) })
     }

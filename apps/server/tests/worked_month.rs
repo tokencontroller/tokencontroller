@@ -4144,7 +4144,7 @@ async fn a_rule_needs_a_signal_and_a_pattern(pool: PgPool) {
                 &k.nadia,
                 "/rules",
                 json!({
-                    "name": "x", "signal": "weather", "pattern": "a", "tag_name": "feature"
+                    "name": "x", "signal": "two words", "pattern": "a", "tag_name": "feature"
                 }),
             )
             .await?;
@@ -4727,12 +4727,25 @@ async fn a_log_with_the_new_shapes_reads(pool: PgPool) {
     )
     .await
     .unwrap();
-    // A kind of record this version does not know is passed over.
+    // An activity changes no figure.
     record_raw(
         &pool,
         "act_later_1",
         "activity",
-        json!({"activity": {"kind": "tool_run", "session_id": "later-1"}}),
+        json!({"activity": {
+            "kind": "claude_code.tool_result", "session_id": "later-1", "person": emails::MARA,
+            "at": "2026-03-10T09:00:00Z", "agent_harness": "claude-code",
+            "signals": {"tool_name": "Bash"}, "received": "rcv_1"
+        }}),
+    )
+    .await
+    .unwrap();
+    // A kind of record this version does not know is passed over.
+    record_raw(
+        &pool,
+        "sum_later_1",
+        "tool_run_summary",
+        json!({"tool_run_summary": {"kind": "tool_run", "session_id": "later-1"}}),
     )
     .await
     .unwrap();

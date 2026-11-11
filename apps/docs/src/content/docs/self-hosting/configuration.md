@@ -37,7 +37,7 @@ These switch on the [Enterprise plan](/self-hosting/enterprise) features in the 
 | Variable | Meaning |
 | --- | --- |
 | `TC_LICENSE_KEY` | The license key that comes with the contract. With it the managed price table is in force: the table as of the image's build, plus newer prices the instance fetches from `app.tokencontroller.com` every six hours when its network allows outbound HTTPS there. Without that access, newer prices come with the next image, or as a file from us for `TC_PRICE_TABLE`. Without a valid key, the image works like the open-source one. From 30 days before the key's last day of support, org managers see a renewal notice. The features keep working for 30 days after that day. |
-| `TC_TELEMETRY_FORWARD_URL` | Your collector's OTLP HTTP endpoint, such as `https://otel.example.com:4318`. Every telemetry batch the service accepts goes there unchanged, before the service drops prompt text. |
+| `TC_TELEMETRY_FORWARD_URL` | Your collector's OTLP HTTP endpoint, such as `https://otel.example.com:4318`. Every telemetry batch the service accepts goes there unchanged, before the service removes content text. |
 | `TC_TELEMETRY_FORWARD_HEADERS` | Headers for your collector, as `name=value,name2=value2`, the same as `OTEL_EXPORTER_OTLP_HEADERS`. |
 
 ### Cloud bill connectors {#cloud-bills}

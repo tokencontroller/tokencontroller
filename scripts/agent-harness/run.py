@@ -556,7 +556,8 @@ def run_task(agent: Agent, task: dict, tools: dict, timeout: int, record_dir: Pa
                     "bytes": len(item.body),
                     "messages": len(decoded.get("messages", [])),
                     "ignored": decoded.get("ignored"),
-                    "dropped_with_prompt_text": decoded.get("dropped_with_prompt_text"),
+                    "content_removed": decoded.get("content_removed"),
+                    "activities": len(decoded.get("activities", [])),
                     "error": decoded.get("error"),
                 }
             )

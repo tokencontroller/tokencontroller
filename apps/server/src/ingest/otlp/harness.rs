@@ -91,6 +91,32 @@ pub(super) const fn door(harness: TelemetryHarness) -> Door {
     }
 }
 
+/// Whether an event or span is named as its agent harness's model call,
+/// whether or not the call can be read. Such a record never becomes an
+/// activity: one whose counts cannot be read or that names no session is
+/// left in the received record, never stored as something else.
+pub(super) fn is_named_as_call(
+    harness: TelemetryHarness,
+    names: &[&str],
+    fields: &Fields<'_>,
+) -> bool {
+    match harness {
+        TelemetryHarness::ClaudeCode => names
+            .iter()
+            .any(|name| matches!(*name, "claude_code.api_request" | "api_request")),
+        TelemetryHarness::CodexCli => {
+            names.contains(&"codex.sse_event")
+                && fields.peek_text("event.kind") == Some("response.completed")
+        }
+        TelemetryHarness::GeminiCli => names.contains(&"gemini_cli.api_response"),
+        TelemetryHarness::CopilotCli => matches!(
+            fields.peek_text("gen_ai.operation.name"),
+            Some("chat" | "text_completion" | "generate_content")
+        ),
+        TelemetryHarness::Cursor => names.contains(&"cursor.api.request"),
+    }
+}
+
 /// Reads a model call, or `None` when the event or span is not one or one
 /// of its token counts cannot be read.
 pub(super) fn read_call(

@@ -76,6 +76,7 @@ fn visible(fold: &Fold, person: &TagValue, event: &tokencontroller_core::Event) 
             fold.can(person, Capability::View, &Filter(estimate.tags.clone()))
         }
         Record::Share(share) => share.person == *person,
+        Record::Activity(activity) => activity.person == *person,
         Record::PersonAttribute(attribute) => attribute.person == *person,
         Record::Grant(grant) => grant.person == *person,
         Record::Submit(submit) => submit.person == *person,
@@ -209,6 +210,7 @@ fn reversal_needs(
                 .collect(),
         ),
         Record::Bill(_)
+        | Record::Activity(_)
         | Record::TagValue(_)
         | Record::PriceRow(_)
         | Record::AttributeValue(_)

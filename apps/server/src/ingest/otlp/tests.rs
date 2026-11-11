@@ -29,6 +29,7 @@ use opentelemetry_proto::tonic::common::v1::{
     AnyValue, ArrayValue, InstrumentationScope, KeyValue, KeyValueList,
 };
 use opentelemetry_proto::tonic::logs::v1::{LogRecord, ResourceLogs, ScopeLogs};
+use opentelemetry_proto::tonic::metrics::v1::number_data_point::Value as Number;
 use opentelemetry_proto::tonic::resource::v1::Resource;
 use opentelemetry_proto::tonic::trace::v1::{ResourceSpans, ScopeSpans, Span};
 use prost::Message as _;
@@ -468,6 +469,7 @@ fn responses_report_partial_success_only_when_rejecting() {
 fn claude_code_sonnet_call() -> TelemetryMessage {
     TelemetryMessage {
         harness: TelemetryHarness::ClaudeCode,
+        provider: None,
         session_id: "6d1f7a2e-3b4c-4d5e-8f90-1a2b3c4d5e6f".to_owned(),
         message_id: "req_011CXa8bnL9xkqW5tHzP3mYe".to_owned(),
         model: "claude-sonnet-5".to_owned(),
@@ -508,6 +510,7 @@ fn claude_code_sonnet_call() -> TelemetryMessage {
 fn claude_code_haiku_call() -> TelemetryMessage {
     TelemetryMessage {
         harness: TelemetryHarness::ClaudeCode,
+        provider: None,
         session_id: "6d1f7a2e-3b4c-4d5e-8f90-1a2b3c4d5e6f".to_owned(),
         message_id: "otel:9461e8185ede62e0ea197cfe723b1d02".to_owned(),
         model: "claude-haiku-4-5".to_owned(),
@@ -534,6 +537,15 @@ fn claude_code_haiku_call() -> TelemetryMessage {
     }
 }
 
+/// The kinds of the activities read, in order.
+fn kinds(extracted: &Extracted) -> Vec<&str> {
+    extracted
+        .activities
+        .iter()
+        .map(|activity| activity.kind.as_str())
+        .collect()
+}
+
 #[test]
 fn claude_code_api_requests_become_messages() {
     let request = decode_logs(CLAUDE_CODE_LOGS.as_bytes(), Encoding::Json).unwrap();
@@ -543,9 +555,19 @@ fn claude_code_api_requests_become_messages() {
         [claude_code_sonnet_call(), claude_code_haiku_call()]
     );
     // A user prompt with its text and a tool result with its parameters.
-    assert_eq!(extracted.dropped_with_prompt_text, 2);
-    // A redacted user prompt, a tool decision and a redacted response.
-    assert_eq!(extracted.ignored, 3);
+    assert_eq!(extracted.content_removed, 2);
+    // Every other event is an activity, read without its content text.
+    assert_eq!(
+        kinds(&extracted),
+        [
+            "claude_code.user_prompt",
+            "claude_code.user_prompt",
+            "claude_code.tool_decision",
+            "claude_code.tool_result",
+            "claude_code.assistant_response"
+        ]
+    );
+    assert_eq!(extracted.ignored, 0);
     assert_eq!(
         extract_from_logs(&through_protobuf_logs(&request).unwrap()),
         extracted
@@ -603,11 +625,10 @@ fn claude_code_from_the_desktop_app_and_without_session_ids() {
         extracted.messages[0].attributes,
         tags(&[("service.name", "claude-code-desktop")])
     );
-    // No session, prompt or trace ID: nothing to join it to.
-    assert_eq!(
-        (extracted.dropped_with_prompt_text, extracted.ignored),
-        (0, 1)
-    );
+    // No session, prompt or trace ID: nothing to join it to. It stays in
+    // the received record and becomes no activity either.
+    assert_eq!((extracted.content_removed, extracted.ignored), (0, 1));
+    assert!(extracted.activities.is_empty());
 }
 
 // Codex CLI.
@@ -632,6 +653,7 @@ fn codex_cli_calls() -> [TelemetryMessage; 2] {
     let message =
         |message_id: &str, occurred_at, tokens, attributes: &[(&str, &str)]| TelemetryMessage {
             harness: TelemetryHarness::CodexCli,
+            provider: None,
             session_id: "019a1b2c-3d4e-7f60-8a9b-0c1d2e3f4a5b".to_owned(),
             message_id: message_id.to_owned(),
             model: "gpt-5-codex".to_owned(),
@@ -665,9 +687,14 @@ fn codex_cli_completed_responses_become_messages() {
     let extracted = extract_from_logs(&request);
     assert_eq!(extracted.messages, codex_cli_calls());
     // A tool result always carries its arguments and output.
-    assert_eq!(extracted.dropped_with_prompt_text, 1);
-    // Another stream event, a redacted prompt and a failed completion.
-    assert_eq!(extracted.ignored, 3);
+    assert_eq!(extracted.content_removed, 1);
+    // Stream events and a failed completion are ignored; the tool result
+    // and the prompt are activities.
+    assert_eq!(
+        kinds(&extracted),
+        ["codex.tool_result", "codex.user_prompt"]
+    );
+    assert_eq!(extracted.ignored, 2);
 }
 
 #[test]
@@ -797,6 +824,7 @@ fn gemini_cli_api_responses_become_messages() {
     let extracted = extract_from_logs(&through_protobuf_logs(&gemini_cli_request()).unwrap());
     let expected = TelemetryMessage {
         harness: TelemetryHarness::GeminiCli,
+        provider: Some("google".to_owned()),
         session_id: "c0ffee00-1111-4222-8333-444455556666".to_owned(),
         message_id: "otel:a7887ce1eb84fb99468e9c5dc6b2304c".to_owned(),
         model: "gemini-2.5-pro".to_owned(),
@@ -822,9 +850,19 @@ fn gemini_cli_api_responses_become_messages() {
     };
     assert_eq!(extracted.messages, [expected]);
     // The tool call's arguments and the request text.
-    assert_eq!(extracted.dropped_with_prompt_text, 2);
-    // The repeated GenAI details of the same call and the prompt length.
-    assert_eq!(extracted.ignored, 2);
+    assert_eq!(extracted.content_removed, 2);
+    // The tool call, the request, the repeated GenAI details of the same
+    // call and the prompt length are activities.
+    assert_eq!(
+        kinds(&extracted),
+        [
+            "gen_ai.client.inference.operation.details",
+            "gemini_cli.tool_call",
+            "gemini_cli.user_prompt",
+            "gemini_cli.api_request"
+        ]
+    );
+    assert_eq!(extracted.ignored, 0);
 }
 
 #[test]
@@ -843,10 +881,15 @@ fn gemini_cli_with_prompt_logging_on_keeps_its_counts() {
     let plain = extract_from_logs(&through_protobuf_logs(&gemini_cli_request()).unwrap());
     // The same message as without the text, and no text in its attributes.
     assert_eq!(extracted.messages, plain.messages);
-    assert_eq!(extracted.stripped_prompt_text, 1);
-    // The tool call, the request text and the GenAI details.
-    assert_eq!(extracted.dropped_with_prompt_text, 3);
-    assert_eq!(extracted.ignored, 1);
+    // The response, the tool call, the request text and the GenAI details.
+    assert_eq!(extracted.content_removed, 4);
+    assert_eq!(extracted.activities, plain.activities);
+    assert!(
+        extracted
+            .activities
+            .iter()
+            .all(|activity| !activity.attributes.contains_key("gen_ai.output.messages"))
+    );
 }
 
 // Copilot CLI.
@@ -861,6 +904,10 @@ fn copilot_cli_calls() -> [TelemetryMessage; 2] {
         attributes.extend_from_slice(extra);
         TelemetryMessage {
             harness: TelemetryHarness::CopilotCli,
+            provider: extra
+                .iter()
+                .any(|(name, _)| *name == "gen_ai.provider.name")
+                .then(|| "github".to_owned()),
             session_id: "5f0c2a8e-91d4-4b6a-a3e7-2c8d0f4b6a19".to_owned(),
             message_id: message_id.to_owned(),
             model: model.to_owned(),
@@ -915,11 +962,12 @@ fn copilot_cli_chat_spans_become_messages() {
         ..second.clone()
     };
     assert_eq!(extracted.messages, [first, second, summarize]);
-    assert_eq!(extracted.stripped_prompt_text, 1);
-    // The agent span, whose compaction event carries a summary.
-    assert_eq!(extracted.dropped_with_prompt_text, 1);
-    // The tool span.
-    assert_eq!(extracted.ignored, 1);
+    // The chat span's input messages, and the agent span, whose compaction
+    // event carries a summary.
+    assert_eq!(extracted.content_removed, 2);
+    // The tool span and the agent span are activities.
+    assert_eq!(kinds(&extracted), ["execute_tool readFile", "invoke_agent"]);
+    assert_eq!(extracted.ignored, 0);
     assert_eq!(
         extract_from_traces(&through_protobuf_traces(&request).unwrap()),
         extracted
@@ -973,7 +1021,8 @@ fn copilot_cli_cache_counts_follow_the_genai_conventions() {
             TokenCounts::common(12, 5, 0, 40_000),
         ]
     );
-    assert_eq!(extracted.ignored, 1);
+    assert_eq!(kinds(&extracted), ["invoke_agent"]);
+    assert_eq!(extracted.ignored, 0);
 }
 
 // Cursor.
@@ -1092,6 +1141,7 @@ fn cursor_api_requests_become_messages() {
     let extracted = extract_from_logs(&through_protobuf_logs(&cursor_request()).unwrap());
     let desktop = TelemetryMessage {
         harness: TelemetryHarness::Cursor,
+        provider: None,
         session_id: "b2f6c1de-7a90-4e1f-8c3b-5d2e9a0f7c41".to_owned(),
         message_id: "customer-telemetry:v1:7f3a9c21".to_owned(),
         model: "claude-sonnet-5".to_owned(),
@@ -1115,6 +1165,7 @@ fn cursor_api_requests_become_messages() {
     };
     let bugbot = TelemetryMessage {
         harness: TelemetryHarness::Cursor,
+        provider: None,
         session_id: "bc-5e1f0a2b".to_owned(),
         message_id: "customer-telemetry:v1:5e1f".to_owned(),
         model: "unknown".to_owned(),
@@ -1133,9 +1184,18 @@ fn cursor_api_requests_become_messages() {
     };
     assert_eq!(extracted.messages, [desktop, bugbot]);
     // The user message, whose body is the prompt.
-    assert_eq!(extracted.dropped_with_prompt_text, 1);
-    // The billing correction, the skill and the call without a conversation.
-    assert_eq!(extracted.ignored, 3);
+    assert_eq!(extracted.content_removed, 1);
+    // The billing correction, the user message and the skill are
+    // activities; the call without a conversation is ignored.
+    assert_eq!(
+        kinds(&extracted),
+        [
+            "cursor.api.correction",
+            "cursor.conversation.user_message",
+            "cursor.skill.activated"
+        ]
+    );
+    assert_eq!(extracted.ignored, 1);
 }
 
 // Every harness at once.
@@ -1170,7 +1230,7 @@ fn a_retried_export_gives_the_same_message_ids() {
 }
 
 #[test]
-fn a_mixed_batch_keeps_only_model_calls_without_prompt_text() {
+fn a_mixed_batch_keeps_model_calls_and_activities_without_content_text() {
     let mut batch = decode_logs(CLAUDE_CODE_LOGS.as_bytes(), Encoding::Json).unwrap();
     batch.resource_logs.extend(
         decode_logs(CODEX_CLI_LOGS.as_bytes(), Encoding::Json)
@@ -1236,10 +1296,11 @@ fn a_mixed_batch_keeps_only_model_calls_without_prompt_text() {
     );
     // Two each from `Claude Code`, Gemini CLI and the GenAI events, one each
     // from Codex CLI and `Cursor`.
-    assert_eq!(extracted.dropped_with_prompt_text, 8);
-    // Three each from `Claude Code`, Codex CLI and `Cursor`, two from Gemini
-    // CLI and the request of the other service.
-    assert_eq!(extracted.ignored, 12);
+    assert_eq!(extracted.content_removed, 8);
+    assert_eq!(extracted.activities.len(), 16);
+    // Codex CLI's stream events and failed completion, and the request of
+    // the other service.
+    assert_eq!(extracted.ignored, 4);
 }
 
 #[test]
@@ -1340,10 +1401,10 @@ fn secret_map() -> Value {
 }
 
 #[test]
-fn prompt_text_in_any_attribute_drops_the_event() {
+fn content_text_in_any_attribute_is_removed() {
     let dropped = |attributes: Vec<KeyValue>| {
         let record = log(1, "claude_code.api_request", attributes);
-        extract_from_logs(&logs_request(vec![], "x", vec![record])).dropped_with_prompt_text
+        extract_from_logs(&logs_request(vec![], "x", vec![record])).content_removed
     };
     for (attributes, expected) in [
         (vec![text("gen_ai.prompt.0.content", "hi")], 1),
@@ -1421,13 +1482,8 @@ fn a_model_call_loses_only_what_carries_text() {
     record.body = Some(any(list(vec![Value::StringValue("Hi".to_owned())])));
     let claude_code = || vec![text("service.name", "claude-code")];
     let extracted = extract_from_logs(&logs_request(claude_code(), "x", vec![record]));
-    assert_eq!(
-        (
-            extracted.stripped_prompt_text,
-            extracted.dropped_with_prompt_text
-        ),
-        (1, 0)
-    );
+    assert_eq!(extracted.content_removed, 1);
+    assert_eq!(extracted.messages.len(), 1);
     let message = &extracted.messages[0];
     assert_eq!(
         (
@@ -1455,22 +1511,24 @@ fn a_model_call_loses_only_what_carries_text() {
     );
     named_by_text.event_name = "gen_ai.user.message".to_owned();
     let extracted = extract_from_logs(&logs_request(claude_code(), "x", vec![named_by_text]));
-    assert_eq!(
-        (
-            extracted.stripped_prompt_text,
-            extracted.dropped_with_prompt_text
-        ),
-        (0, 1)
+    assert_eq!(extracted.content_removed, 1);
+    assert!(extracted.messages.is_empty());
+    assert_eq!(kinds(&extracted), ["gen_ai.user.message"]);
+    assert!(
+        extracted.activities[0]
+            .attributes
+            .keys()
+            .all(|name| !name.contains("prompt"))
     );
 }
 
 #[test]
-fn a_body_with_text_drops_the_event() {
+fn a_body_with_text_is_removed() {
     let dropped = |body: Value, event_name: &str| {
         let mut record = log(1, "", vec![]);
         record.body = Some(any(body));
         record.event_name = event_name.to_owned();
-        extract_from_logs(&logs_request(vec![], "x", vec![record])).dropped_with_prompt_text
+        extract_from_logs(&logs_request(vec![], "x", vec![record])).content_removed
     };
     let words = |text: &str| Value::StringValue(text.to_owned());
     assert_eq!(
@@ -1560,4 +1618,271 @@ fn recorded_agent_bodies_read_as_their_agent_harness() {
         agents_seen.contains("codex-cli"),
         "no recorded Codex CLI body"
     );
+}
+
+// Content text in the received record, metrics and reported providers.
+
+fn metrics_request(
+    service_name: &str,
+    metrics: Vec<opentelemetry_proto::tonic::metrics::v1::Metric>,
+) -> ExportMetricsServiceRequest {
+    use opentelemetry_proto::tonic::metrics::v1::{ResourceMetrics, ScopeMetrics};
+    ExportMetricsServiceRequest {
+        resource_metrics: vec![ResourceMetrics {
+            resource: Some(Resource {
+                attributes: vec![text("service.name", service_name)],
+                ..Default::default()
+            }),
+            scope_metrics: vec![ScopeMetrics {
+                scope: None,
+                metrics,
+                schema_url: String::new(),
+            }],
+            schema_url: String::new(),
+        }],
+    }
+}
+
+fn counter(
+    name: &str,
+    value: opentelemetry_proto::tonic::metrics::v1::number_data_point::Value,
+    attributes: Vec<KeyValue>,
+) -> opentelemetry_proto::tonic::metrics::v1::Metric {
+    use opentelemetry_proto::tonic::metrics::v1::{Metric, NumberDataPoint, Sum, metric::Data};
+    Metric {
+        name: name.to_owned(),
+        data: Some(Data::Sum(Sum {
+            data_points: vec![NumberDataPoint {
+                attributes,
+                time_unix_nano: 1_791_191_643_512_000_000,
+                value: Some(value),
+                ..Default::default()
+            }],
+            aggregation_temporality: 1,
+            is_monotonic: true,
+        })),
+        ..Default::default()
+    }
+}
+
+#[test]
+fn counters_of_an_agent_become_activities() {
+    let request = metrics_request(
+        "claude-code",
+        vec![
+            counter(
+                "claude_code.commit.count",
+                Number::AsInt(2),
+                vec![
+                    text("session.id", "s-1"),
+                    text("user.email", "Mara@Kestrel.example"),
+                    text("organization.id", "6f1e2a3b"),
+                ],
+            ),
+            counter(
+                "claude_code.lines_of_code.count",
+                Number::AsDouble(12.5),
+                vec![],
+            ),
+            // Zero says nothing.
+            counter("claude_code.pull_request.count", Number::AsInt(0), vec![]),
+            counter("claude_code.session.count", Number::AsDouble(0.0), vec![]),
+            // Model calls count these already.
+            counter("claude_code.token.usage", Number::AsInt(900), vec![]),
+            counter("claude_code.cost.usage", Number::AsDouble(0.4), vec![]),
+        ],
+    );
+    let extracted = extract_from_metrics(&through_protobuf_metrics(&request).unwrap());
+    assert_eq!(
+        kinds(&extracted),
+        [
+            "claude_code.commit.count",
+            "claude_code.lines_of_code.count"
+        ]
+    );
+    assert_eq!(extracted.ignored, 4);
+    let commits = &extracted.activities[0];
+    assert_eq!(commits.harness, TelemetryHarness::ClaudeCode);
+    assert_eq!(commits.session_id.as_deref(), Some("s-1"));
+    assert_eq!(
+        commits.person_email.as_deref(),
+        Some("mara@kestrel.example")
+    );
+    assert_eq!(
+        commits.attributes.get("value").map(String::as_str),
+        Some("2")
+    );
+    assert_eq!(
+        commits
+            .attributes
+            .get("organization.id")
+            .map(String::as_str),
+        Some("6f1e2a3b")
+    );
+    assert_eq!(
+        extracted.activities[1]
+            .attributes
+            .get("value")
+            .map(String::as_str),
+        Some("12.5")
+    );
+    // A service that is no agent gives no activity.
+    let other = metrics_request(
+        "checkout-api",
+        vec![counter("http.requests", Number::AsInt(5), vec![])],
+    );
+    assert!(extract_from_metrics(&other).activities.is_empty());
+}
+
+fn through_protobuf_metrics(
+    request: &ExportMetricsServiceRequest,
+) -> Result<ExportMetricsServiceRequest, Box<dyn Error>> {
+    Ok(decode_metrics(
+        &request.encode_to_vec(),
+        Encoding::Protobuf,
+    )?)
+}
+
+#[test]
+fn the_received_record_loses_content_text_and_keeps_the_rest() {
+    let mut request = logs_request(
+        vec![
+            text("service.name", "claude-code"),
+            text("prompt", "secret"),
+        ],
+        "x",
+        vec![
+            log(
+                1,
+                "claude_code.user_prompt",
+                vec![
+                    text("event.name", "user_prompt"),
+                    text("prompt", "Fix the build"),
+                    int("prompt_length", 13),
+                ],
+            ),
+            log(
+                1,
+                "claude_code.tool_decision",
+                vec![text("decision", "accept")],
+            ),
+        ],
+    );
+    let mut genai = log(1, "Hello there", vec![]);
+    genai.event_name = "gen_ai.user.message".to_owned();
+    request.resource_logs[0].scope_logs[0]
+        .log_records
+        .push(genai);
+    assert_eq!(strip_logs(&mut request), 2);
+    let records = &request.resource_logs[0].scope_logs[0].log_records;
+    assert_eq!(
+        records[0]
+            .attributes
+            .iter()
+            .map(|attribute| attribute.key.as_str())
+            .collect::<Vec<_>>(),
+        ["event.name", "prompt_length"]
+    );
+    assert_eq!(records[1].attributes.len(), 1);
+    assert!(records[2].body.is_none());
+    let resource = request.resource_logs[0].resource.as_ref().unwrap();
+    assert_eq!(resource.attributes.len(), 1);
+    // Nothing is left to remove.
+    assert_eq!(strip_logs(&mut request), 0);
+
+    let mut traces = traces_request(
+        vec![],
+        "github.copilot",
+        vec![
+            span("chat", 1, vec![text("gen_ai.input.messages", "[hi]")]),
+            span(
+                "execute_tool",
+                1,
+                vec![text("gen_ai.tool.name", "readFile")],
+            ),
+        ],
+    );
+    traces.resource_spans[0].scope_spans[0].spans[1]
+        .events
+        .push(opentelemetry_proto::tonic::trace::v1::span::Event {
+            name: "compaction".to_owned(),
+            attributes: vec![text("gen_ai.output.messages", "summary")],
+            ..Default::default()
+        });
+    assert_eq!(strip_traces(&mut traces), 2);
+    let spans = &traces.resource_spans[0].scope_spans[0].spans;
+    assert!(spans[0].attributes.is_empty());
+    assert_eq!(spans[1].attributes.len(), 1);
+    assert!(spans[1].events[0].attributes.is_empty());
+
+    let mut metrics = metrics_request(
+        "claude-code",
+        vec![counter(
+            "claude_code.commit.count",
+            Number::AsInt(1),
+            vec![text("prompt", "secret"), text("session.id", "s")],
+        )],
+    );
+    assert_eq!(strip_metrics(&mut metrics), 1);
+    assert_eq!(strip_metrics(&mut metrics), 0);
+    assert!(is_content_text_name("gen_ai.prompt.0.content"));
+    assert!(!is_content_text_name("organization.id"));
+}
+
+#[test]
+fn the_provider_comes_from_the_route_the_agent_reports() {
+    let call = |route: KeyValue| {
+        let request = logs_request(
+            vec![text("service.name", "claude-code")],
+            "x",
+            vec![log(
+                1,
+                "claude_code.api_request",
+                vec![
+                    text("session.id", "s"),
+                    text("model", "claude-sonnet-5"),
+                    int("input_tokens", 1),
+                    int("output_tokens", 1),
+                    route,
+                ],
+            )],
+        );
+        let extracted = extract_from_logs(&request);
+        let message = extracted.messages[0].clone();
+        (message.provider, message.attributes)
+    };
+    for (route, provider) in [
+        ("firstParty", Some("anthropic")),
+        ("bedrock", Some("aws_bedrock")),
+        ("vertex", Some("gcp_vertex")),
+        ("foundry", Some("azure_foundry")),
+        ("gateway", None),
+    ] {
+        let (found, attributes) = call(text("anthropic.provider", route));
+        assert_eq!(found.as_deref(), provider, "{route}");
+        // The route stays a signal too.
+        assert_eq!(
+            attributes.get("anthropic.provider").map(String::as_str),
+            Some(route)
+        );
+    }
+    for (route, provider) in [
+        ("gemini-api-key", Some("google")),
+        ("oauth-personal", Some("google")),
+        ("vertex-ai", Some("gcp_vertex")),
+        ("cloud-shell", None),
+    ] {
+        assert_eq!(
+            call(text("auth_type", route)).0.as_deref(),
+            provider,
+            "{route}"
+        );
+    }
+    assert_eq!(
+        call(text("gen_ai.provider.name", "openai")).0.as_deref(),
+        Some("openai")
+    );
+    assert_eq!(call(text("gen_ai.provider.name", "acme")).0, None);
+    // Nothing is guessed from the model's name.
+    assert_eq!(call(text("team", "web")).0, None);
 }

@@ -72,6 +72,7 @@ fn signal_word(signal: &Signal) -> String {
         Signal::AgentName => "agent_name".to_owned(),
         Signal::Config(name) => format!("config:{name}"),
         Signal::Resource(name) => format!("resource:{name}"),
+        Signal::Named(name) => name.clone(),
     }
 }
 
@@ -90,9 +91,15 @@ fn parse_signal(text: &str) -> Result<Signal, ApiError> {
                 Signal::Config(name.trim().to_owned())
             } else if let Some(name) = text.strip_prefix("resource:") {
                 Signal::Resource(name.trim().to_owned())
+            } else if !text.is_empty()
+                && text.chars().count() <= 200
+                && !text.chars().any(char::is_whitespace)
+            {
+                // Signals are open: any other name is read as it came.
+                Signal::Named(text.strip_prefix("signal:").unwrap_or(text).to_owned())
             } else {
                 return Err(ApiError::BadRequest(format!(
-                    "{text:?} is not a signal; use branch, working_directory, repository, pull_request_title, subagent_type, prompt_keys, agent_name, config:<name> or resource:<name>"
+                    "{text:?} is not a signal; use branch, working_directory, repository, pull_request_title, subagent_type, prompt_keys, agent_name, config:<name>, resource:<name> or the name of any signal, such as organization.id"
                 )));
             }
         }
@@ -407,6 +414,27 @@ mod tests {
     use super::*;
 
     #[test]
+    fn any_signal_name_reads_as_it_came() {
+        assert_eq!(
+            parse_signal("organization.id").unwrap(),
+            Signal::Named("organization.id".to_owned())
+        );
+        assert_eq!(
+            parse_signal("signal:auth_type").unwrap(),
+            Signal::Named("auth_type".to_owned())
+        );
+        assert_eq!(parse_signal(" branch ").unwrap(), Signal::Branch);
+        assert_eq!(
+            signal_word(&Signal::Named("organization.id".to_owned())),
+            "organization.id"
+        );
+        for bad in ["", "two words", &"x".repeat(201)] {
+            assert!(parse_signal(bad).is_err(), "{bad:?}");
+        }
+        assert!(parse_signal(&"x".repeat(200)).is_ok());
+    }
+
+    #[test]
     fn a_rule_reads_from_its_words() {
         let new = NewRule {
             name: "feature key in branch".to_owned(),
@@ -442,10 +470,24 @@ mod tests {
         assert_eq!(signal_word(&rule.signal), "config:project");
         assert!(matches!(rule.then, Then::Tag { .. }));
 
-        assert!(
+        // Signals are open: a name of no named signal reads as it came.
+        assert_eq!(
             parse_rule(
                 &NewRule {
                     signal: "mood".to_owned(),
+                    ..new.clone()
+                },
+                Scope::Organization,
+                1
+            )
+            .unwrap()
+            .signal,
+            Signal::Named("mood".to_owned())
+        );
+        assert!(
+            parse_rule(
+                &NewRule {
+                    signal: "two words".to_owned(),
                     ..new.clone()
                 },
                 Scope::Organization,

@@ -6,17 +6,18 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use serde::Serialize;
+use sha2::{Digest as _, Sha256};
 use time::OffsetDateTime;
 use tokencontroller_core::state::State as Fold;
 use tokencontroller_core::{
-    Event, EventId, Label, Message, MessageId, ModelRef, Record, SessionFacts, SessionId, Split,
-    SplitPart, SplitTarget, TagValue, Tags,
+    Activity, Event, EventId, Label, Message, MessageId, ModelRef, Record, SessionFacts, SessionId,
+    Split, SplitPart, SplitTarget, TagValue, Tags,
 };
 use utoipa::ToSchema;
 use uuid::Uuid;
 
 use super::entry::CheckedTokenEntry;
-use super::model::TelemetryMessage;
+use super::model::{TelemetryActivity, TelemetryMessage};
 use super::quota;
 use crate::AppState;
 use crate::error::ApiError;
@@ -74,6 +75,13 @@ async fn known_messages(
         .collect())
 }
 
+/// When an entry arrived and the received record it was read from.
+#[derive(Clone, Copy)]
+struct Arrived<'a> {
+    at: OffsetDateTime,
+    received: Option<&'a str>,
+}
+
 /// Builds the message events of a checked entry. Each supersedes the
 /// earlier record of the same session and message id, if there is one.
 fn message_events(
@@ -83,8 +91,9 @@ fn message_events(
     tags: &Tags,
     known: &BTreeMap<String, String>,
     log: &Log,
-    at: OffsetDateTime,
+    arrived: Arrived<'_>,
 ) -> Result<Vec<Event>, ApiError> {
+    let Arrived { at, received } = arrived;
     let facts = SessionFacts {
         turns: checked.entry.facts.turns,
         tool_calls: checked.entry.facts.tool_calls,
@@ -96,7 +105,8 @@ fn message_events(
         result: checked.entry.facts.result.clone(),
         summary: checked.entry.summary.clone(),
     };
-    let signals = checked.entry.signals.core();
+    let mut signals = checked.entry.signals.core(&checked.entry.facts);
+    without_content_text(&mut signals);
     let mut events = Vec::with_capacity(checked.messages.len());
     for message in &checked.messages {
         let message_id = MessageId::new(&message.message_id)
@@ -105,7 +115,10 @@ fn message_events(
             session_id: session.clone(),
             message_id,
             person: person.clone(),
-            model: ModelRef::new(checked.provider, &message.model),
+            model: checked.provider.as_deref().map_or_else(
+                || ModelRef::unreported(&message.model),
+                |provider| ModelRef::new(provider, &message.model),
+            ),
             tokens: message.tokens.clone(),
             at: message.at,
             agent_harness: checked.entry.agent_harness.clone(),
@@ -114,6 +127,7 @@ fn message_events(
             tags: tags.clone(),
             signals: signals.clone(),
             session: facts.clone(),
+            received: received.map(str::to_owned),
         };
         let older = known
             .get(&message.message_id)
@@ -133,6 +147,46 @@ fn message_events(
         events.push(event);
     }
     Ok(events)
+}
+
+/// Removes the open signals whose name holds content text: the log never
+/// holds content text (ADR 0028).
+fn without_content_text(signals: &mut tokencontroller_core::Signals) {
+    signals
+        .other
+        .retain(|name, _| !super::otlp::is_content_text_name(name));
+    signals
+        .resource
+        .retain(|name, _| !super::otlp::is_content_text_name(name));
+}
+
+/// The entry's tags with the signals named like a tag added: a signal such
+/// as `project` or `contract` is the sender's own assignment. A tag the
+/// entry names itself wins.
+async fn with_signal_tags(
+    db: &sqlx::PgPool,
+    organization_id: Uuid,
+    checked: &CheckedTokenEntry,
+) -> Result<BTreeMap<String, String>, ApiError> {
+    let mut named = checked.tags.clone();
+    for (name, value) in &checked.entry.signals.other {
+        let Some(text) = value.as_str() else {
+            continue;
+        };
+        if named.contains_key(name)
+            || name == super::entry::PERSON_TAG
+            || !super::entry::is_tag_name(name)
+            || TagValue::new(text).is_err()
+        {
+            continue;
+        }
+        let is_tag = name == "contract"
+            || tags::kind_of(db, organization_id, name).await? == Some(tags::Kind::Tag);
+        if is_tag {
+            named.insert(name.clone(), text.to_owned());
+        }
+    }
+    Ok(named)
 }
 
 /// The split events of a checked entry's explicit splits: one on the
@@ -290,6 +344,22 @@ pub async fn store_entries(
     person: &TagValue,
     entries: Vec<CheckedTokenEntry>,
 ) -> Result<Vec<StoredEntry>, ApiError> {
+    store_received_entries(state, organization_id, person, entries, None).await
+}
+
+/// [`store_entries`] for entries read from a received record: each message
+/// points back to it.
+///
+/// # Errors
+///
+/// As [`store_entries`].
+pub async fn store_received_entries(
+    state: &AppState,
+    organization_id: Uuid,
+    person: &TagValue,
+    entries: Vec<CheckedTokenEntry>,
+    received: Option<&str>,
+) -> Result<Vec<StoredEntry>, ApiError> {
     let limit = quota::limit(state, organization_id).await?;
     quota::check(state, organization_id, limit.as_ref(), 0).await?;
     let mut log = Log::load(state, organization_id).await?;
@@ -307,7 +377,7 @@ pub async fn store_entries(
     let mut rows: Vec<(String, String, EventId)> = Vec::new();
     for (index, checked) in entries.iter().enumerate() {
         let session = session_id(checked)?;
-        let tags = json::tags(&checked.tags)?;
+        let tags = json::tags(&with_signal_tags(&state.db, organization_id, checked).await?)?;
         tags::check_names(&state.db, organization_id, &tags).await?;
         for split in &checked.splits {
             tags::check_names(&state.db, organization_id, &json::tags(&split.tags)?).await?;
@@ -322,7 +392,15 @@ pub async fn store_entries(
             let at = now.saturating_add(time::Duration::microseconds(
                 i64::try_from(index).unwrap_or(0),
             ));
-            let messages = message_events(checked, &session, person, &tags, &known, &log, at)?;
+            let messages = message_events(
+                checked,
+                &session,
+                person,
+                &tags,
+                &known,
+                &log,
+                Arrived { at, received },
+            )?;
             for event in &messages {
                 if let Record::Message(message) = &event.record {
                     rows.push((
@@ -367,19 +445,7 @@ pub async fn store_entries(
     for event in &new_events {
         events::append(&mut tx, organization_id, event).await?;
     }
-    for (session, message, event_id) in &rows {
-        sqlx::query!(
-            r#"INSERT INTO message_events (organization_id, session_id, message_id, event_id)
-               VALUES ($1, $2, $3, $4)
-               ON CONFLICT (organization_id, session_id, message_id) DO UPDATE SET event_id = EXCLUDED.event_id"#,
-            organization_id,
-            session,
-            message,
-            event_id.as_str()
-        )
-        .execute(&mut *tx)
-        .await?;
-    }
+    remember_message_events(&mut tx, organization_id, &rows).await?;
     tx.commit().await?;
     Ok(sessions
         .iter()
@@ -414,28 +480,81 @@ fn telemetry_record(
     message: &TelemetryMessage,
     person: TagValue,
     tags: Tags,
+    received: Option<&str>,
 ) -> Result<Message, ApiError> {
-    let provider = super::provider::infer(None, message.harness.name(), &message.model);
+    let mut signals = tokencontroller_core::Signals {
+        repository: message.repository.clone(),
+        resource: message.attributes.clone(),
+        ..Default::default()
+    };
+    without_content_text(&mut signals);
     Ok(Message {
         session_id: SessionId::new(&message.session_id)
             .map_err(|error| ApiError::BadRequest(error.to_string()))?,
         message_id: MessageId::new(&message.message_id)
             .map_err(|error| ApiError::BadRequest(error.to_string()))?,
         person,
-        model: ModelRef::new(provider, &message.model),
+        model: message.provider.as_deref().map_or_else(
+            || ModelRef::unreported(&message.model),
+            |provider| ModelRef::new(provider, &message.model),
+        ),
         tokens: Some(message.tokens.clone()),
         at: message.occurred_at,
         agent_harness: message.harness.name().to_owned(),
         agent_name: None,
         reported_cost: message.reported_cost,
         tags,
-        signals: tokencontroller_core::Signals {
-            repository: message.repository.clone(),
-            resource: message.attributes.clone(),
-            ..Default::default()
-        },
+        signals,
         session: SessionFacts::default(),
+        received: received.map(str::to_owned),
     })
+}
+
+/// The activity record of one telemetry record that is no model call. Its
+/// event id is built from what it holds, so an export sent again, or a
+/// received record read again, adds it once.
+fn telemetry_activity(
+    activity: &TelemetryActivity,
+    person: TagValue,
+    received: Option<&str>,
+) -> Result<(String, Activity), ApiError> {
+    let mut signals = tokencontroller_core::Signals {
+        resource: activity.attributes.clone(),
+        ..Default::default()
+    };
+    without_content_text(&mut signals);
+    let session_id = activity
+        .session_id
+        .as_deref()
+        .map(SessionId::new)
+        .transpose()
+        .map_err(|error| ApiError::BadRequest(error.to_string()))?;
+    let mut hasher = Sha256::new();
+    for part in [
+        activity.harness.name().to_owned(),
+        activity.kind.clone(),
+        activity.session_id.clone().unwrap_or_default(),
+        activity.occurred_at.unix_timestamp_nanos().to_string(),
+        person.to_string(),
+        serde_json::to_string(&activity.attributes).unwrap_or_default(),
+    ] {
+        hasher.update(part.as_bytes());
+        hasher.update([0x1f]);
+    }
+    let digest: Vec<u8> = hasher.finalize().iter().copied().take(16).collect();
+    let id = format!("{}{}", prefix::ACTIVITY, hex::encode(digest));
+    Ok((
+        id,
+        Activity {
+            kind: activity.kind.clone(),
+            session_id,
+            person,
+            at: activity.occurred_at,
+            agent_harness: activity.harness.name().to_owned(),
+            signals,
+            received: received.map(str::to_owned),
+        },
+    ))
 }
 
 /// What a telemetry batch did.
@@ -444,6 +563,16 @@ pub struct TelemetryOutcome {
     pub new_messages: usize,
     /// Messages already on record, from a token entry or an earlier batch.
     pub known_messages: usize,
+    pub new_activities: usize,
+}
+
+/// What one telemetry request brings, read from its received record.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Telemetry {
+    pub messages: Vec<TelemetryMessage>,
+    pub activities: Vec<TelemetryActivity>,
+    /// The received record it was read from.
+    pub received: Option<String>,
 }
 
 /// Stores the model calls of a telemetry batch as message events. A call
@@ -462,6 +591,37 @@ pub async fn store_telemetry(
     fallback: &TagValue,
     messages: Vec<TelemetryMessage>,
 ) -> Result<TelemetryOutcome, ApiError> {
+    store_received_telemetry(
+        state,
+        organization_id,
+        fallback,
+        Telemetry {
+            messages,
+            ..Telemetry::default()
+        },
+    )
+    .await
+}
+
+/// [`store_telemetry`] for the model calls and activities read from a
+/// received record: each points back to it. An activity already on record
+/// adds nothing.
+///
+/// # Errors
+///
+/// As [`store_telemetry`].
+pub async fn store_received_telemetry(
+    state: &AppState,
+    organization_id: Uuid,
+    fallback: &TagValue,
+    telemetry: Telemetry,
+) -> Result<TelemetryOutcome, ApiError> {
+    let Telemetry {
+        messages,
+        activities,
+        received,
+    } = telemetry;
+    let received = received.as_deref();
     let limit = quota::limit(state, organization_id).await?;
     quota::check(state, organization_id, limit.as_ref(), 0).await?;
     let log = Log::load(state, organization_id).await?;
@@ -476,6 +636,13 @@ pub async fn store_telemetry(
     let now = OffsetDateTime::now_utc();
     let mut outcome = TelemetryOutcome::default();
     let mut new_events = Vec::new();
+    let person_of = |email: Option<&str>| match email
+        .map(str::to_lowercase)
+        .filter(|email| members.contains(email))
+    {
+        Some(email) => events::person(&email),
+        None => Ok(fallback.clone()),
+    };
     let mut rows = Vec::new();
     let mut known_by_session: BTreeMap<String, BTreeMap<String, String>> = BTreeMap::new();
     let empty = BTreeMap::new();
@@ -493,17 +660,9 @@ pub async fn store_telemetry(
             outcome.known_messages = outcome.known_messages.saturating_add(1);
             continue;
         }
-        let person = match message
-            .person_email
-            .as_deref()
-            .map(str::to_lowercase)
-            .filter(|email| members.contains(email))
-        {
-            Some(email) => events::person(&email)?,
-            None => fallback.clone(),
-        };
+        let person = person_of(message.person_email.as_deref())?;
         let tags = telemetry_tags(&state.db, organization_id, &message).await?;
-        let record = telemetry_record(&message, person, tags)?;
+        let record = telemetry_record(&message, person, tags, received)?;
         let event = Event::new(
             &events::new_id(prefix::MESSAGE),
             now.saturating_add(time::Duration::microseconds(
@@ -520,6 +679,25 @@ pub async fn store_telemetry(
         new_events.push(event);
         outcome.new_messages = outcome.new_messages.saturating_add(1);
     }
+    let mut activity_ids = BTreeSet::new();
+    for activity in &activities {
+        let person = person_of(activity.person_email.as_deref())?;
+        let (id, record) = telemetry_activity(activity, person, received)?;
+        if log.find(&id).is_some() || !activity_ids.insert(id.clone()) {
+            continue;
+        }
+        new_events.push(
+            Event::new(
+                &id,
+                now.saturating_add(time::Duration::microseconds(
+                    i64::try_from(new_events.len()).unwrap_or(0),
+                )),
+                Record::Activity(Box::new(record)),
+            )
+            .map_err(|error| ApiError::Internal(error.into()))?,
+        );
+        outcome.new_activities = outcome.new_activities.saturating_add(1);
+    }
     if new_events.is_empty() {
         return Ok(outcome);
     }
@@ -531,11 +709,34 @@ pub async fn store_telemetry(
         new_messages(&new_events),
     )
     .await?;
-    let mut tx = state.db.begin().await?;
-    for event in &new_events {
+    append_telemetry(&state.db, organization_id, &new_events, &rows).await?;
+    Ok(outcome)
+}
+
+/// Appends telemetry's events and remembers which event holds each model
+/// call, in one transaction.
+async fn append_telemetry(
+    db: &sqlx::PgPool,
+    organization_id: Uuid,
+    new_events: &[Event],
+    rows: &[(String, String, EventId)],
+) -> Result<(), ApiError> {
+    let mut tx = db.begin().await?;
+    for event in new_events {
         events::append(&mut tx, organization_id, event).await?;
     }
-    for (session, message, event_id) in &rows {
+    remember_message_events(&mut tx, organization_id, rows).await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+/// Remembers which event holds each model call, by session and message id.
+async fn remember_message_events(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    organization_id: Uuid,
+    rows: &[(String, String, EventId)],
+) -> Result<(), ApiError> {
+    for (session, message, event_id) in rows {
         sqlx::query!(
             r#"INSERT INTO message_events (organization_id, session_id, message_id, event_id)
                VALUES ($1, $2, $3, $4)
@@ -545,11 +746,10 @@ pub async fn store_telemetry(
             message,
             event_id.as_str()
         )
-        .execute(&mut *tx)
+        .execute(&mut **tx)
         .await?;
     }
-    tx.commit().await?;
-    Ok(outcome)
+    Ok(())
 }
 
 #[cfg(test)]
@@ -577,6 +777,7 @@ mod tests {
             tags: Tags::new(),
             signals: tokencontroller_core::Signals::default(),
             session: SessionFacts::default(),
+            received: None,
         };
         let price = tokencontroller_core::PriceRow {
             provider: "anthropic".to_owned(),

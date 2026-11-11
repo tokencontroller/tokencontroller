@@ -158,6 +158,11 @@ pub fn standard(config: &Config) -> Vec<Job> {
             crate::price_table::JOB_EVERY,
             crate::price_table::run_job,
         ),
+        Job::new(
+            crate::ingest::received::JOB,
+            crate::ingest::received::JOB_EVERY,
+            crate::ingest::received::run_job,
+        ),
     ];
     if config.rates_refresh {
         jobs.push(Job::new(

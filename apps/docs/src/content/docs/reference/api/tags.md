@@ -104,7 +104,7 @@ POST /api/v1/rules
 | Field | Meaning |
 | --- | --- |
 | `name` | The name people see. |
-| `signal` | `branch`, `working_directory`, `repository`, `pull_request_title`, `subagent_type`, `prompt_keys`, `agent_name`, `config:<name>` or `resource:<name>`. |
+| `signal` | `branch`, `working_directory`, `repository`, `pull_request_title`, `subagent_type`, `prompt_keys`, `agent_name`, `config:<name>`, `resource:<name>` or any other signal by its name, such as `organization.id`. |
 | `pattern` | A regular expression. A group named `key` picks the tag value's key; without one, the whole match is the key. |
 | `tag_name` | The tag name the rule sets, such as `feature` or `project`. |
 | `key` | A fixed key, such as `shop`, for "repository `kestrel/shop` is project Shop". Left out, the rule sets the key the pattern finds. |

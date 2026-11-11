@@ -104,6 +104,7 @@ fn price(model: &str, kind: TokenKind, per_million: &str) -> TestResult<PriceRow
 fn call(session: &str, id: &str, at: OffsetDateTime, input: u64) -> TelemetryMessage {
     TelemetryMessage {
         harness: TelemetryHarness::ClaudeCode,
+        provider: Some("anthropic".to_owned()),
         session_id: session.to_owned(),
         message_id: id.to_owned(),
         model: "claude-sonnet-5".to_owned(),
