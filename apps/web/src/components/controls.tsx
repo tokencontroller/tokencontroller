@@ -31,14 +31,14 @@ export function asOfParam(asOf: string): string | undefined {
 
 export function RangeControls({ value, onChange, children }: { value: RangeState; onChange: (next: RangeState) => void; children?: ReactNode }) {
   return (
-    <div className="mb-6 grid grid-cols-2 gap-3 sm:flex sm:flex-wrap sm:items-end">
+    <div className="grid grid-cols-2 gap-3 sm:flex sm:flex-wrap sm:items-start">
       <Field label="From" className="sm:w-40">
         <Input type="date" value={value.from} onChange={(e) => onChange({ ...value, from: e.target.value })} />
       </Field>
       <Field label="To" className="sm:w-40">
         <Input type="date" value={value.to} onChange={(e) => onChange({ ...value, to: e.target.value })} />
       </Field>
-      <Field label="As of" className="sm:w-40" hint="Empty: as of now">
+      <Field label="As of" className="sm:w-40" hint="Empty: now">
         <Input type="date" value={value.asOf} onChange={(e) => onChange({ ...value, asOf: e.target.value })} />
       </Field>
       {children}
@@ -50,10 +50,10 @@ export function RangeControls({ value, onChange, children }: { value: RangeState
 export function FilterField({ value, onChange, label = "Filter" }: { value: Filter; onChange: (filter: Filter) => void; label?: string }) {
   const [text, setText] = useState(filterToText(value));
   return (
-    <Field label={label} className="col-span-2 sm:w-64" hint="Tags and attributes, such as client:acme, team:web">
+    <Field label={label} className="col-span-2 sm:w-64">
       <Input
         value={text}
-        placeholder="Whole organization"
+        placeholder="Whole organization, or client:acme"
         onChange={(e) => setText(e.target.value)}
         onBlur={() => onChange(filterFromText(text.replace(/\s+/g, "")))}
         onKeyDown={(e) => {

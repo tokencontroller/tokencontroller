@@ -1,5 +1,6 @@
 import type { Money } from "@/api/contract";
 import { formatMoney, formatShare } from "@/lib/money";
+import { Popover } from "@base-ui/react/popover";
 import { useEffect, type ReactNode } from "react";
 import { additions } from "@/lib/additions";
 
@@ -10,45 +11,140 @@ export function MoneyText({ value, signed = false, share, missing = "unknown mod
   return <span className="num">{formatMoney(value, { signed })}</span>;
 }
 
-export function PageHeader({ title, lead, actions }: { title: string; lead?: ReactNode; actions?: ReactNode }) {
+/**
+ * The top of every screen: the title, at most one short line under it, and the
+ * screen's one primary action on the right (docs: design system).
+ */
+export function PageHeader({ title, lead, actions, meta }: { title: string; lead?: ReactNode; actions?: ReactNode; meta?: ReactNode }) {
   return (
-    <header className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+    <header className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
       <div className="min-w-0">
-        <h1 className="text-[22px] font-semibold tracking-[-0.01em]">{title}</h1>
-        {lead ? <p className="mt-1 max-w-2xl text-sm text-muted">{lead}</p> : null}
+        <h1 className="text-title font-semibold text-ink">{title}</h1>
+        {lead || meta ? (
+          <p className="mt-1 flex max-w-2xl flex-wrap items-baseline gap-x-2 text-small text-muted">
+            {lead ? <span>{lead}</span> : null}
+            {meta ? <span>{meta}</span> : null}
+          </p>
+        ) : null}
       </div>
       {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
     </header>
   );
 }
 
-export function Section({ id, title, actions, children, lead }: { id?: string; title: string; actions?: ReactNode; children: ReactNode; lead?: ReactNode }) {
+/** A quiet link in a card header, such as to the screen that holds the details. Use it with TanStack's Link: className={linkClass}. */
+export const linkClass = "text-small font-medium text-accent hover:underline";
+
+/** Help text moved out of the way: a small (i) that opens it on click or tap. */
+export function Hint({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <section id={id} className="mb-8 scroll-mt-20">
-      <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
-        <div>
-          <h2 className="text-[15px] font-semibold">{title}</h2>
-          {lead ? <p className="mt-0.5 text-[13px] text-muted">{lead}</p> : null}
+    <Popover.Root>
+      <Popover.Trigger
+        aria-label={label}
+        className="inline-flex size-5 shrink-0 items-center justify-center rounded-full text-muted hover:bg-hover hover:text-ink"
+      >
+        <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.25" fill="none" stroke="currentColor" strokeWidth="1.3" /><path d="M8 7.2v3.6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" /><circle cx="8" cy="5.1" r="0.85" fill="currentColor" /></svg>
+      </Popover.Trigger>
+      <Popover.Portal>
+        <Popover.Positioner sideOffset={6} className="z-50">
+          <Popover.Popup className="max-w-72 rounded-md bg-surface px-3 py-2 text-small text-ink-soft shadow-pop">{children}</Popover.Popup>
+        </Popover.Positioner>
+      </Popover.Portal>
+    </Popover.Root>
+  );
+}
+
+/** A plain card, for a toolbar or anything without a title. */
+export function Card({ children, className = "" }: { children: ReactNode; className?: string }) {
+  return <div className={`mb-6 rounded-lg border border-line bg-surface p-4 shadow-card max-sm:-mx-4 max-sm:rounded-none max-sm:border-x-0 ${className}`}>{children}</div>;
+}
+
+/** A card runs to the screen's edges on a phone, so tables get the width. */
+const cardClass = "rounded-lg border border-line bg-surface shadow-card max-sm:-mx-4 max-sm:rounded-none max-sm:border-x-0";
+
+/**
+ * A card: one thing on the screen, with its title, an optional hint and its
+ * actions in one row. `flush` lets a table run to the card's edges. `lead`
+ * is kept for screens not yet moved to the system; new screens put that text
+ * in `hint`.
+ */
+export function Section({
+  id,
+  title,
+  actions,
+  children,
+  lead,
+  hint,
+  flush = false,
+  footer,
+}: {
+  id?: string;
+  title: string;
+  actions?: ReactNode;
+  children: ReactNode;
+  lead?: ReactNode;
+  hint?: ReactNode;
+  flush?: boolean;
+  footer?: ReactNode;
+}) {
+  const pad = "px-5";
+  return (
+    <section id={id} className={`relative mb-6 scroll-mt-20 ${cardClass} ${flush && !actions ? "[&_.tc-csv]:absolute [&_.tc-csv]:right-3 [&_.tc-csv]:top-3 [&_.tc-csv]:mb-0" : "[&_.tc-csv]:px-3"}`}>
+      <div className={`flex flex-wrap items-center justify-between gap-x-3 gap-y-2 ${pad} pt-4 ${flush ? "pb-3" : "pb-1"}`}>
+        <div className="min-w-0">
+          <div className="flex items-center gap-1.5">
+            <h2 className="text-heading font-semibold text-ink">{title}</h2>
+            {hint ? <Hint label={`About ${title}`}>{hint}</Hint> : null}
+          </div>
+          {lead ? <p className="mt-0.5 text-small text-muted">{lead}</p> : null}
         </div>
         {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
       </div>
-      {children}
+      <div
+        className={
+          flush
+            ? "[&_.tc-table-wrap]:mx-0 sm:[&_td:first-child]:pl-5 sm:[&_td:last-child]:pr-5 sm:[&_th:first-child]:pl-5 sm:[&_th:last-child]:pr-5"
+            : `${pad} pb-5 pt-2`
+        }
+      >
+        {children}
+      </div>
+      {footer ? <div className={`flex flex-wrap items-center justify-end gap-2 border-t border-line ${pad} py-3 rounded-b-lg bg-hover/60`}>{footer}</div> : null}
     </section>
   );
 }
 
-export function Kpi({ label, value, note, tone }: { label: string; value: ReactNode; note?: ReactNode; tone?: "posted" | "exception" | undefined }) {
+/** One figure: a short label, the number large, an optional note under it. */
+export function Kpi({ label, value, note, tone, hint, hero = false }: { label: string; value: ReactNode; note?: ReactNode; tone?: "posted" | "exception" | undefined; hint?: ReactNode; hero?: boolean }) {
   return (
-    <div className="rounded-lg border border-line bg-page p-4">
-      <div className="text-[13px] text-muted">{label}</div>
-      <div className={`mt-1 text-[22px] font-light tracking-[-0.01em] num !text-left ${tone === "posted" ? "text-posted" : tone === "exception" ? "text-exception" : ""}`}>{value}</div>
-      {note ? <div className="mt-1 text-xs text-muted">{note}</div> : null}
+    <div className={`min-w-0 p-5 ${hero ? "max-lg:col-span-2" : ""}`}>
+      <div className="flex items-center gap-1 text-small font-medium text-muted">
+        {label}
+        {hint ? <Hint label={`About ${label}`}>{hint}</Hint> : null}
+      </div>
+      <div className={`mt-1 ${hero ? "text-[36px] leading-[44px] tracking-[-0.025em] font-semibold" : "text-[22px] leading-8 tracking-[-0.01em] font-medium"} num !text-left ${tone === "posted" ? "text-posted" : tone === "exception" ? "text-exception" : "text-ink"}`}>{value}</div>
+      {note ? <div className="mt-1 text-caption text-muted">{note}</div> : null}
     </div>
   );
 }
 
+/** Figures side by side in one card, split by hairlines. */
 export function KpiRow({ children }: { children: ReactNode }) {
-  return <div className="mb-8 grid grid-cols-2 gap-3 lg:grid-cols-4">{children}</div>;
+  return (
+    <div className="mb-6 grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-line bg-line shadow-card lg:grid-cols-[1.5fr_1fr_1fr_1fr] max-sm:-mx-4 max-sm:rounded-none max-sm:border-x-0 [&>*]:bg-surface max-lg:[&>*:nth-child(4):last-child]:col-span-2">
+      {children}
+    </div>
+  );
+}
+
+/** A figure in a row of figures inside a card: label above, value under it. */
+export function Figure({ label, value, tone, size = "md" }: { label: ReactNode; value: ReactNode; tone?: "posted" | "exception" | undefined; size?: "md" | "lg" }) {
+  return (
+    <div className="min-w-0">
+      <div className="text-small text-muted">{label}</div>
+      <div className={`mt-0.5 num !text-left font-medium ${size === "lg" ? "text-figure" : "text-[20px] leading-7 tracking-[-0.01em]"} ${tone === "posted" ? "text-posted" : tone === "exception" ? "text-exception" : "text-ink"}`}>{value}</div>
+    </div>
+  );
 }
 
 /** A share bar: one segment per value, in spectrum order. */
@@ -81,11 +177,13 @@ export function RowBar({ share, color = "var(--color-spectrum-6)" }: { share: nu
   );
 }
 
-export function Empty({ title, children }: { title: string; children?: ReactNode }) {
+/** Nothing to show yet: what is missing, in a line, and the one action that fills it. */
+export function Empty({ title, children, action }: { title: string; children?: ReactNode; action?: ReactNode }) {
   return (
-    <div className="rounded-lg border border-dashed border-line-strong px-6 py-10 text-center">
-      <p className="text-sm font-medium">{title}</p>
-      {children ? <div className="mt-1 text-sm text-muted">{children}</div> : null}
+    <div className="flex flex-col items-center rounded-lg border border-dashed border-line-strong px-6 py-10 text-center">
+      <p className="text-body font-medium text-ink">{title}</p>
+      {children ? <div className="mt-1 max-w-sm text-small text-muted">{children}</div> : null}
+      {action ? <div className="mt-4">{action}</div> : null}
     </div>
   );
 }

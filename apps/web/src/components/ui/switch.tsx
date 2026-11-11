@@ -7,9 +7,9 @@ export function Switch({ checked, onCheckedChange, label, disabled = false }: { 
       onCheckedChange={onCheckedChange}
       disabled={disabled}
       aria-label={label}
-      className="relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full bg-line-strong p-0.5 transition-colors data-[checked]:bg-posted data-[disabled]:opacity-50"
+      className="relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full bg-line-strong p-0.5 transition-colors data-[checked]:bg-accent data-[disabled]:opacity-50"
     >
-      <BaseSwitch.Thumb className="block size-4 rounded-full bg-page shadow-chip transition-transform data-[checked]:translate-x-4" />
+      <BaseSwitch.Thumb className="block size-4 rounded-full bg-white shadow-chip transition-transform data-[checked]:translate-x-4" />
     </BaseSwitch.Root>
   );
 }

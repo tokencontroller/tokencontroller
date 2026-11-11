@@ -11,7 +11,7 @@ export function Menu({ label, items, trigger }: { label: string; trigger?: React
       </BaseMenu.Trigger>
       <BaseMenu.Portal>
         <BaseMenu.Positioner sideOffset={4} align="end" className="z-50">
-          <BaseMenu.Popup className="min-w-44 rounded-md bg-page p-1 shadow-pop">
+          <BaseMenu.Popup className="min-w-44 rounded-md bg-surface p-1 shadow-pop">
             {items.map((item) => (
               <BaseMenu.Item
                 key={item.label}

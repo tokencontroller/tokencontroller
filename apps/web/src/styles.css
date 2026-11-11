@@ -45,15 +45,41 @@
   --color-spectrum-6: #2f80e8;
   --color-spectrum-7: #7e57e8;
 
+  --color-surface: var(--tc-surface);
+  --color-hover: var(--tc-hover);
+  --color-canvas: var(--tc-canvas);
+
+  /*
+   * Type scale (docs: design system). Six steps, nothing between them.
+   * caption: table headers, labels, meta. small: secondary text. body: text,
+   * cells, inputs. heading: card and section titles. title: the page title.
+   * figure: the one number a card is about.
+   */
+  --text-caption: 12px;
+  --text-caption--line-height: 16px;
+  --text-small: 13px;
+  --text-small--line-height: 20px;
+  --text-body: 14px;
+  --text-body--line-height: 20px;
+  --text-heading: 15px;
+  --text-heading--line-height: 22px;
+  --text-title: 24px;
+  --text-title--line-height: 32px;
+  --text-title--letter-spacing: -0.018em;
+  --text-figure: 28px;
+  --text-figure--line-height: 36px;
+  --text-figure--letter-spacing: -0.02em;
+
   --radius-sm: 4px;
   --radius-md: 6px;
   --radius-lg: 10px;
   --radius-full: 9999px;
 
   /* Crisp and tactile: a short, tight shadow, light from straight above. */
-  --shadow-chip: 0 1px 0 rgb(255 255 255 / 0.6) inset, 0 1px 1px rgb(28 32 48 / 0.12);
-  --shadow-raised: 0 1px 0 rgb(255 255 255 / 0.7) inset, 0 1px 2px rgb(28 32 48 / 0.10), 0 0 0 1px rgb(28 32 48 / 0.06);
+  --shadow-chip: var(--tc-chip-shadow);
+  --shadow-raised: var(--tc-raised-shadow);
   --shadow-pop: 0 8px 24px -6px rgb(28 32 48 / 0.22), 0 0 0 1px rgb(28 32 48 / 0.08);
+  --shadow-card: var(--tc-card-shadow);
 }
 
 :root {
@@ -73,6 +99,12 @@
   --tc-posted-tint: #e3f2ee;
   --tc-exception: #a8620f;
   --tc-exception-tint: #fbf0e1;
+  --tc-surface: #ffffff;
+  --tc-canvas: #f8f7f3;
+  --tc-hover: #f7f5f0;
+  --tc-card-shadow: 0 1px 2px rgb(28 32 48 / 0.05);
+  --tc-chip-shadow: 0 1px 0 rgb(255 255 255 / 0.6) inset, 0 1px 1px rgb(28 32 48 / 0.12);
+  --tc-raised-shadow: 0 1px 0 rgb(255 255 255 / 0.7) inset, 0 1px 2px rgb(28 32 48 / 0.10), 0 0 0 1px rgb(28 32 48 / 0.06);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -93,6 +125,12 @@
     --tc-posted-tint: #12302a;
     --tc-exception: #e9a54f;
     --tc-exception-tint: #33261a;
+    --tc-surface: #161a20;
+    --tc-canvas: #0f1216;
+    --tc-hover: #1b2028;
+    --tc-card-shadow: none;
+    --tc-chip-shadow: 0 1px 0 rgb(255 255 255 / 0.04) inset, 0 1px 1px rgb(0 0 0 / 0.4);
+    --tc-raised-shadow: 0 1px 0 rgb(255 255 255 / 0.04) inset, 0 1px 2px rgb(0 0 0 / 0.4), 0 0 0 1px rgb(255 255 255 / 0.06);
   }
 }
 
@@ -113,6 +151,12 @@
   --tc-posted-tint: #12302a;
   --tc-exception: #e9a54f;
   --tc-exception-tint: #33261a;
+  --tc-surface: #161a20;
+  --tc-canvas: #0f1216;
+  --tc-hover: #1b2028;
+  --tc-card-shadow: none;
+  --tc-chip-shadow: 0 1px 0 rgb(255 255 255 / 0.04) inset, 0 1px 1px rgb(0 0 0 / 0.4);
+  --tc-raised-shadow: 0 1px 0 rgb(255 255 255 / 0.04) inset, 0 1px 2px rgb(0 0 0 / 0.4), 0 0 0 1px rgb(255 255 255 / 0.06);
 }
 
 @layer base {

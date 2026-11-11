@@ -2,7 +2,7 @@ import { useEffect, type ComponentProps, type ReactNode } from "react";
 import { additions } from "@/lib/additions";
 
 const control =
-  "h-9 rounded-md border border-line-strong bg-page px-2.5 text-sm text-ink placeholder:text-muted focus:border-accent focus:outline-none disabled:opacity-60";
+  "h-9 rounded-md border border-line-strong bg-surface px-3 text-body text-ink shadow-[inset_0_1px_1px_rgb(28_32_48/0.04)] placeholder:text-muted focus:border-accent focus:outline-none focus:ring-3 focus:ring-accent-tint disabled:opacity-60";
 
 /** Full width unless the caller sets a width of its own. */
 const width = (className: string) => (/(^|\s)w-/.test(className) ? "" : "w-full");
@@ -10,10 +10,26 @@ const width = (className: string) => (/(^|\s)w-/.test(className) ? "" : "w-full"
 export function Field({ label, hint, children, className = "" }: { label: string; hint?: ReactNode; children: ReactNode; className?: string }) {
   return (
     <label className={`block ${className}`}>
-      <span className="mb-1 block text-[13px] font-medium text-ink-soft">{label}</span>
+      <span className="mb-1.5 block text-small font-medium text-ink-soft">{label}</span>
       {children}
-      {hint ? <span className="mt-1 block text-xs text-muted">{hint}</span> : null}
+      {hint ? <span className="mt-1 block text-caption text-muted">{hint}</span> : null}
     </label>
+  );
+}
+
+/**
+ * A settings row: what it is on the left, with one line under it, and the
+ * control on the right. Stacks on a phone.
+ */
+export function SettingRow({ label, description, children, htmlFor }: { label: string; description?: ReactNode; children: ReactNode; htmlFor?: string }) {
+  return (
+    <div className="grid gap-2 border-b border-line py-4 last:border-b-0 sm:grid-cols-[minmax(0,1fr)_minmax(0,2fr)] sm:gap-8">
+      <div className="min-w-0">
+        {htmlFor ? <label htmlFor={htmlFor} className="text-body font-medium text-ink">{label}</label> : <div className="text-body font-medium text-ink">{label}</div>}
+        {description ? <p className="mt-0.5 text-small text-muted">{description}</p> : null}
+      </div>
+      <div className="min-w-0 max-w-md sm:pt-0.5">{children}</div>
+    </div>
   );
 }
 
