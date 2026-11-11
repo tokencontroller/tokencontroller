@@ -1,11 +1,11 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT external_project AS \"external_project!\", project AS \"project!\",\n                fields AS \"fields!\", synced_until\n         FROM tag_source_projects\n         WHERE tag_source_id = $1 ORDER BY external_project",
+  "query": "SELECT external_project, project,\n                fields, synced_until\n         FROM tag_source_projects\n         WHERE tag_source_id = $1 ORDER BY external_project",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "external_project!",
+        "name": "external_project",
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -16,7 +16,7 @@
       },
       {
         "ordinal": 1,
-        "name": "project!",
+        "name": "project",
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -27,7 +27,7 @@
       },
       {
         "ordinal": 2,
-        "name": "fields!",
+        "name": "fields",
         "type_info": "TextArray",
         "origin": {
           "Table": {
@@ -54,11 +54,11 @@
       ]
     },
     "nullable": [
-      true,
-      true,
-      true,
+      false,
+      false,
+      false,
       true
     ]
   },
-  "hash": "c1a0d100b453c9a5a15e982ca7fb8e0e8c74825073dd05a2faa81486cc5de6a1"
+  "hash": "3681d22bde42db5f0fd4fe2309ecabc2dcea83207fe2899ef18d3e4864b1a377"
 }

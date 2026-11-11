@@ -140,7 +140,7 @@ async fn views(
     only: Option<Uuid>,
 ) -> Result<Vec<TagSourceView>, sqlx::Error> {
     let systems = sqlx::query!(
-        r#"SELECT id AS "id!", kind AS "kind!", site AS "site!", key_hint AS "key_hint!",
+        r#"SELECT id, kind, site, key_hint,
                 last_sync_at, last_error
          FROM tag_sources
          WHERE organization_id = $1 AND ($2::uuid IS NULL OR id = $2)
@@ -151,8 +151,8 @@ async fn views(
     .fetch_all(db)
     .await?;
     let mappings = sqlx::query!(
-        r#"SELECT tag_source_id AS "tag_source_id!", external_project AS "external_project!",
-                external_name AS "external_name!", project AS "project!", fields AS "fields!"
+        r#"SELECT tag_source_id, external_project,
+                external_name, project, fields
          FROM tag_source_projects
          WHERE organization_id = $1
          ORDER BY external_name, external_project"#,
@@ -265,7 +265,7 @@ async fn connect_tag_source(
     let id = sqlx::query_scalar!(
         r#"INSERT INTO tag_sources
              (organization_id, kind, site, sealed_credentials, key_hint, created_by, sync_requested_at)
-         VALUES ($1, $2, $3, $4, $5, $6, now()) RETURNING id AS "id!""#,
+         VALUES ($1, $2, $3, $4, $5, $6, now()) RETURNING id"#,
         caller.organization_id,
         body.kind.as_str(),
         site,
@@ -321,7 +321,7 @@ async fn connection(
     id: Uuid,
 ) -> Result<Connection, ApiError> {
     let row = sqlx::query!(
-        r#"SELECT kind AS "kind!", site AS "site!", sealed_credentials AS "sealed_credentials!"
+        r#"SELECT kind, site, sealed_credentials
          FROM tag_sources
          WHERE organization_id = $1 AND id = $2"#,
         organization_id,
@@ -437,7 +437,7 @@ async fn set_mappings(
     let fold = log.fold(OffsetDateTime::now_utc())?;
     access::require_org_manager(&fold, &person)?;
     let known = sqlx::query_scalar!(
-        r#"SELECT id AS "id!" FROM tag_sources WHERE organization_id = $1 AND id = $2"#,
+        r#"SELECT id FROM tag_sources WHERE organization_id = $1 AND id = $2"#,
         organization_id,
         id
     )
@@ -604,8 +604,8 @@ pub async fn sync_due(state: AppState) -> anyhow::Result<String> {
                   OR sync_requested_at >= last_sync_started_at
                ORDER BY last_sync_started_at NULLS FIRST
                LIMIT $2)
-           RETURNING id AS "id!", organization_id AS "organization_id!", kind AS "kind!",
-                     site AS "site!", sealed_credentials AS "sealed_credentials!",
+           RETURNING id, organization_id, kind,
+                     site, sealed_credentials,
                      last_sync_started_at AS "started_at!""#,
         SYNC_EVERY_MINUTES,
         PER_RUN
@@ -695,8 +695,8 @@ async fn sync_system(
         system.sealed,
     )?;
     let mappings = sqlx::query!(
-        r#"SELECT external_project AS "external_project!", project AS "project!",
-                fields AS "fields!", synced_until
+        r#"SELECT external_project, project,
+                fields, synced_until
          FROM tag_source_projects
          WHERE tag_source_id = $1 ORDER BY external_project"#,
         system.id

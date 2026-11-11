@@ -1,11 +1,11 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id AS \"id!\", kind AS \"kind!\", site AS \"site!\", key_hint AS \"key_hint!\",\n                last_sync_at, last_error\n         FROM tag_sources\n         WHERE organization_id = $1 AND ($2::uuid IS NULL OR id = $2)\n         ORDER BY created_at, id",
+  "query": "SELECT id, kind, site, key_hint,\n                last_sync_at, last_error\n         FROM tag_sources\n         WHERE organization_id = $1 AND ($2::uuid IS NULL OR id = $2)\n         ORDER BY created_at, id",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "id!",
+        "name": "id",
         "type_info": "Uuid",
         "origin": {
           "Table": {
@@ -16,7 +16,7 @@
       },
       {
         "ordinal": 1,
-        "name": "kind!",
+        "name": "kind",
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -27,7 +27,7 @@
       },
       {
         "ordinal": 2,
-        "name": "site!",
+        "name": "site",
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -38,7 +38,7 @@
       },
       {
         "ordinal": 3,
-        "name": "key_hint!",
+        "name": "key_hint",
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -77,13 +77,13 @@
       ]
     },
     "nullable": [
-      true,
-      true,
-      true,
-      true,
+      false,
+      false,
+      false,
+      false,
       true,
       true
     ]
   },
-  "hash": "115ada2d7d785bcd0dbd506dd9533cc8ae0405003bce6b75b9133f18f137b6a3"
+  "hash": "f0f82e0fd07aed92a4439779303fd16d06e03aab42ebfadd9eccdcfcabe09230"
 }
