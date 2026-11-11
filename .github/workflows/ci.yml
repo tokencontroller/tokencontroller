@@ -296,6 +296,21 @@ jobs:
           cache-to: type=gha,mode=max
       - name: Start it with the self-hosting compose file
         run: scripts/smoke-test tokencontroller:ci
+      # The web app's journeys run against the mock on every pull request;
+      # these few run against this image with the example organization, so
+      # a call the real service refuses is caught before it lands.
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Install the web app and Chromium
+        working-directory: apps/web
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm exec playwright install --with-deps chromium
+      - name: Web app journeys against the service
+        run: scripts/live-journeys tokencontroller:ci
 
   publish:
     name: Publish the image
