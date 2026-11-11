@@ -1744,6 +1744,25 @@ fn through_protobuf_metrics(
 }
 
 #[test]
+fn content_text_only_in_the_resource_still_counts_as_removed() {
+    let mut request = logs_request(
+        vec![
+            text("service.name", "claude-code"),
+            text("prompt", "secret"),
+        ],
+        "x",
+        vec![log(
+            1,
+            "claude_code.tool_decision",
+            vec![text("decision", "accept")],
+        )],
+    );
+    assert_eq!(strip_logs(&mut request), 1);
+    let resource = request.resource_logs[0].resource.as_ref().unwrap();
+    assert_eq!(resource.attributes.len(), 1);
+}
+
+#[test]
 fn the_received_record_loses_content_text_and_keeps_the_rest() {
     let mut request = logs_request(
         vec![
@@ -1773,7 +1792,8 @@ fn the_received_record_loses_content_text_and_keeps_the_rest() {
     request.resource_logs[0].scope_logs[0]
         .log_records
         .push(genai);
-    assert_eq!(strip_logs(&mut request), 2);
+    // The resource and two events lost something.
+    assert_eq!(strip_logs(&mut request), 3);
     let records = &request.resource_logs[0].scope_logs[0].log_records;
     assert_eq!(
         records[0]

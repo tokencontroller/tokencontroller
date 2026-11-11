@@ -213,12 +213,12 @@ pub fn is_content_text_name(name: &str) -> bool {
 /// Removes content text from a logs export request, as the received record
 /// keeps it when the organization keeps none: from the resource, from each
 /// event's attributes and from a body that carries some. Answers how many
-/// events lost something.
+/// resources and events lost something.
 pub fn strip_logs(request: &mut ExportLogsServiceRequest) -> u32 {
     let mut stripped = 0_u32;
     for resource_logs in &mut request.resource_logs {
         if let Some(resource) = resource_logs.resource.as_mut() {
-            resource.attributes = without_prompt_text(&resource.attributes);
+            stripped = stripped.saturating_add(strip_resource(resource));
         }
         for scope_logs in &mut resource_logs.scope_logs {
             for log in &mut scope_logs.log_records {
@@ -239,6 +239,17 @@ pub fn strip_logs(request: &mut ExportLogsServiceRequest) -> u32 {
         }
     }
     stripped
+}
+
+/// Removes content text from a resource's attributes. Answers 1 when the
+/// resource lost something, so the stripped request is the one stored.
+fn strip_resource(resource: &mut opentelemetry_proto::tonic::resource::v1::Resource) -> u32 {
+    if attributes_carry_text(&resource.attributes) {
+        resource.attributes = without_prompt_text(&resource.attributes);
+        1
+    } else {
+        0
+    }
 }
 
 /// The names a log event goes by, as the extraction reads them.
@@ -273,7 +284,7 @@ pub fn strip_traces(request: &mut ExportTraceServiceRequest) -> u32 {
     let mut stripped = 0_u32;
     for resource_spans in &mut request.resource_spans {
         if let Some(resource) = resource_spans.resource.as_mut() {
-            resource.attributes = without_prompt_text(&resource.attributes);
+            stripped = stripped.saturating_add(strip_resource(resource));
         }
         for scope_spans in &mut resource_spans.scope_spans {
             for span in &mut scope_spans.spans {
@@ -305,7 +316,7 @@ pub fn strip_metrics(request: &mut ExportMetricsServiceRequest) -> u32 {
     };
     for resource_metrics in &mut request.resource_metrics {
         if let Some(resource) = resource_metrics.resource.as_mut() {
-            resource.attributes = without_prompt_text(&resource.attributes);
+            strip(&mut resource.attributes);
         }
         for scope_metrics in &mut resource_metrics.scope_metrics {
             for metric in &mut scope_metrics.metrics {
