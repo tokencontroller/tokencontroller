@@ -13,7 +13,7 @@ test("an org manager reads the checks and adds a bill by hand", async ({ page })
   await expect(api.getByText("$250.00")).toBeVisible();
   await expect(api.getByText("$20.00")).toBeVisible();
   const team = page.getByRole("group", { name: /^Claude Team plan/ });
-  await expect(team.getByText("on a plan")).toBeVisible();
+  await expect(team.getByText("flat", { exact: true })).toBeVisible();
   await expect(team.getByText("$350.00")).toBeVisible();
   await expect(page.getByRole("group", { name: /^openai-api/ }).getByText("Contract only from the provider")).toBeVisible();
   const contracts = page.getByRole("table", { name: "Contracts" });
@@ -55,7 +55,7 @@ test("an org manager uploads a CSV bill and sees what it holds first", async ({ 
   // The bill is checked under a new contract: no bedrock message explains it.
   const bedrock = page.getByRole("group", { name: /^bedrock/ });
   await expect(bedrock.getByText("$500.00").first()).toBeVisible();
-  await expect(bedrock.getByText("$0.00")).toBeVisible();
+  await expect(bedrock.getByText("$0.00").first()).toBeVisible();
 });
 
 test("a cloud's own cost export is one month's bill", async ({ page }) => {

@@ -449,7 +449,7 @@ fn people_tag_split_and_export_by_hand() {
     // Two parts of each Claude Code message, one of the Codex message.
     assert_eq!(lines.len(), 6, "{csv}");
     assert!(
-        lines[0].starts_with("agent_harness,model,started_at,ended_at,tokens.input,tokens.output,tokens.cache_read,tokens.cache_write,summary,feature,"),
+        lines[0].starts_with("agent_harness,model,started_at,ended_at,tokens.input,tokens.output,tokens.cache_read,tokens.cache_write,tokens.cache_write_5m,tokens.cache_write_1h,summary,feature,"),
         "{}",
         lines[0]
     );
@@ -644,7 +644,7 @@ fn without_prices_there_is_no_cost_and_never_zero() {
         Some(2)
     );
     let said = machine.tc(&["report", "--since", "2026-10-01"]).unwrap();
-    assert!(said.contains("No price for"), "{said}");
+    assert!(said.contains("Not priced yet"), "{said}");
 }
 
 #[test]

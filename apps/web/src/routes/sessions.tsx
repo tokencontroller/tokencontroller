@@ -196,17 +196,22 @@ function ContractAnswer({ agent, sessions, contracts }: { agent: string; session
   // Empty until picked: the first contract on record, else a new one.
   const [contract, setContract] = useState("");
   const [key, setKey] = useState("");
-  const [provider, setProvider] = useState("");
+  // Left untouched: the provider the agent reported, never a guess.
+  const [provider, setProvider] = useState<string | null>(null);
   const [kind, setKind] = useState<ContractKind>("metered");
   const [remember, setRemember] = useState(true);
   const chosen = contracts.some((c) => c.key === contract) || contract === NEW_CONTRACT ? contract : (contracts[0]?.key ?? NEW_CONTRACT);
   const name = agentName[agent] ?? agent;
+  const first = sessions[0]?.session_id;
+  const messages = useQuery({ queryKey: ["messages", first], queryFn: () => api.messages(first ? { sessionId: first } : {}), enabled: Boolean(first) });
+  const reported = [...new Set((messages.data?.messages ?? []).filter((m) => !m.contract && m.provider).map((m) => m.provider ?? ""))];
+  const providerText = provider ?? (reported.length === 1 ? (reported[0] ?? "") : "");
   const cost = toDecimal(sum(sessions.map((s) => fromDecimal(s.cost, "USD")), "USD"));
   const save = useMutation({
     mutationFn: async () => {
       let target = chosen;
       if (chosen === NEW_CONTRACT) {
-        await api.addTagValue("contract", { key: key.trim(), contract: { provider: provider.trim(), kind } });
+        await api.addTagValue("contract", { key: key.trim(), contract: { provider: providerText.trim(), kind } });
         target = key.trim();
       }
       await api.assignContract(target, sessions.map((s) => s.session_id));
@@ -244,8 +249,8 @@ function ContractAnswer({ agent, sessions, contracts }: { agent: string; session
         </Field>
         {chosen === NEW_CONTRACT ? (
           <>
-            <Field label="Contract key" className="w-40"><Input value={key} placeholder="anthropic-api" onChange={(e) => setKey(e.target.value)} /></Field>
-            <Field label="Provider" className="w-32"><Input value={provider} placeholder="anthropic" onChange={(e) => setProvider(e.target.value)} /></Field>
+            <Field label="Contract key" className="w-40"><Input value={key} placeholder="such as team-plan" onChange={(e) => setKey(e.target.value)} /></Field>
+            <Field label="Provider" className="w-32"><Input value={providerText} onChange={(e) => setProvider(e.target.value)} /></Field>
             <Field label="Kind" className="w-28">
               <Select value={kind} onChange={(e) => setKind(e.target.value as ContractKind)}>
                 <option value="metered">metered</option>
@@ -256,7 +261,7 @@ function ContractAnswer({ agent, sessions, contracts }: { agent: string; session
         ) : null}
         <CheckField checked={remember} onCheckedChange={setRemember} label="Remember" />
         <Hint label="About remember">A rule of yours: every {name} session goes under this contract, earlier ones too.</Hint>
-        <Button type="submit" size="sm" disabled={save.isPending || (chosen === NEW_CONTRACT && (!key.trim() || !provider.trim()))}>Set</Button>
+        <Button type="submit" size="sm" disabled={save.isPending || (chosen === NEW_CONTRACT && (!key.trim() || !providerText.trim()))}>Set</Button>
       </form>
       <FormError error={save.error} />
     </li>

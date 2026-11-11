@@ -28,6 +28,23 @@ export function formatTokens(count: number): string {
   return String(count);
 }
 
+const kindNames: Record<string, string> = {
+  input: "Input",
+  output: "Output",
+  cache_read: "Cache read",
+  cache_write: "Cache write",
+  cache_write_5m: "Cache write, 5 minutes",
+  cache_write_1h: "Cache write, 1 hour",
+};
+
+/** A token kind as people read it, such as `Cache read`; any other kind with its underscores as spaces. */
+export function kindName(kind: string): string {
+  const known = kindNames[kind];
+  if (known) return known;
+  const spaced = kind.replaceAll("_", " ");
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
+}
+
 /** Tags as `name: value` pairs, built-in ones first. */
 export function tagList(tags: Tags): [string, string][] {
   const order = ["feature", "project", "client", "person"];

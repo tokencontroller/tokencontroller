@@ -4018,7 +4018,7 @@
         "tags": [
           "submissions"
         ],
-        "summary": "Ask everyone to submit by a day, the way finance asks for timesheets\nbefore month end. Each person who has not submitted gets one email.\nOrg managers only.",
+        "summary": "Ask everyone to submit by a day, such as before month end. Each person\nwho has not submitted gets one email.\nOrg managers only.",
         "operationId": "add_submit_request",
         "requestBody": {
           "content": {

@@ -29,25 +29,30 @@ The service has one module folder per area under `apps/server/src/`, so work on 
 | Module | Area |
 |---|---|
 | `status` | `/api/v1/health` and the status signals status.tokencontroller.com reads |
-| `organizations` | Organizations, members, invites, roles, organization settings |
+| `organizations` | Organizations, members, invites, roles, settings, rules, the context local tools read |
 | `sign_in` | Magic links, sessions, API tokens |
-| `tags` | Tags and the tag map |
-| `projects` | Projects, clients and tickets |
+| `grants` | Grants: a capability on a filter, the assignment access comes from |
+| `events` | The event log every write goes through |
+| `tags` | Tags, tag values, defaults and attributes |
+| `contracts` | Contracts, and setting one by hand on sessions the review list asks about |
+| `splits` | Splits of a session or a message over tag sets |
 | `mcp` | The MCP server |
 | `seed` | The example organization for local runs, CI, staging and screenshots |
-| `ingest` | Telemetry, the token entries endpoint, manual entry, CSV import, dedupe per message |
+| `ingest` | The usage endpoints: received records, token entries, CSV import, OpenTelemetry, one count per call |
+| `messages` | Messages and sessions as the fold shows them |
 | `jobs` | The job runner: advisory locks and heartbeats |
-| `integrations` | Bill pulls, ticket sync, the price table refresh, reminders |
-| `token_sheets` | Review, submit, cadence, approval |
-| `bills` | Bills and reconciliation |
-| `close` | The monthly close, adjustments, the cost sheet |
-| `budgets` | Token budgets and token forecasts |
-| `reports` | Reports, CSV exports, the reporting API, the raw export |
+| `integrations` | Bill pulls, CSV bill uploads, the Jira tag source sync |
+| `submissions` | Submit and approval |
+| `bills` | Bills and the check against the messages with the same contract |
+| `cutoff` | The cutoff, up to which figures are frozen |
+| `price_table` | The price table, the only cost basis |
+| `plans` | Estimates, plans and shares |
+| `reports` | Reports, deviation, forecasts, CSV exports, the raw export |
 
 ## Working on the code
 
 - `cargo nextest run` runs every test. Tests that touch the database need Postgres 15 or newer at `DATABASE_URL`; each test gets its own fresh database.
-- `cargo run -p tokencontroller-server -- seed` (or `docker run … seed` on the image) applies migrations and loads the example organization into `DATABASE_URL`. Staging runs it after every reset. Then `cargo run -p tokencontroller-server -- sign-in-link n.berger@kestrel.example` prints a sign-in link for Nadia, the example controller, since a local run has no mail server.
+- `cargo run -p tokencontroller-server -- seed` (or `docker run … seed` on the image) applies migrations and loads the example organization into `DATABASE_URL`. Staging runs it after every reset. Then `cargo run -p tokencontroller-server -- sign-in-link n.berger@kestrel.example` prints a sign-in link for Nadia, the example org manager, since a local run has no mail server.
 - Migrations live in `apps/server/migrations/`, named `<UTC timestamp>_<module>_<what>.sql`. The service applies them when it starts, while the version before still serves, so a migration only adds; taking something away waits for the next release (ADR 0027). A migration that reached `main` is never edited.
 - Queries are checked against the database when the code compiles. After adding or changing a query, run `cargo sqlx prepare --workspace` and commit `.sqlx/`, so the image builds without a database.
 - After changing the API, run `cargo run -p tokencontroller-server -- openapi > apps/server/openapi.json` and commit it. The web app's client is generated from this file.

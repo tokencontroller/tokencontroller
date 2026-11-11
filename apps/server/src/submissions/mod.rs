@@ -441,8 +441,8 @@ async fn list_submit_requests(
     ))
 }
 
-/// Ask everyone to submit by a day, the way finance asks for timesheets
-/// before month end. Each person who has not submitted gets one email.
+/// Ask everyone to submit by a day, such as before month end. Each person
+/// who has not submitted gets one email.
 /// Org managers only.
 #[utoipa::path(
     post,

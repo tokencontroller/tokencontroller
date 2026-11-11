@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { costOf, dec, lines, planOf, sessionView, visibleLines } from "./fold";
+import { costOf, dec, lines, messageCost, planOf, sessionView, visibleLines } from "./fold";
 import { createDb, emails } from "./seed";
 
 // The mocks answer the worked month of the docs (How it works, A worked
@@ -46,5 +46,29 @@ describe("the worked month in the mocks", () => {
     const april = db.sessions.filter((s) => s.started_at >= "2026-04-01").map((s) => sessionView(db, s));
     expect(april.every((s) => s.contracts.length === 0)).toBe(true);
     expect(april.map((s) => s.no_contract)).toEqual([2, 1, 1]);
+  });
+});
+
+// Mirrors crates/core price.rs: a token kind is an open name; only kinds with
+// a price row are summed, and a cache write of unknown duration is priced as
+// 5 minutes.
+describe("token kinds in the mocks", () => {
+  const db = createDb();
+  const at = "2026-03-10T10:00:00Z";
+  const message = (tokens: Record<string, number>) => ({ message_id: "m", at, provider: "anthropic", model: "claude-sonnet-4-5", tokens: { input: 0, output: 0, cache_read: 0, cache_write: 0, ...tokens } });
+
+  test("a kind without a price is listed and the rest is priced", () => {
+    const cost = messageCost(db, message({ input: 1_000_000, reasoning: 5 }));
+    expect(cost.label).toBe("priced");
+    expect(dec(cost.nanos ?? 0)).toBe("10.00");
+    expect(cost.unpriced_kinds).toEqual(["reasoning"]);
+    expect(messageCost(db, message({ reasoning: 5 })).label).toBe("not_priced_yet");
+  });
+
+  test("a 5-minute cache write takes the plain cache write's price, and finer counts win", () => {
+    expect(dec(messageCost(db, message({ cache_write_5m: 1_000_000 })).nanos ?? 0)).toBe("12.50");
+    const both = messageCost(db, message({ cache_write: 2_000_000, cache_write_5m: 1_000_000, cache_write_1h: 1_000_000 }));
+    expect(dec(both.nanos ?? 0)).toBe("12.50");
+    expect(both.unpriced_kinds).toEqual(["cache_write_1h"]);
   });
 });

@@ -26,11 +26,13 @@ import type {
 
 export const TODAY = "2026-04-10";
 
+/** Token counts by kind: the four every agent reports, and any other kind a source sends. */
 export interface Tokens {
   input: number;
   output: number;
   cache_read: number;
   cache_write: number;
+  [kind: string]: number;
 }
 
 export interface MockMessage {

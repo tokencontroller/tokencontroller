@@ -25,10 +25,10 @@ from pathlib import Path
 CLI = Path(__file__).resolve().parent.parent
 REPOSITORY = "https://github.com/tokencontroller/tokencontroller"
 HOMEPAGE = "https://docs.tokencontroller.com/collect/cli"
-DESCRIPTION = "Cost accounting for AI agents: reads session files, submits token sheets"
+DESCRIPTION = "Cost accounting for AI agents: reads session files, tags and submits sessions"
 SUMMARY = (
-    "Token Controller's command line: reads AI agents' session files, places "
-    "token entries with your rules and submits token sheets."
+    "Token Controller's command line: reads AI agents' session files, tags "
+    "their messages with your rules and submits them."
 )
 
 # Homebrew: (operating system block, CPU block) for each target it installs.

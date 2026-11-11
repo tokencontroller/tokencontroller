@@ -15,7 +15,7 @@ A token entry is one message, or one session with its messages, as the [token en
 | `model` | The model that did the work, such as `claude-sonnet-4-5`. Required. See [Model names](#model). |
 | `started_at`, `ended_at` | When the session started and ended. Required. |
 | `tokens` | Counts by kind: `input`, `output`, `cache_read`, `cache_write`, and any other kind by its name in small letters, digits and `_`, such as `cache_write_5m` or `cache_write_1h`. A kind left out has no tokens; no kind at all is a count error. A kind with no price row is listed and leaves the rest priced. See [token kinds](/reference/data-model#token-kinds). |
-| `reported_cost` | The agent's own cost figure in US dollars, as a number or a decimal string such as `"0.031"`. Optional. Stored as a fact about the message; the cost shown is counts × the [price table](/account/price-table). |
+| `reported_cost` | The agent's own cost figure in US dollars, as a number or a decimal string such as `"0.031"`. Optional. Kept as a signal; the cost shown is counts × the [price table](/account/price-table). |
 | `summary` | What the session did, from one line to a short report. With the tag values, the only text stored while content text is off (see [Security and privacy](/security)). |
 | `facts` | Session facts: `turns`, `tool_calls`, `retries`, `duration_seconds`, `subagents`, `files_touched`, `result` (a URL such as the pull request). All optional. Any other fact is kept as a signal. |
 | `feature`, `project` | Where it belongs: a feature key such as `KD-214`, a project by key. Optional. A tag named here wins over every rule; without one, [rules split it](/attribute/rules#order). |
@@ -42,7 +42,7 @@ These names have a field of their own. Any other name is kept as it came, such a
 | `keys` | Keys found in prompts, the session title and the pull request title. Only the keys, never the text. |
 | `config` | Values from the repository's `.tokencontroller.toml`, as `name: value`. |
 
-A signal named like a tag, such as `project` or `contract`, is your own assignment: it runs before the organization's rules, wins over them, and creates the tag value when it is new. An entry carries at most 200 signals besides the named ones, each up to 10,000 characters. Names that hold content text, such as prompts or tool output, are removed on arrival unless your organization switches keeping content text on; see [Security and privacy](/security).
+A signal named like a tag, such as `project` or `contract`, is your own assignment: it runs before the organization's rules, wins over them, and counts under that tag value at once, even a new one. An entry carries at most 200 signals besides the named ones, each up to 10,000 characters. Names that hold content text, such as prompts or tool output, are removed on arrival unless your organization switches keeping content text on; see [Security and privacy](/security).
 
 ## Model names {#model}
 
@@ -58,7 +58,7 @@ Each message is one model call. A session record's `tokens` are the sum of its m
 | `at` | When the call was made. Required. |
 | `tokens` | Counts by kind, as above. Required. |
 | `model` | The model of this call, when it differs from the session's. Optional. |
-| `reported_cost` | The agent's own cost figure for this call, in US dollars. Optional; a fact, never the figure. |
+| `reported_cost` | The agent's own cost figure for this call, in US dollars. Optional; kept as a signal, never the figure. |
 
 ## Splits {#splits}
 

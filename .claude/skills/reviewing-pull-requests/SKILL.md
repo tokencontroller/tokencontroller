@@ -11,7 +11,7 @@ You are the second reader on a pull request, and the one who lets it merge. You 
 
 The docs are the spec and the ADRs are the decisions. Read what the change touches before you judge it:
 
-- Public repo: `docs/adr/` (0022 append-only event log, 0023 one filter formula for reports and access, 0024 price table as the only cost basis, 0020 what the public repo holds, 0025 agent formats checked against real CLIs, 0026 the daily message limit, 0027 database changes in two releases, 0028 costs connect through tags on usage and bills), `apps/docs/src/content/docs/` (`concepts.md` with the picture "How costs connect", `scope.md`, `reference/` with `data-model.md`), `apps/docs/glossary.md`, `README.md`.
+- Public repo: `docs/adr/` (0022 append-only event log, 0023 one filter formula for reports and access, 0024 price table as the only cost basis, 0020 what the public repo holds, 0025 agent formats checked against real CLIs, 0026 the daily message limit, 0027 database changes in two releases, 0028 costs connect through tags on usage and bills), `apps/docs/src/content/docs/` (`concepts.md`, whose section "The whole picture" (`concepts.md#picture`) is the picture "How costs connect", the one description of the data model: judge every change against it, `scope.md`, `reference/` with `data-model.md`), `apps/docs/glossary.md`, `README.md`.
 - Private repo: `CLAUDE.md`, the skill for the area under `.claude/skills/` (the description says when it applies), `docs/`.
 - Both: the pull request description, which states the intent and the reasoning. A change that does something the description does not say is a finding.
 

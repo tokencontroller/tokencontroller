@@ -9,13 +9,15 @@ import { Empty, ErrorBox, Loading, PageHeader, Section } from "@/components/ui/d
 import { Field, FormError, Input, Select } from "@/components/ui/form";
 import { DataTable } from "@/components/ui/table";
 import { notify } from "@/components/ui/toast";
-import { formatDateTime, formatTokens } from "@/lib/format";
+import { formatDateTime, formatTokens, kindName } from "@/lib/format";
 import { refreshAll, usePersonName } from "@/lib/queries";
 import { today } from "@/lib/today";
 
-/** The four kinds every model has; a provider may send others, priced the same way. */
-const kinds = ["input", "output", "cache_read", "cache_write"];
-const kindTitle: Record<string, string> = { input: "Input", output: "Output", cache_read: "Cache read", cache_write: "Cache write" };
+/**
+ * The kinds offered when adding a row. A kind is an open name: the first four
+ * are always columns, any other kind when a row has it.
+ */
+const kinds = ["input", "output", "cache_read", "cache_write", "cache_write_5m", "cache_write_1h"];
 
 /** The rows of one model with one source, contract and valid-from day, by token kind. */
 interface ModelRow {
@@ -62,7 +64,8 @@ export function PriceTablePage(): ReactNode {
   });
   const missing = messages.data?.messages.filter((m) => m.cost_label !== "priced") ?? [];
   const groups = byModel(table.data?.rows ?? []);
-  const others = [...new Set((table.data?.rows ?? []).map((r) => r.kind).filter((k) => !kinds.includes(k)))];
+  const present = new Set((table.data?.rows ?? []).map((r) => r.kind));
+  const columnKinds = [...kinds.filter((k, i) => i < 4 || present.has(k)), ...[...present].filter((k) => !kinds.includes(k))];
   return (
     <>
       <PageHeader title="Price table" lead="Per million tokens, US dollars." actions={<Button variant="primary" onClick={() => setAdding(true)}>Add a row</Button>} />
@@ -120,9 +123,9 @@ export function PriceTablePage(): ReactNode {
                 ),
                 csv: (g) => `${g.provider}/${g.model}`,
               },
-              ...[...kinds, ...others].map((kind) => ({
+              ...columnKinds.map((kind) => ({
                 key: kind,
-                header: kindTitle[kind] ?? kind,
+                header: kindName(kind),
                 align: "right" as const,
                 cell: (g: ModelRow) => <span className="num">{priceOf(g, kind) ?? <span className="text-muted">·</span>}</span>,
                 csv: (g: ModelRow) => priceOf(g, kind) ?? null,

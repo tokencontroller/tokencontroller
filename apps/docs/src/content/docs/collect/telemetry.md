@@ -19,7 +19,7 @@ The ingest endpoint takes OTLP over HTTP, as protobuf or JSON, plain or gzip. It
 
 The endpoint stores what it received as a received record, after removing content text (prompts, responses, tool output, file contents), unless your organization switches keeping it on. Nothing is refused for content text; the answer says how many records lost some. Turning prompt logging off in the agent still sends less data. See [What the usage endpoints keep](/collect#received).
 
-Each model call becomes a message with its token counts by kind, such as input, output, cache read and cache write; kinds are open names (see [token kinds](/reference/data-model#token-kinds)). Other records of a known agent, such as a tool run or a commit counter, are kept as activities. Cost comes from the [price table](/account/price-table) for every agent; the cost figure Claude Code sends along is kept as a signal and never shown as the cost.
+Each model call becomes a message with its token counts by kind, such as input, output, cache read and cache write; kinds are open names (see [token kinds](/reference/data-model#token-kinds)). Every other record, such as a tool run or a commit counter, is kept as an activity with its kind name. Cost comes from the [price table](/account/price-table) for every agent; the cost figure Claude Code sends along is kept as a signal and never shown as the cost.
 
 The person of a message is the member whose email the agent reports, else the person who created the organization token. Every other attribute the agent sends stays on the message as a [signal](/reference/data-model#signals).
 

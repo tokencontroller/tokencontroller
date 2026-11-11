@@ -5,7 +5,7 @@
 
 import type { Member, Part, Session, Submitted, Tags } from "@/api/contract";
 import { toDecimal } from "@/lib/money";
-import type { Db, MockEstimate, MockMessage, MockSession } from "./seed";
+import type { Db, MockEstimate, MockMessage, MockSession, Tokens } from "./seed";
 
 export const NANOS = 1e9;
 
@@ -29,14 +29,12 @@ export function contains(tags: Tags, filter: Tags): boolean {
   return Object.entries(filter).every(([name, value]) => tags[name] === value);
 }
 
-const KINDS = ["input", "output", "cache_read", "cache_write"] as const;
-
 /**
  * The price per million in nanos for a kind on a day. A row for the
  * message's contract wins over a row for every contract, then the latest
  * day, then an organization row over a managed one.
  */
-function priceOf(db: Db, m: MockMessage, kind: string, contract: string | null): number | null {
+function ownPrice(db: Db, m: MockMessage, kind: string, contract: string | null): number | null {
   const day = m.at.slice(0, 10);
   const rows = db.prices
     .filter((r) => r.provider === m.provider && r.model === m.model && r.kind === kind && r.valid_from <= day && (!r.contract || r.contract === contract))
@@ -45,19 +43,54 @@ function priceOf(db: Db, m: MockMessage, kind: string, contract: string | null):
   return row ? parseDec(row.price_per_million) : null;
 }
 
-/** C(e): `null` with the reason when there is none, never zero. */
-export function messageCost(db: Db, m: MockMessage, contract: string | null = null): { nanos: number | null; label: "priced" | "count_error" | "not_priced_yet" } {
-  if (!m.tokens) return { nanos: null, label: "count_error" };
+/** The kind priced the same way when a kind has no row of its own: a cache write of unknown duration is priced as 5 minutes. */
+function pricedAs(kind: string): string | null {
+  if (kind === "cache_write") return "cache_write_5m";
+  if (kind === "cache_write_5m") return "cache_write";
+  return null;
+}
+
+function priceOf(db: Db, m: MockMessage, kind: string, contract: string | null): number | null {
+  const alias = pricedAs(kind);
+  return ownPrice(db, m, kind, contract) ?? (alias ? ownPrice(db, m, alias, contract) : null);
+}
+
+/** The kinds summed into the cost: every kind with tokens, except a plain cache write when the 5-minute or 1-hour counts are given too. */
+function summed(tokens: Tokens): [string, number][] {
+  const finer = (tokens.cache_write_5m ?? 0) > 0 || (tokens.cache_write_1h ?? 0) > 0;
+  return Object.entries(tokens).filter(([kind, count]) => count > 0 && !(finer && kind === "cache_write"));
+}
+
+export interface MessageCost {
+  nanos: number | null;
+  label: "priced" | "count_error" | "not_priced_yet";
+  /** Kinds with tokens and no price, left out of the amount. */
+  unpriced_kinds: string[];
+}
+
+/**
+ * C(e): `null` with the reason when there is none, never zero. Only kinds
+ * with a price row are summed; the others are listed and leave the rest
+ * priced. A model the table does not have is not priced yet.
+ */
+export function messageCost(db: Db, m: MockMessage, contract: string | null = null): MessageCost {
+  if (!m.tokens) return { nanos: null, label: "count_error", unpriced_kinds: [] };
+  const day = m.at.slice(0, 10);
+  if (!db.prices.some((r) => r.provider === m.provider && r.model === m.model && r.valid_from <= day)) return { nanos: null, label: "not_priced_yet", unpriced_kinds: [] };
   let total = 0;
-  for (const kind of KINDS) {
-    const count = m.tokens[kind];
-    if (!count) continue;
+  let pricedAny = false;
+  const unpriced: string[] = [];
+  for (const [kind, count] of summed(m.tokens)) {
     const p = priceOf(db, m, kind, contract);
-    if (p === null) return { nanos: null, label: "not_priced_yet" };
+    if (p === null) {
+      unpriced.push(kind);
+      continue;
+    }
+    pricedAny = true;
     total += (count * p) / 1_000_000;
   }
-  if (!KINDS.some((k) => priceOf(db, m, k, contract) !== null)) return { nanos: null, label: "not_priced_yet" };
-  return { nanos: total, label: "priced" };
+  if (!pricedAny && unpriced.length) return { nanos: null, label: "not_priced_yet", unpriced_kinds: [] };
+  return { nanos: total, label: "priced", unpriced_kinds: unpriced.sort() };
 }
 
 /** A person's attributes, with their defaults. */
@@ -130,6 +163,8 @@ export interface Line {
   tags: Tags;
   nanos: number | null;
   costLabel: string;
+  /** Kinds of the message with tokens and no price, left out of its cost. */
+  unpricedKinds: string[];
   day: string;
   contract: { key: string; by: "hand" | "rule" | "fallback" } | null;
 }
@@ -150,6 +185,7 @@ export function lines(db: Db): Line[] {
           tags: fullTags(db, part.tags, s.person),
           nanos: cost.nanos === null ? null : (cost.nanos * part.bp) / 10_000,
           costLabel: cost.label,
+          unpricedKinds: cost.unpriced_kinds,
           day: m.at.slice(0, 10),
           contract,
         });

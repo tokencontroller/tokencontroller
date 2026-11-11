@@ -105,8 +105,8 @@ impl fmt::Display for TokenKind {
 
 /// Token counts by kind: the `tokens` field of a message. A kind with no
 /// tokens is not kept, so two counts with the same tokens are equal. As
-/// JSON the four kinds every agent reports are always written, zero or
-/// not, so a message with zero tokens never reads as one with no counts.
+/// JSON `input`, `output`, `cache_read` and `cache_write` are always
+/// written, zero or not, so a message with zero tokens never reads as one with no counts.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(from = "BTreeMap<TokenKind, u64>", into = "BTreeMap<TokenKind, u64>")]
 pub struct TokenCounts(BTreeMap<TokenKind, u64>);
@@ -143,7 +143,8 @@ impl TokenCounts {
         Self::default()
     }
 
-    /// The counts of the four kinds every agent reports today.
+    /// Counts of `input`, `output`, `cache_write` and `cache_read`; add other
+    /// kinds with [`Self::with`].
     #[must_use]
     pub fn common(input: u64, output: u64, cache_write: u64, cache_read: u64) -> Self {
         Self::new()
