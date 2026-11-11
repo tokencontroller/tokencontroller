@@ -157,6 +157,16 @@ fn text<'a>(value: &'a Value, field: &str) -> &'a str {
 }
 
 /// How many elements a JSON array has.
+/// The check of the bill with this contract.
+fn check_of<'a>(rows: &'a Value, contract: &str) -> TestResult<&'a Value> {
+    Ok(rows
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|row| row["contract"] == contract)
+        .ok_or_else(|| format!("no check for {contract}: {rows}"))?)
+}
+
 fn count(value: &Value) -> usize {
     value.as_array().map(Vec::len).unwrap_or_default()
 }
@@ -348,7 +358,12 @@ async fn by_model_and_agent_harness_group_the_messages(pool: PgPool) {
         let model = format!("{}/{}", seed::PROVIDER, seed::MODEL);
         assert_eq!(
             text(row(&report, Some(&model)).ok_or("model")?, "amount"),
-            "950.00"
+            "650.00"
+        );
+        let codex = format!("{}/{}", seed::OPENAI, seed::OPENAI_MODEL);
+        assert_eq!(
+            text(row(&report, Some(&codex)).ok_or("codex model")?, "amount"),
+            "300.00"
         );
         let report = k
             .get(&k.nadia, &format!("/reports/cost?{MARCH}&by=agent_harness"))
@@ -359,7 +374,11 @@ async fn by_model_and_agent_harness_group_the_messages(pool: PgPool) {
                 row(&report, Some("claude-code")).ok_or("harness")?,
                 "amount"
             ),
-            "950.00"
+            "650.00"
+        );
+        assert_eq!(
+            text(row(&report, Some("codex")).ok_or("codex")?, "amount"),
+            "300.00"
         );
         let report = k
             .get(&k.nadia, &format!("/reports/cost?{MARCH}&by=agent_name"))
@@ -1029,15 +1048,18 @@ async fn reconciliation_shows_what_no_message_explains(pool: PgPool) {
             .get(&k.nadia, "/reconciliation")
             .await?
             .ok(StatusCode::OK)?;
-        assert_eq!(count(&rows), 1);
-        let bill = &rows[0];
+        // One bill per contract, as in the docs' worked month.
+        assert_eq!(count(&rows), 3);
+        let bill = check_of(&rows, "anthropic-api")?;
         assert_eq!(text(bill, "bill_id"), "bil_seed_anthropic_2026_03");
         assert_eq!(text(bill, "provider"), "anthropic");
-        assert_eq!(text(bill, "bill"), "1000.00");
-        assert_eq!(text(bill, "messages"), "950.00");
-        assert_eq!(text(bill, "unexplained"), "50.00");
+        assert_eq!(text(bill, "bill"), "270.00");
+        assert_eq!(text(bill, "messages"), "250.00");
+        assert_eq!(text(bill, "unexplained"), "20.00");
         assert_eq!(bill["a_message_is_wrong"], false);
         assert_eq!(bill["final"], true);
+        let openai = check_of(&rows, "openai-api")?;
+        assert_eq!(text(openai, "unexplained"), "0.00");
         Ok(())
     }
     .await;
@@ -1052,12 +1074,17 @@ async fn reconciliation_filters_by_provider(pool: PgPool) {
             .get(&k.nadia, "/reconciliation?provider=openai")
             .await?
             .ok(StatusCode::OK)?;
-        assert_eq!(count(&rows), 0);
+        assert_eq!(count(&rows), 1);
         let rows = k
             .get(&k.nadia, "/reconciliation?provider=anthropic")
             .await?
             .ok(StatusCode::OK)?;
-        assert_eq!(count(&rows), 1);
+        assert_eq!(count(&rows), 2);
+        let rows = k
+            .get(&k.nadia, "/reconciliation?provider=google")
+            .await?
+            .ok(StatusCode::OK)?;
+        assert_eq!(count(&rows), 0);
         Ok(())
     }
     .await;
@@ -1121,15 +1148,21 @@ async fn a_bill_carries_its_reconciliation(pool: PgPool) {
             .get(&k.nadia, &format!("/bills?{MARCH}"))
             .await?
             .ok(StatusCode::OK)?;
-        assert_eq!(count(&bills), 1);
-        assert_eq!(bills[0]["reconciliation"]["unexplained"], "50.00");
+        assert_eq!(count(&bills), 3);
+        let api = bills
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|bill| bill["contract"] == "anthropic-api")
+            .ok_or("anthropic-api")?;
+        assert_eq!(api["reconciliation"]["unexplained"], "20.00");
         // One bill's history: the bill and what it superseded.
         let one = k
             .get(&k.nadia, "/bills/bil_seed_anthropic_2026_03")
             .await?
             .ok(StatusCode::OK)?;
         assert_eq!(count(&one), 1);
-        assert_eq!(one[0]["amount"], "1000.00");
+        assert_eq!(one[0]["amount"], "270.00");
         Ok(())
     }
     .await;
@@ -1163,23 +1196,29 @@ async fn a_second_bill_for_the_range_supersedes_the_first(pool: PgPool) {
                 "/bills",
                 json!({
                     "provider": "anthropic", "from": "2026-03-01", "to": "2026-03-31",
-                    "amount": "960.00", "currency": "USD"
+                    "amount": "260.00", "currency": "USD"
                 }),
             )
             .await?
             .ok(StatusCode::CREATED)?;
-        assert_eq!(text(&bill, "amount"), "960.00");
+        // A bill that names no contract goes to its provider's only
+        // metered contract, and restates the bill there.
+        assert_eq!(text(&bill, "amount"), "260.00");
+        assert_eq!(text(&bill, "contract"), "anthropic-api");
         let rows = k
             .get(&k.nadia, "/reconciliation")
             .await?
             .ok(StatusCode::OK)?;
-        assert_eq!(count(&rows), 1);
-        assert_eq!(text(&rows[0], "unexplained"), "10.00");
+        assert_eq!(count(&rows), 3);
+        assert_eq!(
+            text(check_of(&rows, "anthropic-api")?, "unexplained"),
+            "10.00"
+        );
         let all = k
             .get(&k.nadia, &format!("/bills?{MARCH}&reversed=true"))
             .await?
             .ok(StatusCode::OK)?;
-        assert_eq!(count(&all), 2);
+        assert_eq!(count(&all), 4);
         Ok(())
     }
     .await;
@@ -1206,12 +1245,12 @@ async fn a_bill_for_another_contract_stands_beside_the_providers_bill(pool: PgPo
         assert_eq!(text(&bill, "contract_kind"), "flat");
         assert_eq!(text(&bill, "fee"), "100.00");
         assert_eq!(text(&bill, "extra_usage"), "20.00");
-        // The provider's own bill for March stays in force beside it.
+        // The seeded bills for March stay in force beside it.
         let all = k
             .get(&k.nadia, &format!("/bills?{MARCH}&reversed=true"))
             .await?
             .ok(StatusCode::OK)?;
-        assert_eq!(count(&all), 2);
+        assert_eq!(count(&all), 4);
         assert!(
             all.as_array()
                 .unwrap()
@@ -1258,50 +1297,41 @@ async fn the_check_shows_its_contract_and_what_it_could_hide(pool: PgPool) {
             .get(&k.nadia, "/reconciliation")
             .await?
             .ok(StatusCode::OK)?;
-        let check = &rows[0];
-        assert_eq!(text(check, "contract"), "anthropic");
-        assert_eq!(text(check, "contract_kind"), "metered");
-        // The provider has one contract, so every message got it from the
-        // fallback; none is left without one.
-        assert_eq!(text(check, "contract_from_fallback"), "950.00");
-        assert_eq!(text(check, "same_provider_no_contract"), "0.00");
-        assert!(check["fee"].is_null());
-        assert!(check["covered"].is_null());
-        // A second contract of the provider ends the fallback: the
-        // messages now stand beside the check, with no contract.
-        k.post(
-            &k.nadia,
-            "/bills",
-            json!({
-                "provider": "anthropic", "contract": "anthropic-max", "contract_kind": "flat",
-                "from": "2026-03-01", "to": "2026-03-31",
-                "amount": "120.00", "fee": "100.00", "extra_usage": "20.00", "currency": "USD"
-            }),
-        )
-        .await?
-        .ok(StatusCode::CREATED)?;
+        let api = check_of(&rows, "anthropic-api")?;
+        assert_eq!(text(api, "contract_kind"), "metered");
+        assert_eq!(text(api, "contract_from_fallback"), "0.00");
+        assert_eq!(text(api, "same_provider_no_contract"), "0.00");
+        assert!(api["fee"].is_null());
+        assert!(api["covered"].is_null());
+        // OpenAI has one contract, so the Codex session got it from the
+        // fallback.
+        let openai = check_of(&rows, "openai-api")?;
+        assert_eq!(text(openai, "contract_from_fallback"), "300.00");
+        // The seat plan: fee and extra usage explain the bill; the plan
+        // covered 400 − 50.
+        let team = check_of(&rows, "claude-team")?;
+        assert_eq!(text(team, "contract_kind"), "flat");
+        assert_eq!(text(team, "messages"), "400.00");
+        assert_eq!(text(team, "fee"), "200.00");
+        assert_eq!(text(team, "extra_usage"), "50.00");
+        assert_eq!(text(team, "covered"), "350.00");
+        assert_eq!(text(team, "unexplained"), "0.00");
+        // Without Tom's hand assignment, S4 has no contract: Anthropic has
+        // two, so the fallback does not choose, and S4 stands beside both
+        // Anthropic checks.
+        k.post(&k.nadia, "/reversals", json!({"event_id": "con_seed_s4"}))
+            .await?
+            .ok(StatusCode::CREATED)?;
         let rows = k
             .get(&k.nadia, "/reconciliation")
             .await?
             .ok(StatusCode::OK)?;
-        let api = rows
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|row| row["contract"] == "anthropic")
-            .unwrap();
-        assert_eq!(text(api, "messages"), "0.00");
-        assert_eq!(text(api, "same_provider_no_contract"), "950.00");
-        let plan = rows
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|row| row["contract"] == "anthropic-max")
-            .unwrap();
-        assert_eq!(text(plan, "contract_kind"), "flat");
-        assert_eq!(text(plan, "fee"), "100.00");
-        assert_eq!(text(plan, "extra_usage"), "20.00");
-        assert_eq!(text(plan, "covered"), "-20.00");
+        let api = check_of(&rows, "anthropic-api")?;
+        assert_eq!(text(api, "messages"), "100.00");
+        assert_eq!(text(api, "unexplained"), "170.00");
+        assert_eq!(text(api, "same_provider_no_contract"), "150.00");
+        let team = check_of(&rows, "claude-team")?;
+        assert_eq!(text(team, "same_provider_no_contract"), "150.00");
         let csv = k.get(&k.nadia, "/reconciliation?format=csv").await?;
         assert!(
             csv.text
@@ -1340,9 +1370,15 @@ async fn a_contract_set_on_sessions_wins_and_is_listed(pool: PgPool) {
             .iter()
             .filter_map(|c| c["key"].as_str())
             .collect();
-        assert_eq!(keys, vec!["anthropic", "anthropic-team"]);
+        assert_eq!(
+            keys,
+            vec!["anthropic-api", "anthropic-team", "claude-team", "openai-api"]
+        );
         assert_eq!(contracts[1]["title"], "Team plan");
+        assert_eq!(contracts[2]["fee"], "200.00");
         assert_eq!(contracts[0]["kind"], "metered");
+        // OpenAI's contract came with its bill and has no title.
+        assert!(contracts[3]["title"].is_null());
         // A value of contract needs its terms; other names take none.
         let bare = k
             .post(&k.nadia, "/tags/contract/values", json!({"key": "nothing"}))
@@ -1364,50 +1400,52 @@ async fn a_contract_set_on_sessions_wins_and_is_listed(pool: PgPool) {
             )
             .await?;
         assert_eq!(metered_fee.status, StatusCode::BAD_REQUEST, "{}", metered_fee.text);
-        // Mara puts her own sessions under it.
-        let sessions = k
-            .get(&k.mara, &format!("/sessions?{MARCH}&filter=person:{}", emails::MARA))
+        // Without the seeded hand assignment, Tom's S4 has no contract:
+        // Anthropic has two, so the review list asks.
+        k.post(&k.nadia, "/reversals", json!({"event_id": "con_seed_s4"}))
             .await?
-            .ok(StatusCode::OK)?;
-        let ids: Vec<String> = sessions["sessions"]
+            .ok(StatusCode::CREATED)?;
+        let mine = format!("/sessions?{MARCH}&filter=person:{}", emails::TOM);
+        let sessions = k.get(&k.tom, &mine).await?.ok(StatusCode::OK)?;
+        let s4 = sessions["sessions"]
             .as_array()
             .unwrap()
             .iter()
-            .map(|s| text(s, "session_id").to_owned())
-            .collect();
-        assert!(!ids.is_empty());
-        // With two contracts of one provider the fallback stops, so the
-        // review list asks.
-        assert!(sessions["sessions"][0]["no_contract"].as_u64().unwrap() > 0);
-        assert_eq!(sessions["sessions"][0]["provider_unknown"], 0);
+            .find(|s| s["session_id"] == "seed-s4")
+            .ok_or("seed-s4")?;
+        assert_eq!(s4["no_contract"], 1);
+        assert_eq!(s4["provider_unknown"], 0);
+        assert_eq!(s4["contracts"], json!([]));
+        let ids = vec!["seed-s4".to_owned()];
         let done = k
             .post(
-                &k.mara,
+                &k.tom,
                 "/contract-assignments",
                 json!({"contract": "anthropic-team", "sessions": ids}),
             )
             .await?
             .ok(StatusCode::CREATED)?;
-        assert_eq!(done["sessions"], json!(ids.len()));
-        let after = k
-            .get(&k.mara, &format!("/sessions?{MARCH}&filter=person:{}", emails::MARA))
-            .await?
-            .ok(StatusCode::OK)?;
-        for session in after["sessions"].as_array().unwrap() {
-            assert_eq!(session["no_contract"], 0);
-            assert_eq!(session["contracts"], json!(["anthropic-team"]));
-        }
+        assert_eq!(done["sessions"], 1);
+        let after = k.get(&k.tom, &mine).await?.ok(StatusCode::OK)?;
+        let s4 = after["sessions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|s| s["session_id"] == "seed-s4")
+            .ok_or("seed-s4")?;
+        assert_eq!(s4["no_contract"], 0);
+        assert_eq!(s4["contracts"], json!(["anthropic-team"]));
         let report = k
             .get(&k.nadia, &format!("/reports/cost?{MARCH}"))
             .await?
             .ok(StatusCode::OK)?;
-        assert_eq!(text(&report, "on_a_plan"), "700.00");
-        assert_eq!(text(&report, "metered"), "0.00");
-        assert_eq!(text(&report, "no_contract"), "250.00");
+        assert_eq!(text(&report, "on_a_plan"), "550.00");
+        assert_eq!(text(&report, "metered"), "400.00");
+        assert_eq!(text(&report, "no_contract"), "0.00");
         // A contract nobody has, or someone else's session, is refused.
         let unknown = k
             .post(
-                &k.mara,
+                &k.tom,
                 "/contract-assignments",
                 json!({"contract": "nobody", "sessions": [ids[0].clone()]}),
             )
@@ -1415,7 +1453,7 @@ async fn a_contract_set_on_sessions_wins_and_is_listed(pool: PgPool) {
         assert_eq!(unknown.status, StatusCode::BAD_REQUEST, "{}", unknown.text);
         let theirs = k
             .post(
-                &k.tom,
+                &k.mara,
                 "/contract-assignments",
                 json!({"contract": "anthropic-team", "sessions": [ids[0].clone()]}),
             )
@@ -1447,19 +1485,19 @@ async fn a_contract_has_prices_of_its_own(pool: PgPool) {
                 json!({
                     "provider": "anthropic", "model": model, "kind": "input",
                     "price_per_million": "1.00", "valid_from": "2026-01-01",
-                    "contract": "anthropic"
+                    "contract": "anthropic-api"
                 }),
             )
             .await?
             .ok(StatusCode::CREATED)?;
-        assert_eq!(row["contract"], "anthropic");
+        assert_eq!(row["contract"], "anthropic-api");
         let table = k.get(&k.nadia, "/price-table").await?.ok(StatusCode::OK)?;
         assert!(
             table["rows"]
                 .as_array()
                 .unwrap()
                 .iter()
-                .any(|row| row["contract"] == "anthropic")
+                .any(|row| row["contract"] == "anthropic-api")
         );
         let unknown = k
             .post(
@@ -1480,7 +1518,7 @@ async fn a_contract_has_prices_of_its_own(pool: PgPool) {
                 json!({
                     "provider": "openai", "model": model, "kind": "input",
                     "price_per_million": "1.00", "valid_from": "2026-01-01",
-                    "contract": "anthropic"
+                    "contract": "anthropic-api"
                 }),
             )
             .await?;
@@ -1500,7 +1538,7 @@ async fn a_bill_smaller_than_its_messages_says_a_message_is_wrong(pool: PgPool) 
             "/bills",
             json!({
                 "provider": "anthropic", "from": "2026-03-01", "to": "2026-03-31",
-                "amount": "900.00", "currency": "USD"
+                "amount": "200.00", "currency": "USD"
             }),
         )
         .await?
@@ -1509,8 +1547,9 @@ async fn a_bill_smaller_than_its_messages_says_a_message_is_wrong(pool: PgPool) 
             .get(&k.nadia, "/reconciliation")
             .await?
             .ok(StatusCode::OK)?;
-        assert_eq!(text(&rows[0], "unexplained"), "-50.00");
-        assert_eq!(rows[0]["a_message_is_wrong"], true);
+        let api = check_of(&rows, "anthropic-api")?;
+        assert_eq!(text(api, "unexplained"), "-50.00");
+        assert_eq!(api["a_message_is_wrong"], true);
         Ok(())
     }
     .await;
@@ -2936,15 +2975,22 @@ async fn a_reversed_bill_leaves_reconciliation(pool: PgPool) {
             .get(&k.nadia, "/reconciliation")
             .await?
             .ok(StatusCode::OK)?;
-        assert_eq!(count(&rows), 0);
+        assert_eq!(count(&rows), 2);
+        assert!(check_of(&rows, "anthropic-api").is_err());
         let bills = k.get(&k.nadia, "/bills").await?.ok(StatusCode::OK)?;
-        assert_eq!(count(&bills), 0);
+        assert_eq!(count(&bills), 2);
         let all = k
             .get(&k.nadia, "/bills?reversed=true")
             .await?
             .ok(StatusCode::OK)?;
-        assert_eq!(count(&all), 1);
-        assert!(all[0]["reversed_by"].is_string());
+        assert_eq!(count(&all), 3);
+        let reversed = all
+            .as_array()
+            .ok_or("array")?
+            .iter()
+            .find(|bill| bill["id"] == "bil_seed_anthropic_2026_03")
+            .ok_or("reversed bill")?;
+        assert!(reversed["reversed_by"].is_string());
         Ok(())
     }
     .await;
@@ -3046,9 +3092,18 @@ async fn events_list_the_log_in_order_and_a_limit_keeps_the_latest(pool: PgPool)
             .get(&k.nadia, "/events?limit=3")
             .await?
             .ok(StatusCode::OK)?;
+        // The latest three: the month's bills, one per contract.
         assert_eq!(count(&events), 3);
-        assert_eq!(events[0]["id"], "msg_seed_s3");
-        assert_eq!(events[2]["id"], "bil_seed_anthropic_2026_03");
+        let mut ids: Vec<&str> = events
+            .as_array()
+            .ok_or("array")?
+            .iter()
+            .map(|e| text(e, "id"))
+            .collect();
+        ids.sort_unstable();
+        let mut bills = seed::BILLS.to_vec();
+        bills.sort_unstable();
+        assert_eq!(ids, bills);
         assert_eq!(events[2]["kind"], "bill");
         assert_eq!(events[2]["recorded_by"], emails::NADIA);
         let all = k.get(&k.nadia, "/events").await?.ok(StatusCode::OK)?;
@@ -3088,7 +3143,8 @@ async fn events_filter_by_kind(pool: PgPool) {
             .get(&k.nadia, "/events?kind=tag%20value")
             .await?
             .ok(StatusCode::OK)?;
-        assert_eq!(count(&events), 4);
+        // Acme, Shop, KD-1, KD-2 and the two Anthropic contracts.
+        assert_eq!(count(&events), 6);
         Ok(())
     }
     .await;
@@ -3763,8 +3819,11 @@ async fn the_price_table_shows_the_organizations_row(pool: PgPool) {
     let k = Kestrel::load(&pool).await.unwrap();
     let result: TestResult<()> = async {
         let table = k.get(&k.nadia, "/price-table").await?.ok(StatusCode::OK)?;
-        assert_eq!(count(&table["rows"]), 1);
+        // One row per model the month ran on: Claude and Codex.
+        assert_eq!(count(&table["rows"]), 2);
         let row = &table["rows"][0];
+        assert_eq!(text(row, "provider"), "anthropic");
+        assert!(row["contract"].is_null());
         assert_eq!(text(row, "source"), "organization");
         assert_eq!(text(row, "price_per_million"), "10");
         assert_eq!(text(row, "kind"), "input");
@@ -3794,7 +3853,7 @@ async fn a_new_price_row_prices_from_its_day(pool: PgPool) {
             .get(&k.nadia, &format!("/reports/cost?{MARCH}"))
             .await?
             .ok(StatusCode::OK)?;
-        // S1 400 + S2 300 at 10; S3 50 + S4 75 at 5.
+        // S1 400 at 10, and S2 300 on OpenAI; S3 50 + S4 75 at 5.
         assert_eq!(text(&report, "total"), "825.00");
         Ok(())
     }
@@ -3830,7 +3889,7 @@ async fn an_output_row_prices_what_was_unknown(pool: PgPool) {
             .ok(StatusCode::OK)?;
         assert_eq!(count(&table["rows"]), 1);
         let table = k
-            .get(&k.nadia, "/price-table?provider=openai")
+            .get(&k.nadia, "/price-table?provider=google")
             .await?
             .ok(StatusCode::OK)?;
         assert_eq!(count(&table["rows"]), 0);
@@ -3904,7 +3963,7 @@ async fn only_an_org_manager_adds_price_rows(pool: PgPool) {
             .await?;
         assert_eq!(answer.status, StatusCode::FORBIDDEN, "{}", answer.text);
         let table = k.get(&k.mara, "/price-table").await?.ok(StatusCode::OK)?;
-        assert_eq!(count(&table["rows"]), 1);
+        assert_eq!(count(&table["rows"]), 2);
         Ok(())
     }
     .await;
@@ -3941,14 +4000,16 @@ async fn a_reversed_price_row_leaves_the_messages_unpriced(pool: PgPool) {
             .get(&k.nadia, &format!("/reports/cost?{MARCH}"))
             .await?
             .ok(StatusCode::OK)?;
-        assert_eq!(text(&report, "total"), "0.00");
+        // Only the Codex session, on OpenAI, keeps a price.
+        assert_eq!(text(&report, "total"), "300.00");
         assert_eq!(count(&report["unknown_models"]), 1);
         let rows = k
             .get(&k.nadia, "/reconciliation")
             .await?
             .ok(StatusCode::OK)?;
-        assert_eq!(count(&rows[0]["unknown_models"]), 1);
-        assert_eq!(text(&rows[0], "unexplained"), "1000.00");
+        let api = check_of(&rows, "anthropic-api")?;
+        assert_eq!(count(&api["unknown_models"]), 1);
+        assert_eq!(text(api, "unexplained"), "270.00");
         Ok(())
     }
     .await;
@@ -4390,12 +4451,13 @@ async fn an_organization_rule_tags_arriving_messages(pool: PgPool) {
             .await?
             .ok(StatusCode::CREATED)?;
         assert_eq!(text(&rule, "scope"), "organization");
-        assert_eq!(rule["order"], 10);
+        // After the seed's two contract rules.
+        assert_eq!(rule["order"], 20);
         assert!(rule["key"].is_null());
         let rules = k.get(&k.nadia, "/rules").await?.ok(StatusCode::OK)?;
-        assert_eq!(count(&rules), 1);
+        assert_eq!(count(&rules), 3);
         let context = k.get(&k.mara, "/me/context").await?.ok(StatusCode::OK)?;
-        assert_eq!(count(&context["rules"]), 1);
+        assert_eq!(count(&context["rules"]), 3);
         Ok(())
     }
     .await;
@@ -4542,7 +4604,7 @@ async fn a_person_keeps_their_own_rules(pool: PgPool) {
         let toms = k.get(&k.tom, "/me/rules").await?.ok(StatusCode::OK)?;
         assert_eq!(count(&toms), 0);
         let organization = k.get(&k.nadia, "/rules").await?.ok(StatusCode::OK)?;
-        assert_eq!(count(&organization), 0);
+        assert_eq!(count(&organization), 2);
         let none = k
             .send(&k.mara, Method::PUT, "/me/rules", Some(json!([])))
             .await?
@@ -4568,10 +4630,11 @@ async fn the_context_hands_a_client_everything_it_needs(pool: PgPool) {
         assert_eq!(count(&context["names"]), 6);
         // Autocomplete offers only values inside the view: Mara views herself.
         assert_eq!(count(&context["tag_values"]), 0);
-        assert_eq!(count(&context["price_table"]), 1);
+        assert_eq!(count(&context["price_table"]), 2);
         assert!(context["cutoff"].is_null());
         let context = k.get(&k.nadia, "/me/context").await?.ok(StatusCode::OK)?;
-        assert_eq!(count(&context["tag_values"]), 4);
+        // Acme, Shop, KD-1, KD-2 and the two Anthropic contracts.
+        assert_eq!(count(&context["tag_values"]), 6);
         assert_eq!(count(&context["attribute_values"]), 2);
         Ok(())
     }

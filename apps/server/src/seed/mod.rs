@@ -2,11 +2,13 @@
 //! command, for local development, CI, staging and screenshots.
 //!
 //! Kestrel Digital is a small agency. Its March 2026 is the worked month
-//! of the docs (Concepts > The month): Mara and Tom on team web in
+//! of the docs (Concepts > A worked month): Mara and Tom on team web in
 //! engineering, the project Shop for the client Acme with the features
-//! KD-1 and KD-2, a bill of 1,000 for 1 to 31 March, four sessions that
-//! cost 950, a plan of 750 over 100 days for Shop, an estimate of 500 for
-//! KD-1, and Mara's share of 0.6 of Shop from 1 March. Nadia is the org
+//! KD-1 and KD-2, three contracts (the Claude seat plan `claude-team`, flat
+//! with a fee of 200; the metered `anthropic-api` and `openai-api`), four
+//! sessions that cost 950, one bill per contract (270, 300 and 250), a plan
+//! of 750 over 100 days for Shop, an estimate of 500 for KD-1, and Mara's
+//! share of 0.6 of Shop from 1 March. Nadia is the org
 //! manager; Priya the people manager of team web. Every record has a fixed
 //! id in [`ids`] and every event a fixed event id, so other areas' seed
 //! data can point at them.
@@ -22,9 +24,10 @@ use sqlx::{PgConnection, PgPool};
 use time::macros::{date, datetime};
 use time::{Date, OffsetDateTime};
 use tokencontroller_core::{
-    Accept, AttributeValue, Bill, DateRange, Distribution, Estimate, Event, EventId, Filter,
-    Message, ModelRef, PersonAttribute, PriceRow, PriceSource, Record, Share, Split, SplitPart,
-    SplitTarget, TagName, TagValue, TagValueRecord, Tags, TokenCounts, TokenKind,
+    Accept, AttributeValue, Bill, ContractAssignment, ContractKind, ContractTerms, DateRange,
+    Distribution, Estimate, Event, EventId, Filter, Message, ModelRef, PersonAttribute, PriceRow,
+    PriceSource, Record, Rule, Scope, Share, Signal, Split, SplitPart, SplitTarget, TagName,
+    TagValue, TagValueRecord, Tags, TextPattern, Then, TokenCounts, TokenKind,
 };
 use uuid::Uuid;
 
@@ -57,10 +60,24 @@ pub mod emails {
     pub const OLA: &str = "o.berg@kestrel.example";
 }
 
-/// The provider and model every seeded message ran on, priced in the
+/// The provider and model of the seeded Claude sessions, priced in the
 /// seed's own price table row.
 pub const PROVIDER: &str = "anthropic";
 pub const MODEL: &str = "claude-sonnet-4-5";
+/// The provider and model of the seeded Codex session.
+pub const OPENAI: &str = "openai";
+pub const OPENAI_MODEL: &str = "gpt-5";
+
+/// The seeded bills, one per contract, each with its contract.
+pub const BILLS: [&str; 3] = [
+    "bil_seed_anthropic_2026_03",
+    "bil_seed_openai_2026_03",
+    "bil_seed_claude_team_2026_03",
+];
+
+/// The Anthropic organization the team's Claude seats sign in to, as
+/// Claude Code reports it at session start.
+pub const TEAM_ORGANIZATION: &str = "kestrel-team";
 
 /// One seeded person.
 struct Person {
@@ -138,14 +155,16 @@ pub async fn load(db: &PgPool) -> anyhow::Result<()> {
     for event in events()? {
         put(&mut tx, &event).await?;
     }
-    sqlx::query!(
-        "INSERT INTO bill_details (organization_id, event_id, source, is_final, lines)
-         VALUES ($1, $2, 'api', true, '[]'::jsonb) ON CONFLICT DO NOTHING",
-        ids::ORGANIZATION,
-        "bil_seed_anthropic_2026_03"
-    )
-    .execute(&mut *tx)
-    .await?;
+    for bill in BILLS {
+        sqlx::query!(
+            "INSERT INTO bill_details (organization_id, event_id, source, is_final, lines)
+             VALUES ($1, $2, 'api', true, '[]'::jsonb) ON CONFLICT DO NOTHING",
+            ids::ORGANIZATION,
+            bill
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
     tx.commit().await?;
     tracing::info!("seed data loaded: Kestrel Digital");
     Ok(())
@@ -256,7 +275,11 @@ struct Session<'a> {
     person: &'a str,
     at: OffsetDateTime,
     input_millions: u64,
+    /// The agent, such as `claude-code`, with its provider and model.
+    agent: (&'a str, &'a str, &'a str),
     agent_name: Option<&'a str>,
+    /// The Anthropic organization the agent was signed in to, if any.
+    signed_in: Option<&'a str>,
     tags: Tags,
     summary: &'a str,
 }
@@ -266,7 +289,7 @@ fn message(session: Session<'_>) -> anyhow::Result<Event> {
         session_id: tokencontroller_core::SessionId::new(session.key)?,
         message_id: tokencontroller_core::MessageId::new("1")?,
         person: person(session.person)?,
-        model: ModelRef::new(PROVIDER, MODEL),
+        model: ModelRef::new(session.agent.1, session.agent.2),
         tokens: Some(TokenCounts::common(
             session.input_millions.saturating_mul(1_000_000),
             0,
@@ -274,11 +297,11 @@ fn message(session: Session<'_>) -> anyhow::Result<Event> {
             0,
         )),
         at: session.at,
-        agent_harness: "claude-code".to_owned(),
+        agent_harness: session.agent.0.to_owned(),
         agent_name: session.agent_name.map(str::to_owned),
         reported_cost: None,
         tags: session.tags,
-        signals: tokencontroller_core::Signals::default(),
+        signals: signals(session.signed_in),
         session: tokencontroller_core::SessionFacts {
             turns: Some(12),
             tool_calls: Some(30),
@@ -291,6 +314,19 @@ fn message(session: Session<'_>) -> anyhow::Result<Event> {
         event(session.id, session.at, Record::Message(Box::new(record)))?
             .by(person(session.person)?),
     )
+}
+
+/// The signals of a seeded message: the organization the agent was signed
+/// in to, as Claude Code sends it.
+fn signals(signed_in: Option<&str>) -> tokencontroller_core::Signals {
+    let mut signals = tokencontroller_core::Signals::default();
+    if let Some(organization) = signed_in {
+        signals.other.insert(
+            tokencontroller_core::rules::SIGNED_IN_ORGANIZATION.to_owned(),
+            serde_json::Value::String(organization.to_owned()),
+        );
+    }
+    signals
 }
 
 /// The role grants of a seeded person, with ids the grants area reads as
@@ -330,7 +366,8 @@ pub fn events() -> anyhow::Result<Vec<Event>> {
     let mara = person(emails::MARA)?;
     let mut events = setup_events(setup, &nadia)?;
     events.extend(plan_events(&nadia, &mara)?);
-    events.extend(month_events(&nadia, &mara)?);
+    events.extend(month_events(&mara)?);
+    events.extend(bill_events(&nadia)?);
     Ok(events)
 }
 
@@ -342,21 +379,26 @@ fn setup_events(setup: OffsetDateTime, nadia: &TagValue) -> anyhow::Result<Vec<E
         events.extend(role_grants(person)?);
     }
 
-    // The price table: one row of the organization's own, so the month
-    // costs the same on every instance.
-    events.push(event(
-        "prc_seed_sonnet_input",
-        setup,
-        Record::PriceRow(PriceRow {
-            provider: PROVIDER.to_owned(),
-            model: MODEL.to_owned(),
-            kind: TokenKind::INPUT,
-            per_million: usd("10")?,
-            valid_from: date!(2026 - 01 - 01),
-            source: PriceSource::Organization,
-            contract: None,
-        }),
-    )?);
+    // The price table: one row of the organization's own per model, so
+    // the month costs the same on every instance.
+    for (id, provider, model) in [
+        ("prc_seed_sonnet_input", PROVIDER, MODEL),
+        ("prc_seed_gpt_5_input", OPENAI, OPENAI_MODEL),
+    ] {
+        events.push(event(
+            id,
+            setup,
+            Record::PriceRow(PriceRow {
+                provider: provider.to_owned(),
+                model: model.to_owned(),
+                kind: TokenKind::INPUT,
+                per_million: usd("10")?,
+                valid_from: date!(2026 - 01 - 01),
+                source: PriceSource::Organization,
+                contract: None,
+            }),
+        )?);
+    }
 
     // Attributes: team web in department engineering; Mara and Tom on it.
     events.push(
@@ -404,6 +446,7 @@ fn setup_events(setup: OffsetDateTime, nadia: &TagValue) -> anyhow::Result<Vec<E
         );
     }
     events.extend(value_events(setup, nadia)?);
+    events.extend(contract_events(setup, nadia)?);
     Ok(events)
 }
 
@@ -468,6 +511,89 @@ fn value_events(setup: OffsetDateTime, nadia: &TagValue) -> anyhow::Result<Vec<E
                 contract: None,
             },
         )?);
+    }
+    Ok(events)
+}
+
+/// The two Anthropic contracts and the rules that find them: the team's
+/// Claude sign-in, and the review bot's agent name. OpenAI's contract
+/// comes with its bill.
+fn contract_events(setup: OffsetDateTime, nadia: &TagValue) -> anyhow::Result<Vec<Event>> {
+    let mut events = Vec::new();
+    let tag_value = |id: &str, record: TagValueRecord| -> anyhow::Result<Event> {
+        Ok(event(id, setup, Record::TagValue(record))?.by(nadia.clone()))
+    };
+    for (id, key, title, kind, fee) in [
+        (
+            "tag_seed_contract_claude_team",
+            "claude-team",
+            "Claude Team plan",
+            ContractKind::Flat,
+            Some("200"),
+        ),
+        (
+            "tag_seed_contract_anthropic_api",
+            "anthropic-api",
+            "Anthropic API",
+            ContractKind::Metered,
+            None,
+        ),
+    ] {
+        events.push(tag_value(
+            id,
+            TagValueRecord {
+                name: TagName::contract(),
+                key: value(key)?,
+                title: Some(title.to_owned()),
+                description: None,
+                source_id: None,
+                source_status: None,
+                defaults: Tags::new(),
+                contract: Some(ContractTerms {
+                    provider: PROVIDER.to_owned(),
+                    kind,
+                    fee: fee.map(usd).transpose()?,
+                }),
+            },
+        )?);
+    }
+    // How messages find them: the team's Claude sign-in, and the review
+    // bot's agent name.
+    for (id, name, signal, pattern, contract) in [
+        (
+            "rul_seed_team_sign_in",
+            "signed in to the team's Claude organization",
+            Signal::Named(tokencontroller_core::rules::SIGNED_IN_ORGANIZATION.to_owned()),
+            "^kestrel-team$",
+            "claude-team",
+        ),
+        (
+            "rul_seed_review_bot",
+            "agent name review bot",
+            Signal::AgentName,
+            "^review bot$",
+            "anthropic-api",
+        ),
+    ] {
+        events.push(
+            event(
+                id,
+                setup,
+                Record::Rule(Rule {
+                    name: name.to_owned(),
+                    scope: Scope::Organization,
+                    order: 10,
+                    signal,
+                    pattern: TextPattern::new(pattern)?,
+                    then: Then::Tag {
+                        name: TagName::contract(),
+                        key: value(contract)?,
+                    },
+                    contract: None,
+                }),
+            )?
+            .by(nadia.clone()),
+        );
     }
     Ok(events)
 }
@@ -549,8 +675,8 @@ fn plan_events(nadia: &TagValue, mara: &TagValue) -> anyhow::Result<Vec<Event>> 
     Ok(events)
 }
 
-/// The month itself: the four sessions, the split and the bill.
-fn month_events(nadia: &TagValue, mara: &TagValue) -> anyhow::Result<Vec<Event>> {
+/// The month itself: the four sessions and the split.
+fn month_events(mara: &TagValue) -> anyhow::Result<Vec<Event>> {
     let mut events = Vec::new();
     // The month's sessions: S1 to S4 of the worked month.
     events.push(message(Session {
@@ -559,7 +685,9 @@ fn month_events(nadia: &TagValue, mara: &TagValue) -> anyhow::Result<Vec<Event>>
         person: emails::MARA,
         at: datetime!(2026-03-04 10:00 UTC),
         input_millions: 40,
+        agent: ("claude-code", PROVIDER, MODEL),
         agent_name: None,
+        signed_in: Some(TEAM_ORGANIZATION),
         tags: tags(&[("feature", "KD-1")])?,
         summary: "Checkout: saved addresses",
     })?);
@@ -569,7 +697,9 @@ fn month_events(nadia: &TagValue, mara: &TagValue) -> anyhow::Result<Vec<Event>>
         person: emails::MARA,
         at: datetime!(2026-03-12 14:00 UTC),
         input_millions: 30,
+        agent: ("codex", OPENAI, OPENAI_MODEL),
         agent_name: None,
+        signed_in: None,
         tags: Tags::new(),
         summary: "Shared payment component for checkout and returns",
     })?);
@@ -599,7 +729,9 @@ fn month_events(nadia: &TagValue, mara: &TagValue) -> anyhow::Result<Vec<Event>>
         person: emails::TOM,
         at: datetime!(2026-03-18 09:00 UTC),
         input_millions: 10,
+        agent: ("claude-code", PROVIDER, MODEL),
         agent_name: Some("review bot"),
+        signed_in: None,
         tags: tags(&[("project", "shop")])?,
         summary: "Nightly review of open pull requests",
     })?);
@@ -609,28 +741,79 @@ fn month_events(nadia: &TagValue, mara: &TagValue) -> anyhow::Result<Vec<Event>>
         person: emails::TOM,
         at: datetime!(2026-03-25 11:00 UTC),
         input_millions: 15,
+        agent: ("claude-code", PROVIDER, MODEL),
         agent_name: None,
+        signed_in: None,
         tags: Tags::new(),
         summary: "Exploring a logging library",
     })?);
 
-    // The bill for March: 1,000, of which 50 no message explains.
+    Ok(events)
+}
+
+/// Tom's answer for S4 in the review list, and one bill per contract.
+fn bill_events(nadia: &TagValue) -> anyhow::Result<Vec<Event>> {
+    let mut events = Vec::new();
+    // S4 ran on an API key, which names no organization, and Anthropic
+    // has two contracts: Tom answered the review list by hand.
     events.push(
         event(
-            "bil_seed_anthropic_2026_03",
-            datetime!(2026-04-02 08:00 UTC),
-            Record::Bill(Bill {
-                provider: PROVIDER.to_owned(),
-                range: MARCH,
-                amount: usd("1000")?,
-                contract: None,
-                contract_kind: None,
-                fee: None,
-                extra_usage: None,
+            "con_seed_s4",
+            datetime!(2026-03-26 09:00 UTC),
+            Record::ContractAssignment(ContractAssignment {
+                target: SplitTarget::Session(tokencontroller_core::SessionId::new("seed-s4")?),
+                contract: value("anthropic-api")?,
             }),
         )?
-        .by(nadia.clone()),
+        .by(person(emails::TOM)?),
     );
+
+    // One bill per contract for March: the API bill has 20 that no
+    // message explains; the seat plan is its fee of 200 and 50 of extra
+    // usage.
+    for (id, provider, contract, kind, amount, parts) in [
+        (
+            BILLS[0],
+            PROVIDER,
+            "anthropic-api",
+            ContractKind::Metered,
+            "270",
+            None,
+        ),
+        (
+            BILLS[1],
+            OPENAI,
+            "openai-api",
+            ContractKind::Metered,
+            "300",
+            None,
+        ),
+        (
+            BILLS[2],
+            PROVIDER,
+            "claude-team",
+            ContractKind::Flat,
+            "250",
+            Some(("200", "50")),
+        ),
+    ] {
+        events.push(
+            event(
+                id,
+                datetime!(2026-04-02 08:00 UTC),
+                Record::Bill(Bill {
+                    provider: provider.to_owned(),
+                    range: MARCH,
+                    amount: usd(amount)?,
+                    contract: Some(value(contract)?),
+                    contract_kind: Some(kind),
+                    fee: parts.map(|(fee, _)| usd(fee)).transpose()?,
+                    extra_usage: parts.map(|(_, extra)| usd(extra)).transpose()?,
+                }),
+            )?
+            .by(nadia.clone()),
+        );
+    }
     Ok(events)
 }
 
@@ -689,10 +872,30 @@ mod tests {
         let kd_1 = Filter(tags(&[("feature", "KD-1")]).unwrap());
         let deviation = fold.deviation(&kd_1, MARCH).unwrap().unwrap();
         assert_eq!(deviation.delta, usd("-80").unwrap());
-        let bill = fold.bills().next().unwrap();
-        let reconciliation = fold.reconcile(&bill.value).unwrap();
-        assert_eq!(reconciliation.unexplained, usd("50").unwrap());
-        assert!(!reconciliation.a_message_is_wrong());
+        let checks: Vec<_> = fold
+            .bills()
+            .map(|bill| fold.reconcile(&bill.value).unwrap())
+            .collect();
+        let check = |contract: &str| {
+            checks
+                .iter()
+                .find(|check| check.contract.as_str() == contract)
+                .unwrap()
+        };
+        let api = check("anthropic-api");
+        assert_eq!(api.messages, usd("250").unwrap());
+        assert_eq!(api.unexplained, usd("20").unwrap());
+        assert_eq!(api.same_provider_no_contract, usd("0").unwrap());
+        let openai = check("openai-api");
+        assert_eq!(openai.unexplained, usd("0").unwrap());
+        assert_eq!(openai.contract_from_fallback, usd("300").unwrap());
+        let team = check("claude-team");
+        assert_eq!(team.messages, usd("400").unwrap());
+        assert_eq!(team.unexplained, usd("0").unwrap());
+        assert_eq!(team.covered, Some(usd("350").unwrap()));
+        assert!(checks.iter().all(|check| !check.a_message_is_wrong()));
+        let cost = fold.cost(&Filter::default(), MARCH).unwrap();
+        assert_eq!(cost.on_a_plan, usd("400").unwrap());
     }
 
     #[test]
