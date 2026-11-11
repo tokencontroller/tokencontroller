@@ -171,6 +171,7 @@ fn parse_words(context: &Context, words: &[String]) -> Result<Rule> {
         signal,
         pattern,
         then,
+        contract: None,
     })
 }
 

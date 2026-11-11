@@ -248,10 +248,10 @@ pub fn read_price_file(path: &Path) -> Result<Vec<PriceRow>> {
         let cells: Vec<&str> = line.split([',', ';']).map(str::trim).collect();
         let cell = |at: usize| cells.get(at).copied().unwrap_or_default();
         let kind = match cell(kind) {
-            "input" => TokenKind::Input,
-            "output" => TokenKind::Output,
-            "cache_write" => TokenKind::CacheWrite,
-            "cache_read" => TokenKind::CacheRead,
+            "input" => TokenKind::INPUT,
+            "output" => TokenKind::OUTPUT,
+            "cache_write" => TokenKind::CACHE_WRITE,
+            "cache_read" => TokenKind::CACHE_READ,
             other => return Err(bad(number, &format!("{other} is not a token kind"))),
         };
         let per_million = Money::parse(cell(price), Currency::USD)
@@ -265,6 +265,7 @@ pub fn read_price_file(path: &Path) -> Result<Vec<PriceRow>> {
             per_million,
             valid_from,
             source: PriceSource::Organization,
+            contract: None,
         });
     }
     Ok(rows)
@@ -292,6 +293,7 @@ pub fn local_rules(pattern: &KeyPattern) -> Vec<Rule> {
         then: Then::KeyOf {
             name: TagName::feature(),
         },
+        contract: None,
     })
     .collect()
 }
@@ -418,6 +420,7 @@ pub fn fold(inputs: &Inputs<'_>) -> Result<State> {
                 source_id: None,
                 source_status: None,
                 defaults: Tags::new(),
+                contract: None,
             }),
         )?);
     }
@@ -677,7 +680,7 @@ impl<'a> Folded<'a> {
                 .map(|line| {
                     (
                         (line.session_id.clone(), line.message_id.clone()),
-                        line.cost,
+                        line.cost.clone(),
                     )
                 })
                 .collect(),
@@ -797,14 +800,14 @@ impl<'a> Folded<'a> {
                 Some(tokencontroller_core::CostLabel::CountError) => {
                     count_errors = count_errors.saturating_add(1);
                 }
-                Some(tokencontroller_core::CostLabel::UnknownModel) | None => {
+                Some(tokencontroller_core::CostLabel::NotPricedYet) | None => {
                     let model = message.value.model.to_string();
                     if !unknown_models.contains(&model) {
                         unknown_models.push(model);
                     }
                 }
             }
-            if let Some(counts) = message.value.tokens {
+            if let Some(counts) = &message.value.tokens {
                 tokens = tokens.checked_add(counts).unwrap_or(tokens);
             }
             if let Some(fact) = message.value.reported_cost {
@@ -819,7 +822,7 @@ impl<'a> Folded<'a> {
                 message_id: message.value.message_id.to_string(),
                 at: message.value.at,
                 model: message.value.model.clone(),
-                tokens: message.value.tokens.unwrap_or_default(),
+                tokens: message.value.tokens.clone().unwrap_or_default(),
                 reported_cost: message.value.reported_cost,
                 amount: counted.amount,
                 priced: matches!(counted.label, Some(tokencontroller_core::CostLabel::Priced)),
@@ -925,11 +928,18 @@ fn describe_assignment(
     match by {
         AssignedBy::Hand => "hand".to_owned(),
         AssignedBy::Rule => {
-            tokencontroller_core::rules::first_match(rules.iter().copied(), message, state.values())
-                .map_or_else(
-                    || "rule".to_owned(),
-                    |(rule, _)| format!("rule: {}", rule.name),
-                )
+            let given = tokencontroller_core::rules::per_tag_name(
+                rules.iter().copied(),
+                message,
+                state.values(),
+            );
+            let mut names: Vec<&str> = given.values().map(|(rule, _)| rule.name.as_str()).collect();
+            names.dedup();
+            if names.is_empty() {
+                "rule".to_owned()
+            } else {
+                format!("rule: {}", names.join(", "))
+            }
         }
         AssignedBy::Default => {
             if line.assigned.contains(&TagName::feature())
@@ -1138,7 +1148,7 @@ mod tests {
         let file = prices(dir.path());
         let rows = read_price_file(&file).unwrap();
         assert_eq!(rows.len(), 2);
-        assert_eq!(rows.first().unwrap().kind, TokenKind::Input);
+        assert_eq!(rows.first().unwrap().kind, TokenKind::INPUT);
         assert_eq!(rows.first().unwrap().per_million.nanos(), 3_000_000_000);
         std::fs::write(
             &file,
@@ -1279,7 +1289,10 @@ mod tests {
             Some("KD-214")
         );
         assert_eq!(s1.cost.unwrap().nanos(), 9_000_000_000);
-        assert_eq!(s1.tokens.input, 2_000_000);
+        assert_eq!(
+            s1.tokens.get(&tokencontroller_core::TokenKind::INPUT),
+            2_000_000
+        );
         assert_eq!(s1.summary.as_deref(), Some("Fix checkout"));
         assert_eq!(s1.status, Status::Open);
         assert_eq!(s1.label, Label::Direct);
@@ -1472,7 +1485,7 @@ mod tests {
         let (_dir, state, views) = super::fixtures::folded(&Run::default(), &context, true);
         assert_eq!(state.currency(), Currency::EUR);
         let s1 = &views[0];
-        assert_eq!(s1.assigned_by, "rule: key in branch");
+        assert_eq!(s1.assigned_by, "rule: key in branch, storefront work");
         // 2 messages × (1M × 2 + 100k × 10) per million = 6 EUR, not the file's 9.
         assert_eq!(s1.cost.unwrap().nanos(), 6_000_000_000);
         assert_eq!(s1.cost.unwrap().currency(), Currency::EUR);

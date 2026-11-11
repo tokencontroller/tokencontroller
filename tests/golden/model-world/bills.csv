@@ -1,0 +1,5 @@
+id,recorded_at,provider,from,to,amount,contract,contract_kind,fee,extra_usage
+b1,2026-04-02T00:00:00Z,anthropic,2026-03-01,2026-03-31,485,anthropic-api,metered,,
+b2,2026-04-02T00:00:00Z,anthropic,2026-03-01,2026-03-31,190,claude-team,flat,150,40
+b3,2026-04-02T00:00:00Z,openai,2026-03-01,2026-03-31,84,openai-api,metered,,
+b4,2026-03-10T00:00:00Z,anthropic,2026-02-01,2026-02-28,200,anthropic-api,metered,,

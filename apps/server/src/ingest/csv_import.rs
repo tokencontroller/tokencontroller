@@ -318,12 +318,7 @@ mod tests {
         assert_eq!(entry.agent_name.as_deref(), Some("review bot"));
         assert_eq!(
             checked.messages[0].tokens,
-            Some(tokencontroller_core::TokenCounts {
-                input: 1,
-                output: 2,
-                cache_write: 3,
-                cache_read: 4
-            })
+            Some(tokencontroller_core::TokenCounts::common(1, 2, 3, 4))
         );
         assert_eq!(entry.project.as_deref(), Some("storefront"));
         assert_eq!(entry.feature.as_deref(), Some("KD-1"));

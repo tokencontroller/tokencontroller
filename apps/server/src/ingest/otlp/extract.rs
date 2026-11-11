@@ -252,7 +252,7 @@ impl<'a> Record<'a> {
             .or_else(|| fields.take_text(&["prompt.id"]))
             .or_else(|| trace_id(self.trace_id))?;
         let message_id = call.message_id.unwrap_or_else(|| {
-            synthetic_message_id(&session_id, occurred_at, &call.model, call.tokens)
+            synthetic_message_id(&session_id, occurred_at, &call.model, &call.tokens)
         });
         let person_email = fields
             .take_text(EMAIL_ATTRIBUTES)
@@ -313,17 +313,25 @@ fn synthetic_message_id(
     session_id: &str,
     occurred_at: OffsetDateTime,
     model: &str,
-    tokens: TokenCounts,
+    tokens: &TokenCounts,
 ) -> String {
     let mut hasher = Sha256::new();
     for part in [
         session_id.to_owned(),
         occurred_at.unix_timestamp_nanos().to_string(),
         model.to_owned(),
-        tokens.input.to_string(),
-        tokens.output.to_string(),
-        tokens.cache_write.to_string(),
-        tokens.cache_read.to_string(),
+        tokens
+            .get(&tokencontroller_core::TokenKind::INPUT)
+            .to_string(),
+        tokens
+            .get(&tokencontroller_core::TokenKind::OUTPUT)
+            .to_string(),
+        tokens
+            .get(&tokencontroller_core::TokenKind::CACHE_WRITE)
+            .to_string(),
+        tokens
+            .get(&tokencontroller_core::TokenKind::CACHE_READ)
+            .to_string(),
     ] {
         hasher.update(part.as_bytes());
         // A separator, so parts cannot run into each other.

@@ -60,7 +60,7 @@ async fn kestrel(pool: &PgPool) -> TestResult<Kestrel> {
     let kd_214 = value("feature", "KD-214", &[("project", "shop")])?;
     let kd_215 = value("feature", "KD-215", &[("project", "shop")])?;
     events::append_all(pool, organization_id, &[shop, kd_214, kd_215]).await?;
-    price_table::store_managed(pool, &[price("claude-sonnet-5", TokenKind::Input, "10")?]).await?;
+    price_table::store_managed(pool, &[price("claude-sonnet-5", TokenKind::INPUT, "10")?]).await?;
     Ok(Kestrel {
         state,
         organization_id,
@@ -85,6 +85,7 @@ fn value(
         source_id: None,
         source_status: None,
         defaults: tags,
+        contract: None,
     }))?)
 }
 
@@ -96,6 +97,7 @@ fn price(model: &str, kind: TokenKind, per_million: &str) -> TestResult<PriceRow
         per_million: Money::parse(per_million, Currency::USD)?,
         valid_from: date!(2020 - 01 - 01),
         source: tokencontroller_core::PriceSource::Managed,
+        contract: None,
     })
 }
 
@@ -106,10 +108,7 @@ fn call(session: &str, id: &str, at: OffsetDateTime, input: u64) -> TelemetryMes
         message_id: id.to_owned(),
         model: "claude-sonnet-5".to_owned(),
         occurred_at: at,
-        tokens: TokenCounts {
-            input,
-            ..TokenCounts::default()
-        },
+        tokens: TokenCounts::common(input, 0, 0, 0),
         reported_cost: None,
         person_email: None,
         person_account_id: None,
@@ -203,7 +202,7 @@ async fn telemetry_counts_each_model_call_once(pool: PgPool) {
     // One million input tokens at 10 US dollars per million.
     let cost = fold.cost(&Filter(Tags::new()), OCTOBER).unwrap();
     assert_eq!(cost.amount, usd("10.00"));
-    assert!(cost.unknown_models.is_empty());
+    assert!(cost.not_priced_models.is_empty());
 }
 
 #[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
@@ -237,7 +236,7 @@ async fn a_session_record_adds_the_calls_telemetry_missed(pool: PgPool) {
     let input: u64 = fold
         .messages()
         .filter_map(|message| message.value.tokens.as_ref())
-        .map(|tokens| tokens.input)
+        .map(|tokens| tokens.get(&tokencontroller_core::TokenKind::INPUT))
         .sum();
     assert_eq!(input, 105, "each call counts once");
 }
@@ -493,11 +492,11 @@ async fn a_new_price_row_prices_messages_whose_model_was_unknown(pool: PgPool) {
     let before = fold(&kestrel).await.unwrap();
     let cost = before.cost(&Filter(Tags::new()), OCTOBER).unwrap();
     assert_eq!(cost.amount, usd("0.00"));
-    assert_eq!(cost.unknown_models.len(), 1);
+    assert_eq!(cost.not_priced_models.len(), 1);
 
     price_table::store_managed(
         &pool,
-        &[price("claude-brand-new", TokenKind::Input, "3").unwrap()],
+        &[price("claude-brand-new", TokenKind::INPUT, "3").unwrap()],
     )
     .await
     .unwrap();
@@ -505,7 +504,7 @@ async fn a_new_price_row_prices_messages_whose_model_was_unknown(pool: PgPool) {
     let cost = after.cost(&Filter(Tags::new()), OCTOBER).unwrap();
     // Two million tokens at 3 US dollars per million.
     assert_eq!(cost.amount, usd("6.00"));
-    assert!(cost.unknown_models.is_empty());
+    assert!(cost.not_priced_models.is_empty());
 }
 
 #[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
@@ -552,7 +551,7 @@ async fn the_seed_is_the_worked_month_and_loads_twice(pool: PgPool) {
     let march = DateRange::new(date!(2026 - 03 - 01), date!(2026 - 03 - 31)).unwrap();
     let total = fold.cost(&Filter(Tags::new()), march).unwrap();
     assert_eq!(total.amount, usd("950.00"));
-    assert!(total.unknown_models.is_empty());
+    assert!(total.not_priced_models.is_empty());
     assert!(total.count_errors.is_empty());
     let mut shop = Tags::new();
     shop.insert(TagName::project(), TagValue::new("shop").unwrap());

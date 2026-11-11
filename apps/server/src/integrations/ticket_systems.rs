@@ -809,6 +809,7 @@ pub fn feature_record(
             }
         }),
         defaults,
+        contract: None,
     })
 }
 

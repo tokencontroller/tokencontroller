@@ -12,6 +12,7 @@ use time::{Date, OffsetDateTime};
 
 use crate::access::Grant;
 use crate::bill::Bill;
+use crate::contract::ContractAssignment;
 use crate::estimate::{Accept, Estimate};
 use crate::message::Message;
 use crate::plan::Share;
@@ -157,7 +158,7 @@ impl fmt::Display for DateRange {
 pub enum Record {
     /// Source record 1: one model call inside an agent session.
     Message(Box<Message>),
-    /// Source record 2: a provider's bill for metered usage.
+    /// Source record 3: a provider's bill under one contract.
     Bill(Bill),
     /// Source record 3: an estimate of what work will cost.
     Estimate(Estimate),
@@ -186,8 +187,11 @@ pub enum Record {
     Submit(Submit),
     /// Approves or rejects a submission.
     Approval(Approval),
-    /// A rule that turns signals into a split.
+    /// A rule that turns a signal into a tag value.
     Rule(Rule),
+    /// Assignment 11: one contract on every message of a session, or on
+    /// one message, by hand. A later one on the same target supersedes it.
+    ContractAssignment(ContractAssignment),
     /// Reverses the event named, as if it had never been recorded.
     Reversal(EventId),
 }
@@ -212,6 +216,7 @@ impl Record {
             Self::Submit(_) => "submit",
             Self::Approval(_) => "approval",
             Self::Rule(_) => "rule",
+            Self::ContractAssignment(_) => "contract assignment",
             Self::Reversal(_) => "reversal",
         }
     }

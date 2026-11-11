@@ -1,19 +1,22 @@
 //! The price table (source record 6) and the cost of one message
 //! (formula 1).
 //!
-//! `C(e) = Σ_kind tokens_kind(e) × p(provider, model, kind, as of t(e))`.
-//! A message with no counts has no cost and shows as a count error, never
-//! as zero. A model missing from the table is labelled unknown, never zero.
-//! The hosted service pulls one managed table in as events; an
-//! organization adds or overrides rows, and the override wins.
+//! `C(e) = Σ over kinds k with a price: tokens_k(e) × p(c(e), provider(e),
+//! model(e), k, as of t(e))`. The contract's own row wins over the
+//! organization's, which wins over the managed table. A message with no
+//! provider is priced when every provider in the table charges the same for
+//! its model. A message with no counts is a count error; one the table
+//! cannot price is "not priced yet". Neither is ever a silent zero. A kind
+//! with tokens and no price is listed and leaves the rest priced.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 use time::{Date, OffsetDateTime};
 
 use crate::message::{Message, ModelRef};
 use crate::money::{Currency, Money, MoneyError};
+use crate::tags::TagValue;
 use crate::tokens::{TokenCounts, TokenKind};
 
 /// Tokens a price is quoted for.
@@ -32,7 +35,7 @@ pub enum PriceSource {
 }
 
 /// One row of the price table: the price per million tokens of one kind of
-/// one model from a date on.
+/// one model from a date on, optionally only under one contract.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PriceRow {
     pub provider: String,
@@ -42,6 +45,10 @@ pub struct PriceRow {
     pub valid_from: Date,
     #[serde(default = "managed")]
     pub source: PriceSource,
+    /// The contract whose own price this is. It wins over every row
+    /// without a contract, for messages under that contract only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub contract: Option<TagValue>,
 }
 
 const fn managed() -> PriceSource {
@@ -64,24 +71,49 @@ pub enum CostLabel {
     Priced,
     /// The message has no token counts. No cost, never zero.
     CountError,
-    /// The table has no price for the model, or for a kind the message used,
-    /// as of the message's time. No cost, never zero.
-    UnknownModel,
+    /// The table cannot price the message yet: it has no row for the model
+    /// under the message's provider, or the provider is unknown and the
+    /// providers in the table charge differently. Its own line on every
+    /// report with its token counts, never zero.
+    NotPricedYet,
+}
+
+impl CostLabel {
+    /// The label as reports write it.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Priced => "priced",
+            Self::CountError => "count error",
+            Self::NotPricedYet => "not priced yet",
+        }
+    }
 }
 
 /// What one message cost, or why it has no figure.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MessageCost {
     /// The cost, where the label is `Priced`.
     pub amount: Option<Money>,
     pub label: CostLabel,
+    /// Kinds with tokens and no price, left out of the amount.
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub unpriced_kinds: BTreeSet<TokenKind>,
 }
 
 impl MessageCost {
+    const fn without(label: CostLabel) -> Self {
+        Self {
+            amount: None,
+            label,
+            unpriced_kinds: BTreeSet::new(),
+        }
+    }
+
     /// The amount to add up: the cost, or zero in `currency` where the
     /// message has no figure. The label says which.
     #[must_use]
-    pub fn amount_or_zero(self, currency: Currency) -> Money {
+    pub fn amount_or_zero(&self, currency: Currency) -> Money {
         self.amount.unwrap_or_else(|| Money::zero(currency))
     }
 }
@@ -130,71 +162,167 @@ impl PriceTable {
         self.rows.iter()
     }
 
-    /// Whether the table has any row for a model.
+    /// Whether the table has any row for a model of a provider valid on a
+    /// date.
     #[must_use]
-    pub fn knows(&self, model: &ModelRef) -> bool {
+    pub fn knows(&self, provider: &str, model: &str, on: Date) -> bool {
         self.rows
             .iter()
-            .any(|row| row.provider == model.provider && row.model == model.model)
+            .any(|row| row.provider == provider && row.model == model && row.valid_from <= on)
     }
 
-    /// `p(provider, model, kind, as of date)`: the organization's row if it
-    /// has one valid on the date, else the managed row; among those, the one
-    /// valid from the latest date. `None` if no row is valid on the date.
+    /// The providers with a row for a model valid on a date, not counting
+    /// the rows of a contract.
     #[must_use]
-    pub fn price(&self, model: &ModelRef, kind: TokenKind, on: Date) -> Option<Money> {
+    pub fn providers_of(&self, model: &str, on: Date) -> BTreeSet<&str> {
         self.rows
             .iter()
-            .filter(|row| {
-                row.provider == model.provider
-                    && row.model == model.model
-                    && row.kind == kind
-                    && row.valid_from <= on
-            })
-            .max_by_key(|row| (row.source, row.valid_from))
-            .map(|row| row.per_million)
-    }
-
-    /// The prices of every kind of a model on a date, by kind.
-    #[must_use]
-    pub fn prices(&self, model: &ModelRef, on: Date) -> BTreeMap<TokenKind, Money> {
-        TokenKind::ALL
-            .iter()
-            .filter_map(|kind| self.price(model, *kind, on).map(|price| (*kind, price)))
+            .filter(|row| row.model == model && row.valid_from <= on && row.contract.is_none())
+            .map(|row| row.provider.as_str())
             .collect()
     }
 
-    /// `C(e)`: what a message cost at the prices in force at its time, or
-    /// why it has no figure.
+    /// `p(c, provider, model, kind, as of date)`: among the rows valid on
+    /// the date, the contract's own row if it has one, else the
+    /// organization's, else the managed one; among those, the one valid
+    /// from the latest date. A kind with no row of its own takes the price
+    /// of the kind it is priced as ([`TokenKind::priced_as`]). `None` if no
+    /// row is valid on the date.
+    #[must_use]
+    pub fn price(
+        &self,
+        provider: &str,
+        model: &str,
+        kind: &TokenKind,
+        on: Date,
+        contract: Option<&TagValue>,
+    ) -> Option<Money> {
+        self.own_price(provider, model, kind, on, contract)
+            .or_else(|| {
+                kind.priced_as()
+                    .and_then(|alias| self.own_price(provider, model, &alias, on, contract))
+            })
+    }
+
+    fn own_price(
+        &self,
+        provider: &str,
+        model: &str,
+        kind: &TokenKind,
+        on: Date,
+        contract: Option<&TagValue>,
+    ) -> Option<Money> {
+        self.rows
+            .iter()
+            .filter(|row| {
+                row.provider == provider
+                    && row.model == model
+                    && row.kind == *kind
+                    && row.valid_from <= on
+                    && row
+                        .contract
+                        .as_ref()
+                        .is_none_or(|own| Some(own) == contract)
+            })
+            .max_by_key(|row| (row.contract.is_some(), row.source, row.valid_from))
+            .map(|row| row.per_million)
+    }
+
+    /// `C(e)` of a message as it was sent, under no contract.
     ///
     /// # Errors
     ///
     /// [`MoneyError::Overflow`] if the amount does not fit.
     pub fn cost(&self, message: &Message) -> Result<MessageCost, MoneyError> {
-        let Some(tokens) = message.tokens else {
-            return Ok(MessageCost {
-                amount: None,
-                label: CostLabel::CountError,
-            });
+        self.cost_of(
+            message.tokens.as_ref(),
+            message.model.provider.as_deref(),
+            &message.model.model,
+            message.at,
+            None,
+        )
+    }
+
+    /// `C(e)`: what counts of a model cost at the prices in force at a
+    /// moment, under a provider and a contract when known, or why they have
+    /// no figure.
+    ///
+    /// # Errors
+    ///
+    /// [`MoneyError::Overflow`] if the amount does not fit.
+    pub fn cost_of(
+        &self,
+        tokens: Option<&TokenCounts>,
+        provider: Option<&str>,
+        model: &str,
+        at: OffsetDateTime,
+        contract: Option<&TagValue>,
+    ) -> Result<MessageCost, MoneyError> {
+        let Some(tokens) = tokens else {
+            return Ok(MessageCost::without(CostLabel::CountError));
         };
-        let on = date_of(message.at);
-        let prices = self.prices(&message.model, on);
-        let needs_price = |kind: &TokenKind| tokens.get(*kind) > 0;
-        if prices.is_empty()
-            || TokenKind::ALL
+        let on = date_of(at);
+        let providers: Vec<&str> = match provider {
+            Some(provider) if self.knows(provider, model, on) => vec![provider],
+            Some(_) => Vec::new(),
+            None => self.providers_of(model, on).into_iter().collect(),
+        };
+        if providers.is_empty() {
+            return Ok(MessageCost::without(CostLabel::NotPricedYet));
+        }
+        let mut scaled = 0_i128;
+        let mut priced_any = false;
+        let mut unpriced_kinds = BTreeSet::new();
+        for (kind, count) in tokens.summed() {
+            let mut prices = providers
                 .iter()
-                .filter(|kind| needs_price(kind))
-                .any(|kind| !prices.contains_key(kind))
-        {
-            return Ok(MessageCost {
-                amount: None,
-                label: CostLabel::UnknownModel,
-            });
+                .map(|provider| self.price(provider, model, kind, on, contract));
+            let Some(price) = prices.next() else {
+                return Ok(MessageCost::without(CostLabel::NotPricedYet));
+            };
+            if prices.any(|other| other != price) {
+                return Ok(MessageCost::without(CostLabel::NotPricedYet));
+            }
+            let Some(price) = price else {
+                unpriced_kinds.insert(kind.clone());
+                continue;
+            };
+            priced_any = true;
+            let part = i128::from(count)
+                .checked_mul(i128::from(price.nanos()))
+                .ok_or(MoneyError::Overflow)?;
+            scaled = scaled.checked_add(part).ok_or(MoneyError::Overflow)?;
+        }
+        if !priced_any && !unpriced_kinds.is_empty() {
+            return Ok(MessageCost::without(CostLabel::NotPricedYet));
         }
         Ok(MessageCost {
-            amount: Some(cost_at(&prices, tokens, self.currency)?),
+            amount: Some(per_million(scaled, self.currency)?),
             label: CostLabel::Priced,
+            unpriced_kinds,
         })
+    }
+
+    /// The prices of every kind a model has a row for on a date, under a
+    /// provider, by kind.
+    #[must_use]
+    pub fn prices(&self, model: &ModelRef, on: Date) -> BTreeMap<TokenKind, Money> {
+        let Some(provider) = model.provider.as_deref() else {
+            return BTreeMap::new();
+        };
+        let kinds: BTreeSet<&TokenKind> = self
+            .rows
+            .iter()
+            .filter(|row| row.provider == provider && row.model == model.model)
+            .map(|row| &row.kind)
+            .collect();
+        kinds
+            .into_iter()
+            .filter_map(|kind| {
+                self.price(provider, &model.model, kind, on, None)
+                    .map(|price| (kind.clone(), price))
+            })
+            .collect()
     }
 }
 
@@ -204,24 +332,9 @@ pub fn date_of(moment: OffsetDateTime) -> Date {
     moment.to_offset(time::UtcOffset::UTC).date()
 }
 
-/// Tokens times prices per million, summed exactly and rounded half away
-/// from zero to the nano-unit once for the whole message. A kind without a
-/// price counts only when it has no tokens.
-fn cost_at(
-    prices: &BTreeMap<TokenKind, Money>,
-    tokens: TokenCounts,
-    currency: Currency,
-) -> Result<Money, MoneyError> {
-    let mut scaled = 0_i128;
-    for kind in TokenKind::ALL {
-        let Some(price) = prices.get(&kind) else {
-            continue;
-        };
-        let part = i128::from(tokens.get(kind))
-            .checked_mul(i128::from(price.nanos()))
-            .ok_or(MoneyError::Overflow)?;
-        scaled = scaled.checked_add(part).ok_or(MoneyError::Overflow)?;
-    }
+/// A sum of tokens times prices per million, rounded half away from zero
+/// to the nano-unit once for the whole message.
+fn per_million(scaled: i128, currency: Currency) -> Result<Money, MoneyError> {
     let whole = scaled
         .checked_div(TOKENS_PER_PRICE)
         .ok_or(MoneyError::Overflow)?;
@@ -249,25 +362,28 @@ fn cost_at(
 mod tests {
     use super::*;
     use crate::message::{MessageId, SessionFacts, SessionId, Signals};
-    use crate::tags::{TagValue, Tags};
+    use crate::tags::Tags;
     use time::macros::{date, datetime};
 
     fn usd(text: &str) -> Money {
         Money::parse(text, Currency::USD).unwrap()
     }
 
+    const SONNET: &str = "claude-sonnet-4-5";
+
     fn sonnet() -> ModelRef {
-        ModelRef::new("anthropic", "claude-sonnet-4-5")
+        ModelRef::new("anthropic", SONNET)
     }
 
     fn row(kind: TokenKind, price: &str, from: Date, source: PriceSource) -> PriceRow {
         PriceRow {
             provider: "anthropic".to_owned(),
-            model: "claude-sonnet-4-5".to_owned(),
+            model: SONNET.to_owned(),
             kind,
             per_million: usd(price),
             valid_from: from,
             source,
+            contract: None,
         }
     }
 
@@ -275,10 +391,10 @@ mod tests {
         let mut table = PriceTable::new(Currency::USD);
         let from = date!(2026 - 01 - 01);
         for (kind, price) in [
-            (TokenKind::Input, "3"),
-            (TokenKind::Output, "15"),
-            (TokenKind::CacheWrite, "3.75"),
-            (TokenKind::CacheRead, "0.30"),
+            (TokenKind::INPUT, "3"),
+            (TokenKind::OUTPUT, "15"),
+            (TokenKind::CACHE_WRITE, "3.75"),
+            (TokenKind::CACHE_READ, "0.30"),
         ] {
             table
                 .insert(row(kind, price, from, PriceSource::Managed))
@@ -304,20 +420,25 @@ mod tests {
         }
     }
 
+    fn input(count: u64) -> TokenCounts {
+        TokenCounts::new().with(TokenKind::INPUT, count)
+    }
+
     const MARCH: OffsetDateTime = datetime!(2026-03-10 12:00 UTC);
+    const ON: Date = date!(2026 - 03 - 10);
 
     #[test]
     fn cost_is_tokens_times_the_price_per_million() {
-        let tokens = TokenCounts {
-            input: 1_000_000,
-            output: 100_000,
-            cache_write: 10_000,
-            cache_read: 1_000,
-        };
+        let tokens = TokenCounts::new()
+            .with(TokenKind::INPUT, 1_000_000)
+            .with(TokenKind::OUTPUT, 100_000)
+            .with(TokenKind::CACHE_WRITE, 10_000)
+            .with(TokenKind::CACHE_READ, 1_000);
         // 3 + 1.5 + 0.0375 + 0.0003
         let cost = table().cost(&message(Some(tokens), MARCH)).unwrap();
         assert_eq!(cost.amount, Some(usd("4.5378")));
         assert_eq!(cost.label, CostLabel::Priced);
+        assert!(cost.unpriced_kinds.is_empty());
         assert_eq!(cost.amount_or_zero(Currency::USD), usd("4.5378"));
     }
 
@@ -329,62 +450,220 @@ mod tests {
         assert_eq!(cost.amount_or_zero(Currency::USD), usd("0"));
         // Zero counts are counts: the cost is zero and priced.
         let zero = table()
-            .cost(&message(Some(TokenCounts::default()), MARCH))
+            .cost(&message(Some(TokenCounts::new()), MARCH))
             .unwrap();
         assert_eq!(zero.amount, Some(usd("0")));
         assert_eq!(zero.label, CostLabel::Priced);
     }
 
     #[test]
-    fn an_unknown_model_is_labelled_not_zero() {
-        let mut unknown = message(
-            Some(TokenCounts {
-                input: 1_000,
-                ..TokenCounts::default()
-            }),
-            MARCH,
-        );
+    fn a_model_the_table_does_not_have_is_not_priced_yet() {
+        let mut unknown = message(Some(input(1_000)), MARCH);
         unknown.model = ModelRef::new("acme", "mystery-1");
         let cost = table().cost(&unknown).unwrap();
         assert_eq!(cost.amount, None);
-        assert_eq!(cost.label, CostLabel::UnknownModel);
-        assert!(!table().knows(&unknown.model));
-        assert!(table().knows(&sonnet()));
-        assert!(!table().knows(&ModelRef::new("anthropic", "mystery-1")));
-        assert!(!table().knows(&ModelRef::new("acme", "claude-sonnet-4-5")));
+        assert_eq!(cost.label, CostLabel::NotPricedYet);
+        assert_eq!(cost.label.as_str(), "not priced yet");
+        assert!(table().knows("anthropic", SONNET, ON));
+        assert!(!table().knows("anthropic", SONNET, date!(2025 - 12 - 31)));
+        assert!(!table().knows("anthropic", "mystery-1", ON));
+        assert!(!table().knows("acme", SONNET, ON));
+        // Zero counts of an unknown model are not priced either.
+        unknown.tokens = Some(TokenCounts::new());
+        assert_eq!(
+            table().cost(&unknown).unwrap().label,
+            CostLabel::NotPricedYet
+        );
+        assert_eq!(CostLabel::Priced.as_str(), "priced");
+        assert_eq!(CostLabel::CountError.as_str(), "count error");
     }
 
     #[test]
-    fn a_kind_without_a_price_is_unknown_only_when_it_has_tokens() {
+    fn a_kind_without_a_price_is_listed_and_the_rest_is_priced() {
         let mut table = PriceTable::new(Currency::USD);
         table
             .insert(row(
-                TokenKind::Input,
+                TokenKind::INPUT,
                 "3",
                 date!(2026 - 01 - 01),
                 PriceSource::Managed,
             ))
             .unwrap();
-        let input_only = message(
-            Some(TokenCounts {
-                input: 1_000_000,
-                ..TokenCounts::default()
-            }),
+        let input_only = message(Some(input(1_000_000)), MARCH);
+        let cost = table.cost(&input_only).unwrap();
+        assert_eq!(cost.amount, Some(usd("3")));
+        assert!(cost.unpriced_kinds.is_empty());
+        let reasoning = TokenKind::new("reasoning").unwrap();
+        let with_more = message(
+            Some(
+                input(1_000_000)
+                    .with(TokenKind::OUTPUT, 1)
+                    .with(reasoning.clone(), 5),
+            ),
             MARCH,
         );
-        assert_eq!(table.cost(&input_only).unwrap().amount, Some(usd("3")));
-        let with_output = message(
-            Some(TokenCounts {
-                input: 1_000_000,
-                output: 1,
-                ..TokenCounts::default()
-            }),
-            MARCH,
+        let cost = table.cost(&with_more).unwrap();
+        assert_eq!(cost.label, CostLabel::Priced);
+        assert_eq!(cost.amount, Some(usd("3")));
+        assert_eq!(
+            cost.unpriced_kinds,
+            [TokenKind::OUTPUT, reasoning.clone()].into_iter().collect()
+        );
+        // Only unpriced kinds: nothing stands, so not priced yet, never zero.
+        let only_unknown = message(Some(TokenCounts::new().with(reasoning, 5)), MARCH);
+        let cost = table.cost(&only_unknown).unwrap();
+        assert_eq!(cost.label, CostLabel::NotPricedYet);
+        assert_eq!(cost.amount, None);
+        assert!(cost.unpriced_kinds.is_empty());
+    }
+
+    #[test]
+    fn a_plain_cache_write_is_priced_as_five_minutes_and_finer_counts_win() {
+        let mut table = table();
+        table
+            .insert(row(
+                TokenKind::CACHE_WRITE_1H,
+                "6",
+                date!(2026 - 01 - 01),
+                PriceSource::Managed,
+            ))
+            .unwrap();
+        // No cache_write_5m row: it takes the plain cache write's price.
+        assert_eq!(
+            table.price("anthropic", SONNET, &TokenKind::CACHE_WRITE_5M, ON, None),
+            Some(usd("3.75"))
+        );
+        let plain = TokenCounts::new().with(TokenKind::CACHE_WRITE, 1_000_000);
+        assert_eq!(
+            table
+                .cost(&message(Some(plain.clone()), MARCH))
+                .unwrap()
+                .amount,
+            Some(usd("3.75"))
+        );
+        // The same call told finer: 600k at 3.75 and 400k at 6; the plain
+        // count is not added again.
+        let finer = plain
+            .with(TokenKind::CACHE_WRITE_5M, 600_000)
+            .with(TokenKind::CACHE_WRITE_1H, 400_000);
+        assert_eq!(
+            table.cost(&message(Some(finer), MARCH)).unwrap().amount,
+            Some(usd("4.65"))
+        );
+        // A table that has only a 5-minute row prices a plain write with it.
+        let mut five = PriceTable::new(Currency::USD);
+        five.insert(row(
+            TokenKind::CACHE_WRITE_5M,
+            "4",
+            date!(2026 - 01 - 01),
+            PriceSource::Managed,
+        ))
+        .unwrap();
+        assert_eq!(
+            five.price("anthropic", SONNET, &TokenKind::CACHE_WRITE, ON, None),
+            Some(usd("4"))
         );
         assert_eq!(
-            table.cost(&with_output).unwrap().label,
-            CostLabel::UnknownModel
+            five.price("anthropic", SONNET, &TokenKind::CACHE_WRITE_1H, ON, None),
+            None
         );
+    }
+
+    #[test]
+    fn without_a_provider_a_message_is_priced_only_when_every_provider_agrees() {
+        let mut table = table();
+        for (kind, price) in [(TokenKind::INPUT, "3"), (TokenKind::OUTPUT, "16")] {
+            let mut bedrock = row(kind, price, date!(2026 - 01 - 01), PriceSource::Managed);
+            bedrock.provider = "aws_bedrock".to_owned();
+            table.insert(bedrock).unwrap();
+        }
+        assert_eq!(
+            table
+                .providers_of(SONNET, ON)
+                .into_iter()
+                .collect::<Vec<_>>(),
+            vec!["anthropic", "aws_bedrock"]
+        );
+        let mut unreported = message(Some(input(1_000_000)), MARCH);
+        unreported.model = ModelRef::unreported(SONNET);
+        // Both charge 3 for input.
+        assert_eq!(table.cost(&unreported).unwrap().amount, Some(usd("3")));
+        // They differ on output: 15 against 16.
+        unreported.tokens = Some(input(1_000_000).with(TokenKind::OUTPUT, 1));
+        assert_eq!(
+            table.cost(&unreported).unwrap().label,
+            CostLabel::NotPricedYet
+        );
+        // Bedrock has no cache read price, Anthropic has one: not the same.
+        unreported.tokens = Some(TokenCounts::new().with(TokenKind::CACHE_READ, 1));
+        assert_eq!(
+            table.cost(&unreported).unwrap().label,
+            CostLabel::NotPricedYet
+        );
+        // No provider in the table has the model.
+        unreported.model = ModelRef::unreported("mystery-1");
+        assert_eq!(
+            table.cost(&unreported).unwrap().label,
+            CostLabel::NotPricedYet
+        );
+        // A contract's own rows never make a provider count here.
+        let mut contract_only = row(
+            TokenKind::INPUT,
+            "1",
+            date!(2026 - 01 - 01),
+            PriceSource::Organization,
+        );
+        contract_only.provider = "acme".to_owned();
+        contract_only.contract = Some(TagValue::new("acme-deal").unwrap());
+        table.insert(contract_only).unwrap();
+        assert_eq!(table.providers_of(SONNET, ON).len(), 2);
+    }
+
+    #[test]
+    fn the_contracts_own_price_wins_for_its_messages_only() {
+        let mut table = table();
+        let deal = TagValue::new("anthropic-api").unwrap();
+        let mut own = row(
+            TokenKind::INPUT,
+            "2",
+            date!(2026 - 02 - 01),
+            PriceSource::Managed,
+        );
+        own.contract = Some(deal.clone());
+        table.insert(own).unwrap();
+        // An organization row valid later does not beat the contract's row.
+        table
+            .insert(row(
+                TokenKind::INPUT,
+                "2.5",
+                date!(2026 - 03 - 01),
+                PriceSource::Organization,
+            ))
+            .unwrap();
+        assert_eq!(
+            table.price("anthropic", SONNET, &TokenKind::INPUT, ON, Some(&deal)),
+            Some(usd("2"))
+        );
+        assert_eq!(
+            table.price("anthropic", SONNET, &TokenKind::INPUT, ON, None),
+            Some(usd("2.5"))
+        );
+        let other = TagValue::new("claude-team").unwrap();
+        assert_eq!(
+            table.price("anthropic", SONNET, &TokenKind::INPUT, ON, Some(&other)),
+            Some(usd("2.5"))
+        );
+        // Kinds the contract has no row for take the table's price.
+        let cost = table
+            .cost_of(
+                Some(&input(1_000_000).with(TokenKind::OUTPUT, 1_000_000)),
+                Some("anthropic"),
+                SONNET,
+                MARCH,
+                Some(&deal),
+            )
+            .unwrap();
+        assert_eq!(cost.amount, Some(usd("17")));
     }
 
     #[test]
@@ -392,41 +671,35 @@ mod tests {
         let mut table = table();
         table
             .insert(row(
-                TokenKind::Input,
+                TokenKind::INPUT,
                 "6",
                 date!(2026 - 03 - 15),
                 PriceSource::Managed,
             ))
             .unwrap();
-        let on_march_10 = date!(2026 - 03 - 10);
-        assert_eq!(
-            table.price(&sonnet(), TokenKind::Input, on_march_10),
-            Some(usd("3"))
-        );
-        assert_eq!(
-            table.price(&sonnet(), TokenKind::Input, date!(2026 - 03 - 15)),
-            Some(usd("6"))
-        );
-        assert_eq!(
-            table.price(&sonnet(), TokenKind::Input, date!(2025 - 12 - 31)),
-            None
-        );
-        let tokens = TokenCounts {
-            input: 1_000_000,
-            ..TokenCounts::default()
-        };
+        let price = |on| table.price("anthropic", SONNET, &TokenKind::INPUT, on, None);
+        assert_eq!(price(date!(2026 - 03 - 10)), Some(usd("3")));
+        assert_eq!(price(date!(2026 - 03 - 15)), Some(usd("6")));
+        assert_eq!(price(date!(2025 - 12 - 31)), None);
+        let tokens = input(1_000_000);
         let before = table
-            .cost(&message(Some(tokens), datetime!(2026-03-14 23:59 UTC)))
+            .cost(&message(
+                Some(tokens.clone()),
+                datetime!(2026-03-14 23:59 UTC),
+            ))
             .unwrap();
         assert_eq!(before.amount, Some(usd("3")));
         let after = table
-            .cost(&message(Some(tokens), datetime!(2026-03-15 00:00 UTC)))
+            .cost(&message(
+                Some(tokens.clone()),
+                datetime!(2026-03-15 00:00 UTC),
+            ))
             .unwrap();
         assert_eq!(after.amount, Some(usd("6")));
         let too_early = table
             .cost(&message(Some(tokens), datetime!(2025-12-31 23:59 UTC)))
             .unwrap();
-        assert_eq!(too_early.label, CostLabel::UnknownModel);
+        assert_eq!(too_early.label, CostLabel::NotPricedYet);
     }
 
     #[test]
@@ -434,7 +707,7 @@ mod tests {
         let mut table = table();
         table
             .insert(row(
-                TokenKind::Input,
+                TokenKind::INPUT,
                 "2",
                 date!(2026 - 02 - 01),
                 PriceSource::Organization,
@@ -443,68 +716,46 @@ mod tests {
         // A newer managed row does not beat an older override.
         table
             .insert(row(
-                TokenKind::Input,
+                TokenKind::INPUT,
                 "9",
                 date!(2026 - 03 - 01),
                 PriceSource::Managed,
             ))
             .unwrap();
-        assert_eq!(
-            table.price(&sonnet(), TokenKind::Input, date!(2026 - 03 - 10)),
-            Some(usd("2"))
-        );
+        let price = |on| table.price("anthropic", SONNET, &TokenKind::INPUT, on, None);
+        assert_eq!(price(date!(2026 - 03 - 10)), Some(usd("2")));
         // Before the override was valid, the managed row stands.
-        assert_eq!(
-            table.price(&sonnet(), TokenKind::Input, date!(2026 - 01 - 15)),
-            Some(usd("3"))
-        );
-        assert_eq!(table.prices(&sonnet(), date!(2026 - 03 - 10)).len(), 4);
+        assert_eq!(price(date!(2026 - 01 - 15)), Some(usd("3")));
+        assert_eq!(table.prices(&sonnet(), ON).len(), 4);
+        assert!(table.prices(&ModelRef::unreported(SONNET), ON).is_empty());
         assert_eq!(table.rows().count(), 6);
     }
 
     #[test]
     fn a_fraction_of_a_nano_unit_rounds_half_away_from_zero() {
-        let prices: BTreeMap<TokenKind, Money> = [
-            (TokenKind::Input, Money::from_nanos(1, Currency::USD)),
-            (TokenKind::Output, Money::from_nanos(-1, Currency::USD)),
-        ]
-        .into_iter()
-        .collect();
-        let count = |input, output| TokenCounts {
-            input,
-            output,
-            ..TokenCounts::default()
-        };
+        assert_eq!(per_million(500_000, Currency::USD).unwrap().nanos(), 1);
+        assert_eq!(per_million(499_999, Currency::USD).unwrap().nanos(), 0);
+        assert_eq!(per_million(-500_000, Currency::USD).unwrap().nanos(), -1);
+        assert_eq!(per_million(-499_999, Currency::USD).unwrap().nanos(), 0);
+        assert_eq!(per_million(2_500_000, Currency::USD).unwrap().nanos(), 3);
         assert_eq!(
-            cost_at(&prices, count(500_000, 0), Currency::USD)
-                .unwrap()
-                .nanos(),
-            1
+            per_million(i128::MAX, Currency::USD),
+            Err(MoneyError::Overflow)
         );
+        let mut table = PriceTable::new(Currency::USD);
+        table
+            .insert(PriceRow {
+                per_million: Money::from_nanos(i64::MAX, Currency::USD),
+                ..row(
+                    TokenKind::INPUT,
+                    "0",
+                    date!(2026 - 01 - 01),
+                    PriceSource::Managed,
+                )
+            })
+            .unwrap();
         assert_eq!(
-            cost_at(&prices, count(499_999, 0), Currency::USD)
-                .unwrap()
-                .nanos(),
-            0
-        );
-        assert_eq!(
-            cost_at(&prices, count(0, 500_000), Currency::USD)
-                .unwrap()
-                .nanos(),
-            -1
-        );
-        assert_eq!(
-            cost_at(&prices, count(0, 499_999), Currency::USD)
-                .unwrap()
-                .nanos(),
-            0
-        );
-        let huge: BTreeMap<TokenKind, Money> =
-            [(TokenKind::Input, Money::from_nanos(i64::MAX, Currency::USD))]
-                .into_iter()
-                .collect();
-        assert_eq!(
-            cost_at(&huge, count(u64::MAX, 0), Currency::USD),
+            table.cost(&message(Some(input(u64::MAX)), MARCH)),
             Err(MoneyError::Overflow)
         );
     }
@@ -512,19 +763,19 @@ mod tests {
     #[test]
     fn prices_by_kind_list_only_the_kinds_with_a_row() {
         let mut table = PriceTable::new(Currency::USD);
-        assert!(table.prices(&sonnet(), date!(2026 - 03 - 10)).is_empty());
+        assert!(table.prices(&sonnet(), ON).is_empty());
         table
             .insert(row(
-                TokenKind::Output,
+                TokenKind::OUTPUT,
                 "15",
                 date!(2026 - 01 - 01),
                 PriceSource::Managed,
             ))
             .unwrap();
-        let prices = table.prices(&sonnet(), date!(2026 - 03 - 10));
+        let prices = table.prices(&sonnet(), ON);
         assert_eq!(prices.len(), 1);
-        assert_eq!(prices.get(&TokenKind::Output), Some(&usd("15")));
-        assert_eq!(prices.get(&TokenKind::Input), None);
+        assert_eq!(prices.get(&TokenKind::OUTPUT), Some(&usd("15")));
+        assert_eq!(prices.get(&TokenKind::INPUT), None);
         assert!(table.prices(&sonnet(), date!(2025 - 12 - 31)).is_empty());
     }
 
@@ -532,7 +783,7 @@ mod tests {
     fn rows_must_be_in_the_tables_currency() {
         let mut table = PriceTable::new(Currency::USD);
         let mut euro = row(
-            TokenKind::Input,
+            TokenKind::INPUT,
             "3",
             date!(2026 - 01 - 01),
             PriceSource::Managed,
@@ -552,8 +803,10 @@ mod tests {
             "per_million": {"nanos": 3000000000, "currency": "USD"}, "valid_from": "2026-01-01"}"#;
         let row: PriceRow = serde_json::from_str(json).unwrap();
         assert_eq!(row.source, PriceSource::Managed);
+        assert_eq!(row.contract, None);
         assert_eq!(row.model_ref(), sonnet());
         assert_eq!(row.valid_from, date!(2026 - 01 - 01));
+        assert!(!serde_json::to_string(&row).unwrap().contains("contract"));
         let json = serde_json::to_string(&table()).unwrap();
         assert_eq!(serde_json::from_str::<PriceTable>(&json).unwrap(), table());
         assert_eq!(

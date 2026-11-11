@@ -499,9 +499,9 @@ fn the_mod_records_summaries_facts_and_tags_line_by_line() {
     let review = machine.json(&["review", "--json"]).unwrap();
     let claude = &by_harness(&review)["claude-code"];
     assert_eq!(claude["summary"], "Fixed the redirect loop in checkout");
-    // A feature picked in the session is the message's own tag; the
-    // branch rule still wins for the feature, the other tag stays.
-    assert_eq!(claude["splits"][0]["tags"]["feature"], "KD-214");
+    // A feature picked in the session is the sender's own assignment: it
+    // wins over the branch rule (ADR 0028), and the other tag stays.
+    assert_eq!(claude["splits"][0]["tags"]["feature"], "KD-260");
     assert_eq!(claude["splits"][0]["tags"]["purpose"], "spike");
     // Token counts come from the session file, never from the record.
     assert_eq!(claude["tokens"]["output"], 100_000);
@@ -717,8 +717,10 @@ fn messages_are_submitted_with_keys_but_never_prompts() {
     // person's own attributes close the tag set.
     assert_eq!(codex["splits"][0]["tags"]["purpose"], "operations");
     assert_eq!(codex["assigned_by"], "rule: ops work");
-    // A purpose alone is neither a feature nor a project.
-    assert_eq!(codex["label"], "organization overhead");
+    // Rules resolve per tag name: the purpose rule does not stop the key
+    // in the prompts from giving the feature, so the work is direct.
+    assert_eq!(codex["splits"][0]["tags"]["feature"], "OPS-7");
+    assert_eq!(codex["label"], "direct");
     let claude = &by_harness(&review)["claude-code"];
     assert_eq!(claude["splits"][0]["tags"]["feature"], "KD-214");
     assert_eq!(claude["cost"], "4.80");

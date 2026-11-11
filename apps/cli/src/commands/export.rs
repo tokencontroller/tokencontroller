@@ -81,10 +81,22 @@ pub fn write_csv(
                     message.model.model.clone(),
                     utc(message.at),
                     utc(message.at),
-                    message.tokens.input.to_string(),
-                    message.tokens.output.to_string(),
-                    message.tokens.cache_read.to_string(),
-                    message.tokens.cache_write.to_string(),
+                    message
+                        .tokens
+                        .get(&tokencontroller_core::TokenKind::INPUT)
+                        .to_string(),
+                    message
+                        .tokens
+                        .get(&tokencontroller_core::TokenKind::OUTPUT)
+                        .to_string(),
+                    message
+                        .tokens
+                        .get(&tokencontroller_core::TokenKind::CACHE_READ)
+                        .to_string(),
+                    message
+                        .tokens
+                        .get(&tokencontroller_core::TokenKind::CACHE_WRITE)
+                        .to_string(),
                     session.summary.clone().unwrap_or_default(),
                     part.tags
                         .get(&TagName::feature())

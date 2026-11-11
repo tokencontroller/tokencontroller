@@ -109,7 +109,7 @@ pub fn rows_view(log: &Log, fold: &Fold) -> Vec<PriceRowView> {
                     id: event.id.to_string(),
                     provider: row.provider.clone(),
                     model: row.model.clone(),
-                    kind: row.kind,
+                    kind: row.kind.clone(),
                     price_per_million: json::money_exact(row.per_million),
                     valid_from: row.valid_from,
                     source: row.source,
@@ -224,6 +224,7 @@ async fn add_row(
         per_million: price(&request.price_per_million)?,
         valid_from: crate::dates::parse(&request.valid_from)?,
         source: PriceSource::Organization,
+        contract: None,
     };
     if fold.prices().rows().any(|live| *live == row) {
         return Err(ApiError::Conflict(
@@ -330,6 +331,7 @@ pub fn parse_file(text: &str) -> Result<Vec<PriceRow>, FileError> {
             per_million,
             valid_from,
             source: PriceSource::Managed,
+            contract: None,
         });
     }
     Ok(rows)
@@ -365,7 +367,7 @@ pub async fn load_file(state: &AppState) -> anyhow::Result<usize> {
 pub async fn store_managed(db: &sqlx::PgPool, rows: &[PriceRow]) -> Result<(), sqlx::Error> {
     let mut tx = db.begin().await?;
     for row in rows {
-        let kind = serde_json::to_value(row.kind)
+        let kind = serde_json::to_value(&row.kind)
             .ok()
             .and_then(|value| value.as_str().map(str::to_owned))
             .unwrap_or_default();
@@ -417,7 +419,7 @@ mod tests {
     fn the_docs_file_reads_into_four_rows() {
         let rows = parse_file(FILE).unwrap();
         assert_eq!(rows.len(), 4);
-        assert_eq!(rows[3].kind, TokenKind::CacheWrite);
+        assert_eq!(rows[3].kind, TokenKind::CACHE_WRITE);
         assert_eq!(json::money_exact(rows[3].per_million), "18.75");
         assert_eq!(rows[0].source, PriceSource::Managed);
     }
@@ -425,7 +427,7 @@ mod tests {
     #[test]
     fn a_wrong_row_names_its_line() {
         let wrong =
-            "provider,model,kind,price_per_million,valid_from\nanthropic,m,tokens,1,2026-01-01\n";
+            "provider,model,kind,price_per_million,valid_from\nanthropic,m,Tokens!,1,2026-01-01\n";
         assert!(matches!(
             parse_file(wrong),
             Err(FileError::Row { line: 2, .. })

@@ -62,8 +62,8 @@ impl SessionJson {
             started_at: utc(session.started_at),
             ended_at: utc(session.ended_at),
             model: session.model.model.clone(),
-            provider: session.model.provider.clone(),
-            tokens: session.tokens,
+            provider: session.model.provider.clone().unwrap_or_default(),
+            tokens: session.tokens.clone(),
             cost: session.cost.map(decimal),
             currency: currency.code(),
             count_errors: session.count_errors,
@@ -422,6 +422,7 @@ fn remember_rule(
                 name: name.clone(),
                 key: value.clone(),
             },
+            contract: None,
         });
     }
     let mut personal = super::rules::personal(app)?;

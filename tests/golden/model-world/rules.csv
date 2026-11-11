@@ -1,0 +1,4 @@
+id,recorded_at,name,scope,order,signal,pattern,then,creates
+r1,2026-01-01T00:00:00Z,team sign-in,organization,1,resource organization.id,^org-team-1$,tag contract=claude-team,anthropic flat 150
+r2,2026-03-10T00:00:00Z,api sign-in,organization,2,resource organization.id,^org-api-1$,tag contract=anthropic-api,
+r3,2026-03-10T00:00:00Z,feature key in branch,organization,3,branch,KD-\d+,key_of feature,

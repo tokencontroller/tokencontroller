@@ -12,6 +12,7 @@ use time::Date;
 
 use serde::{Deserialize, Serialize};
 
+use crate::contract::ContractTerms;
 use crate::tags::{TagName, TagValue, Tags};
 
 /// A tag value: one value a tag name can take, with the tags it brings by
@@ -33,6 +34,9 @@ pub struct TagValueRecord {
     /// `D(v)`: the tags this value brings, such as `project: shop`.
     #[serde(default)]
     pub defaults: Tags,
+    /// For a value of `contract`: its provider, its kind and its fee.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub contract: Option<ContractTerms>,
 }
 
 /// An attribute value: like a tag value, for people, such as team `web`
@@ -232,6 +236,7 @@ mod tests {
             source_id: None,
             source_status: None,
             defaults: tags(defaults),
+            contract: None,
         }
     }
 

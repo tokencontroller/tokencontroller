@@ -164,7 +164,7 @@ const fn cost_label(label: CostLabel) -> &'static str {
     match label {
         CostLabel::Priced => "priced",
         CostLabel::CountError => "count_error",
-        CostLabel::UnknownModel => "unknown_model",
+        CostLabel::NotPricedYet => "unknown_model",
     }
 }
 
@@ -297,12 +297,12 @@ pub fn message_views(
                 session_id: key.0,
                 message_id: key.1,
                 person: message.person.to_string(),
-                provider: message.model.provider.clone(),
+                provider: message.model.provider.clone().unwrap_or_default(),
                 model: message.model.model.clone(),
                 at: message.at,
                 agent_harness: message.agent_harness.clone(),
                 agent_name: message.agent_name.clone(),
-                tokens: message.tokens,
+                tokens: message.tokens.clone(),
                 cost: cost.cost.amount.map(json::money),
                 cost_label: cost_label(cost.cost.label),
                 reported_cost: message.reported_cost.map(json::money_exact),
@@ -429,7 +429,7 @@ pub fn session_views(
         match first.cost_label {
             CostLabel::Priced => {}
             CostLabel::CountError => session.count_errors = session.count_errors.saturating_add(1),
-            CostLabel::UnknownModel => {
+            CostLabel::NotPricedYet => {
                 let model = message.model.to_string();
                 if !session.unknown_models.contains(&model) {
                     session.unknown_models.push(model);

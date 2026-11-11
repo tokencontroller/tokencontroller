@@ -1,14 +1,21 @@
-//! Rules: a pattern over a signal that writes a split.
+//! Rules: a pattern over a signal that gives a tag value.
 //!
 //! A rule has a scope (the organization or one person) and an order. Rules
 //! run in order, lower first, the organization's before a person's at the
-//! same order; the first rule that matches writes the split. A signal that
-//! matches no tag value leaves the message with no project. "Remember" on a
-//! hand assignment creates a rule. Rules write splits on arrival and run
-//! back over unassigned messages since the cutoff (see [`crate::State`]).
+//! same order, and resolve per tag name: for each tag name the first rule
+//! that matches gives its value, so a rule on `contract` and a rule on
+//! `feature` both apply to one message. A signal that matches no tag value
+//! leaves the message without that tag. "Remember" on a hand assignment
+//! creates a rule. Rules apply on arrival and run back over messages since
+//! the cutoff; a rule on `contract` runs back before it too (see
+//! [`crate::State`]). A rule may create the contract it gives the first
+//! time it matches, such as a shipped rule on how an agent was signed in.
 
 use serde::{Deserialize, Serialize};
 
+use std::collections::BTreeMap;
+
+use crate::contract::ContractTerms;
 use crate::message::Message;
 use crate::pattern::TextPattern;
 use crate::tags::{TagName, TagValue, Tags};
@@ -62,6 +69,10 @@ pub struct Rule {
     pub signal: Signal,
     pub pattern: TextPattern,
     pub then: Then,
+    /// The terms of the contract this rule gives, created the first time
+    /// the rule matches when no contract of that key exists yet.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub contract: Option<ContractTerms>,
 }
 
 impl Rule {
@@ -103,10 +114,10 @@ impl Rule {
         }
     }
 
-    /// The tags the rule writes for a message, or `None` when it does not
-    /// match. The first text of the signal that matches decides.
+    /// The tag the rule gives a message, or `None` when it does not match.
+    /// The first text of the signal that matches decides.
     #[must_use]
-    pub fn apply(&self, message: &Message, values: &Values) -> Option<Tags> {
+    pub fn apply(&self, message: &Message, values: &Values) -> Option<(TagName, TagValue)> {
         if !self.runs_for(message) {
             return None;
         }
@@ -114,7 +125,7 @@ impl Rule {
             let Some(found) = self.pattern.key_in(text) else {
                 continue;
             };
-            let (name, key) = match &self.then {
+            return Some(match &self.then {
                 Then::Tag { name, key } => (name.clone(), key.clone()),
                 Then::KeyOf { name } => {
                     let Ok(key) = TagValue::new(found) else {
@@ -125,12 +136,17 @@ impl Rule {
                     }
                     (name.clone(), key)
                 }
-            };
-            let mut tags = Tags::new();
-            tags.insert(name, key);
-            return Some(tags);
+            });
         }
         None
+    }
+
+    /// The tag name the rule gives a value of.
+    #[must_use]
+    pub const fn gives(&self) -> &TagName {
+        match &self.then {
+            Then::Tag { name, .. } | Then::KeyOf { name } => name,
+        }
     }
 }
 
@@ -148,16 +164,37 @@ pub fn in_order<'a>(rules: impl IntoIterator<Item = &'a Rule>) -> Vec<&'a Rule> 
     ordered
 }
 
-/// The tags the first matching rule writes for a message.
+/// For each tag name, the value the first matching rule gives a message,
+/// with that rule. Rules on one tag name never stop rules on another.
 #[must_use]
-pub fn first_match<'a>(
+pub fn per_tag_name<'a>(
     rules: impl IntoIterator<Item = &'a Rule>,
     message: &Message,
     values: &Values,
-) -> Option<(&'a Rule, Tags)> {
-    in_order(rules)
+) -> BTreeMap<TagName, (&'a Rule, TagValue)> {
+    let mut given: BTreeMap<TagName, (&'a Rule, TagValue)> = BTreeMap::new();
+    for rule in in_order(rules) {
+        if given.contains_key(rule.gives()) {
+            continue;
+        }
+        if let Some((name, key)) = rule.apply(message, values) {
+            given.insert(name, (rule, key));
+        }
+    }
+    given
+}
+
+/// The tags the rules give a message, one value per tag name.
+#[must_use]
+pub fn tags_of<'a>(
+    rules: impl IntoIterator<Item = &'a Rule>,
+    message: &Message,
+    values: &Values,
+) -> Tags {
+    per_tag_name(rules, message, values)
         .into_iter()
-        .find_map(|rule| rule.apply(message, values).map(|tags| (rule, tags)))
+        .map(|(name, (_, key))| (name, key))
+        .collect()
 }
 
 #[cfg(test)]
@@ -190,6 +227,7 @@ mod tests {
                 source_id: None,
                 source_status: None,
                 defaults: tags(&["project=shop"]),
+                contract: None,
             });
         }
         values
@@ -241,7 +279,13 @@ mod tests {
             signal,
             pattern: TextPattern::new(pattern).unwrap(),
             then,
+            contract: None,
         }
+    }
+
+    fn applied(rule: &Rule, message: &Message) -> Option<Tags> {
+        rule.apply(message, &values())
+            .map(|(name, key)| [(name, key)].into_iter().collect())
     }
 
     fn key_of_feature() -> Then {
@@ -261,15 +305,15 @@ mod tests {
             key_of_feature(),
         );
         assert_eq!(
-            branch.apply(&message("mara"), &values()),
+            applied(&branch, &message("mara")),
             Some(tags(&["feature=KD-1"]))
         );
         let mut main = message("mara");
         main.signals.branch = Some("main".to_owned());
-        assert_eq!(branch.apply(&main, &values()), None);
+        assert_eq!(applied(&branch, &main), None);
         let mut none = message("mara");
         none.signals.branch = None;
-        assert_eq!(branch.apply(&none, &values()), None);
+        assert_eq!(applied(&branch, &none), None);
     }
 
     #[test]
@@ -282,7 +326,7 @@ mod tests {
             r"KD-\d+",
             key_of_feature(),
         );
-        assert_eq!(title.apply(&message("mara"), &values()), None);
+        assert_eq!(applied(&title, &message("mara")), None);
         // The first prompt key is unknown, the second is a feature.
         let prompts = rule(
             "key in prompts",
@@ -293,7 +337,7 @@ mod tests {
             key_of_feature(),
         );
         assert_eq!(
-            prompts.apply(&message("mara"), &values()),
+            applied(&prompts, &message("mara")),
             Some(tags(&["feature=KD-2"]))
         );
     }
@@ -321,7 +365,7 @@ mod tests {
                 fixed.clone(),
             );
             assert_eq!(
-                rule.apply(&message("mara"), &values()),
+                applied(&rule, &message("mara")),
                 Some(tags(&["project=shop"])),
                 "{signal:?}"
             );
@@ -334,7 +378,7 @@ mod tests {
             ".",
             fixed.clone(),
         );
-        assert_eq!(missing.apply(&message("mara"), &values()), None);
+        assert_eq!(applied(&missing, &message("mara")), None);
         let missing = rule(
             "r",
             Scope::Organization,
@@ -343,7 +387,7 @@ mod tests {
             ".",
             fixed,
         );
-        assert_eq!(missing.apply(&message("mara"), &values()), None);
+        assert_eq!(applied(&missing, &message("mara")), None);
         assert_eq!(missing.texts(&message("mara")), Vec::<&str>::new());
     }
 
@@ -362,9 +406,9 @@ mod tests {
         );
         assert!(own.runs_for(&message("tom")));
         assert!(!own.runs_for(&message("mara")));
-        assert_eq!(own.apply(&message("mara"), &values()), None);
+        assert_eq!(applied(&own, &message("mara")), None);
         assert_eq!(
-            own.apply(&message("tom"), &values()),
+            applied(&own, &message("tom")),
             Some(tags(&["project=shop"]))
         );
     }
@@ -410,15 +454,67 @@ mod tests {
             .map(|rule| rule.name.as_str())
             .collect();
         assert_eq!(names, vec!["org same", "person early", "org late"]);
-        let (matched, tags) = first_match(&rules, &message("mara"), &values()).unwrap();
+        let given = per_tag_name(&rules, &message("mara"), &values());
+        let (matched, key) = given.get(&name("project")).unwrap();
         assert_eq!(matched.name, "org same");
-        assert_eq!(tags.get_str("project").unwrap().as_str(), "same");
-        let (for_tom, _) = first_match(&rules, &message("tom"), &values()).unwrap();
-        assert_eq!(for_tom.name, "org same");
+        assert_eq!(key.as_str(), "same");
+        let for_tom = per_tag_name(&rules, &message("tom"), &values());
+        assert_eq!(for_tom.get(&name("project")).unwrap().0.name, "org same");
         let mut other = message("tom");
         other.signals.repository = Some("other".to_owned());
-        assert!(first_match(&rules, &other, &values()).is_none());
-        assert!(first_match(&Vec::<Rule>::new(), &message("tom"), &values()).is_none());
+        assert!(per_tag_name(&rules, &other, &values()).is_empty());
+        assert!(per_tag_name(&Vec::<Rule>::new(), &message("tom"), &values()).is_empty());
+    }
+
+    #[test]
+    fn rules_resolve_per_tag_name() {
+        let contract = rule(
+            "team sign-in",
+            Scope::Organization,
+            20,
+            Signal::Resource("service.name".to_owned()),
+            "^bot$",
+            Then::Tag {
+                name: name("contract"),
+                key: key("claude-team"),
+            },
+        );
+        let feature = rule(
+            "feature key in branch",
+            Scope::Organization,
+            10,
+            Signal::Branch,
+            r"KD-\d+",
+            key_of_feature(),
+        );
+        let second_feature = rule(
+            "feature key in prompts",
+            Scope::Organization,
+            15,
+            Signal::PromptKeys,
+            r"KD-\d+",
+            key_of_feature(),
+        );
+        assert_eq!(contract.gives(), &name("contract"));
+        assert_eq!(feature.gives(), &name("feature"));
+        let rules = vec![contract, second_feature, feature];
+        // The feature rule matching first does not stop the contract rule,
+        // and the second feature rule loses to the first.
+        assert_eq!(
+            tags_of(&rules, &message("mara"), &values()),
+            tags(&["contract=claude-team", "feature=KD-1"])
+        );
+        let given = per_tag_name(&rules, &message("mara"), &values());
+        assert_eq!(
+            given.get(&name("feature")).unwrap().0.name,
+            "feature key in branch"
+        );
+        let mut on_main = message("mara");
+        on_main.signals.branch = Some("main".to_owned());
+        assert_eq!(
+            tags_of(&rules, &on_main, &values()),
+            tags(&["contract=claude-team", "feature=KD-2"])
+        );
     }
 
     #[test]
@@ -436,5 +532,17 @@ mod tests {
         .unwrap();
         assert_eq!(personal.scope, Scope::Person(key("tom")));
         assert_eq!(personal.signal, Signal::Config("project".to_owned()));
+        assert_eq!(personal.contract, None);
+        let creates: Rule = serde_json::from_str(
+            r#"{"name": "team sign-in", "scope": "organization", "order": 1,
+            "signal": {"resource": "organization.id"}, "pattern": "^org-1$",
+            "then": {"tag": {"name": "contract", "key": "claude-team"}},
+            "contract": {"provider": "anthropic", "kind": "flat"}}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            creates.contract.unwrap().kind,
+            crate::contract::ContractKind::Flat
+        );
     }
 }

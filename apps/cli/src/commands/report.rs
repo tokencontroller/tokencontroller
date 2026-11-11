@@ -121,7 +121,7 @@ pub fn run(
                 "rows": rows,
                 "total": decimal(total),
                 "count_errors": cost.count_errors.len(),
-                "unknown_models": cost.unknown_models.iter().map(ToString::to_string).collect::<Vec<_>>(),
+                "unknown_models": cost.not_priced_models.iter().map(ToString::to_string).collect::<Vec<_>>(),
             }),
         );
     }
@@ -139,9 +139,9 @@ pub fn run(
     }
     table.push(vec!["total".to_owned(), display(total), String::new()]);
     output::table(app.out, &table, &[1, 2])?;
-    if !cost.unknown_models.is_empty() {
+    if !cost.not_priced_models.is_empty() {
         let models: Vec<String> = cost
-            .unknown_models
+            .not_priced_models
             .iter()
             .map(ToString::to_string)
             .collect();

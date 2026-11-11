@@ -48,22 +48,22 @@ impl TokensInput {
     /// The counts, when every kind was sent.
     #[must_use]
     pub fn complete(self) -> Option<TokenCounts> {
-        Some(TokenCounts {
-            input: self.input?,
-            output: self.output?,
-            cache_read: self.cache_read?,
-            cache_write: self.cache_write?,
-        })
+        Some(TokenCounts::common(
+            self.input?,
+            self.output?,
+            self.cache_write?,
+            self.cache_read?,
+        ))
     }
 
     /// Counts that were all sent.
     #[must_use]
-    pub const fn of(counts: TokenCounts) -> Self {
+    pub fn of(counts: &TokenCounts) -> Self {
         Self {
-            input: Some(counts.input),
-            output: Some(counts.output),
-            cache_read: Some(counts.cache_read),
-            cache_write: Some(counts.cache_write),
+            input: Some(counts.get(&tokencontroller_core::TokenKind::INPUT)),
+            output: Some(counts.get(&tokencontroller_core::TokenKind::OUTPUT)),
+            cache_read: Some(counts.get(&tokencontroller_core::TokenKind::CACHE_READ)),
+            cache_write: Some(counts.get(&tokencontroller_core::TokenKind::CACHE_WRITE)),
         }
     }
 }
@@ -433,8 +433,8 @@ impl NewTokenEntry {
                 )));
             }
             let tokens = message.tokens.complete();
-            sum = match (sum, tokens) {
-                (Some(sum), Some(tokens)) => Some(sum.checked_add(tokens).ok_or_else(|| {
+            sum = match (sum, tokens.clone()) {
+                (Some(sum), Some(tokens)) => Some(sum.checked_add(&tokens).ok_or_else(|| {
                     EntryError("the messages' tokens are too many to add up".to_owned())
                 })?),
                 _ => None,
@@ -621,7 +621,14 @@ mod tests {
         assert_eq!(entry.tags["project"], "support");
         assert_eq!(entry.messages.len(), 1);
         assert_eq!(entry.messages[0].message_id, WHOLE_SESSION_MESSAGE);
-        assert_eq!(entry.messages[0].tokens.unwrap().cache_read, 18_200);
+        assert_eq!(
+            entry.messages[0]
+                .tokens
+                .as_ref()
+                .unwrap()
+                .get(&tokencontroller_core::TokenKind::CACHE_READ),
+            18_200
+        );
         assert_eq!(entry.entry.facts.turns, Some(3));
     }
 

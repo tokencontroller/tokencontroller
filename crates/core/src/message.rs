@@ -79,14 +79,16 @@ text_id!(
     MessageId
 );
 
-/// A model and the provider that charges for it, such as `anthropic` and
-/// `claude-sonnet-4-5`. Together they decide the price. A model written with
-/// its provider in front, such as `anthropic/claude-sonnet-4-5`, is the same
+/// A model and, when the sender knows it, the provider that charges for
+/// it, such as `anthropic` and `claude-sonnet-4-5`. The provider is never
+/// guessed from the model's name (ADR 0028). A model written with its
+/// provider in front, such as `anthropic/claude-sonnet-4-5`, is the same
 /// model.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(from = "StoredModelRef")]
 pub struct ModelRef {
-    pub provider: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
     pub model: String,
 }
 
@@ -94,17 +96,22 @@ pub struct ModelRef {
 /// taken in before the provider was dropped from the name price too.
 #[derive(Deserialize)]
 struct StoredModelRef {
-    provider: String,
+    #[serde(default)]
+    provider: Option<String>,
     model: String,
 }
 
 impl From<StoredModelRef> for ModelRef {
     fn from(stored: StoredModelRef) -> Self {
-        Self::new(&stored.provider, &stored.model)
+        match stored.provider {
+            Some(provider) => Self::new(&provider, &stored.model),
+            None => Self::unreported(&stored.model),
+        }
     }
 }
 
 impl ModelRef {
+    /// A model with the provider that charges for it.
     #[must_use]
     pub fn new(provider: &str, model: &str) -> Self {
         let model = model
@@ -113,15 +120,34 @@ impl ModelRef {
             .filter(|rest| !rest.is_empty())
             .unwrap_or(model);
         Self {
-            provider: provider.to_owned(),
+            provider: Some(provider.to_owned()),
             model: model.to_owned(),
         }
+    }
+
+    /// A model whose provider the sender did not report.
+    #[must_use]
+    pub fn unreported(model: &str) -> Self {
+        Self {
+            provider: None,
+            model: model.to_owned(),
+        }
+    }
+
+    /// The same model under another provider, such as the provider of the
+    /// message's contract.
+    #[must_use]
+    pub fn under(&self, provider: &str) -> Self {
+        Self::new(provider, &self.model)
     }
 }
 
 impl fmt::Display for ModelRef {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}/{}", self.provider, self.model)
+        match &self.provider {
+            Some(provider) => write!(f, "{provider}/{}", self.model),
+            None => f.write_str(&self.model),
+        }
     }
 }
 
@@ -187,8 +213,10 @@ pub struct Message {
     /// The agent's own cost figure, stored as a fact. Never the figure.
     #[serde(default)]
     pub reported_cost: Option<Money>,
-    /// Tag keys sent with the message by whoever recorded it, such as
-    /// `feature: KD-1`. They are the default split when nobody decides.
+    /// Tags sent with the message by whoever recorded it, such as
+    /// `feature: KD-1`: the sender's own assignment. For each tag name they
+    /// win over the organization's rules, and a `contract` among them is
+    /// the message's contract unless someone sets one by hand.
     #[serde(default)]
     pub tags: Tags,
     #[serde(default)]
@@ -197,11 +225,23 @@ pub struct Message {
     pub session: SessionFacts,
 }
 
+/// The start of a message id a usage endpoint built because the source
+/// gave the call no id of its own, such as Codex telemetry (ADR 0018).
+pub const BUILT_ID_PREFIX: &str = "otel:";
+
 impl Message {
     /// The key a message is counted under: its session and message ids.
     #[must_use]
     pub fn key(&self) -> (SessionId, MessageId) {
         (self.session_id.clone(), self.message_id.clone())
+    }
+
+    /// Whether the message id was built by a usage endpoint, so another
+    /// source of the same call cannot share it. Such a message stops
+    /// counting once a message of another source is matched to it.
+    #[must_use]
+    pub fn has_built_id(&self) -> bool {
+        self.message_id.as_str().starts_with(BUILT_ID_PREFIX)
     }
 }
 
@@ -218,10 +258,7 @@ mod tests {
             message_id: MessageId::new(id).unwrap(),
             person: TagValue::new("mara").unwrap(),
             model: ModelRef::new("anthropic", "claude-sonnet-4-5"),
-            tokens: Some(TokenCounts {
-                input: 10,
-                ..TokenCounts::default()
-            }),
+            tokens: Some(TokenCounts::new().with(crate::tokens::TokenKind::INPUT, 10)),
             at: datetime!(2026-10-05 09:12 UTC),
             agent_harness: "claude-code".to_owned(),
             agent_name: None,
@@ -270,6 +307,31 @@ mod tests {
         )
         .unwrap();
         assert_eq!(stored, plain);
+        // A model with no provider stays without one; nothing is guessed.
+        let unreported: ModelRef =
+            serde_json::from_str(r#"{"model":"claude-sonnet-4-5"}"#).unwrap();
+        assert_eq!(unreported, ModelRef::unreported("claude-sonnet-4-5"));
+        assert_eq!(unreported.provider, None);
+        assert_eq!(unreported.to_string(), "claude-sonnet-4-5");
+        assert_eq!(
+            serde_json::to_string(&unreported).unwrap(),
+            r#"{"model":"claude-sonnet-4-5"}"#
+        );
+        assert_eq!(unreported.under("anthropic"), plain);
+        assert_eq!(
+            ModelRef::new("aws_bedrock", "x")
+                .under("anthropic")
+                .provider
+                .as_deref(),
+            Some("anthropic")
+        );
+    }
+
+    #[test]
+    fn a_message_id_built_by_an_endpoint_is_known_by_its_prefix() {
+        assert!(message("otel:9461e8").has_built_id());
+        assert!(!message("turn-1").has_built_id());
+        assert!(!message("req_otel:1").has_built_id());
     }
 
     #[test]
@@ -291,7 +353,13 @@ mod tests {
         }"#;
         let read: Message = serde_json::from_str(json).unwrap();
         assert_eq!(read.at, datetime!(2026-10-05 09:12 UTC));
-        assert_eq!(read.tokens.unwrap().output, 2);
+        assert_eq!(
+            read.tokens
+                .as_ref()
+                .unwrap()
+                .get(&crate::tokens::TokenKind::OUTPUT),
+            2
+        );
         assert_eq!(read.reported_cost, None);
         assert!(read.tags.is_empty());
         assert_eq!(read.signals, Signals::default());

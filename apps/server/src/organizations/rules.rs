@@ -200,6 +200,7 @@ pub fn parse_rule(new: &NewRule, scope: Scope, next_order: u32) -> Result<Rule, 
         signal: parse_signal(&new.signal)?,
         pattern,
         then,
+        contract: None,
     })
 }
 
