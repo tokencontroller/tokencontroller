@@ -395,7 +395,14 @@ def session_files(tc: list[str], agent: Agent, home: Path, tc_home: Path) -> dic
                     "session_id": row["session_id"],
                     "message_id": row["message_id"],
                     "model": row["model"],
-                    "tokens": {kind: int(row[f"tokens.{kind}"] or 0) for kind in ("input", "output", "cache_write", "cache_read")},
+                    "tokens": {
+                        "input": int(row["tokens.input"] or 0),
+                        "output": int(row["tokens.output"] or 0),
+                        # tc splits cache writes into an unsplit column, 5-minute and 1-hour
+                        # columns; telemetry reports one count, so add them up.
+                        "cache_write": sum(int(row[f"tokens.{k}"] or 0) for k in ("cache_write", "cache_write_5m", "cache_write_1h")),
+                        "cache_read": int(row["tokens.cache_read"] or 0),
+                    },
                 }
             )
         except (KeyError, ValueError) as error:
