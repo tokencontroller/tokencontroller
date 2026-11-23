@@ -290,16 +290,32 @@ async fn authenticate(headers: &HeaderMap, state: &AppState) -> Result<Caller, A
 
 async fn session(state: &AppState, token: &str, from_cookie: bool) -> Result<Caller, ApiError> {
     let hash = secret::hash(token, &state.config.secret_key);
+    // `last_seen_at` moves at most once a minute, and never waits: a page
+    // sends several requests at once with the same session, and each one
+    // writing the same row made them queue on its lock while holding a
+    // database connection, until the pool ran dry (2026-11-19).
     let row = sqlx::query!(
         r#"
-        UPDATE sessions s
-        SET last_seen_at = now()
-        FROM people p
-        WHERE s.token_hash = $1
-          AND s.expires_at > now()
-          AND p.id = s.person_id
-          AND p.removed_at IS NULL
-        RETURNING p.id, p.organization_id, p.email, s.client
+        WITH found AS (
+            SELECT s.token_hash, p.id, p.organization_id, p.email, s.client
+            FROM sessions s
+            JOIN people p ON p.id = s.person_id
+            WHERE s.token_hash = $1
+              AND s.expires_at > now()
+              AND p.removed_at IS NULL
+        ), touched AS (
+            UPDATE sessions
+            SET last_seen_at = now()
+            WHERE token_hash IN (
+                SELECT token_hash FROM sessions
+                WHERE token_hash IN (SELECT token_hash FROM found)
+                  AND last_seen_at < now() - interval '1 minute'
+                FOR UPDATE SKIP LOCKED
+            )
+        )
+        SELECT id AS "id!", organization_id AS "organization_id!",
+               email AS "email!", client AS "client!"
+        FROM found
         "#,
         hash
     )
