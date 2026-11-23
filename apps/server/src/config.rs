@@ -6,6 +6,13 @@ use std::fmt;
 /// The shortest `TC_SECRET_KEY` the service accepts.
 pub const MIN_SECRET_KEY_LEN: usize = 32;
 
+/// How many database connections one copy of the service opens at most,
+/// unless `TC_DATABASE_POOL_SIZE` says otherwise.
+pub const DEFAULT_DATABASE_POOL_SIZE: u32 = 10;
+
+/// The largest `TC_DATABASE_POOL_SIZE` the service accepts.
+pub const MAX_DATABASE_POOL_SIZE: u32 = 100;
+
 /// Why the service refuses to start.
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
 pub enum ConfigError {
@@ -23,6 +30,33 @@ pub enum ConfigError {
         "TC_CLASSIFIER_URL must start with https:// or http://, such as https://api.openai.com/v1"
     )]
     ClassifierUrl,
+    #[error(
+        "TC_DATABASE_POOL_SIZE must be a whole number from 1 to {MAX_DATABASE_POOL_SIZE}, not {0:?}"
+    )]
+    DatabasePoolSize(String),
+}
+
+/// `TC_DATABASE_POOL_SIZE`, read through `lookup`: the most database
+/// connections one copy of the service opens. Kept apart from [`Config`]
+/// because the commands that only need `DATABASE_URL`, such as `seed`, read
+/// it too.
+///
+/// # Errors
+///
+/// [`ConfigError::DatabasePoolSize`] when the value is not a whole number
+/// from 1 to [`MAX_DATABASE_POOL_SIZE`].
+pub fn database_pool_size<F>(lookup: F) -> Result<u32, ConfigError>
+where
+    F: Fn(&str) -> Option<String>,
+{
+    let Some(value) = lookup("TC_DATABASE_POOL_SIZE").filter(|value| !value.trim().is_empty())
+    else {
+        return Ok(DEFAULT_DATABASE_POOL_SIZE);
+    };
+    match value.trim().parse::<u32>() {
+        Ok(size) if (1..=MAX_DATABASE_POOL_SIZE).contains(&size) => Ok(size),
+        _ => Err(ConfigError::DatabasePoolSize(value)),
+    }
 }
 
 /// The System 1 classifier that makes estimates and labels deviations.
@@ -276,6 +310,27 @@ mod tests {
             config(&blank).unwrap_err(),
             ConfigError::Missing("TC_PUBLIC_URL")
         );
+    }
+
+    #[test]
+    fn the_database_pool_size_has_a_default_and_bounds() {
+        let size = |value: Option<&str>| {
+            database_pool_size(|name| {
+                assert_eq!(name, "TC_DATABASE_POOL_SIZE");
+                value.map(str::to_owned)
+            })
+        };
+        assert_eq!(size(None), Ok(DEFAULT_DATABASE_POOL_SIZE));
+        assert_eq!(size(Some(" ")), Ok(DEFAULT_DATABASE_POOL_SIZE));
+        assert_eq!(size(Some("1")), Ok(1));
+        assert_eq!(size(Some(" 5 ")), Ok(5));
+        assert_eq!(size(Some("100")), Ok(MAX_DATABASE_POOL_SIZE));
+        for wrong in ["0", "101", "-1", "five", "2.5"] {
+            assert_eq!(
+                size(Some(wrong)),
+                Err(ConfigError::DatabasePoolSize(wrong.to_owned()))
+            );
+        }
     }
 
     #[test]

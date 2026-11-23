@@ -10,6 +10,7 @@ The service reads its settings from environment variables. It refuses to start w
 | Variable | Meaning |
 | --- | --- |
 | `DATABASE_URL` | The Postgres connection string. Required. |
+| `TC_DATABASE_POOL_SIZE` | The most database connections one copy of the service opens, from 1 to 100. The default is 10. When you run several copies, keep their sum under your database's connection limit. |
 | `TC_PUBLIC_URL` | The address people and local tools use, starting with `https://` or `http://`. Required. |
 | `TC_SECRET_KEY` | A random string of at least 32 characters for signing sessions and tokens, such as from `openssl rand -hex 32`. Required. |
 | `TC_SMTP_URL` | The mail server for sign-in links, invites and reminders, such as `smtps://user:password@smtp.example.com:465`. Required for magic links. |

@@ -1,0 +1,64 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        WITH found AS (\n            SELECT s.token_hash, p.id, p.organization_id, p.email, s.client\n            FROM sessions s\n            JOIN people p ON p.id = s.person_id\n            WHERE s.token_hash = $1\n              AND s.expires_at > now()\n              AND p.removed_at IS NULL\n        ), touched AS (\n            UPDATE sessions\n            SET last_seen_at = now()\n            WHERE token_hash IN (\n                SELECT token_hash FROM sessions\n                WHERE token_hash IN (SELECT token_hash FROM found)\n                  AND last_seen_at < now() - interval '1 minute'\n                FOR UPDATE SKIP LOCKED\n            )\n        )\n        SELECT id AS \"id!\", organization_id AS \"organization_id!\",\n               email AS \"email!\", client AS \"client!\"\n        FROM found\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "people",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "organization_id!",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "people",
+            "name": "organization_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "email!",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "people",
+            "name": "email"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "client!",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "sessions",
+            "name": "client"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Bytea"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "2c8893b7f20837886e44192b1199272d354368ec399da0e9397e2d8c1a4ad505"
+}

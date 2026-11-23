@@ -2816,3 +2816,98 @@ async fn the_people_table_keeps_no_role(pool: PgPool) {
     assert!(columns.contains(&"email".to_owned()));
     assert!(!columns.contains(&"role".to_owned()));
 }
+
+/// A page sends several requests at once with the same session. Each one
+/// writing `last_seen_at` made them queue on the row's lock until the
+/// database pool ran dry (2026-11-19), so it moves at most once a minute and
+/// a request never waits for another one's write.
+#[sqlx::test(migrator = "tokencontroller_server::MIGRATOR")]
+async fn last_seen_moves_at_most_once_a_minute_and_never_waits(pool: PgPool) {
+    let app = app(&pool);
+    let (_, session) = organization(&pool, "Seen", "seen@example.com")
+        .await
+        .unwrap();
+    let hash = secret::hash(&session, key());
+    let last_seen = |pool: PgPool, hash: Vec<u8>| async move {
+        sqlx::query_scalar::<_, time::OffsetDateTime>(
+            "SELECT last_seen_at FROM sessions WHERE token_hash = $1",
+        )
+        .bind(hash)
+        .fetch_one(&pool)
+        .await
+    };
+
+    // Seen 30 seconds ago: a request leaves it alone.
+    sqlx::query(
+        "UPDATE sessions SET last_seen_at = now() - interval '30 seconds' WHERE token_hash = $1",
+    )
+    .bind(&hash)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let before = last_seen(pool.clone(), hash.clone()).await.unwrap();
+    let me = send(
+        &app,
+        Method::GET,
+        "/api/v1/me",
+        Auth::Cookie(&session),
+        None,
+    )
+    .await
+    .unwrap();
+    assert_eq!(me.status, StatusCode::OK, "{}", me.text);
+    assert_eq!(last_seen(pool.clone(), hash.clone()).await.unwrap(), before);
+
+    // Seen two minutes ago: a request moves it to now.
+    sqlx::query(
+        "UPDATE sessions SET last_seen_at = now() - interval '2 minutes' WHERE token_hash = $1",
+    )
+    .bind(&hash)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let before = last_seen(pool.clone(), hash.clone()).await.unwrap();
+    let me = send(
+        &app,
+        Method::GET,
+        "/api/v1/me",
+        Auth::Cookie(&session),
+        None,
+    )
+    .await
+    .unwrap();
+    assert_eq!(me.status, StatusCode::OK, "{}", me.text);
+    let after = last_seen(pool.clone(), hash.clone()).await.unwrap();
+    assert!(after > before, "{after} should be later than {before}");
+
+    // Another transaction holds the row's lock, as a parallel request's
+    // write would: the request still answers and does not wait for it.
+    sqlx::query(
+        "UPDATE sessions SET last_seen_at = now() - interval '2 minutes' WHERE token_hash = $1",
+    )
+    .bind(&hash)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let mut holder = pool.begin().await.unwrap();
+    sqlx::query("SELECT 1 FROM sessions WHERE token_hash = $1 FOR UPDATE")
+        .bind(&hash)
+        .execute(&mut *holder)
+        .await
+        .unwrap();
+    let me = tokio::time::timeout(
+        std::time::Duration::from_secs(3),
+        send(
+            &app,
+            Method::GET,
+            "/api/v1/me",
+            Auth::Cookie(&session),
+            None,
+        ),
+    )
+    .await
+    .expect("the request waited on the session row's lock")
+    .unwrap();
+    assert_eq!(me.status, StatusCode::OK, "{}", me.text);
+    holder.rollback().await.unwrap();
+}

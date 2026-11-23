@@ -242,15 +242,19 @@ async fn connect_and_migrate(database_url: &str) -> anyhow::Result<PgPool> {
 }
 
 /// Connects to Postgres, waiting up to a minute for it to come up, so the
-/// service and the database can start together with Docker Compose.
+/// service and the database can start together with Docker Compose. Opens at
+/// most `TC_DATABASE_POOL_SIZE` connections, so several copies of the service
+/// fit under the database's connection limit.
 async fn connect(database_url: &str) -> anyhow::Result<PgPool> {
     const ATTEMPTS: u32 = 30;
     const PAUSE: Duration = Duration::from_secs(2);
 
+    let pool_size = config::database_pool_size(|name| std::env::var(name).ok())?;
+    tracing::info!(pool_size, "database pool size");
     let mut attempt: u32 = 1;
     loop {
         match PgPoolOptions::new()
-            .max_connections(10)
+            .max_connections(pool_size)
             .acquire_timeout(Duration::from_secs(5))
             .connect(database_url)
             .await
