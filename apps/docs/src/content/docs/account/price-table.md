@@ -1,6 +1,6 @@
 ---
 title: "Price table"
-description: "The price table is the only cost basis: the managed table on the hosted service, your own rows for every contract or for one, your own file when self-hosted, and what happens when a message cannot be priced yet."
+description: "The price table is the only cost basis: the built-in table from LiteLLM's price list with our own rows on top, your own rows for every contract or for one, your own file when self-hosted, and what happens when a message cannot be priced yet."
 ---
 
 Your providers may charge different prices for the same model, and you may have negotiated prices of your own. The price table is the only thing that turns token counts into cost, so every report shows cost at the same prices. A message the table cannot price for certain is shown as not priced yet, with its token counts, never as zero.
@@ -20,15 +20,11 @@ A message's cost uses the rows valid on the message's day, kind by kind. A row i
 
 ## Where the table comes from {#source}
 
-| Edition | Price table |
-| --- | --- |
-| Hosted (Solo, Team plan) | The managed table, pulled in as events from our list, which follows the providers' published prices. Your organization adds rows and overrides rows; your row wins. |
-| Enterprise plan | The managed table, hosted by us or on your own servers. The image carries the table as of its build, and with outbound HTTPS to `app.tokencontroller.com` the instance fetches newer prices with its license key every six hours. An instance without internet access gets newer prices with the next image, or as a file from us. |
-| Open edition, self-hosted | Ships without prices. Bring your own file; see [Configuration](/self-hosting/configuration#price-table). |
+Every edition, hosted or self-hosted, comes with the same built-in table, the managed table: the prices of [LiteLLM's price list](https://github.com/BerriAI/litellm/blob/main/model_prices_and_context_window.json), which its maintainers keep for thousands of models across the providers, with a few rows of our own on top for models the list lacks or prices it has wrong. We refresh it from LiteLLM every week, and it comes with each new image. Your organization adds rows and overrides rows; your row wins. A self-hosted instance can also bring a file of its own; see [Configuration](/self-hosting/configuration#price-table). Which providers and token kinds are taken from LiteLLM is under [Price tables](/reference/pricing-tables#source).
 
 ## Your own rows {#overrides}
 
-Under _Price table_, an org manager chooses _Add a row_ for a model the managed table lacks, or for a price you negotiated: the same provider, model and token kind with a valid-from date. Your row wins over the managed row from that date. Leave _Contract_ empty for every contract, or pick one when only that contract has the price, such as a discount on one API account. A wrong row is reversed, never edited.
+Under _Price table_, an org manager chooses _Add a row_ for a model the built-in table lacks, or for a price you negotiated: the same provider, model and token kind with a valid-from date. Your row wins over the managed row from that date. Leave _Contract_ empty for every contract, or pick one when only that contract has the price, such as a discount on one API account. A wrong row is reversed, never edited.
 
 ## When a message cannot be priced yet {#missing}
 

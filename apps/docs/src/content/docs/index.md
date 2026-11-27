@@ -32,7 +32,7 @@ About fifteen minutes, once. To connect a bill you need an admin key from Anthro
 
 <ol class="steps">
   <li><b>Create the organization.</b><p>Sign up at <a href="https://app.tokencontroller.com/signup"><code>app.tokencontroller.com/signup</code></a>. See <a href="/account/organizations">Organization settings</a>.</p></li>
-  <li><b>Look at the price table.</b><p>The hosted service brings the managed price table. You can add rows for prices you negotiated, for every contract or for one. See <a href="/account/price-table">Price table</a>.</p></li>
+  <li><b>Look at the price table.</b><p>The price table is built in, with prices for thousands of models. You can add rows for prices you negotiated, for every contract or for one. See <a href="/account/price-table">Price table</a>.</p></li>
   <li><b>Bring in the bills.</b><p>Under <em>Bills</em>, connect an Anthropic Enterprise Analytics key, a Console admin key or an OpenAI admin key, upload a CSV, or add a bill by hand. Each bill creates its contract, so there is nothing to set up first. See <a href="/account/bills">Bills</a>.</p></li>
   <li><b>Create your tag values.</b><p>Under <em>Tags</em>, create projects with their client, connect Jira if features live there, and add rules such as "key <code>^KD-\d+</code> in the branch is that feature" and "repository <code>kestrel/shop</code> is project Shop". See <a href="/account/tags">Tags</a> and <a href="/attribute/rules">Rules</a>.</p></li>
   <li><b>Invite people.</b><p>Give each person their attributes, such as <code>team: web</code>, and a role. They install the mod or the CLI (<a href="#engineers">below</a>), or you cover everyone on Claude Code at once with <a href="/collect/telemetry">telemetry push</a>. See <a href="/account/attributes">Attributes</a> and <a href="/account/roles">Grants and roles</a>.</p></li>
@@ -109,6 +109,6 @@ The answer carries the session's cost from the price table. A read token reads e
 
 <ol class="steps">
   <li><b>Start Postgres and the service.</b><p>One Docker image and one Postgres database. See <a href="/self-hosting">Self-hosting</a>.</p></li>
-  <li><b>Set your public URL, email and price table.</b><p>The open edition ships without prices; bring your own file. See <a href="/self-hosting/configuration">Configuration</a>.</p></li>
+  <li><b>Set your public URL, email and price table.</b><p>The price table is built in; bring a file only for prices of your own. See <a href="/self-hosting/configuration">Configuration</a>.</p></li>
   <li><b>Point the tools at it.</b><p><code>tc connect https://tc.example.com</code>, and telemetry at <code>https://tc.example.com/api/v1/ingest/otlp</code>. Then follow the <a href="#managers">quick start for people managers</a>.</p></li>
 </ol>

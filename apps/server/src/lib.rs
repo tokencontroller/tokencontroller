@@ -151,7 +151,7 @@ where
     let db = connect_and_migrate(&config.database_url).await?;
 
     let state = AppState::new(db, config, extension).with_hooks(hooks);
-    price_table::load_file(&state).await?;
+    price_table::load(&state).await?;
     jobs::start(state.clone());
     let added = additions(state.clone()).await?;
     let app = router_with(state, added.api).merge(added.routes);

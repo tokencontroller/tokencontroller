@@ -53,6 +53,7 @@ export function PriceTablePage(): ReactNode {
   const messages = useQuery({ queryKey: ["messages", "all"], queryFn: () => api.messages() });
   const personName = usePersonName();
   const [adding, setAdding] = useState(false);
+  const [find, setFind] = useState("");
   const remove = useMutation({
     mutationFn: async (group: ModelRow) => {
       for (const row of group.rows) await api.reverse(row.id);
@@ -63,7 +64,15 @@ export function PriceTablePage(): ReactNode {
     },
   });
   const missing = messages.data?.messages.filter((m) => m.cost_label !== "priced") ?? [];
-  const groups = byModel(table.data?.rows ?? []);
+  const allGroups = byModel(table.data?.rows ?? []);
+  // The built-in table holds thousands of models: without a search, show
+  // your own rows and the models your messages use.
+  const used = new Set((messages.data?.messages ?? []).map((m) => m.model));
+  const words = find.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const groups = words.length
+    ? allGroups.filter((g) => words.every((w) => `${g.provider}/${g.model}`.toLowerCase().includes(w)))
+    : allGroups.filter((g) => g.source !== "managed" || used.has(g.model));
+  const allModels = new Set(allGroups.map((g) => `${g.provider}/${g.model}`)).size;
   const present = new Set((table.data?.rows ?? []).map((r) => r.kind));
   const columnKinds = [...kinds.filter((k, i) => i < 4 || present.has(k)), ...[...present].filter((k) => !kinds.includes(k))];
   return (
@@ -99,7 +108,12 @@ export function PriceTablePage(): ReactNode {
           <Empty title="Every message has a cost." />
         </Section>
       ) : null}
-      <Section title="Rows in force" flush>
+      <Section
+        title="Rows in force"
+        flush
+        hint="The built-in rows come from LiteLLM's price list, with our own rows on top. Your rows win over them."
+        actions={<Input type="search" aria-label="Search the price table" placeholder={`Find among ${String(allModels)} models`} value={find} onChange={(e) => setFind(e.target.value)} className="w-64" />}
+      >
         {table.error ? <ErrorBox error={table.error} /> : null}
         {!table.data ? (
           <Loading />

@@ -38,7 +38,7 @@ The formulas are on the [data model](/reference/data-model#formulas) page.
 | A filtered report never reaches the bill total | What no message explains has no tags, so no [filter](/account/tags#filters) matches it. | Read the [check](/account/bills#reconciliation). It is the only view that equals the bill. |
 | All reports together are higher than all bills | Reports show cost at the price table. Under a flat contract the fee paid most of it, and that cost is marked [on a plan](/report/reports#on-a-plan). | Read covered by the plan on the flat contract's check. |
 | A message's cost differs from what the agent reported | The agent's figure is kept as a [signal on the message](/reference/token-entry); the cost is counts × the [price table](/account/price-table). | Compare the price rows with your contract. |
-| Cost is higher than a metered bill with a discount | The managed table has list prices; your discount is not in it. | Add the contract's own [price rows](/reference/pricing-tables#which) from the date they apply. |
+| Cost is higher than a metered bill with a discount | The built-in table has list prices; your discount is not in it. | Add the contract's own [price rows](/reference/pricing-tables#which) from the date they apply. |
 | The bill changed after it was pulled | The provider [restated](/account/bills#sources) it. The old bill is reversed and stays visible. | Nothing. |
 | A bill differs from the provider's invoice in your reporting currency | A bill keeps its own currency and the [exchange rate of its last day](/account/bills#sources). | Compare in the bill's own currency. |
 

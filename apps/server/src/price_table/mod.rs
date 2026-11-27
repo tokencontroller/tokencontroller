@@ -1,7 +1,9 @@
 //! The price table (docs: Account > Price table, Reference > Price tables,
-//! ADR 0024): the only cost basis. Managed rows come from the file
-//! `TC_PRICE_TABLE` names and from the build's hooks; an organization's own
-//! rows and overrides are events in its log, and win over managed rows.
+//! ADR 0024, ADR 0029): the only cost basis. Managed rows are built in
+//! (`LiteLLM`'s price list with our own rows on top, `prices/` at the repo
+//! root), come from the file `TC_PRICE_TABLE` names and from the build's
+//! hooks; an organization's own rows and overrides are events in its log,
+//! and win over managed rows.
 //!
 //! Owner: the service platform work. Keep this area's code, routes and
 //! queries in this folder, and its migrations in `migrations/` named
@@ -129,7 +131,7 @@ pub fn rows_view(log: &Log, fold: &Fold) -> Vec<PriceRowView> {
         .iter()
         .filter(|event| event.recorded_at <= fold.as_of())
         .filter_map(|event| match &event.record {
-            Record::PriceRow(row) if fold.prices().rows().any(|live| live == row) => {
+            Record::PriceRow(row) if fold.prices().contains(row) => {
                 Some(PriceRowView::of(event, row))
             }
             _ => None,
@@ -265,7 +267,7 @@ async fn add_row(
         source: PriceSource::Organization,
         contract,
     };
-    if fold.prices().rows().any(|live| *live == row) {
+    if fold.prices().contains(&row) {
         return Err(ApiError::Conflict(
             "the same row is already in force".to_owned(),
         ));
@@ -364,18 +366,49 @@ pub fn parse_file(text: &str) -> Result<Vec<PriceRow>, FileError> {
     Ok(rows)
 }
 
-/// Reads the file `TC_PRICE_TABLE` names into the managed rows, if one is
-/// set. A row seen before keeps its load time; a changed price is a new
-/// row only when its valid-from date is new, as the docs say rows are
-/// never edited. Returns how many rows the table holds.
+/// `LiteLLM`'s price list as `scripts/prices/update.py` maps it (ADR 0029).
+const LITELLM: &str = include_str!("../../../../prices/litellm.csv");
+/// The `LiteLLM` commit `LITELLM` was read from.
+pub const LITELLM_COMMIT: &str = include_str!("../../../../prices/litellm-commit");
+/// Our own rows: for their provider, model and kind they replace `LiteLLM`'s.
+const OVERRIDES: &str = include_str!("../../../../prices/overrides.csv");
+
+/// The built-in rows: `LiteLLM`'s list, where our own rows replace `LiteLLM`'s
+/// rows of the same provider, model and kind on every day.
+///
+/// # Errors
+///
+/// [`FileError`] if a built-in file is wrong; a test keeps them right.
+pub fn built_in() -> Result<Vec<PriceRow>, FileError> {
+    let ours = parse_file(OVERRIDES)?;
+    let replaced: std::collections::BTreeSet<(&str, &str, &TokenKind)> = ours
+        .iter()
+        .map(|row| (row.provider.as_str(), row.model.as_str(), &row.kind))
+        .collect();
+    let mut rows: Vec<PriceRow> = parse_file(LITELLM)?
+        .into_iter()
+        .filter(|row| !replaced.contains(&(row.provider.as_str(), row.model.as_str(), &row.kind)))
+        .collect();
+    rows.extend(ours.iter().cloned());
+    Ok(rows)
+}
+
+/// Stores the built-in rows, then the rows of the file `TC_PRICE_TABLE`
+/// names, if one is set, so the file's row wins where both have the same
+/// provider, model, kind and valid-from date. A row seen before keeps its
+/// load time; a changed price is a new row only when its valid-from date is
+/// new, as the docs say rows are never edited. Returns how many built-in
+/// rows and file rows there are.
 ///
 /// # Errors
 ///
 /// Fails when the file cannot be read, so the service refuses to start on
 /// a wrong file.
-pub async fn load_file(state: &AppState) -> anyhow::Result<usize> {
+pub async fn load(state: &AppState) -> anyhow::Result<(usize, usize)> {
+    let built_in = built_in().map_err(|error| anyhow::anyhow!("built-in prices: {error}"))?;
+    store_managed(&state.db, &built_in).await?;
     let Some(path) = state.config.price_table.as_deref() else {
-        return Ok(0);
+        return Ok((built_in.len(), 0));
     };
     let text = tokio::fs::read_to_string(path)
         .await
@@ -383,7 +416,7 @@ pub async fn load_file(state: &AppState) -> anyhow::Result<usize> {
     let rows =
         parse_file(&text).map_err(|error| anyhow::anyhow!("TC_PRICE_TABLE {path}: {error}"))?;
     store_managed(&state.db, &rows).await?;
-    Ok(rows.len())
+    Ok((built_in.len(), rows.len()))
 }
 
 /// Writes managed rows, keeping the rows there are.
@@ -423,11 +456,12 @@ pub async fn store_managed(db: &sqlx::PgPool, rows: &[PriceRow]) -> Result<(), s
 ///
 /// Whatever reading the file fails with.
 pub async fn run_job(state: AppState) -> anyhow::Result<String> {
-    let rows = load_file(&state).await?;
+    let (built_in, file) = load(&state).await?;
+    let commit: String = LITELLM_COMMIT.trim().chars().take(12).collect();
     Ok(if state.config.price_table.is_some() {
-        format!("{rows} rows in the price table file")
+        format!("{built_in} built-in rows (LiteLLM {commit}), {file} rows in the price table file")
     } else {
-        "no price table file".to_owned()
+        format!("{built_in} built-in rows (LiteLLM {commit}), no price table file")
     })
 }
 
@@ -449,6 +483,53 @@ mod tests {
         assert_eq!(rows[3].kind, TokenKind::CACHE_WRITE);
         assert_eq!(json::money_exact(rows[3].per_million), "18.75");
         assert_eq!(rows[0].source, PriceSource::Managed);
+    }
+
+    #[test]
+    fn the_built_in_rows_read_and_ours_replace_litellms() {
+        let rows = built_in().unwrap();
+        assert!(rows.len() > 1000, "{} rows", rows.len());
+        assert_eq!(LITELLM_COMMIT.trim().len(), 40);
+        for row in &rows {
+            assert!(
+                crate::ingest::provider::PROVIDERS.contains(&row.provider.as_str()),
+                "{} is not one of our providers",
+                row.provider
+            );
+        }
+        let ours = parse_file(OVERRIDES).unwrap();
+        for own in &ours {
+            let same: Vec<&PriceRow> = rows
+                .iter()
+                .filter(|row| {
+                    row.provider == own.provider && row.model == own.model && row.kind == own.kind
+                })
+                .collect();
+            assert_eq!(
+                same,
+                vec![own],
+                "only our row for {}/{}",
+                own.provider,
+                own.model
+            );
+        }
+        let price = |model: &str, kind: TokenKind| {
+            rows.iter()
+                .find(|row| row.provider == "anthropic" && row.model == model && row.kind == kind)
+                .map(|row| json::money_exact(row.per_million))
+        };
+        assert_eq!(
+            price("claude-sonnet-4-5", TokenKind::INPUT).as_deref(),
+            Some("3")
+        );
+        assert_eq!(
+            price("claude-sonnet-4-5", TokenKind::CACHE_WRITE_1H).as_deref(),
+            Some("6")
+        );
+        assert_eq!(
+            price("claude-opus-4-1", TokenKind::OUTPUT).as_deref(),
+            Some("75")
+        );
     }
 
     #[test]

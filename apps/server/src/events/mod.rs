@@ -284,9 +284,9 @@ fn stored_event(
     }))
 }
 
-/// The managed price table rows as events: the rows of the file
-/// `TC_PRICE_TABLE` names, loaded into `managed_price_rows`, and the rows
-/// the build's hooks bring. Their ids are the same on every load.
+/// The managed price table rows as events: the built-in rows and the rows
+/// of the file `TC_PRICE_TABLE` names, loaded into `managed_price_rows`,
+/// and the rows the build's hooks bring. Their ids are the same on every load.
 async fn managed_rows(state: &AppState) -> Result<Vec<Event>, ApiError> {
     let rows = sqlx::query!(
         "SELECT provider, model, kind, per_million_nanos, valid_from, loaded_at FROM managed_price_rows"

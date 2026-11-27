@@ -118,11 +118,37 @@ impl MessageCost {
     }
 }
 
-/// The price table in force: every live row, in one currency.
+/// The price table in force: every live row, in one currency. Rows are
+/// found by model, as the managed table holds thousands of them.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(from = "TableRows")]
 pub struct PriceTable {
     currency: Currency,
     rows: Vec<PriceRow>,
+    /// The positions in `rows` of each model's rows.
+    #[serde(skip)]
+    by_model: BTreeMap<String, Vec<usize>>,
+}
+
+/// A table as it is written down: the index is built again on reading.
+#[derive(Deserialize)]
+struct TableRows {
+    currency: Currency,
+    rows: Vec<PriceRow>,
+}
+
+impl From<TableRows> for PriceTable {
+    fn from(table: TableRows) -> Self {
+        let mut by_model: BTreeMap<String, Vec<usize>> = BTreeMap::new();
+        for (index, row) in table.rows.iter().enumerate() {
+            by_model.entry(row.model.clone()).or_default().push(index);
+        }
+        Self {
+            currency: table.currency,
+            rows: table.rows,
+            by_model,
+        }
+    }
 }
 
 impl PriceTable {
@@ -132,6 +158,7 @@ impl PriceTable {
         Self {
             currency,
             rows: Vec::new(),
+            by_model: BTreeMap::new(),
         }
     }
 
@@ -153,6 +180,10 @@ impl PriceTable {
                 right: row.per_million.currency(),
             });
         }
+        self.by_model
+            .entry(row.model.clone())
+            .or_default()
+            .push(self.rows.len());
         self.rows.push(row);
         Ok(())
     }
@@ -162,12 +193,26 @@ impl PriceTable {
         self.rows.iter()
     }
 
+    /// The rows of one model, under every provider.
+    fn of_model(&self, model: &str) -> impl Iterator<Item = &PriceRow> {
+        self.by_model
+            .get(model)
+            .into_iter()
+            .flatten()
+            .filter_map(|index| self.rows.get(*index))
+    }
+
+    /// Whether the table holds this very row.
+    #[must_use]
+    pub fn contains(&self, row: &PriceRow) -> bool {
+        self.of_model(&row.model).any(|live| live == row)
+    }
+
     /// Whether the table has any row for a model of a provider valid on a
     /// date.
     #[must_use]
     pub fn knows(&self, provider: &str, model: &str, on: Date) -> bool {
-        self.rows
-            .iter()
+        self.of_model(model)
             .any(|row| row.provider == provider && row.model == model && row.valid_from <= on)
     }
 
@@ -175,8 +220,7 @@ impl PriceTable {
     /// the rows of a contract.
     #[must_use]
     pub fn providers_of(&self, model: &str, on: Date) -> BTreeSet<&str> {
-        self.rows
-            .iter()
+        self.of_model(model)
             .filter(|row| row.model == model && row.valid_from <= on && row.contract.is_none())
             .map(|row| row.provider.as_str())
             .collect()
@@ -212,8 +256,7 @@ impl PriceTable {
         on: Date,
         contract: Option<&TagValue>,
     ) -> Option<Money> {
-        self.rows
-            .iter()
+        self.of_model(model)
             .filter(|row| {
                 row.provider == provider
                     && row.model == model
@@ -832,5 +875,52 @@ mod tests {
             date_of(datetime!(2026-04-01 01:00 +02:00)),
             date!(2026 - 03 - 31)
         );
+    }
+
+    #[test]
+    fn rows_are_found_by_model_also_after_reading_json() {
+        let mut table = table();
+        let mut other = row(
+            TokenKind::INPUT,
+            "1",
+            date!(2026 - 01 - 01),
+            PriceSource::Managed,
+        );
+        other.model = "claude-haiku-4-5".to_owned();
+        table.insert(other.clone()).unwrap();
+        let read: PriceTable =
+            serde_json::from_str(&serde_json::to_string(&table).unwrap()).unwrap();
+        for table in [&table, &read] {
+            assert!(table.contains(&other));
+            let mut missing = other.clone();
+            missing.per_million = usd("2");
+            assert!(!table.contains(&missing));
+            assert!(table.knows("anthropic", "claude-haiku-4-5", date!(2026 - 02 - 01)));
+            assert!(!table.knows("openai", "claude-haiku-4-5", date!(2026 - 02 - 01)));
+            assert_eq!(
+                table.price(
+                    "anthropic",
+                    "claude-haiku-4-5",
+                    &TokenKind::INPUT,
+                    date!(2026 - 02 - 01),
+                    None
+                ),
+                Some(usd("1"))
+            );
+            assert_eq!(
+                table.price(
+                    "anthropic",
+                    SONNET,
+                    &TokenKind::INPUT,
+                    date!(2026 - 02 - 01),
+                    None
+                ),
+                Some(usd("3"))
+            );
+            assert_eq!(
+                table.providers_of("claude-haiku-4-5", date!(2026 - 02 - 01)),
+                BTreeSet::from(["anthropic"])
+            );
+        }
     }
 }

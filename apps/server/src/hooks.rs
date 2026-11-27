@@ -80,9 +80,9 @@ pub trait ServiceHooks: Send + Sync + 'static {
         Box::pin(async { Ok(None) })
     }
 
-    /// The managed price table rows that come with the build, such as the
-    /// table an Enterprise key includes (ADR 0024). They are read next to
-    /// the rows of `TC_PRICE_TABLE`; the open build brings none.
+    /// Managed price table rows a build adds to the built-in ones (ADR
+    /// 0029). They are read next to the stored rows; the open build adds
+    /// none.
     fn managed_price_rows<'a>(&'a self, state: &'a AppState) -> HookFuture<'a, Vec<PriceRow>> {
         let _ = state;
         Box::pin(async { Ok(Vec::new()) })
