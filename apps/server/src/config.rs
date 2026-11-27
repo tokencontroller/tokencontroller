@@ -100,9 +100,9 @@ pub struct Config {
     /// `Token Controller <mail@tokencontroller.com>`. Without it, mail comes
     /// from `noreply@` the host of `TC_PUBLIC_URL`.
     pub smtp_from: Option<String>,
-    /// `TC_PRICE_TABLE`: the path of the price table file, a CSV with
-    /// provider, model, kind, price per million and valid from. Without it
-    /// the instance has no managed price table.
+    /// `TC_PRICE_TABLE`: the path of a price table file of the instance's
+    /// own, a CSV with provider, model, kind, price per million and valid
+    /// from. Its rows come on top of the built-in table (ADR 0029).
     pub price_table: Option<String>,
     /// `TC_RATES_REFRESH`: the daily exchange rate refresh, on unless `off`.
     pub rates_refresh: bool,

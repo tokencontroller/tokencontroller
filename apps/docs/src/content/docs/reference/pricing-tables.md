@@ -1,6 +1,6 @@
 ---
 title: "Price tables"
-description: "Rows of provider, model, token kind, price per million and valid from; which row counts, the managed table, an organization's rows, a contract's own prices, the file for self-hosting, and when a message is not priced yet."
+description: "Rows of provider, model, token kind, price per million and valid from; which row counts, the managed table from LiteLLM's price list, an organization's rows, a contract's own prices, the file for self-hosting, and when a message is not priced yet."
 ---
 
 The price table is the only cost basis: cost is token counts by kind times the row valid on the message's day. [Price table](/account/price-table) says how to set it up; this page is the lookup.
@@ -32,10 +32,41 @@ The provider is the contract's provider when the message has a contract, else th
 
 | Source | Rows |
 | --- | --- |
-| The managed table | Our list, following the providers' published prices, on the hosted service and with an Enterprise key. Managed rows cannot be reversed. |
-| A file | A self-hosted open edition ships without prices and reads a CSV with the first five columns above; see [Configuration](/self-hosting/configuration#price-table). Its rows count as managed rows. |
+| The managed table | Built into every edition: [LiteLLM's price list](https://github.com/BerriAI/litellm/blob/main/model_prices_and_context_window.json) (MIT licence), with our own rows on top. Managed rows cannot be reversed. |
+| A file | A self-hosted instance may read a CSV with the first five columns above; see [Configuration](/self-hosting/configuration#price-table). Its rows count as managed rows and replace a built-in row with the same provider, model, kind and valid-from date. |
 | The organization | Rows an org manager adds, for a model the managed table lacks or a price you negotiated. Each is an event in the log: never edited, and a wrong one is reversed. |
 | A contract | An organization's row with a `contract`, for a contract with prices of its own. |
+
+### The managed table {#litellm}
+
+The managed table is two files in the [public repository](https://github.com/tokencontroller/tokencontroller/tree/main/prices), built into the service:
+
+- `prices/litellm.csv`: LiteLLM's prices, read from one LiteLLM commit (named in `prices/litellm-commit`) and refreshed every week. A price LiteLLM changes becomes a new row valid from the day we read it, so earlier figures keep the earlier price. A model LiteLLM drops keeps its rows. A model seen for the first time is valid from 2025-01-01.
+- `prices/overrides.csv`: our own rows. For its provider, model and kind, our row replaces every LiteLLM row. If LiteLLM ever stops keeping its list, this file carries the table on its own.
+
+Only text models (LiteLLM's modes `chat`, `responses` and `completion`) with an input and an output price are taken, under these providers. A LiteLLM provider not in this table is left out; the provider is never guessed.
+
+| LiteLLM provider | Provider here |
+| --- | --- |
+| `anthropic` | `anthropic` |
+| `openai` | `openai` |
+| `gemini` | `google` |
+| `vertex_ai`, `vertex_ai-anthropic_models`, `vertex_ai-language-models`, `vertex_ai-mistral_models` | `gcp_vertex` |
+| `bedrock`, `bedrock_converse` | `aws_bedrock` |
+| `azure`, `azure_ai` | `azure_foundry` |
+| `github_copilot` | `github` |
+
+The model is LiteLLM's name without its provider prefix, such as `claude-sonnet-4-5@20250929` for `vertex_ai/claude-sonnet-4-5@20250929`. Names that still hold a `/` after that (regional or fine-tuned entries) are left out, and so is a name two LiteLLM entries price differently.
+
+| LiteLLM field | Token kind |
+| --- | --- |
+| `input_cost_per_token` | `input` |
+| `output_cost_per_token` | `output` |
+| `cache_read_input_token_cost` | `cache_read` |
+| `cache_creation_input_token_cost` | `cache_write`; where LiteLLM has none, the input price, as those providers bill cache writes as input |
+| `cache_creation_input_token_cost_above_1hr` | `cache_write_1h` |
+
+LiteLLM gives prices per token; the table holds them per million tokens. A price of zero is left out, so a model LiteLLM lists without a real price stays not priced yet instead of costing nothing.
 
 ## Not priced yet {#unknown}
 

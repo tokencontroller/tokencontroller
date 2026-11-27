@@ -10,7 +10,7 @@ When you start with Token Controller, you set up one organization: one event log
 | Setting | What it does |
 | --- | --- |
 | Reporting currency | The one currency figures are shown in. The price table is in US dollars; a bill keeps its own currency and the exchange rate of its last day. |
-| Price table | The managed table, with your own rows, for every contract or for one. See [Price table](/account/price-table). |
+| Price table | The built-in table, with your own rows, for every contract or for one. See [Price table](/account/price-table). |
 | Tag names and tag values | Projects, features, clients and contracts, your own tag names, and the Jira connection features may sync from. See [Tags](/account/tags). |
 | Attribute names | Team, department, location and their defaults. See [Attributes](/account/attributes). |
 | Organization rules | Rules that run before everyone's personal rules. See [Rules](/attribute/rules). |

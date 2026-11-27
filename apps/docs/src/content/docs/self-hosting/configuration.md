@@ -15,7 +15,7 @@ The service reads its settings from environment variables. It refuses to start w
 | `TC_SECRET_KEY` | A random string of at least 32 characters for signing sessions and tokens, such as from `openssl rand -hex 32`. Required. |
 | `TC_SMTP_URL` | The mail server for sign-in links, invites and reminders, such as `smtps://user:password@smtp.example.com:465`. Required for magic links. |
 | `TC_SMTP_FROM` | The sender of that mail, such as `Token Controller <tc@example.com>`. Without it, mail comes from `noreply@` and the host of `TC_PUBLIC_URL`. |
-| `TC_PRICE_TABLE` | The path of your [price table](/reference/pricing-tables#file) file, a CSV with provider, model, kind, price per million and valid from. The open edition ships without prices, so without this file every message is not priced yet. The file is read at start and again every 15 minutes, so a changed file needs no restart. The service refuses to start on a file it cannot read. See [Price table](#price-table). |
+| `TC_PRICE_TABLE` | Optional. The path of your own [price table](/reference/pricing-tables#file) file, a CSV with provider, model, kind, price per million and valid from. Its rows come on top of the built-in table: a row with the same provider, model, kind and valid-from date replaces the built-in one, and a later valid-from date takes over from that day. The file is read at start and again every 15 minutes, so a changed file needs no restart. The service refuses to start on a file it cannot read. See [Price table](#price-table). |
 | `TC_RATES_REFRESH` | `on` (the default) or `off`. `off` stops the daily exchange rate refresh, for instances without internet access. Bills in another currency then need their exchange rate. |
 | `TC_CLASSIFIER_URL` | A [System 1 classifier](/glossary#system-1-classifier) API as the [estimator](/account/estimates) and for deviation labels, such as OpenAI's Decisions API at `https://api.openai.com/v1` or a model server of your own. Without it, the instance has no estimates from a classifier and no labels; people still type estimates. Needs `TC_CLASSIFIER_MODEL`. A self-hosted classifier learns from that instance's data only. |
 | `TC_CLASSIFIER_MODEL` | The classifier model, such as `gpt-6-luna`. Needs `TC_CLASSIFIER_URL`. |
@@ -40,7 +40,7 @@ Every command of the `tokencontroller` program is listed under [CLI](/reference/
 
 ## Price table {#price-table}
 
-The open edition ships without prices. Write the rows you pay in a CSV file (the format is under [Price tables](/reference/pricing-tables#file)) and point `TC_PRICE_TABLE` at it; mount it into the container. An org manager can still add rows and overrides in the web app, and those win over the file. With an Enterprise key the managed table comes with the image and is refreshed from us, and the file is only for rows of your own, or for newer managed prices on an instance without internet access.
+Every edition comes with the built-in price table: [LiteLLM's price list](/reference/pricing-tables#source) with our own rows on top, as of the image's build. Newer prices come with the next image. For prices of your own across the instance, write them in a CSV file (the format is under [Price tables](/reference/pricing-tables#file)), point `TC_PRICE_TABLE` at it and mount it into the container. An org manager can still add rows and overrides in the web app, and those win over the file.
 
 ## Enterprise plan settings {#enterprise}
 
@@ -48,7 +48,7 @@ These switch on the [Enterprise plan](/self-hosting/enterprise) features in the 
 
 | Variable | Meaning |
 | --- | --- |
-| `TC_LICENSE_KEY` | The license key that comes with the contract. With it the managed price table is in force: the table as of the image's build, plus newer prices the instance fetches from `app.tokencontroller.com` every six hours when its network allows outbound HTTPS there. Without that access, newer prices come with the next image, or as a file from us for `TC_PRICE_TABLE`. Without a valid key, the image works like the open-source one. From 30 days before the key's last day of support, org managers see a renewal notice. The features keep working for 30 days after that day. |
+| `TC_LICENSE_KEY` | The license key that comes with the contract. Without a valid key, the image works like the open-source one. From 30 days before the key's last day of support, org managers see a renewal notice. The features keep working for 30 days after that day. |
 | `TC_TELEMETRY_FORWARD_URL` | Your collector's OTLP HTTP endpoint, such as `https://otel.example.com:4318`. Every telemetry batch the service accepts goes there unchanged, before the service removes content text; the signal path, such as `/v1/logs`, is added. |
 | `TC_TELEMETRY_FORWARD_HEADERS` | Headers for your collector, as `name=value,name2=value2`, the same as `OTEL_EXPORTER_OTLP_HEADERS`. |
 

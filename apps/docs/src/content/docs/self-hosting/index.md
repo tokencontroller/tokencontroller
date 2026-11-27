@@ -17,7 +17,7 @@ Self-hosted Token Controller is the same product as the hosted Team plan, from t
 
 <ol class="steps">
   <li><b>Start Postgres and the service.</b><p>See <a href="#docker">Docker</a> below.</p></li>
-  <li><b>Set your public URL, email and price table.</b><p>The open edition ships without prices. See <a href="/self-hosting/configuration">Configuration</a>.</p></li>
+  <li><b>Set your public URL, email and price table.</b><p>The price table is built in; add your own prices if you have them. See <a href="/self-hosting/configuration">Configuration</a>.</p></li>
   <li><b>Point the local tools at it.</b><p><code>tc connect https://tc.example.com</code>, and the telemetry endpoint at <code>https://tc.example.com/api/v1/ingest/otlp</code>.</p></li>
 </ol>
 
@@ -34,8 +34,6 @@ services:
       TC_PUBLIC_URL: https://tc.example.com
       TC_SECRET_KEY: change-me # at least 32 random characters, such as from openssl rand -hex 32
       TC_SMTP_URL: smtp://user:pass@mail.example.com:587
-      TC_PRICE_TABLE: /etc/tokencontroller/prices.csv
-    volumes: ["./prices.csv:/etc/tokencontroller/prices.csv:ro"]
     depends_on: [db]
   db:
     image: postgres:17

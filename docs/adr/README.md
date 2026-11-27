@@ -26,5 +26,6 @@ One file per decision, numbered in the order they were made. Each one says what 
 | 0026 | A shared service limits messages per organization per day |
 | 0027 | Database changes come in two releases |
 | 0028 | Costs connect through tags on usage and bills |
+| 0029 | Prices come from LiteLLM's list, with our own rows on top |
 
 The Enterprise plan features and our own billing and support tools are built in a private repo (ADR 0020). Decisions about how they plug in and how instances are run are recorded there.
